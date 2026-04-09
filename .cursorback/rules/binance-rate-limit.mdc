@@ -1,0 +1,132 @@
+---
+description: 币安 REST API 访问限制规范，防止过度请求、触发 429/418 封禁
+globs: **/*.py
+alwaysApply: false
+---
+
+# 币安 API 访问限制规范
+
+参考文档：https://developers.binance.com/docs/zh-CN/binance-spot-api-docs/rest-api/limits
+
+## 核心原则
+
+- 访问限制基于 **IP**，与 API Key 无关
+- 超出限制返回 **HTTP 429**；继续请求将触发 **HTTP 418（IP 封禁）**
+- 封禁时长从 **2 分钟到 3 天**，违规越频繁封禁越久
+- 每个接口有对应 **权重（weight）**，消耗资源越多权重越高
+
+---
+
+## 必须遵守的规则
+
+### 1. 响应头监控：实时追踪已用权重
+
+每次请求后读取 `X-MBX-USED-WEIGHT-{intervalNum}{intervalLetter}` 响应头：
+
+```python
+# ✅ GOOD：读取已用权重
+resp = requests.get(url, timeout=15)
+used_weight = int(resp.headers.get("X-MBX-USED-WEIGHT-1M", 0))
+if used_weight > 1000:  # 接近限制时主动降速
+    time.sleep(2)
+```
+
+### 2. 429 处理：必须停止请求并等待
+
+收到 429 后，读取 `Retry-After` 响应头，等待指定秒数后再重试：
+
+```python
+# ✅ GOOD：正确处理 429
+def safe_request(url, **kwargs):
+    resp = requests.get(url, **kwargs)
+    if resp.status_code == 429:
+        retry_after = int(resp.headers.get("Retry-After", 60))
+        logger.warning("触发限速 (429)，等待 %d 秒后重试", retry_after)
+        time.sleep(retry_after)
+        return safe_request(url, **kwargs)  # 递归重试
+    if resp.status_code == 418:
+        retry_after = int(resp.headers.get("Retry-After", 300))
+        raise RuntimeError(f"IP 已被封禁 (418)，需等待 {retry_after} 秒")
+    resp.raise_for_status()
+    return resp
+
+# ❌ BAD：忽略 429 直接 raise_for_status
+resp = requests.get(url)
+resp.raise_for_status()
+```
+
+### 3. 指数退避重试
+
+批量请求或循环请求必须加指数退避，避免短时间内打满权重：
+
+```python
+import time, random
+
+def request_with_backoff(url, max_retries=5):
+    for attempt in range(max_retries):
+        resp = requests.get(url, timeout=15)
+        if resp.status_code == 429:
+            wait = (2 ** attempt) + random.uniform(0, 1)
+            logger.warning("429 退避等待 %.1f 秒 (第 %d 次)", wait, attempt + 1)
+            time.sleep(wait)
+            continue
+        resp.raise_for_status()
+        return resp
+    raise RuntimeError("超过最大重试次数")
+```
+
+### 4. 本地缓存：避免重复拉取高权重接口
+
+`/api/v3/exchangeInfo` 权重较高，必须配合本地缓存（TTL ≥ 3600 秒）：
+
+```python
+# ✅ GOOD：先检查缓存，过期才请求
+def get_exchange_info(force_refresh=False):
+    if not force_refresh and _is_cache_valid():
+        return _load_cache()
+    return fetch_exchange_info()
+
+# ❌ BAD：每次调用都直接请求
+def get_exchange_info():
+    return requests.get(BASE_URL + "/api/v3/exchangeInfo").json()
+```
+
+### 5. 多线程/并发请求：必须限制并发数和速率
+
+使用线程池时需加信号量或限速，禁止无限制并发：
+
+```python
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+_rate_semaphore = threading.Semaphore(5)  # 最多 5 个并发请求
+
+def throttled_request(url):
+    with _rate_semaphore:
+        resp = safe_request(url, timeout=15)
+        time.sleep(0.1)  # 每次请求间隔 100ms
+        return resp
+
+with ThreadPoolExecutor(max_workers=5) as executor:
+    results = list(executor.map(throttled_request, url_list))
+```
+
+---
+
+## 各接口权重参考
+
+| 接口 | 权重（weight） | 建议缓存 TTL |
+|------|---------------|-------------|
+| `/api/v3/exchangeInfo` | 20 | ≥ 3600 秒 |
+| `/api/v3/ticker/24hr`（全量） | 40 | ≥ 60 秒 |
+| `/api/v3/klines` | 2 | 按需缓存 |
+| `/api/v3/depth` | 1–50（取决于 limit） | 短期缓存 |
+
+---
+
+## 禁止行为
+
+- **禁止**在循环中无节流地连续调用 REST API
+- **禁止**忽略 429/418 状态码继续发送请求
+- **禁止**每次运行都强制刷新高权重接口（如 exchangeInfo）
+- **禁止**在多线程中不加并发限制地发起 API 请求

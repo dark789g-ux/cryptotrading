@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>单根 K 线处理全流程</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #0f1117;
+    color: #e0e0e0;
+    padding: 24px;
+  }
+  h1 {
+    text-align: center;
+    font-size: 1.4rem;
+    color: #a8c7fa;
+    margin-bottom: 6px;
+    letter-spacing: 2px;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 0.82rem;
+    color: #666;
+    margin-bottom: 28px;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    margin-bottom: 28px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.78rem;
+    color: #bbb;
+  }
+  .legend-dot {
+    width: 14px; height: 14px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .charts-row {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    justify-content: center;
+  }
+  .chart-wrap {
+    background: #181b23;
+    border: 1px solid #2a2d3a;
+    border-radius: 10px;
+    padding: 16px 12px;
+    min-width: 320px;
+    max-width: 700px;
+    flex: 1;
+  }
+  .chart-title {
+    text-align: center;
+    font-size: 0.88rem;
+    color: #7a9fd4;
+    margin-bottom: 14px;
+    letter-spacing: 1px;
+    font-weight: bold;
+  }
+  .mermaid {
+    display: flex;
+    justify-content: center;
+  }
+  .mermaid svg {
+    max-width: 100%;
+    height: auto !important;
+  }
+
+  /* ── 放大按钮 ── */
+  .chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .chart-title { margin-bottom: 0; }
+  .btn-zoom {
+    background: none;
+    border: 1px solid #3a5080;
+    color: #7a9fd4;
+    border-radius: 5px;
+    padding: 2px 9px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background .15s, color .15s;
+  }
+  .btn-zoom:hover { background: #1e2a3a; color: #a8c7fa; }
+
+  /* ── 全屏 Modal ── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.82);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-box {
+    position: relative;
+    width: 96vw;
+    height: 94vh;
+    background: #181b23;
+    border: 1px solid #2a2d3a;
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-toolbar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: #0f1117;
+    border-bottom: 1px solid #2a2d3a;
+  }
+  .modal-title {
+    flex: 1;
+    font-size: 0.9rem;
+    color: #a8c7fa;
+    font-weight: 600;
+  }
+  .modal-btn {
+    background: #1e2a3a;
+    border: 1px solid #3a5080;
+    color: #a8c7fa;
+    border-radius: 5px;
+    padding: 3px 12px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .modal-btn:hover { background: #2a3a50; }
+  .modal-btn.close-btn { color: #f87171; border-color: #7f1d1d; }
+  .modal-btn.close-btn:hover { background: #3d0000; }
+  .modal-canvas {
+    flex: 1;
+    overflow: hidden;
+    cursor: grab;
+    position: relative;
+  }
+  .modal-canvas.dragging { cursor: grabbing; }
+  .modal-svg-wrap {
+    position: absolute;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  .modal-svg-wrap svg {
+    display: block;
+    max-width: none !important;
+    height: auto !important;
+  }
+  .zoom-hint {
+    position: absolute;
+    bottom: 10px;
+    right: 14px;
+    font-size: 0.72rem;
+    color: #555;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<h1>单根 K 线处理全流程</h1>
+<p class="subtitle">基于 backtest_strategy.py · 1h K 线 · 每根 K 线依次执行以下四个阶段</p>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#1d4ed8"></div>① 执行买入挂单</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#6d28d9"></div>②-A 买入当根处理</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#065f46"></div>②-B 持有中K线处理</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#92400e"></div>④ 信号扫描</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#7f1d1d"></div>清仓出场</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#064e3b"></div>继续持有</div>
+</div>
+
+<div class="charts-row">
+
+<!-- ══════════════════════════════════
+     左图：主流程（K 线维度）
+════════════════════════════════════ -->
+<div class="chart-wrap">
+  <div class="chart-header">
+    <div class="chart-title">主流程（K 线维度）</div>
+    <button class="btn-zoom" onclick="openZoom(this)">🔍 放大</button>
+  </div>
+  <div class="mermaid">
+flowchart TD
+    START(["🕐 K 线开始\n当前时间步 ts"]) --> B1
+
+    subgraph BUY ["① 执行买入挂单（来自上根K线的信号）"]
+      direction TB
+      B1{"有待买入挂单?"}
+      B1 -- 否 --> B_SKIP(["跳过 →"])
+      B1 -- 是 --> B2{"当前时间步\n有K线数据?"}
+      B2 -- 否 --> B_DEFER["推迟到下根K线"]
+      B2 -- 是 --> B3["以开盘价买入\n资金 = MIN(净值×45%, 现金)"]
+      B3 --> B4["初始止损 = MAX(\n  前根 loss_atr_14,\n  开盘价×(1−MAX_INIT_LOSS))"]
+      B4 --> B5["计算阶段高/低点\ncalc_recent_high/low(idx+1)\n含信号K线自身"]
+      B5 --> B6{"买入当根\nMACD 已上升?"}
+      B6 -- 是 --> B7["设 macd_rose=True\nmacd_was_rising=True\n止损更新延迟至②-A收盘后"]
+      B6 -- 否 --> B_OK(["✅ 建仓完成\n进入持仓队列"])
+      B7 --> B_OK
+    end
+
+    B_SKIP --> H1
+    B_DEFER --> H1
+    B_OK --> H1
+
+    subgraph HOLD ["② 持仓处理（逐仓位执行）"]
+      direction TB
+      H1{"有持仓?"}
+      H1 -- 否 --> H_SKIP(["跳过 →"])
+      H1 -- 是 --> H2{"是否为\n买入当根?"}
+      H2 -- 是 --> H_A["→ 右图\n「②-A 买入当根处理」"]
+      H2 -- 否 --> H_B["→ 右图\n「②-B 持有中K线处理」"]
+    end
+
+    H_SKIP --> NAV
+    H_A --> NAV
+    H_B --> NAV
+
+    NAV["③ 更新账户净值\n净值 = 现金 + Σ(持仓量 × 收盘价)"]
+    NAV --> S1
+
+    subgraph SCAN ["④ 信号扫描（收盘后评估）"]
+      direction TB
+      S1{"持仓数 < 2\n或全部已半仓?"}
+      S1 -- 否 --> S_NO(["不扫描"])
+      S1 -- 是 --> S2{"DIF > 0\nAND KDJ.J < 10?"}
+      S2 -- 否 --> S_NONE(["无信号"])
+      S2 -- 是 --> S3["以收盘价估算买价\n盈亏比 =\n(近期高点−收盘)/(收盘−近期低点)"]
+      S3 --> S4["加入挂单队列\n按盈亏比降序排序\n取空余仓位数个最优候选"]
+    end
+
+    S_NO --> END_NODE
+    S_NONE --> END_NODE
+    S4 --> END_NODE
+    END_NODE(["🕐 K 线结束\n→ 下根K线执行挂单"])
+
+    style BUY  fill:#0c1f3d,stroke:#1d4ed8,color:#bfdbfe
+    style HOLD fill:#1a0d35,stroke:#6d28d9,color:#ede9fe
+    style SCAN fill:#1c1000,stroke:#92400e,color:#fde68a
+    style NAV  fill:#1a1a22,stroke:#475569,color:#cbd5e1
+    style B_DEFER fill:#2a1500,stroke:#b45309,color:#fcd34d
+    style S4   fill:#022c22,stroke:#059669,color:#6ee7b7
+    style B_OK fill:#022c22,stroke:#059669,color:#6ee7b7
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
+     右图：持仓处理细节
+════════════════════════════════════ -->
+<div class="chart-wrap">
+  <div class="chart-header">
+    <div class="chart-title">持仓处理详情</div>
+    <button class="btn-zoom" onclick="openZoom(this)">🔍 放大</button>
+  </div>
+  <div class="mermaid">
+flowchart TD
+
+    %% ─────────── ②-A 买入当根 ───────────
+    subgraph EA ["②-A  买入当根处理"]
+      direction TB
+      EA1{"最高价 ≥ 阶段高点\n且尚未半仓?"}
+      EA1 -- 是 --> EA2["🟢 阶段止盈\n以阶段高点价卖出一半\nis_half=True"]
+      EA2 --> EA3{"最低价 ≤ 止损价?"}
+      EA1 -- 否 --> EA4{"最低价 ≤ 止损价?"}
+
+      EA3 -- 是 --> EA_STOP["🔴 止损出场\n以止损价卖出剩余 → 清仓"]
+      EA3 -- 否 --> EA_CLOSE["更新最高收盘价\nmax_close = MAX(max_close, close)"]
+
+      EA4 -- 是 --> EA_STOP
+      EA4 -- 否 --> EA_CLOSE
+
+      EA_CLOSE --> EA5{"买入当根\nMACD 已上升?"}
+      EA5 -- 是 --> EA6["new_stop = MAX(当前止损,\n  成本+(max_close−成本)×20%)\n更新止损，下根K线起生效"]
+      EA5 -- 否 --> EA_OK(["✅ 继续持有"])
+      EA6 --> EA_OK
+    end
+
+    %% ─────────── ②-B 持有中K线 ───────────
+    subgraph HB ["②-B  持有中K线处理（非买入根）process_candle"]
+      direction TB
+
+      subgraph INTRA ["● 盘中检查（依据 high / low）"]
+        direction TB
+        HB1{"最高价 ≥ 阶段高点\n且尚未半仓?"}
+        HB1 -- 是 --> HB2["🟢 阶段止盈\n卖出一半 is_half=True"]
+        HB2 --> HB3{"最低价 ≤ 止损价?"}
+        HB1 -- 否 --> HB4{"最低价 ≤ 止损价?"}
+
+        HB3 -- 是 --> HB_STOP["🔴 止损出场\n跳空低开→以开盘价\n否则→以止损价 → 清仓"]
+        HB3 -- 否 --> HB_HALF(["✅ 仅阶段止盈\n继续半仓持有"])
+
+        HB4 -- 是 --> HB_STOP
+        HB4 -- 否 --> C0
+      end
+
+      subgraph CLOSE ["● 收盘处理（严格按①②③④顺序）"]
+        direction TB
+        C0["① 更新最高收盘价\nmax_close = MAX(max_close, close)"]
+
+        C0 --> C1{"② 周期 ≥ 3\n且 收盘 &lt; 成本价?"}
+        C1 -- 是 --> C_COST["🔴 收盘价平仓\n收盘跌破成本"]
+        C1 -- 否 --> C2{"③ 周期 ≥ 5\n且 MACD 从未上升?"}
+        C2 -- 是 --> C_NOMACD["🔴 收盘价平仓\nMACD 未上升止损"]
+        C2 -- 否 --> C3{"④ MACD\n从未上升?"}
+
+        %% MACD 首次上升分支
+        C3 -- 是 --> C4{"当根 MACD\n> 前根 MACD?"}
+        C4 -- 是 --> C5["首次 MACD 上升\nmacd_rose=True\nnew_stop=MAX(止损,\n  成本+(max_close−成本)×20%)"]
+        C5 --> C6{"收盘 < new_stop?"}
+        C6 -- 是 --> C_R1["🔴 收盘价平仓\nMACD趋势转正后止损"]
+        C6 -- 否 --> C_UPD["更新止损价\n下根K线生效"]
+        C4 -- 否 --> C_WAIT["MACD 仍未上升\n等待下根"]
+
+        %% MACD 曾上升分支
+        C3 -- "否\n(MACD 曾上升)" --> C7{"上根↑ 本根↓\n(was_rising=T且now↓)?"}
+        C7 -- 是 --> C8["MACD 首次转跌\nmacd_was_rising=False\nnew_stop=成本+(max_close−成本)×80%"]
+        C8 --> C9{"收盘 < new_stop?"}
+        C9 -- 是 --> C_R2["🔴 收盘价平仓\nMACD 下跌后止损"]
+        C9 -- 否 --> C_UPD
+        C7 -- 否 --> C10{"当根 MACD\n> 前根 MACD?"}
+        C10 -- 是 --> C11["macd_was_rising = True"]
+        C10 -- 否 --> C12["无止损变化"]
+
+        C_UPD  --> CONT
+        C_WAIT --> CONT
+        C11    --> CONT
+        C12    --> CONT
+        CONT(["⑤ 周期计数 +1\n✅ 继续持有"])
+      end
+    end
+
+    %% ── 颜色主题 ──
+    style EA       fill:#1a0d35,stroke:#6d28d9,color:#ede9fe
+    style HB       fill:#032014,stroke:#065f46,color:#d1fae5
+    style INTRA    fill:#021a0e,stroke:#047857,color:#a7f3d0
+    style CLOSE    fill:#011509,stroke:#065f46,color:#6ee7b7
+
+    style EA_STOP  fill:#450a0a,stroke:#dc2626,color:#fca5a5
+    style HB_STOP  fill:#450a0a,stroke:#dc2626,color:#fca5a5
+    style C_COST   fill:#450a0a,stroke:#dc2626,color:#fca5a5
+    style C_NOMACD fill:#450a0a,stroke:#dc2626,color:#fca5a5
+    style C_R1     fill:#450a0a,stroke:#dc2626,color:#fca5a5
+    style C_R2     fill:#450a0a,stroke:#dc2626,color:#fca5a5
+
+    style EA2      fill:#022c22,stroke:#059669,color:#6ee7b7
+    style HB2      fill:#022c22,stroke:#059669,color:#6ee7b7
+    style HB_HALF  fill:#022c22,stroke:#059669,color:#6ee7b7
+    style EA_OK    fill:#022c22,stroke:#059669,color:#6ee7b7
+    style CONT     fill:#022c22,stroke:#059669,color:#6ee7b7
+  </div>
+</div>
+
+</div><!-- end charts-row -->
+
+<!-- ══════════ 全屏放大 Modal ══════════ -->
+<div class="modal-overlay" id="zoomModal" onclick="onOverlayClick(event)">
+  <div class="modal-box">
+    <div class="modal-toolbar">
+      <span class="modal-title" id="zoomTitle"></span>
+      <button class="modal-btn" onclick="zoomBy(1.25)">＋ 放大</button>
+      <button class="modal-btn" onclick="zoomBy(0.8)">－ 缩小</button>
+      <button class="modal-btn" onclick="resetZoom()">↺ 重置</button>
+      <button class="modal-btn close-btn" onclick="closeZoom()">✕ 关闭</button>
+    </div>
+    <div class="modal-canvas" id="modalCanvas">
+      <div class="modal-svg-wrap" id="svgWrap"></div>
+      <span class="zoom-hint">滚轮缩放 · 拖拽平移 · ESC 关闭</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ── Mermaid 初始化 ── */
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#181b23',
+      primaryColor: '#1e2a3a',
+      primaryTextColor: '#d0e4ff',
+      primaryBorderColor: '#3a5080',
+      lineColor: '#6a90c0',
+      secondaryColor: '#1a2030',
+      tertiaryColor: '#1a1a28',
+      edgeLabelBackground: '#1a1a28',
+      fontSize: '13px',
+    },
+    flowchart: {
+      curve: 'basis',
+      padding: 18,
+      htmlLabels: true,
+      useMaxWidth: true,
+    },
+  });
+
+  /* ══════════════════════════════════════════
+     放大 Modal：缩放 + 平移
+  ══════════════════════════════════════════ */
+  let _scale = 1, _tx = 0, _ty = 0;
+  let _dragging = false, _startX = 0, _startY = 0, _startTx = 0, _startTy = 0;
+
+  function _applyTransform() {
+    document.getElementById('svgWrap').style.transform =
+      'translate(' + _tx + 'px,' + _ty + 'px) scale(' + _scale + ')';
+  }
+
+  function openZoom(btn) {
+    const wrap   = btn.closest('.chart-wrap');
+    const title  = wrap.querySelector('.chart-title').textContent;
+    const svgEl  = wrap.querySelector('.mermaid svg');
+    if (!svgEl) { alert('流程图尚未渲染，请稍后再试'); return; }
+
+    // 深拷贝 SVG，放入 modal
+    const svgWrap = document.getElementById('svgWrap');
+    svgWrap.innerHTML = '';
+    svgWrap.appendChild(svgEl.cloneNode(true));
+
+    document.getElementById('zoomTitle').textContent = title;
+    document.getElementById('zoomModal').classList.add('open');
+
+    // 初始：居中显示，自适应缩放
+    requestAnimationFrame(function() {
+      const canvas = document.getElementById('modalCanvas');
+      const svg    = svgWrap.querySelector('svg');
+      const cw = canvas.clientWidth, ch = canvas.clientHeight;
+      const sw = svg.scrollWidth  || svg.getBoundingClientRect().width;
+      const sh = svg.scrollHeight || svg.getBoundingClientRect().height;
+      _scale = Math.min((cw - 40) / sw, (ch - 40) / sh, 1.5);
+      _tx = (cw - sw * _scale) / 2;
+      _ty = (ch - sh * _scale) / 2;
+      _applyTransform();
+    });
+  }
+
+  function closeZoom() {
+    document.getElementById('zoomModal').classList.remove('open');
+    document.getElementById('svgWrap').innerHTML = '';
+  }
+
+  function onOverlayClick(e) {
+    if (e.target === document.getElementById('zoomModal')) closeZoom();
+  }
+
+  function zoomBy(factor) {
+    const canvas = document.getElementById('modalCanvas');
+    const cx = canvas.clientWidth / 2, cy = canvas.clientHeight / 2;
+    _tx = cx - (_scale * factor / _scale) * (cx - _tx) * factor / factor;
+    _ty = cy - (_scale * factor / _scale) * (cy - _ty) * factor / factor;
+    // 以画布中心为缩放原点
+    _tx = cx + (_tx - cx) * factor;
+    _ty = cy + (_ty - cy) * factor;
+    _scale *= factor;
+    _applyTransform();
+  }
+
+  function resetZoom() {
+    const canvas = document.getElementById('modalCanvas');
+    const svg    = document.getElementById('svgWrap').querySelector('svg');
+    if (!svg) return;
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    const sw = svg.scrollWidth  || svg.getBoundingClientRect().width;
+    const sh = svg.scrollHeight || svg.getBoundingClientRect().height;
+    _scale = Math.min((cw - 40) / sw, (ch - 40) / sh, 1.5);
+    _tx = (cw - sw * _scale) / 2;
+    _ty = (ch - sh * _scale) / 2;
+    _applyTransform();
+  }
+
+  /* ── 滚轮缩放 ── */
+  document.getElementById('modalCanvas').addEventListener('wheel', function(e) {
+    e.preventDefault();
+    const rect   = this.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const factor = e.deltaY < 0 ? 1.12 : 0.89;
+    _tx = mx + (_tx - mx) * factor;
+    _ty = my + (_ty - my) * factor;
+    _scale *= factor;
+    _applyTransform();
+  }, { passive: false });
+
+  /* ── 拖拽平移 ── */
+  const canvas = document.getElementById('modalCanvas');
+  canvas.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return;
+    _dragging = true;
+    _startX = e.clientX; _startY = e.clientY;
+    _startTx = _tx;      _startTy = _ty;
+    this.classList.add('dragging');
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', function(e) {
+    if (!_dragging) return;
+    _tx = _startTx + (e.clientX - _startX);
+    _ty = _startTy + (e.clientY - _startY);
+    _applyTransform();
+  });
+  window.addEventListener('mouseup', function() {
+    if (!_dragging) return;
+    _dragging = false;
+    document.getElementById('modalCanvas').classList.remove('dragging');
+  });
+
+  /* ── 触摸平移（移动端）── */
+  canvas.addEventListener('touchstart', function(e) {
+    if (e.touches.length !== 1) return;
+    _dragging = true;
+    _startX = e.touches[0].clientX; _startY = e.touches[0].clientY;
+    _startTx = _tx; _startTy = _ty;
+  }, { passive: true });
+  canvas.addEventListener('touchmove', function(e) {
+    if (!_dragging || e.touches.length !== 1) return;
+    _tx = _startTx + (e.touches[0].clientX - _startX);
+    _ty = _startTy + (e.touches[0].clientY - _startY);
+    _applyTransform();
+  }, { passive: true });
+  canvas.addEventListener('touchend', function() { _dragging = false; });
+
+  /* ── ESC 关闭 ── */
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeZoom();
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>策略回测报告</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<link rel="stylesheet" href="frontend/css/report.css">
+</head>
+<body>
+<h1>量化策略回测报告</h1>
+
+<!-- 回测记录选择栏 -->
+<div id="runBar" class="run-bar" style="display:none">
+  <label>回测记录：</label>
+  <select id="runSelect" onchange="onRunSelect()"></select>
+  <span id="runHint" class="run-hint"></span>
+</div>
+
+<div id="loading">⏳ 数据加载中…</div>
+
+<div class="container" id="mainContent" style="display:none">
+
+  <!-- 净值曲线 -->
+  <div class="card" style="margin-bottom:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h2 style="margin:0">账户净值曲线</h2>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:12px;color:#888">鼠标滚轮/拖拽缩放，按住拖动平移</span>
+        <button onclick="resetPortfolioZoom()" style="padding:4px 12px;font-size:12px;cursor:pointer;border:1px solid #ddd;border-radius:4px;background:#fff">重置缩放</button>
+      </div>
+    </div>
+    <div class="chart-wrap"><canvas id="pfChart"></canvas></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h2>月度收益率（%）</h2>
+      <div class="chart-wrap"><canvas id="monthChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>交易对累计盈亏 Top 15（USDT）</h2>
+      <div class="chart-wrap"><canvas id="symChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- 统计摘要 -->
+  <div class="card" style="margin-bottom:20px">
+    <h2>回测统计摘要</h2>
+    <table class="stats-table" id="statsTable"></table>
+  </div>
+
+  <!-- Tab 面板 -->
+  <div class="card">
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-btn-pos" onclick="switchTab('pos')">仓位明细</button>
+      <button class="tab-btn"        id="tab-btn-txn" onclick="switchTab('txn')">交易明细</button>
+      <button class="tab-btn"        id="tab-btn-sym" onclick="switchTab('sym')">交易对明细</button>
+    </div>
+
+    <!-- Tab: 仓位明细 -->
+    <div id="tab-pos" class="tab-pane active">
+      <div class="filter-bar">
+        <div class="filter-row">
+          <div class="filter-group">
+            <label>交易对</label>
+            <input type="text" id="pf-symbol" placeholder="模糊搜索…" oninput="onPosFilter()">
+          </div>
+          <div class="filter-group">
+            <label>买入时间</label>
+            <input type="date" id="pf-entry-from" onchange="onPosFilter()">
+            <span class="filter-sep">~</span>
+            <input type="date" id="pf-entry-to" onchange="onPosFilter()">
+          </div>
+          <div class="filter-group">
+            <label>清仓时间</label>
+            <input type="date" id="pf-close-from" onchange="onPosFilter()">
+            <span class="filter-sep">~</span>
+            <input type="date" id="pf-close-to" onchange="onPosFilter()">
+          </div>
+        </div>
+        <div class="filter-row">
+          <div class="filter-group">
+            <label>盈亏(USDT)</label>
+            <input type="number" id="pf-pnl-min" placeholder="最小" step="any" oninput="onPosFilter()">
+            <span class="filter-sep">~</span>
+            <input type="number" id="pf-pnl-max" placeholder="最大" step="any" oninput="onPosFilter()">
+          </div>
+          <div class="filter-group">
+            <label>收益率(%)</label>
+            <input type="number" id="pf-ret-min" placeholder="最小" step="any" oninput="onPosFilter()">
+            <span class="filter-sep">~</span>
+            <input type="number" id="pf-ret-max" placeholder="最大" step="any" oninput="onPosFilter()">
+          </div>
+          <div class="filter-group">
+            <label>持仓(h)</label>
+            <input type="number" id="pf-hold-min" placeholder="最小" min="0" step="1" oninput="onPosFilter()">
+            <span class="filter-sep">~</span>
+            <input type="number" id="pf-hold-max" placeholder="最大" min="0" step="1" oninput="onPosFilter()">
+          </div>
+          <div class="filter-group">
+            <label>交易次数</label>
+            <input type="number" id="pf-cnt-min" placeholder="最小" min="0" step="1" oninput="onPosFilter()">
+            <span class="filter-sep">~</span>
+            <input type="number" id="pf-cnt-max" placeholder="最大" min="0" step="1" oninput="onPosFilter()">
+          </div>
+        </div>
+        <div class="filter-row">
+          <div class="filter-group">
+            <label>止损类型</label>
+            <div id="pf-stop-types" class="filter-tag-group"></div>
+          </div>
+          <div class="filter-group" style="margin-left:auto;gap:10px">
+            <span id="pf-result-hint" class="filter-hint"></span>
+            <button class="btn-reset" onclick="resetPosFilters()">重置筛选</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="trade-table-wrap">
+        <table class="trade-table">
+          <thead>
+            <tr>
+              <th onclick="sortBy('pos_no')">序号<span class="sico" id="sico-pos_no">▼</span></th>
+              <th onclick="sortBy('symbol')">交易对<span class="sico" id="sico-symbol">⇅</span></th>
+              <th onclick="sortBy('entry_time')">买入时间<span class="sico" id="sico-entry_time">⇅</span></th>
+              <th onclick="sortBy('entry_price')">买入价<span class="sico" id="sico-entry_price">⇅</span></th>
+              <th onclick="sortBy('buy_amount')">买入额<span class="sico" id="sico-buy_amount">⇅</span></th>
+              <th onclick="sortBy('buy_shares')">买入量<span class="sico" id="sico-buy_shares">⇅</span></th>
+              <th onclick="sortBy('close_time')">清仓时间<span class="sico" id="sico-close_time">⇅</span></th>
+              <th onclick="sortBy('sell_price')">卖出价<span class="sico" id="sico-sell_price">⇅</span></th>
+              <th onclick="sortBy('sell_amount')">卖出额<span class="sico" id="sico-sell_amount">⇅</span></th>
+              <th onclick="sortBy('pnl')">盈亏(USDT)<span class="sico" id="sico-pnl">⇅</span></th>
+              <th onclick="sortBy('return_pct')">收益率<span class="sico" id="sico-return_pct">⇅</span></th>
+              <th onclick="sortBy('hold_candles')">持仓(h)<span class="sico" id="sico-hold_candles">⇅</span></th>
+              <th onclick="sortBy('trade_count')">交易次数<span class="sico" id="sico-trade_count">⇅</span></th>
+              <th class="no-sort">止损类型</th>
+              <th class="no-sort">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tradesTbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="tradesPagination"></div>
+    </div>
+
+    <!-- Tab: 交易明细 -->
+    <div id="tab-txn" class="tab-pane">
+      <div class="filter-bar">
+        <div class="filter-row">
+          <div class="filter-group">
+            <label>交易对</label>
+            <input type="text" id="tf-symbol" placeholder="模糊搜索…" oninput="onTxnFilter()">
+          </div>
+          <div class="filter-group">
+            <label>交易时间</label>
+            <input type="date" id="tf-time-from" onchange="onTxnFilter()">
+            <span class="filter-sep">~</span>
+            <input type="date" id="tf-time-to" onchange="onTxnFilter()">
+          </div>
+          <div class="filter-group">
+            <label>交易方向</label>
+            <div class="filter-tag-group">
+              <button class="filter-tag-btn" data-dir="买入" onclick="toggleTxnDirFilter(this)">买入</button>
+              <button class="filter-tag-btn" data-dir="卖出" onclick="toggleTxnDirFilter(this)">卖出</button>
+            </div>
+          </div>
+        </div>
+        <div class="filter-row">
+          <div class="filter-group">
+            <label>交易额(USDT)</label>
+            <input type="number" id="tf-amount-min" placeholder="最小" step="any" oninput="onTxnFilter()">
+            <span class="filter-sep">~</span>
+            <input type="number" id="tf-amount-max" placeholder="最大" step="any" oninput="onTxnFilter()">
+          </div>
+          <div class="filter-group">
+            <label>交易理由</label>
+            <input type="text" id="tf-reason" placeholder="模糊搜索…" style="width:180px" oninput="onTxnFilter()">
+          </div>
+          <div class="filter-group" style="margin-left:auto;gap:10px">
+            <span id="tf-result-hint" class="filter-hint"></span>
+            <button class="btn-reset" onclick="resetTxnFilters()">重置筛选</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="trade-table-wrap">
+        <table class="trade-table">
+          <thead>
+            <tr>
+              <th onclick="txnSortBy('txn_no')">序号<span class="sico" id="txn-sico-txn_no">▼</span></th>
+              <th onclick="txnSortBy('symbol')">交易对<span class="sico" id="txn-sico-symbol">⇅</span></th>
+              <th onclick="txnSortBy('time')">交易时间<span class="sico" id="txn-sico-time">⇅</span></th>
+              <th onclick="txnSortBy('price')">交易价<span class="sico" id="txn-sico-price">⇅</span></th>
+              <th onclick="txnSortBy('amount')">交易额<span class="sico" id="txn-sico-amount">⇅</span></th>
+              <th onclick="txnSortBy('shares')">交易量<span class="sico" id="txn-sico-shares">⇅</span></th>
+              <th onclick="txnSortBy('direction')">交易方向<span class="sico" id="txn-sico-direction">⇅</span></th>
+              <th class="no-sort">交易理由</th>
+              <th class="no-sort">操作</th>
+            </tr>
+          </thead>
+          <tbody id="txnTbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="txnPagination"></div>
+    </div>
+
+    <!-- Tab: 交易对明细 -->
+    <div id="tab-sym" class="tab-pane">
+      <div class="filter-bar">
+        <div class="filter-row">
+          <div class="filter-group">
+            <label>交易对</label>
+            <input type="text" id="sf-symbol" placeholder="模糊搜索…" oninput="onSymFilter()">
+          </div>
+          <div class="filter-group">
+            <label>总盈亏(USDT)</label>
+            <input type="number" id="sf-pnl-min" placeholder="最小" step="any" oninput="onSymFilter()">
+            <span class="filter-sep">~</span>
+            <input type="number" id="sf-pnl-max" placeholder="最大" step="any" oninput="onSymFilter()">
+          </div>
+          <div class="filter-group">
+            <label>胜率(%)</label>
+            <input type="number" id="sf-wr-min" placeholder="最小" step="any" oninput="onSymFilter()">
+            <span class="filter-sep">~</span>
+            <input type="number" id="sf-wr-max" placeholder="最大" step="any" oninput="onSymFilter()">
+          </div>
+          <div class="filter-group">
+            <label>开仓次数</label>
+            <input type="number" id="sf-cnt-min" placeholder="最小" min="0" step="1" oninput="onSymFilter()">
+            <span class="filter-sep">~</span>
+            <input type="number" id="sf-cnt-max" placeholder="最大" min="0" step="1" oninput="onSymFilter()">
+          </div>
+          <div class="filter-group" style="margin-left:auto;gap:10px">
+            <span id="sf-result-hint" class="filter-hint"></span>
+            <button class="btn-reset" onclick="resetSymFilters()">重置筛选</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="trade-table-wrap">
+        <table class="trade-table">
+          <thead>
+            <tr>
+              <th onclick="symSortBy('symbol')">交易对<span class="sico" id="sym-sico-symbol">⇅</span></th>
+              <th onclick="symSortBy('pos_count')">开仓次数<span class="sico" id="sym-sico-pos_count">⇅</span></th>
+              <th onclick="symSortBy('win_rate')">胜率<span class="sico" id="sym-sico-win_rate">⇅</span></th>
+              <th onclick="symSortBy('total_pnl')">总盈亏(USDT)<span class="sico" id="sym-sico-total_pnl">▼</span></th>
+              <th onclick="symSortBy('total_buy')">总买入额<span class="sico" id="sym-sico-total_buy">⇅</span></th>
+              <th onclick="symSortBy('avg_return')">平均收益率<span class="sico" id="sym-sico-avg_return">⇅</span></th>
+              <th onclick="symSortBy('best_return')">最佳收益率<span class="sico" id="sym-sico-best_return">⇅</span></th>
+              <th onclick="symSortBy('worst_return')">最差收益率<span class="sico" id="sym-sico-worst_return">⇅</span></th>
+              <th onclick="symSortBy('avg_hold')">平均持仓(h)<span class="sico" id="sym-sico-avg_hold">⇅</span></th>
+              <th onclick="symSortBy('half_count')">阶段止盈次数<span class="sico" id="sym-sico-half_count">⇅</span></th>
+              <th onclick="symSortBy('first_entry')">首次开仓<span class="sico" id="sym-sico-first_entry">⇅</span></th>
+              <th onclick="symSortBy('last_entry')">最近开仓<span class="sico" id="sym-sico-last_entry">⇅</span></th>
+              <th class="no-sort">操作</th>
+            </tr>
+          </thead>
+          <tbody id="symTbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="symPagination"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- K线图对话框 -->
+<div id="klineDialog" class="dlg-overlay" style="display:none">
+  <div class="dlg-box">
+    <div class="dlg-hdr">
+      <span id="dlgTitle">K线图</span>
+      <button class="dlg-close" onclick="closeKlineDialog()">✕</button>
+    </div>
+    <div id="klineChart"></div>
+  </div>
+</div>
+
+<!-- 模块加载 -->
+<script src="frontend/js/utils.js"></script>
+<script src="frontend/js/data-loader.js"></script>
+<script src="frontend/js/charts.js"></script>
+<script src="frontend/js/kline-dialog.js"></script>
+<script src="frontend/js/transactions.js"></script>
+<script src="frontend/js/positions.js"></script>
+<script src="frontend/js/symbols.js"></script>
+<script src="frontend/js/app.js"></script>
+</body>
+</html>

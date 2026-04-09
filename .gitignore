@@ -1,3 +1,9 @@
+# ═══════════════════════════════════════════════════════════════════
+# cryptotrading：本地 K 线 CSV、exchangeInfo 缓存、回测产物（体积大 / 本机生成）
+# ═══════════════════════════════════════════════════════════════════
+/cache/
+/backtest_results/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -193,6 +199,15 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.stackdump
 
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to

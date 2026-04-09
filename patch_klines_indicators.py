@@ -1,23 +1,39 @@
+# -*- coding: utf-8 -*-
 """
-为 cache/klines/ 目录下已有的 CSV 文件补充技术指标列：
-  DIF, DEA, MACD, KDJ.K, KDJ.D, KDJ.J, BBI
+为 cache 目录下已有的 K 线 CSV 文件补充技术指标列：
+  1h_klines/、4h_klines/、1d_klines/ 三个目录均会处理。
+
+指标列：DIF, DEA, MACD, KDJ.K, KDJ.D, KDJ.J, BBI, MA5, MA30, MA60, MA120, MA240,
+       10_quote_volume, atr_14, loss_atr_14, low_9, high_9, stop_loss_pct, risk_reward_ratio
 
 已包含全部指标列的文件自动跳过（由 FORCE_PATCH 控制）。
 多线程并行处理，原地覆盖原文件。
 
 指标说明：
-  MACD : DIF = EMA12 - EMA26；DEA = DIF 的 9 日 EMA；MACD = 2×(DIF-DEA)
-  KDJ  : 9 周期随机指标，初始 K=D=50
-  BBI  : (MA3 + MA6 + MA12 + MA24) / 4
+  MACD        : DIF = EMA12 - EMA26；DEA = DIF 的 9 日 EMA；MACD = 2×(DIF-DEA)
+  KDJ         : 9 周期随机指标，初始 K=D=50
+  BBI         : (MA3 + MA6 + MA12 + MA24) / 4
+  MA5/30/60/120/240 : 收盘价简单移动平均（SMA）
+  atr_14      : 14 周期 Wilder's ATR
+  loss_atr_14 : 收盘价 - atr_14（ATR 止损参考价）
 """
 
 import csv
 import logging
+import sys
 import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from fetch_klines import (
+# 防止 Windows 下 stdout 乱码
+if sys.stdout.encoding.lower() != "utf-8":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except AttributeError:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+from kline_indicators import (
     KLINE_OUTPUT_COLUMNS,
     INDICATOR_COLUMNS,
     ALL_OUTPUT_COLUMNS,
@@ -35,7 +51,12 @@ FORCE_PATCH: bool = False
 MAX_WORKERS: int = 8
 
 # ──────────────────────────── 内部配置 ────────────────────────────
-KLINES_DIR = Path(__file__).parent / "cache" / "klines"
+CACHE_DIR = Path(__file__).parent / "cache"
+KLINES_DIRS = [
+    CACHE_DIR / "1h_klines",
+    CACHE_DIR / "4h_klines",
+    CACHE_DIR / "1d_klines",
+]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -88,20 +109,21 @@ def patch_file(path: Path) -> tuple[Path, str]:
 def main() -> None:
     global _done_count
 
-    if not KLINES_DIR.exists():
-        raise FileNotFoundError(
-            f"K 线目录不存在：{KLINES_DIR}\n请先运行 fetch_klines.py 生成数据。"
-        )
+    csv_files: list[Path] = []
+    for klines_dir in KLINES_DIRS:
+        if klines_dir.exists():
+            csv_files.extend(sorted(klines_dir.glob("*.csv")))
+        else:
+            logger.warning("目录不存在，跳过: %s", klines_dir)
 
-    csv_files = sorted(KLINES_DIR.glob("*.csv"))
     total = len(csv_files)
 
     if total == 0:
-        logger.info("cache/klines/ 目录下没有找到 CSV 文件")
+        logger.info("cache 目录下没有找到任何 K 线 CSV 文件")
         return
 
     logger.info(
-        "找到 %d 个 CSV 文件，开始补充指标（并发 %d）...",
+        "找到 %d 个 CSV 文件（1h + 4h + 1d），开始补充指标（并发 %d）...",
         total, MAX_WORKERS,
     )
     logger.info("指标列：%s", ", ".join(INDICATOR_COLUMNS))
@@ -118,7 +140,7 @@ def main() -> None:
             with _progress_lock:
                 _done_count += 1
                 cnt = _done_count
-            if cnt % 50 == 0 or cnt == total:
+            if cnt % 100 == 0 or cnt == total:
                 logger.info(
                     "进度 %d/%d (%.1f%%)", cnt, total, cnt / total * 100
                 )
