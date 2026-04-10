@@ -265,9 +265,15 @@ def _force_close_positions(
 def run_backtest(
     data: dict[str, pd.DataFrame],
     backtest_start: dict[str, int],
+    progress_cb=None,
 ) -> tuple[list[TradeRecord], list[tuple[str, float]], list[list[dict]]]:
     """
     执行完整回测。
+
+    Args:
+        data          : symbol -> DataFrame
+        backtest_start: symbol -> 回测起始行下标
+        progress_cb   : 可选进度回调 fn(current, total, percent)，每 100 根 K 线调用一次
 
     返回：
       all_trades    : 所有已完结的交易记录
@@ -292,7 +298,9 @@ def run_backtest(
     cooldown_until: dict[str, str] = {}
     loss_tracker = LossTracker()
 
-    for ts in tqdm(timestamps, desc="回测进度", unit="bar", dynamic_ncols=True):
+    total_bars = len(timestamps)
+    _REPORT_EVERY = 100
+    for _bar_idx, ts in enumerate(tqdm(timestamps, desc="回测进度", unit="bar", dynamic_ncols=True)):
         # ── 1. 执行上一时间步挂单的买入 ──
         pending_buys, cash = _execute_pending_buys(
             pending_buys, ts, data, ts_to_idx, cash, portfolio_log, positions
@@ -332,6 +340,11 @@ def run_backtest(
                 if candidates:
                     sym, rr = candidates[0]
                     pending_buys.append((sym, ts, rr))
+
+        # 进度回调
+        if progress_cb is not None and (_bar_idx % _REPORT_EVERY == 0 or _bar_idx == total_bars - 1):
+            pct = (_bar_idx + 1) / total_bars * 100 if total_bars else 100
+            progress_cb(_bar_idx + 1, total_bars, pct)
 
     # ── 5. 回测结束：强制平仓所有剩余持仓 ──
     cash = _force_close_positions(
