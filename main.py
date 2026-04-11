@@ -35,8 +35,25 @@ app.include_router(sync_router, prefix="/api")
 
 # ── 静态文件（前端构建产物）────────────────────────────────────
 DIST_DIR = Path("frontend/dist")
+
 if DIST_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(DIST_DIR), html=True), name="static")
+    from fastapi.responses import FileResponse
+    
+    # 先挂载静态文件目录
+    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
+    
+    # 前端路由处理：所有非 API 路由返回 index.html
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # API 路由不走这里
+        if full_path.startswith("api/"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not Found")
+        
+        index_file = DIST_DIR / "index.html"
+        if index_file.exists():
+            return FileResponse(str(index_file))
+        return {"message": "前端未构建"}
 else:
     from fastapi.responses import JSONResponse
 

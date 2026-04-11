@@ -14,8 +14,7 @@
 | `update_indicators.py` | 历史补丁：为旧版 CSV 增量添加止损 / 盈亏比列 | 原地覆盖 CSV |
 | `convert_klines_time.py` | 将毫秒时间戳幂等转换为 UTC+8 字符串 | 原地覆盖 `1h_klines/` |
 | `backtest_strategy.py` | 回测入口：加载数据 → 运行引擎 → 写出结果 | `backtest_results/{run_id}/` |
-| `serve_report.py` | 静态文件服务 + 回测列表 API，供 `report.html` 调用 | HTTP :8888 |
-| `serve_symbols.py` | 标的浏览 + K 线查询 API + 同步触发，供 `symbols.html` 调用 | HTTP :8889 |
+| `main.py`（`uvicorn main:app`） | FastAPI：标的 / K 线 / 回测 / 同步 API + 托管 Vue 构建产物 | HTTP :8000 |
 | `generate_random.py` | 输出随机整数（仅用于调试） | stdout |
 
 ---
@@ -34,7 +33,7 @@
 - 在脚本中设置 `KLINE_INTERVAL` 为 `1h`、`4h` 或 `1d`，多线程拉取对应 `interval` 的 `GET /api/v3/klines`
 - 实时计算技术指标后写入 `cache/{interval}_klines/{symbol}_{interval}.csv`
 - 增量更新时会回溯 `UPDATE_LOOKBACK_DAYS` 天，以保证指标准确
-- 并发数由 `MAX_WORKERS` 控制，配合信号量限速；`serve_symbols` 的 `POST /api/sync` 会执行本脚本，实际周期以脚本内 `KLINE_INTERVAL` 为准
+- 并发数由 `MAX_WORKERS` 控制，配合信号量限速；数据同步页的 SSE 会触发本脚本，实际周期以脚本内 `KLINE_INTERVAL` 为准
 
 ### `patch_klines_indicators.py`
 
@@ -48,22 +47,8 @@
 
 ---
 
-## HTTP 服务
+## HTTP 服务（`main.py` / `uvicorn main:app --port 8000`）
 
-### `serve_report.py`（端口 8888）
-
-| 路由 | 说明 |
-|------|------|
-| `GET /` | 重定向到 `report.html` |
-| `GET /api/runs` | 返回所有回测 run 列表（JSON） |
-| `GET /api/run/{run_id}` | 返回指定 run 的 `report_data.json` |
-| 静态文件 | 服务 `backtest_results/` 目录下的 CSV / JSON |
-
-### `serve_symbols.py`（端口 8889）
-
-| 路由 | 说明 |
-|------|------|
-| `GET /` | 重定向到 `symbols.html` |
-| `GET /api/symbols` | 返回标的列表（来自 `exchange_info.csv`） |
-| `GET /api/klines/{symbol}/{tf}` | 返回指定标的、周期的 K 线数据（JSON） |
-| `POST /api/sync` | 触发 `fetch_klines.py` 同步任务 |
+- 根路径托管 Vue 前端（需先 `cd frontend && npm run build`）。
+- 标的与 K 线：`GET /api/symbols/kline-columns`、`GET /api/symbols/names`、`POST /api/symbols/query`、`GET /api/klines/{interval}/{symbol}` 等（见 `api/symbols.py`）。
+- 回测与同步：`api/backtest_api.py`、`api/sync_api.py`。

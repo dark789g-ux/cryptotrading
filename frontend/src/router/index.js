@@ -1,18 +1,33 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import SymbolsView from '../views/SymbolsView.vue'
-import BacktestView from '../views/BacktestView.vue'
-import SyncView from '../views/SyncView.vue'
 
 const routes = [
-  { path: '/', redirect: '/symbols' },
-  { path: '/symbols', component: SymbolsView, meta: { title: '标的展示' } },
-  { path: '/backtest', component: BacktestView, meta: { title: '历史回测' } },
-  { path: '/sync', component: SyncView, meta: { title: '数据同步' } },
+  {
+    path: '/',
+    redirect: '/backtest'
+  },
+  {
+    path: '/backtest',
+    name: 'backtest',
+    component: () => import('../views/BacktestView.vue'),
+    meta: { title: '回测' }
+  },
+  {
+    path: '/symbols',
+    name: 'symbols',
+    component: () => import('../views/SymbolsView.vue'),
+    meta: { title: '标的' }
+  },
+  {
+    path: '/sync',
+    name: 'sync',
+    component: () => import('../views/SyncView.vue'),
+    meta: { title: '同步' }
+  }
 ]
 
 const router = createRouter({
   history: createWebHistory(),
-  routes,
+  routes
 })
 
 router.afterEach((to) => {

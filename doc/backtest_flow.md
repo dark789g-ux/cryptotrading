@@ -166,8 +166,8 @@ python backtest_strategy.py
 ### 6.2 查看报告
 
 ```powershell
-python serve_report.py
-# 浏览器访问 http://localhost:8888
+uvicorn main:app --host 0.0.0.0 --port 8000
+# 浏览器访问 http://localhost:8000 ，进入「历史回测」页查看结果
 ```
 
 ---

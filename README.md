@@ -105,7 +105,7 @@ cd frontend && npm run dev   # 代理到 :8000
 
 | 路径 | 页面 | 功能 |
 |------|------|------|
-| `/symbols` | 标的展示 | 搜索标的、查看 K 线图（1h/4h/1d）、策略筛选 |
+| `/symbols` | 标的展示 | 关键字 + 指标条件检索、服务端分页/排序、K 线图 |
 | `/backtest` | 历史回测 | 策略 CRUD、执行回测、实时进度、结果抽屉 |
 | `/sync` | 数据同步 | 多选标的与时间框架、同步进度实时推送（SSE） |
 
@@ -141,15 +141,16 @@ cache/{timeframe}_klines/   # 带指标的 K 线 CSV
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/symbols` | 获取标的列表（支持策略筛选） |
-| GET | `/api/klines/{symbol}` | 获取 K 线数据 |
+| GET | `/api/symbols/kline-columns?interval=` | 某周期 K 线 CSV 表头并集 |
+| GET | `/api/symbols/names?interval=` | 交易对文件名列表（轻量） |
+| POST | `/api/symbols/query` | 分页查询标的（JSON：筛选、排序、返回列） |
+| GET | `/api/klines/{interval}/{symbol}` | 获取 K 线 CSV 文本 |
 | GET | `/api/strategies` | 获取策略列表 |
 | POST | `/api/strategies` | 创建策略 |
 | PUT | `/api/strategies/{id}` | 更新策略 |
 | DELETE | `/api/strategies/{id}` | 删除策略 |
-| POST | `/api/backtest/run` | 触发回测（返回 run_id） |
-| GET | `/api/backtest/progress/{run_id}` | SSE 实时回测进度 |
-| GET | `/api/backtest/result/{run_id}` | 获取回测结果 |
+| POST | `/api/backtest/{strategy_id}/run` | 触发指定策略回测 |
+| GET | `/api/backtest/{strategy_id}/result` | 获取回测结果 JSON |
 | GET | `/api/sync/preferences` | 获取同步偏好 |
-| POST | `/api/sync/preferences` | 保存同步偏好 |
-| GET | `/api/sync/run` | SSE 执行数据同步 |
+| PUT | `/api/sync/preferences` | 保存同步偏好 |
+| POST | `/api/sync/run` | 触发数据同步（SSE 进度） |

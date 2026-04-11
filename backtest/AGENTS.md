@@ -97,7 +97,7 @@ AND KDJ.J < 10
 ```
 trades.csv          # 每笔已完结交易（含半仓止盈记录）
 portfolio.csv       # 每根 K 线的净值快照
-report_data.json    # 供 report.html 使用的完整数据（含统计与持仓快照）
+report_data.json    # 供 Vue 回测结果等使用的完整数据（含统计与持仓快照）
 ```
 
 ---

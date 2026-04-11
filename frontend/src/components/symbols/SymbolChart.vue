@@ -92,8 +92,10 @@ function renderChart(rows) {
   })
   const kLine = rows.map(r=>r.k), dLine=rows.map(r=>r.d), jLine=rows.map(r=>r.j)
   const sl    = rows.map(r=>r.stop_loss_pct), rr=rows.map(r=>r.risk_reward_ratio)
+  const prevClose = rows.map((r,i)=>i>0?rows[i-1].c:null)
   const sp    = times.length>200?((times.length-200)/times.length*100):0
   const fv    = (v,d=4)=>v!=null&&!isNaN(+v)?(+v).toFixed(d):'-'
+  const fmtTime = t=>{ if(!t)return ''; return(['1d','3d','1w','1M'].includes(props.interval))?t.slice(0,10):t.slice(0,16) }
   const trend = (c,p)=>c==null||p==null||isNaN(+c)||isNaN(+p)?'':(+c>+p+1e-10?' ↑':+c<+p-1e-10?' ↓':' →')
   const cl = i=>Math.max(0,Math.min(i,times.length-1))
   const RICH_MA  ={ma5v:{fill:'#3498db',fontSize:11},ma30v:{fill:'#e74c3c',fontSize:11},ma60v:{fill:'#27ae60',fontSize:11},ma120v:{fill:'#e67e22',fontSize:11},ma240v:{fill:'#9b59b6',fontSize:11}}
@@ -108,7 +110,32 @@ function renderChart(rows) {
   const option = {
     backgroundColor:'#fff', animation:false,
     tooltip:{trigger:'axis',axisPointer:{type:'cross',lineStyle:{color:'#aaa',type:'dashed'}},
-      formatter(params){if(!params.length)return '';const p0=params.find(p=>p.seriesName==='K线');let h=`<b>${params[0].axisValue}</b><br>`;if(p0&&Array.isArray(p0.value)){const[,o,c,l,hv]=p0.value.map(Number);const col=c>=o?'#e74c3c':'#27ae60';const d=Math.abs(c)>=1000?2:Math.abs(c)>=1?4:6;const f=v=>(+v).toFixed(d);h+=`<span style="color:${col}">开:${f(o)} 高:${f(hv)} 低:${f(l)} 收:${f(c)}</span>`}return h}},
+      formatter(params){
+        if(!params.length)return '';
+        const p0=params.find(p=>p.seriesName==='K线');
+        if(!p0||!Array.isArray(p0.value))return '';
+        const idx=p0.dataIndex;
+        const[o,c,l,hv]=p0.value.map(Number);
+        const d=Math.abs(c)>=1000?2:Math.abs(c)>=1?4:6;
+        const f=v=>(+v).toFixed(d);
+        const prevC=prevClose[idx];
+        const chg=prevC!=null?c-prevC:null;
+        const chgPct=prevC!=null&&prevC!==0?(c-prevC)/prevC*100:null;
+        const chgCol=chg==null?'#888':chg>=0?'#e74c3c':'#27ae60';
+        const sgn=v=>v>=0?'+':'';
+        let h=`<div style="padding:2px 4px;font-size:12px;line-height:1.9">`;
+        h+=`<div>${fmtTime(times[idx])}</div>`;
+        h+=`<div>开: ${f(o)}</div>`;
+        h+=`<div>高: ${f(hv)}</div>`;
+        h+=`<div>低: ${f(l)}</div>`;
+        h+=`<div>收: ${f(c)}</div>`;
+        if(chg!=null){
+          h+=`<div style="color:${chgCol}">涨跌: ${sgn(chg)}${f(chg)}</div>`;
+          h+=`<div style="color:${chgCol}">涨幅: ${sgn(chgPct)}${chgPct.toFixed(2)}%</div>`;
+        }
+        h+=`</div>`;
+        return h;
+      }},
     axisPointer:{link:[{xAxisIndex:'all'}]},
     legend:{top:2,right:16,itemWidth:14,itemHeight:10,textStyle:{fontSize:11},data:['K线','MA5','MA30','MA60','MA120','MA240','DIF','DEA','MACD','K','D','J','stop_loss_pct','risk_reward_ratio']},
     grid:[{left:68,right:20,top:30,bottom:'48%'},{left:68,right:20,top:'52%',bottom:'36%'},{left:68,right:20,top:'64%',bottom:'20%'},{left:68,right:20,top:'82%',bottom:'6%'}],

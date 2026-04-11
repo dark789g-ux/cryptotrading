@@ -10,7 +10,7 @@
   止盈：最高价突破近期高价时卖出一半
 
 输入：cache/1h_klines/*.csv
-输出：backtest_results/trades.csv、portfolio.csv、report_data.json；前端：report.html（根目录）
+输出：backtest_results/trades.csv、portfolio.csv、report_data.json；查看：Vue 回测页（python main.py / uvicorn）
 """
 
 from __future__ import annotations
@@ -165,7 +165,7 @@ def main() -> None:
     save_report_data_json(all_trades, portfolio_log, stats, run_dir, pos_snapshots, run_id=run_id)
 
     logger.info("输出目录：%s", run_dir.resolve())
-    logger.info("查看报告：python serve_report.py")
+    logger.info("查看报告：uvicorn main:app --port 8000 后打开 http://localhost:8000 回测页")
 
 
 if __name__ == "__main__":

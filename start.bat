@@ -10,6 +10,6 @@ start "CryptoTrading - Frontend" cmd /k "cd /d %~dp0frontend && npm run dev"
 
 echo [3/3] 等待服务就绪，稍后自动打开浏览器...
 timeout /t 4 /nobreak >nul
-start http://localhost:8000
+start http://localhost:5173
 
 echo 启动完成。关闭此窗口不影响后端和前端进程。

@@ -13,7 +13,7 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$root\fronten
 Write-Host "[3/3] 等待服务就绪..." -ForegroundColor Yellow
 Start-Sleep -Seconds 4
 
-Write-Host "自动打开浏览器: http://localhost:8000" -ForegroundColor Green
-Start-Process "http://localhost:8000"
+Write-Host "自动打开浏览器: http://localhost:5173" -ForegroundColor Green
+Start-Process "http://localhost:5173"
 
 Write-Host "启动完成。关闭此窗口不影响后端和前端进程。" -ForegroundColor Green
