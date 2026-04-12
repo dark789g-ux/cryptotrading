@@ -1,7 +1,7 @@
 # AGENTS.md — cryptotrading
 
 > **L1（始终加载）**：全局定位与规范。编写代码前先读对应子目录的 AGENTS.md（L2），按需读取源文件（L3）。
-> 最后更新：2026-04-12（本轮更新）
+> 最后更新：2026-04-12
 
 ---
 
@@ -71,3 +71,4 @@
 - **docker compose v2**：Windows 新环境无 `docker-compose` 命令，package.json 中必须用空格写法 [→ 详见](doc/docker-compose-v2.md)
 - **Naive UI 组件未注册**：新建 Vue 组件时忘记 import Naive UI 组件，运行时报 `Failed to resolve component` [→ 详见](doc/naive-ui-manual-import.md)
 - **symbols/query DTO 字段名**：前端字段 `search/pageSize/sortKey+sortOrder` 与后端 `q/page_size/sort:{field,asc}` 不一致致 500，返回值取 `items` 不取 `data` [→ 详见](doc/symbols-query-dto-mismatch.md)
+- **keep-alive 匹配失败**：`<script setup>` 组件未显式声明 `name` 时 `keep-alive include` 不生效，必须加 `defineOptions({ name: 'XxxView' })` [→ 详见](doc/keep-alive-component-name.md)

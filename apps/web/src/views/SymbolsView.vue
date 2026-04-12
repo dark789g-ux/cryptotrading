@@ -82,6 +82,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'SymbolsView' })
 import { ref, computed, onMounted, onUnmounted, h } from 'vue'
 import * as echarts from 'echarts'
 import {
