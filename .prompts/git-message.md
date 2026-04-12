@@ -3,9 +3,10 @@
 ## 步骤
 
 1. 调用 Bash 工具执行 `git diff --staged`，获取已暂存的变更内容
-2. 如果暂存区为空，再执行 `git diff` 查看未暂存的变更
+2. 如果暂存区为空，执行 `git add -A`，再执行 `git diff --staged`
 3. 同时执行 `git status` 了解变更文件全貌
 4. 根据变更内容，生成一条符合规范的 commit message
+5. 直接执行 `git commit -m "<message>"` 完成提交，不需要用户确认
 
 ## Commit Message 规范
 
@@ -31,4 +32,4 @@ type 取值：
 
 ## 输出
 
-只输出 commit message 本身，不加任何解释或引号。
+提交成功后，只输出实际使用的 commit message，不加任何解释或引号。
