@@ -1,107 +1,64 @@
-# AGENTS.md — cryptotrading 项目总览
+# AGENTS.md — cryptotrading
 
-> **L1（始终加载）**：全局概览。编写代码前先读对应子目录的 AGENTS.md（L2），按需读取源文件（L3）。
+> **L1（始终加载）**：全局定位与规范。编写代码前先读对应子目录的 AGENTS.md（L2），按需读取源文件（L3）。
 
 ---
 
 ## 项目定位
 
-基于币安 USDT 现货行情的完整本地流水线：**K 线采集 → 指标计算 → 本地回测 → Web 可视化**
+基于币安 USDT 现货行情的本地回测平台：**K 线采集 → PostgreSQL 存储 → 策略回测 → Web 可视化**。
 
-- **后端**：NestJS + TypeScript + TypeORM（PostgreSQL）
-- **前端**：Vue 3 + TypeScript + Vite + Naive UI
-- **架构**：pnpm monorepo（`apps/server`、`apps/web`）
+- **后端**：NestJS + TypeScript + TypeORM + PostgreSQL（`apps/server/`）
+- **前端**：Vue 3 + TypeScript + Vite + Naive UI（`apps/web/`）
+- **包管理**：pnpm monorepo
 
 ---
 
 ## 目录索引
 
-| 路径 | 说明 |
-|------|------|
-| `apps/server/` | NestJS 后端（API、回测引擎、数据同步） |
-| `apps/web/` | Vue 3 + TypeScript 前端 |
-| `cache/` | 旧版 CSV 缓存（可通过迁移脚本导入 DB） |
-| `prd/` | 产品需求文档 |
-| `docker-compose.yml` | 开发环境（仅 PostgreSQL） |
-| `docker-compose.prod.yml` | 生产环境（nginx + server + postgres） |
+| 路径 | L2 文档 | 说明 |
+|------|---------|------|
+| `apps/server/` | [AGENTS.md](apps/server/AGENTS.md) | NestJS 后端、回测引擎、数据同步 |
+| `apps/web/` | [AGENTS.md](apps/web/AGENTS.md) | Vue 3 前端、SSE composables、页面 |
+| `backtest/` | [AGENTS.md](backtest/AGENTS.md) | 旧版 Python 回测库（仅供参考） |
+| `test/` | [AGENTS.md](test/AGENTS.md) | 研究笔记，非自动化测试 |
+| `cache/` | — | 旧版 CSV 缓存（可通过 `pnpm migrate:csv` 导入 DB） |
+| `prd/` | — | 产品需求文档 |
 
 ---
 
-## 快速启动（开发）
+## 全局规范
+
+### 语言与风格
+- 项目语言：TypeScript（后端 NestJS，前端 Vue 3）；旧 Python 代码只读不改
+- 变量/函数：camelCase；数据库列名：snake_case（TypeORM `@Column({ name: 'snake_case' })`）
+- 不写多余注释；逻辑不自明时才注释
+- 不加推测性抽象、不加未被需求覆盖的功能
+
+### 后端约定
+- 新模块按 `module/service/controller` 三件套组织，在 `AppModule` 导入
+- API 路径前缀统一加 `/api`（main.ts `setGlobalPrefix`）
+- SSE 响应用 `Subject<SseEvent>` + NestJS `@Sse` 装饰器
+- TypeORM 开发环境 `synchronize: true`；生产环境关闭，手写迁移
+- 批量写入用 `upsert`（冲突列作为 `conflictPaths`）
+
+### 前端约定
+- API 调用集中在 `composables/useApi.ts`，不在组件内直接 fetch
+- SSE 统一用 `composables/useSSE.ts`（fetch streaming，支持 POST body）
+- 样式用 Naive UI 组件 + `glassmorphism.css` CSS 变量；不引入新 UI 库
+
+### Git 约定
+- commit message 用中文或英文均可，一行说清楚做了什么
+- 不提交 `apps/server/.env`
+
+---
+
+## 常用命令速查
 
 ```bash
-# 1. 安装依赖
-pnpm install
-
-# 2. 启动 PostgreSQL
-pnpm db:start
-
-# 3. 配置环境变量
-cp apps/server/.env.example apps/server/.env
-# 编辑 apps/server/.env，确认 DB 连接参数
-
-# 4. 启动后端 + 前端
-pnpm dev
-# 后端: http://localhost:3000/api
-# 前端: http://localhost:5173
-
-# 5. （可选）从 CSV 迁移历史数据
-pnpm migrate:csv
-```
-
----
-
-## 后端模块
-
-```
-apps/server/src/
-├── entities/          # TypeORM 实体（klines, symbols, strategies, ...）
-├── klines/            # GET /api/klines/:symbol/:interval
-├── symbols/           # POST /api/symbols/query, GET /api/symbols/names
-├── sync/              # GET /api/sync/run (SSE), PUT /api/sync/preferences
-├── backtest/          # POST /api/backtest/start/:id (SSE), GET /api/backtest/runs/:id
-│   └── engine/        # 回测引擎（精确翻译自 Python）
-├── strategies/        # CRUD /api/strategies, /api/strategies/types
-├── watchlists/        # CRUD /api/watchlists
-├── settings/          # PUT /api/settings/excluded-symbols, config
-└── migration/         # CLI: csv-import.ts
-```
-
-## 前端页面
-
-| 路由 | 说明 |
-|------|------|
-| `/backtest` | 策略管理 + 运行回测（SSE 进度）+ 历史结果 Drawer |
-| `/symbols` | 标的筛选（高级条件）+ K 线图表 |
-| `/sync` | 数据同步（SSE 进度）+ 配置 |
-| `/watchlists` | 自选列表 CRUD |
-| `/settings` | 排除标的管理、同步配置 |
-
----
-
-## 回测引擎（apps/server/src/backtest/engine/）
-
-| 文件 | 对应 Python 模块 |
-|------|----------------|
-| `models.ts` | `models.py` |
-| `bt-indicators.ts` | `indicators.py`（calcRecentLow/High） |
-| `cooldown.ts` | `cooldown.py` |
-| `loss-tracker.ts` | `loss_tracker.py` |
-| `trade-helper.ts` | `trade_helper.py` |
-| `signal-scanner.ts` | `signal_scanner.py` |
-| `position-handler.ts` | `position_handler.py` |
-| `engine.ts` | `engine.py` |
-| `report.ts` | `report.py` |
-| `data.service.ts` | `data.py`（数据源改为 PostgreSQL） |
-
----
-
-## 生产部署
-
-```bash
-# 构建前端静态文件
-pnpm build
-
-# 启动生产容器（nginx + server + postgres）
-pnpm prod:up
+pnpm dev              # 后端 :3000 + 前端 :5173 并行启动
+pnpm db:start         # 启动 PostgreSQL Docker 容器
+pnpm migrate:csv      # 从 cache/ 导入旧 CSV 数据到 DB
+pnpm build            # 前后端全量构建
+pnpm prod:up          # 生产三容器启动（nginx + server + postgres）
 ```
