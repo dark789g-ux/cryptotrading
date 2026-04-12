@@ -50,7 +50,7 @@ export const backtestApi = {
 export const symbolApi = {
   getNames: (interval = '1h') => request<string[]>(`${API_BASE}/symbols/names?interval=${interval}`),
   getKlineColumns: () => request<string[]>(`${API_BASE}/symbols/kline-columns`),
-  query: (body: object) => post<{ data: any[]; total: number }>(`${API_BASE}/symbols/query`, body),
+  query: (body: object) => post<{ items: any[]; total: number }>(`${API_BASE}/symbols/query`, body),
   patch: (symbol: string, body: object) =>
     request<any>(`${API_BASE}/symbols/${symbol}`, {
       method: 'PATCH',

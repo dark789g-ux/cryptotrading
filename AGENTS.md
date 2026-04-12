@@ -1,7 +1,7 @@
 # AGENTS.md — cryptotrading
 
 > **L1（始终加载）**：全局定位与规范。编写代码前先读对应子目录的 AGENTS.md（L2），按需读取源文件（L3）。
-> 最后更新：2026-04-12
+> 最后更新：2026-04-12（本轮更新）
 
 ---
 
@@ -47,6 +47,7 @@
 - API 调用集中在 `composables/useApi.ts`，不在组件内直接 fetch
 - SSE 统一用 `composables/useSSE.ts`（fetch streaming，支持 POST body）
 - 样式用 Naive UI 组件 + `glassmorphism.css` CSS 变量；不引入新 UI 库
+- Naive UI **未配置自动导入**，模板中每个 `n-xxx` 组件必须手动 import [→ 详见](doc/naive-ui-manual-import.md)
 
 ### Git 约定
 - commit message 用中文或英文均可，一行说清楚做了什么
@@ -68,15 +69,5 @@
 - **Docker Bad response**：v4.19.0 引擎通信失败，升级到 v4.68.0+ 解决 [→ 详见](doc/docker-desktop-bad-response.md)
 - **CSV close_time 解析**：`close_time` 是毫秒时间戳字符串，需 `new Date(Number(r.close_time))` [→ 详见](doc/csv-closetime-parse.md)
 - **docker compose v2**：Windows 新环境无 `docker-compose` 命令，package.json 中必须用空格写法 [→ 详见](doc/docker-compose-v2.md)
-
----
-
-## 常用命令速查
-
-```bash
-pnpm dev              # 后端 :3000 + 前端 :5173 并行启动（自动开浏览器）
-pnpm db:start         # 启动 PostgreSQL Docker 容器
-pnpm migrate:csv      # 从 cache/ 导入旧 CSV 数据到 DB
-pnpm build            # 前后端全量构建
-pnpm prod:up          # 生产三容器启动（nginx + server + postgres）
-```
+- **Naive UI 组件未注册**：新建 Vue 组件时忘记 import Naive UI 组件，运行时报 `Failed to resolve component` [→ 详见](doc/naive-ui-manual-import.md)
+- **symbols/query DTO 字段名**：前端字段 `search/pageSize/sortKey+sortOrder` 与后端 `q/page_size/sort:{field,asc}` 不一致致 500，返回值取 `items` 不取 `data` [→ 详见](doc/symbols-query-dto-mismatch.md)

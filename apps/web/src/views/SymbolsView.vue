@@ -84,7 +84,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, h } from 'vue'
 import * as echarts from 'echarts'
-import { NButton, NIcon, useMessage } from 'naive-ui'
+import {
+  NButton, NIcon, NSelect, NSpace, NInput, NBadge, NTag,
+  NCard, NDataTable, NInputNumber, NDivider, NEmpty, NDrawer, NDrawerContent,
+  useMessage,
+} from 'naive-ui'
 import { RefreshOutline, SearchOutline, FilterOutline, CloseOutline, TrendingUpOutline } from '@vicons/ionicons5'
 import { symbolApi, klinesApi } from '../composables/useApi'
 import { useTheme } from '../composables/useTheme'
@@ -143,19 +147,18 @@ const columns = computed(() => [
 
 const buildQuery = () => ({
   interval: selectedInterval.value,
-  search: searchQuery.value,
+  q: searchQuery.value,
   conditions: conditions.value,
-  sortKey: sortKey.value,
-  sortOrder: sortOrder.value,
+  sort: { field: sortKey.value ?? 'symbol', asc: sortOrder.value !== 'descend' },
   page: page.value,
-  pageSize: pageSize.value,
+  page_size: pageSize.value,
 })
 
 const loadData = async () => {
   loading.value = true
   try {
     const res = await symbolApi.query(buildQuery())
-    symbols.value = res.data
+    symbols.value = res.items
     total.value = res.total
   } catch (err: any) {
     message.error(err.message)
