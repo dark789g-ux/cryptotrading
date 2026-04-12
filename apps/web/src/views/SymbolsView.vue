@@ -95,7 +95,7 @@ import { symbolApi, klinesApi } from '../composables/useApi'
 import { useTheme } from '../composables/useTheme'
 
 const message = useMessage()
-const { echartsTheme, isDark } = useTheme()
+const { echartsTheme } = useTheme()
 
 const selectedInterval = ref('1h')
 const intervalOptions = [{ label: '1h', value: '1h' }, { label: '4h', value: '4h' }, { label: '1d', value: '1d' }]
@@ -139,6 +139,7 @@ const columns = computed(() => [
   { title: 'KDJ.J', key: 'kdjJ', width: 90, sorter: true, render: (r: any) => r.kdjJ?.toFixed(2) ?? '-' },
   { title: '盈亏比', key: 'riskRewardRatio', width: 90, sorter: true, render: (r: any) => r.riskRewardRatio?.toFixed(2) ?? '-' },
   { title: '止损%', key: 'stopLossPct', width: 90, sorter: true, render: (r: any) => r.stopLossPct ? `${r.stopLossPct.toFixed(2)}%` : '-' },
+  { title: '最新更新', key: 'openTime', width: 110, sorter: true, render: (r: any) => r.openTime ? new Date(r.openTime).toISOString().slice(0, 10) : '-' },
   {
     title: '操作', key: 'actions', width: 100, fixed: 'right',
     render: (r: any) => h(NButton, { size: 'small', quaternary: true, onClick: () => openChart(r.symbol) },
@@ -236,13 +237,13 @@ onUnmounted(() => { chart?.dispose(); window.removeEventListener('resize', () =>
 <style scoped>
 .symbols-view { max-width: 1400px; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.page-title { font-size: 24px; font-weight: 600; color: var(--text-primary); margin: 0; }
+.page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
 .filter-card { margin-bottom: 20px; }
 .filter-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .filter-tags { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
-.data-card { background: var(--glass-bg); backdrop-filter: var(--glass-blur); }
-.filter-form h4 { margin: 16px 0 8px; font-size: 14px; color: var(--text-secondary); }
+.data-card { background: var(--ember-surface); }
+.filter-form h4 { margin: 16px 0 8px; font-size: 14px; font-weight: 600; color: var(--ember-text-secondary); }
 .condition-list { display: flex; flex-direction: column; gap: 8px; }
-.condition-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--bg-hover); border-radius: 8px; }
+.condition-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--ember-surface-hover); border-radius: 8px; }
 .kline-chart { height: 700px; width: 100%; }
 </style>

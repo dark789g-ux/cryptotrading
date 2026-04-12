@@ -58,11 +58,22 @@ export class SymbolsService {
   async querySymbols(dto: QuerySymbolsDto) {
     const {
       interval, page, page_size, sort, q = '',
-      conditions = [], fields = [],
+      conditions = [],
     } = dto;
 
-    // 取最新一根 K 线的指标
-    // 先找每个 symbol 在该 interval 下的最新 open_time
+    // 前端 camelCase 字段名 → DB 列名
+    const SORT_COL_MAP: Record<string, string> = {
+      symbol: 'k.symbol',
+      close: 'k.close',
+      ma5: 'k.ma5',
+      ma30: 'k.ma30',
+      ma60: 'k.ma60',
+      kdjJ: 'k.kdj_j',
+      riskRewardRatio: 'k.risk_reward_ratio',
+      stopLossPct: 'k.stop_loss_pct',
+      openTime: 'k.open_time',
+    };
+
     let sql = `
       WITH latest AS (
         SELECT symbol, MAX(open_time) AS max_time
@@ -70,24 +81,23 @@ export class SymbolsService {
         WHERE interval = $1
         GROUP BY symbol
       )
-      SELECT k.symbol`;
-
-    const params: any[] = [interval];
-    let pi = 2;
-
-    // 按 fields 选择列
-    const displayFields = fields.length > 0
-      ? fields.filter((f) => INDICATOR_COLUMNS[f])
-      : [];
-    for (const f of displayFields) {
-      sql += `, k.${INDICATOR_COLUMNS[f]} AS "${f}"`;
-    }
-
-    sql += `
+      SELECT
+        k.symbol,
+        k.close,
+        k.ma5,
+        k.ma30,
+        k.ma60,
+        k.kdj_j AS "kdjJ",
+        k.risk_reward_ratio AS "riskRewardRatio",
+        k.stop_loss_pct AS "stopLossPct",
+        k.open_time AS "openTime"
       FROM klines k
       JOIN latest ON k.symbol = latest.symbol AND k.open_time = latest.max_time AND k.interval = $1
       JOIN symbols s ON s.symbol = k.symbol
       WHERE s.is_excluded = false`;
+
+    const params: any[] = [interval];
+    let pi = 2;
 
     if (q) {
       sql += ` AND k.symbol ILIKE $${pi}`;
@@ -110,11 +120,7 @@ export class SymbolsService {
     const total = parseInt(countResult[0].count, 10);
 
     // 排序
-    const sortCol = sort.field === 'symbol'
-      ? 'k.symbol'
-      : INDICATOR_COLUMNS[sort.field]
-        ? `k.${INDICATOR_COLUMNS[sort.field]}`
-        : 'k.symbol';
+    const sortCol = SORT_COL_MAP[sort.field] ?? 'k.symbol';
     sql += ` ORDER BY ${sortCol} ${sort.asc ? 'ASC' : 'DESC'} NULLS LAST`;
 
     // 分页

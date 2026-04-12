@@ -264,13 +264,13 @@ onMounted(loadStrategies)
 <style scoped>
 .backtest-view { max-width: 1400px; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.page-title { font-size: 24px; font-weight: 600; color: var(--text-primary); margin: 0; }
-.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 24px; }
-.strategy-table-card { background: var(--glass-bg); backdrop-filter: var(--glass-blur); }
+.page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
+.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px; }
+.strategy-table-card { background: var(--ember-surface); }
 .action-btns { display: flex; gap: 4px; }
 .run-progress { padding: 20px 0; }
 .symbol-selector { padding: 8px 0 20px; }
-.selector-hint { margin: 0 0 12px; color: var(--text-secondary); font-size: 13px; }
-.phase-text { text-align: center; margin-top: 12px; color: var(--text-secondary); }
+.selector-hint { margin: 0 0 12px; color: var(--ember-text-secondary); font-size: 14px; }
+.phase-text { text-align: center; margin-top: 12px; color: var(--ember-text-secondary); }
 .error-text { text-align: center; margin-top: 8px; color: var(--color-error); }
 </style>

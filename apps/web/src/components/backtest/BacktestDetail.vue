@@ -165,11 +165,11 @@ onUnmounted(() => { chart?.dispose(); window.removeEventListener('resize', () =>
 <style scoped>
 .backtest-detail { padding: 4px 0; }
 .run-selector { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
-.run-meta { font-size: 13px; color: var(--text-secondary); }
+.run-meta { font-size: 14px; color: var(--ember-text-secondary); }
 .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
-.stat-item { background: var(--glass-bg); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
-.label { font-size: 12px; color: var(--text-muted); }
-.value { font-size: 15px; font-weight: 600; color: var(--text-primary); }
-.section-title { font-size: 15px; font-weight: 600; margin: 0 0 12px; color: var(--text-primary); }
+.stat-item { background: var(--ember-surface); border: 1px solid var(--ember-border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+.label { font-size: 12px; color: var(--ember-neutral); }
+.value { font-size: 15px; font-weight: 600; color: var(--ember-text); }
+.section-title { font-family: 'Source Sans 3', sans-serif; font-size: 16px; font-weight: 600; margin: 0 0 12px; color: var(--ember-text); }
 .chart-container { height: 300px; width: 100%; }
 </style>

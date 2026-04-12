@@ -1,67 +1,51 @@
-/* 毛玻璃/新拟态风格主题 - 支持深色/浅色模式 */
+/* Ember Studio 设计系统 — 暖色大地色调 */
 
-/* 基础变量 */
+/* ===== 设计令牌 ===== */
 :root {
-  /* 浅色模式 - 毛玻璃变量 */
-  --glass-bg: rgba(255, 255, 255, 0.7);
-  --glass-bg-solid: rgba(255, 255, 255, 0.95);
-  --glass-border: rgba(255, 255, 255, 0.5);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-  --glass-blur: blur(20px);
-  
-  /* 文字颜色 */
-  --text-primary: rgba(0, 0, 0, 0.9);
-  --text-secondary: rgba(0, 0, 0, 0.6);
-  --text-muted: rgba(0, 0, 0, 0.4);
-  
-  /* 强调色 - 科技蓝 */
-  --accent-primary: #2563eb;
-  --accent-secondary: #3b82f6;
-  --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  
-  /* 背景 */
-  --bg-body: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
-  --bg-card: rgba(255, 255, 255, 0.6);
-  --bg-hover: rgba(255, 255, 255, 0.8);
-  
-  /* 边框 */
-  --border-light: rgba(255, 255, 255, 0.6);
-  --border-dark: rgba(0, 0, 0, 0.1);
-  
-  /* 成功/警告/错误 */
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
+  /* Ember 主色系 */
+  --ember-primary: #C2410C;
+  --ember-primary-hover: #9A3412;
+  --ember-accent: #F59E0B;
+  --ember-neutral: #78716C;
+
+  /* 表面 & 背景 */
+  --ember-bg: #FAFAF9;
+  --ember-surface: #F5F5F4;
+  --ember-surface-hover: #E7E5E4;
+
+  /* 文字 */
+  --ember-text: #1C1917;
+  --ember-text-secondary: #57534E;
+  --ember-border: #D6D3D1;
+
+  /* 兼容旧变量 — 映射到 Ember 色值 */
+  --glass-bg: #F5F5F4;
+  --glass-bg-solid: #FAFAF9;
+  --glass-border: #D6D3D1;
+  --glass-shadow: 0 4px 16px rgba(28, 25, 23, 0.06);
+  --glass-blur: none;
+
+  --text-primary: #1C1917;
+  --text-secondary: #57534E;
+  --text-muted: #78716C;
+
+  --accent-primary: #C2410C;
+  --accent-secondary: #F59E0B;
+  --accent-gradient: #C2410C;
+
+  --bg-body: #FAFAF9;
+  --bg-card: #F5F5F4;
+  --bg-hover: #E7E5E4;
+
+  --border-light: #D6D3D1;
+  --border-dark: #D6D3D1;
+
+  --color-success: #16A34A;
+  --color-warning: #D97706;
+  --color-error: #DC2626;
 }
 
-/* 深色模式变量 */
-.dark {
-  --glass-bg: rgba(30, 30, 45, 0.7);
-  --glass-bg-solid: rgba(25, 25, 40, 0.95);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  
-  --text-primary: rgba(255, 255, 255, 0.95);
-  --text-secondary: rgba(255, 255, 255, 0.7);
-  --text-muted: rgba(255, 255, 255, 0.5);
-  
-  --accent-primary: #60a5fa;
-  --accent-secondary: #3b82f6;
-  --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  
-  --bg-body: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  --bg-card: rgba(30, 30, 45, 0.5);
-  --bg-hover: rgba(40, 40, 60, 0.6);
-  
-  --border-light: rgba(255, 255, 255, 0.1);
-  --border-dark: rgba(0, 0, 0, 0.3);
-  
-  --color-success: #34d399;
-  --color-warning: #fbbf24;
-  --color-error: #f87171;
-}
-
-/* 全局样式 */
+/* ===== 全局样式 ===== */
 * {
   box-sizing: border-box;
 }
@@ -70,150 +54,148 @@ html, body, #app {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
 body {
-  background: var(--bg-body);
-  background-attachment: fixed;
-  color: var(--text-primary);
-  transition: background 0.3s ease, color 0.3s ease;
+  font-family: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 400;
+  font-size: 16px;
+  background: var(--ember-bg);
+  color: var(--ember-text);
 }
 
-/* 毛玻璃卡片 */
+/* 标题：衬线展示字体 */
+h1, h2, h3 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ember-text);
+}
+
+/* 代码字体 */
+code, pre, .code {
+  font-family: 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-feature-settings: "liga" 1;
+}
+
+/* ===== 卡片 ===== */
 .glass-card {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
-  box-shadow: var(--glass-shadow);
-  transition: all 0.2s ease;
+  background: var(--ember-surface);
+  border: 1px solid var(--ember-border);
+  border-radius: 12px;
+  box-shadow: none;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .glass-card:hover {
-  background: var(--bg-hover);
   transform: translateY(-2px);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 16px rgba(28, 25, 23, 0.06);
 }
 
-.dark .glass-card:hover {
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+/* 选中卡片 — 左侧赤陶土色边框 */
+.glass-card.active,
+.glass-card.selected {
+  border-left: 2px solid var(--ember-primary);
 }
 
-/* 毛玻璃按钮 */
+/* ===== 按钮 ===== */
 .glass-btn {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
+  background: transparent;
+  border: 1px solid var(--ember-border);
+  border-radius: 8px;
   padding: 8px 16px;
-  color: var(--text-primary);
+  color: var(--ember-text);
   cursor: pointer;
-  transition: all 0.2s ease;
-  font-weight: 500;
+  transition: all 150ms ease;
+  font-family: 'Source Sans 3', sans-serif;
+  font-weight: 600;
 }
 
 .glass-btn:hover {
-  background: var(--bg-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  background: var(--ember-surface-hover);
+  transform: none;
+  box-shadow: none;
 }
 
 .glass-btn:active {
-  transform: translateY(0);
+  transform: none;
 }
 
-/* 主按钮 */
+/* 主按钮 — 赤陶土色 */
 .glass-btn-primary {
-  background: var(--accent-gradient);
+  background: var(--ember-primary);
   border: none;
-  color: white;
+  color: #fff;
 }
 
 .glass-btn-primary:hover {
-  opacity: 0.9;
-  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+  background: var(--ember-primary-hover);
+  opacity: 1;
+  box-shadow: 0 4px 12px rgba(194, 65, 12, 0.25);
 }
 
-/* 毛玻璃输入框 */
+/* 危险按钮 */
+.glass-btn-danger {
+  background: var(--color-error);
+  border: none;
+  color: #fff;
+}
+
+.glass-btn-danger:hover {
+  background: #B91C1C;
+}
+
+/* ===== 输入框 ===== */
 .glass-input {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
-  padding: 10px 14px;
-  color: var(--text-primary);
+  background: var(--ember-surface);
+  border: 1px solid var(--ember-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--ember-text);
+  font-size: 16px;
+  font-family: 'Source Sans 3', sans-serif;
   outline: none;
-  transition: all 0.2s ease;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
 .glass-input:focus {
-  border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: var(--ember-primary);
+  box-shadow: 0 0 0 3px rgba(194, 65, 12, 0.12);
 }
 
-/* 毛玻璃侧边栏 */
+/* ===== 侧边栏 ===== */
 .glass-sidebar {
-  background: var(--glass-bg-solid);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border-right: 1px solid var(--glass-border);
+  background: var(--ember-bg);
+  border-right: 1px solid var(--ember-border);
 }
 
-/* 毛玻璃头部 */
+/* ===== 头部 ===== */
 .glass-header {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border-bottom: 1px solid var(--glass-border);
+  background: var(--ember-bg);
+  border-bottom: 1px solid var(--ember-border);
 }
 
-/* 毛玻璃抽屉 */
+/* ===== 抽屉 ===== */
 .glass-drawer {
-  background: var(--glass-bg-solid) !important;
-  backdrop-filter: var(--glass-blur) !important;
-  -webkit-backdrop-filter: var(--glass-blur) !important;
+  background: var(--ember-bg) !important;
 }
 
-/* 毛玻璃表格 */
+/* ===== 表格 ===== */
 .glass-table {
   background: transparent;
 }
 
 .glass-table .n-data-table-table {
-  background: var(--glass-bg);
-  border-radius: 16px;
+  background: var(--ember-surface);
+  border-radius: 12px;
   overflow: hidden;
 }
 
-/* 滚动条样式 */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--text-muted);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
-}
-
-/* 统计卡片 */
+/* ===== 统计卡片 ===== */
 .stat-card {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
+  background: var(--ember-surface);
+  border: 1px solid var(--ember-border);
+  border-radius: 12px;
   padding: 20px;
   position: relative;
   overflow: hidden;
@@ -226,22 +208,83 @@ body {
   left: 0;
   right: 0;
   height: 3px;
-  background: var(--accent-gradient);
+  background: var(--ember-primary);
 }
 
 .stat-value {
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: 28px;
   font-weight: 700;
-  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  color: var(--ember-text);
   margin: 8px 0;
 }
 
 .stat-label {
   font-size: 14px;
-  color: var(--text-secondary);
+  color: var(--ember-text-secondary);
 }
 
-/* 动画 - 简洁快速 */
+/* ===== 标签片 (Chips) ===== */
+.ember-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 14px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--ember-surface-hover);
+  color: var(--ember-neutral);
+}
+
+.ember-chip.active {
+  background: var(--ember-primary);
+  color: #fff;
+}
+
+/* ===== 进度条 ===== */
+.ember-progress-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--ember-surface-hover);
+}
+
+.ember-progress-fill {
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--ember-primary);
+  transition: width 300ms ease;
+}
+
+/* ===== 滚动条 ===== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ember-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ember-neutral);
+}
+
+/* ===== 趋势指示 ===== */
+.trend-up {
+  color: var(--color-success);
+}
+
+.trend-down {
+  color: var(--color-error);
+}
+
+/* ===== 过渡动画 ===== */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.15s ease;
@@ -262,16 +305,7 @@ body {
   transform: translateX(100%);
 }
 
-/* 指标趋势 */
-.trend-up {
-  color: var(--color-success);
-}
-
-.trend-down {
-  color: var(--color-error);
-}
-
-/* 响应式 - 桌面端专用 */
+/* ===== 响应式 — 桌面端专用 ===== */
 @media (max-width: 768px) {
   body::before {
     content: '此应用仅支持桌面端访问';
@@ -280,7 +314,7 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    background: var(--bg-body);
+    background: var(--ember-bg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -288,5 +322,6 @@ body {
     z-index: 9999;
     padding: 20px;
     text-align: center;
+    color: var(--ember-text);
   }
 }

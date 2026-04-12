@@ -1,5 +1,5 @@
 <template>
-  <div class="sidebar glass-sidebar" :class="{ collapsed: isCollapsed }">
+  <div class="sidebar" :class="{ collapsed: isCollapsed }">
     <div class="logo-section">
       <div class="logo">
         <span class="logo-icon">📊</span>
@@ -24,39 +24,20 @@
         @update:value="handleMenuSelect"
       />
     </div>
-
-    <div class="bottom-section">
-      <n-tooltip placement="right" :disabled="!isCollapsed">
-        <template #trigger>
-          <n-button quaternary class="theme-toggle" @click="toggleTheme">
-            <template #icon>
-              <n-icon size="20">
-                <moon v-if="isDark" />
-                <sunny v-else />
-              </n-icon>
-            </template>
-            <span v-show="!isCollapsed" class="btn-text">{{ isDark ? '深色模式' : '浅色模式' }}</span>
-          </n-button>
-        </template>
-        {{ isDark ? '切换到浅色' : '切换到深色' }}
-      </n-tooltip>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NMenu, NButton, NIcon, NTooltip } from 'naive-ui'
+import { NMenu, NButton, NIcon } from 'naive-ui'
 import {
-  ChevronBack, ChevronForward, Moon, Sunny,
+  ChevronBack, ChevronForward,
   TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline,
 } from '@vicons/ionicons5'
-import { useTheme } from '../../composables/useTheme'
 
 const route = useRoute()
 const router = useRouter()
-const { isDark, toggleTheme } = useTheme()
 
 const isCollapsed = ref(localStorage.getItem('sidebar-collapsed') === 'true')
 
@@ -85,42 +66,94 @@ const handleMenuSelect = (key: string) => {
 <style scoped>
 .sidebar {
   height: 100vh;
-  width: 220px;
+  width: 256px;
   display: flex;
   flex-direction: column;
   position: fixed;
   left: 0;
   top: 0;
   z-index: 100;
+  background: var(--ember-bg);
+  border-right: 1px solid var(--ember-border);
   transition: width 0.2s ease;
 }
-.sidebar.collapsed { width: 64px; }
+
+.sidebar.collapsed {
+  width: 64px;
+}
+
+/* Logo 区域 */
 .logo-section {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--ember-border);
 }
-.logo { display: flex; align-items: center; gap: 10px; overflow: hidden; }
-.logo-icon { font-size: 24px; flex-shrink: 0; }
-.logo-text { font-size: 16px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
-.menu-section { flex: 1; padding: 12px 0; overflow-y: auto; }
-:deep(.n-menu) { background: transparent; }
-:deep(.n-menu-item) { margin: 4px 8px; border-radius: 10px; }
-:deep(.n-menu-item-content) { padding: 10px 16px !important; }
-:deep(.n-menu-item-content--selected) { background: var(--accent-gradient) !important; color: white !important; }
-:deep(.n-menu-item-content--selected .n-menu-item-content__icon) { color: white !important; }
-:deep(.n-menu-item-content:not(.n-menu-item-content--selected):hover) { background: var(--bg-hover) !important; }
-.bottom-section { padding: 12px; border-top: 1px solid var(--glass-border); }
-.theme-toggle {
-  width: 100%;
-  justify-content: flex-start;
+
+.logo {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  color: var(--text-secondary);
+  overflow: hidden;
 }
-.theme-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
-.btn-text { font-size: 14px; }
+
+.logo-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.logo-text {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ember-text);
+  white-space: nowrap;
+}
+
+/* 菜单区域 */
+.menu-section {
+  flex: 1;
+  padding: 12px 0;
+  overflow-y: auto;
+}
+
+:deep(.n-menu) {
+  background: transparent;
+}
+
+:deep(.n-menu-item) {
+  margin: 4px 8px;
+  border-radius: 8px;
+}
+
+:deep(.n-menu-item-content) {
+  padding: 10px 16px !important;
+}
+
+/* 激活项 — 赤陶土色左侧强调条 + 暖底色 */
+:deep(.n-menu-item-content--selected) {
+  background: rgba(194, 65, 12, 0.08) !important;
+  color: var(--ember-primary) !important;
+  border-left: 3px solid var(--ember-primary);
+}
+
+:deep(.n-menu-item-content--selected .n-menu-item-content__icon) {
+  color: var(--ember-primary) !important;
+}
+
+/* 悬浮 */
+:deep(.n-menu-item-content:not(.n-menu-item-content--selected):hover) {
+  background: var(--ember-surface-hover) !important;
+}
+
+/* 折叠按钮 */
+.collapse-btn {
+  color: var(--ember-neutral);
+}
+
+.collapse-btn:hover {
+  color: var(--ember-text);
+}
 </style>

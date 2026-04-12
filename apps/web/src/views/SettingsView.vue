@@ -134,10 +134,10 @@ onMounted(() => {
 <style scoped>
 .settings-view { max-width: 900px; }
 .page-header { margin-bottom: 24px; }
-.page-title { font-size: 24px; font-weight: 600; color: var(--text-primary); margin: 0; }
-.settings-grid { display: flex; flex-direction: column; gap: 20px; }
-.settings-card { background: var(--glass-bg); backdrop-filter: var(--glass-blur); }
-.card-desc { margin: 0 0 16px; font-size: 13px; color: var(--text-secondary); }
+.page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
+.settings-grid { display: flex; flex-direction: column; gap: 24px; }
+.settings-card { background: var(--ember-surface); }
+.card-desc { margin: 0 0 16px; font-size: 14px; color: var(--ember-text-secondary); }
 .quick-presets { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
-.preset-label { font-size: 13px; color: var(--text-muted); }
+.preset-label { font-size: 14px; color: var(--ember-neutral); }
 </style>

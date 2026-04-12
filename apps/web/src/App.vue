@@ -1,6 +1,6 @@
 <template>
   <n-config-provider
-    :theme="theme"
+    :theme="null"
     :theme-overrides="themeOverrides"
     :locale="zhCN"
     :date-locale="dateZhCN"
@@ -16,42 +16,120 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import {
   NConfigProvider, NMessageProvider, NDialogProvider, NLoadingBarProvider,
   zhCN, dateZhCN,
 } from 'naive-ui'
+import type { GlobalThemeOverrides } from 'naive-ui'
 import Layout from './components/layout/Layout.vue'
-import { useTheme } from './composables/useTheme'
 
-const { theme, isDark } = useTheme()
-
-const themeOverrides = computed(() => ({
+const themeOverrides: GlobalThemeOverrides = {
   common: {
-    primaryColor: '#667eea',
-    primaryColorHover: '#7c8ff0',
-    primaryColorPressed: '#5a67d8',
-    primaryColorSuppl: '#667eea',
-    borderRadius: '10px',
+    // Ember Studio 主色
+    primaryColor: '#C2410C',
+    primaryColorHover: '#9A3412',
+    primaryColorPressed: '#7C2D12',
+    primaryColorSuppl: '#C2410C',
+    // 信息色 — 用中性色
+    infoColor: '#78716C',
+    infoColorHover: '#57534E',
+    infoColorPressed: '#44403C',
+    // 语义色
+    successColor: '#16A34A',
+    successColorHover: '#15803D',
+    successColorPressed: '#166534',
+    warningColor: '#D97706',
+    warningColorHover: '#B45309',
+    warningColorPressed: '#92400E',
+    errorColor: '#DC2626',
+    errorColorHover: '#B91C1C',
+    errorColorPressed: '#991B1B',
+    // 字体
+    fontFamily: "'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     fontWeightStrong: '600',
+    fontSize: '16px',
+    // 圆角
+    borderRadius: '8px',
+    borderRadiusSmall: '4px',
+    // 颜色基础
+    bodyColor: '#FAFAF9',
+    cardColor: '#F5F5F4',
+    modalColor: '#FAFAF9',
+    popoverColor: '#FAFAF9',
+    tableColor: '#F5F5F4',
+    inputColor: '#F5F5F4',
+    actionColor: '#F5F5F4',
+    hoverColor: '#E7E5E4',
+    borderColor: '#D6D3D1',
+    dividerColor: '#D6D3D1',
+    textColorBase: '#1C1917',
+    textColor1: '#1C1917',
+    textColor2: '#57534E',
+    textColor3: '#78716C',
+    placeholderColor: '#A8A29E',
   },
   Card: {
-    borderRadius: '16px',
-    color: isDark.value ? 'rgba(30, 30, 45, 0.7)' : 'rgba(255, 255, 255, 0.7)',
-    borderColor: isDark.value ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.5)',
+    borderRadius: '12px',
+    color: '#F5F5F4',
+    borderColor: '#D6D3D1',
+    titleFontWeight: '700',
+    titleFontSizeMedium: '20px',
   },
-  Button: { borderRadiusMedium: '10px', borderRadiusSmall: '8px' },
-  Input: { borderRadius: '10px' },
-  Select: { peers: { InternalSelection: { borderRadius: '10px' } } },
-  Drawer: { color: isDark.value ? 'rgba(25, 25, 40, 0.95)' : 'rgba(255, 255, 255, 0.95)' },
-  // Modal: { borderRadius: '16px' },
+  Button: {
+    borderRadiusMedium: '8px',
+    borderRadiusSmall: '8px',
+    borderRadiusLarge: '8px',
+    fontWeightStrong: '600',
+    fontWeight: '600',
+  },
+  Input: {
+    borderRadius: '8px',
+    color: '#F5F5F4',
+    fontSizeMedium: '16px',
+  },
+  Select: {
+    peers: {
+      InternalSelection: {
+        borderRadius: '8px',
+        color: '#F5F5F4',
+      },
+    },
+  },
+  Drawer: {
+    color: '#FAFAF9',
+  },
+  Modal: {
+    color: '#FAFAF9',
+  },
   DataTable: {
-    borderRadius: '16px',
-    thColor: isDark.value ? 'rgba(40, 40, 60, 0.6)' : 'rgba(250, 250, 250, 0.8)',
-    tdColor: isDark.value ? 'rgba(30, 30, 45, 0.5)' : 'rgba(255, 255, 255, 0.6)',
-    thColorHover: isDark.value ? 'rgba(50, 50, 70, 0.6)' : 'rgba(240, 240, 240, 0.8)',
-    tdColorHover: isDark.value ? 'rgba(40, 40, 60, 0.5)' : 'rgba(250, 250, 250, 0.6)',
+    borderRadius: '12px',
+    thColor: '#F5F5F4',
+    tdColor: '#FAFAF9',
+    thColorHover: '#E7E5E4',
+    tdColorHover: '#F5F5F4',
+    borderColor: '#D6D3D1',
+    thFontWeight: '600',
   },
-  Pagination: { itemBorderRadius: '8px' },
-}))
+  Pagination: {
+    itemBorderRadius: '8px',
+  },
+  Tag: {
+    borderRadius: '9999px',
+  },
+  Menu: {
+    borderRadius: '8px',
+    itemColorActive: 'rgba(194, 65, 12, 0.08)',
+    itemColorActiveHover: 'rgba(194, 65, 12, 0.12)',
+    itemTextColorActive: '#C2410C',
+    itemTextColorActiveHover: '#C2410C',
+    itemIconColorActive: '#C2410C',
+    itemIconColorActiveHover: '#C2410C',
+    itemColorHover: '#E7E5E4',
+  },
+  Tabs: {
+    tabTextColorActiveLine: '#C2410C',
+    tabTextColorHoverLine: '#9A3412',
+    barColor: '#C2410C',
+  },
+}
 </script>

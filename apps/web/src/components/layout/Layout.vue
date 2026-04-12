@@ -33,8 +33,8 @@ window.addEventListener('storage', (e) => {
 }
 .main-content {
   flex: 1;
-  margin-left: 220px;
-  padding: 24px;
+  margin-left: 256px;
+  padding: 32px;
   min-height: 100vh;
   transition: margin-left 0.2s ease;
 }

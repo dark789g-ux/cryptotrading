@@ -171,10 +171,11 @@ onMounted(loadWatchlists)
 <style scoped>
 .watchlists-view { max-width: 1200px; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.page-title { font-size: 24px; font-weight: 600; color: var(--text-primary); margin: 0; }
-.lists-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
-.watchlist-card { background: var(--glass-bg); backdrop-filter: var(--glass-blur); }
-.symbol-tags { display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; }
-.card-footer { display: flex; justify-content: space-between; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--glass-border); }
-.count, .date { font-size: 12px; color: var(--text-muted); }
+.page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
+.lists-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; }
+.watchlist-card { background: var(--ember-surface); transition: box-shadow 0.2s ease, transform 0.2s ease; }
+.watchlist-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(28, 25, 23, 0.06); }
+.symbol-tags { display: flex; flex-wrap: wrap; gap: 8px; min-height: 40px; }
+.card-footer { display: flex; justify-content: space-between; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--ember-border); }
+.count, .date { font-size: 12px; color: var(--ember-neutral); }
 </style>
