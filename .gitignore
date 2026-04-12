@@ -1,19 +1,28 @@
 # ═══════════════════════════════════════════════════════════════════
 # cryptotrading：本地数据与本机生成物
-#   · K 线 CSV / exchangeInfo：cache/
-#   · 回测输出：backtest_results/
-#   · FastAPI 运行时 JSON：data/（strategies、sync 偏好等）
-#   · fetch_symbols 可选导出目录：exports/
-#   · 前端依赖：frontend/node_modules/（构建产物 frontend/dist/ 由下方 dist/ 规则匹配）
+#   · K 线 CSV 缓存（迁移用）：cache/
 #   · 工具本地目录：.cursorback/、.claude/
 # ═══════════════════════════════════════════════════════════════════
 /cache/
-/backtest_results/
-/data/
-/exports/
-/frontend/node_modules/
 /.cursorback/
 /.claude/
+
+# Node / pnpm
+node_modules/
+.pnpm-store/
+
+# 构建产物
+apps/server/dist/
+apps/web/dist/
+packages/*/dist/
+
+# 环境变量
+apps/server/.env
+
+# 日志
+*.log
+npm-debug.log*
+pnpm-debug.log*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

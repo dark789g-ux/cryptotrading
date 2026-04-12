@@ -8,71 +8,100 @@
 
 基于币安 USDT 现货行情的完整本地流水线：**K 线采集 → 指标计算 → 本地回测 → Web 可视化**
 
-- 数据以 CSV 格式缓存在本地，零外部数据库依赖
-- Web：**FastAPI**（`/api`）+ **Vue 3**（`frontend/`），统一端口见 `main.py`
+- **后端**：NestJS + TypeScript + TypeORM（PostgreSQL）
+- **前端**：Vue 3 + TypeScript + Vite + Naive UI
+- **架构**：pnpm monorepo（`apps/server`、`apps/web`）
 
 ---
 
 ## 目录索引
 
-| 路径 | 说明 | AGENTS.md |
-|------|------|-----------|
-| `backtest/` | 回测库（配置、数据加载、引擎、指标、模型、报告生成） | [→](backtest/AGENTS.md) |
-| `cache/` | 本地 K 线 CSV 缓存（纯数据目录） | — |
-| `backtest_results/` | 回测输出结果（纯数据目录） | — |
-| `doc/` | 详细文档：脚本说明、编码规范、回测流程、前端规格 | — |
+| 路径 | 说明 |
+|------|------|
+| `apps/server/` | NestJS 后端（API、回测引擎、数据同步） |
+| `apps/web/` | Vue 3 + TypeScript 前端 |
+| `cache/` | 旧版 CSV 缓存（可通过迁移脚本导入 DB） |
+| `prd/` | 产品需求文档 |
+| `docker-compose.yml` | 开发环境（仅 PostgreSQL） |
+| `docker-compose.prod.yml` | 生产环境（nginx + server + postgres） |
 
 ---
 
-## 典型工作流
+## 快速启动（开发）
 
 ```bash
-python fetch_symbols.py       # 1. 更新交易对列表
-python fetch_klines.py        # 2. 拉取 / 更新 K 线与指标
-python backtest_strategy.py   # 3. 运行回测
+# 1. 安装依赖
+pnpm install
+
+# 2. 启动 PostgreSQL
+pnpm db:start
+
+# 3. 配置环境变量
+cp apps/server/.env.example apps/server/.env
+# 编辑 apps/server/.env，确认 DB 连接参数
+
+# 4. 启动后端 + 前端
+pnpm dev
+# 后端: http://localhost:3000/api
+# 前端: http://localhost:5173
+
+# 5. （可选）从 CSV 迁移历史数据
+pnpm migrate:csv
 ```
 
-> **⚠️ 开发期**：运行 `start.ps1`，浏览器打开 **`http://localhost:5173`**（Vite dev server）。  
-> 不要打开 `:8000`——后端挂载的是 `frontend/dist`（构建产物），开发时不实时更新。  
-> Vite 已配置 `/api → :8000` 代理，前后端数据流正常。
+---
+
+## 后端模块
+
+```
+apps/server/src/
+├── entities/          # TypeORM 实体（klines, symbols, strategies, ...）
+├── klines/            # GET /api/klines/:symbol/:interval
+├── symbols/           # POST /api/symbols/query, GET /api/symbols/names
+├── sync/              # GET /api/sync/run (SSE), PUT /api/sync/preferences
+├── backtest/          # POST /api/backtest/start/:id (SSE), GET /api/backtest/runs/:id
+│   └── engine/        # 回测引擎（精确翻译自 Python）
+├── strategies/        # CRUD /api/strategies, /api/strategies/types
+├── watchlists/        # CRUD /api/watchlists
+├── settings/          # PUT /api/settings/excluded-symbols, config
+└── migration/         # CLI: csv-import.ts
+```
+
+## 前端页面
+
+| 路由 | 说明 |
+|------|------|
+| `/backtest` | 策略管理 + 运行回测（SSE 进度）+ 历史结果 Drawer |
+| `/symbols` | 标的筛选（高级条件）+ K 线图表 |
+| `/sync` | 数据同步（SSE 进度）+ 配置 |
+| `/watchlists` | 自选列表 CRUD |
+| `/settings` | 排除标的管理、同步配置 |
 
 ---
 
-## 用户偏好（协作方式）
+## 回测引擎（apps/server/src/backtest/engine/）
 
-| 主题 | 偏好摘要 |
-|------|----------|
-| 需求与交付 | 产品/UI/API 形态未说清时，**先问答澄清再写代码**；必要时多轮直到无歧义 |
-| 需求文档 | 定稿级说明写入 **`prd/`**，便于对照实现与验收 |
-| 后端与数据 | **FastAPI**；处理 CSV 用 **pandas** |
-| 前端 | **Vue SPA**；旧静态页迁移完成后删除，避免双轨 |
-| 交互默认值 | 倾向**显式控件触发**（按钮提交）；表格/布局类 **localStorage** 记忆 |
-| API 形态 | 简单只读用 **GET**；带复杂筛选体用 **POST JSON** |
-| 脚本 | 参数写在文件内；文件头 `# -*- coding: utf-8 -*-`；PowerShell 不用 `&&` |
-| 语言 | 自然语言以**中文**回复 |
-
----
-
-## 前端技术偏好（速查）
-
-**Naive UI + Vue 3**，毛玻璃视觉风格，默认深色模式，ECharts 图表。  
-样式规范、K 线图细节、踩坑记录 → 详见 [`doc/frontend-spec.md`](doc/frontend-spec.md)
+| 文件 | 对应 Python 模块 |
+|------|----------------|
+| `models.ts` | `models.py` |
+| `bt-indicators.ts` | `indicators.py`（calcRecentLow/High） |
+| `cooldown.ts` | `cooldown.py` |
+| `loss-tracker.ts` | `loss_tracker.py` |
+| `trade-helper.ts` | `trade_helper.py` |
+| `signal-scanner.ts` | `signal_scanner.py` |
+| `position-handler.ts` | `position_handler.py` |
+| `engine.ts` | `engine.py` |
+| `report.ts` | `report.py` |
+| `data.service.ts` | `data.py`（数据源改为 PostgreSQL） |
 
 ---
 
-## 主要依赖
+## 生产部署
 
-`pandas` · `requests` · `tqdm` · `fastapi` · `uvicorn`
+```bash
+# 构建前端静态文件
+pnpm build
 
----
-
-## L2 延伸阅读（按需加载）
-
-| 文档 | 何时阅读 |
-|------|---------|
-| [`doc/scripts.md`](doc/scripts.md) | 新增、修改或调用根目录任意脚本时 |
-| [`doc/conventions.md`](doc/conventions.md) | 编写任意 `.py` 文件、读写 CSV、调用币安 API 时 |
-| [`doc/backtest_flow.md`](doc/backtest_flow.md) | 涉及回测逻辑、策略信号、仓位管理、止盈止损或报告生成时 |
-| [`backtest/AGENTS.md`](backtest/AGENTS.md) | 修改 `backtest/` 目录下任意模块时 |
-| [`doc/binance-rate-limit.md`](doc/binance-rate-limit.md) | 新增或修改任何发起币安 REST 请求的代码时 |
-| [`doc/frontend-spec.md`](doc/frontend-spec.md) | 编写或修改 `frontend/src/` 下任意代码时 |
+# 启动生产容器（nginx + server + postgres）
+pnpm prod:up
+```
