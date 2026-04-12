@@ -1,6 +1,7 @@
 # AGENTS.md — cryptotrading
 
 > **L1（始终加载）**：全局定位与规范。编写代码前先读对应子目录的 AGENTS.md（L2），按需读取源文件（L3）。
+> 最后更新：2026-04-12
 
 ---
 
@@ -20,7 +21,6 @@
 |------|---------|------|
 | `apps/server/` | [AGENTS.md](apps/server/AGENTS.md) | NestJS 后端、回测引擎、数据同步 |
 | `apps/web/` | [AGENTS.md](apps/web/AGENTS.md) | Vue 3 前端、SSE composables、页面 |
-| `backtest/` | [AGENTS.md](backtest/AGENTS.md) | 旧版 Python 回测库（仅供参考） |
 | `test/` | [AGENTS.md](test/AGENTS.md) | 研究笔记，非自动化测试 |
 | `cache/` | — | 旧版 CSV 缓存（可通过 `pnpm migrate:csv` 导入 DB） |
 | `prd/` | — | 产品需求文档 |
@@ -30,12 +30,13 @@
 ## 全局规范
 
 ### 语言与风格
-- 项目语言：TypeScript（后端 NestJS，前端 Vue 3）；旧 Python 代码只读不改
+- 项目语言：TypeScript（后端 NestJS，前端 Vue 3）
 - 变量/函数：camelCase；数据库列名：snake_case（TypeORM `@Column({ name: 'snake_case' })`）
 - 不写多余注释；逻辑不自明时才注释
 - 不加推测性抽象、不加未被需求覆盖的功能
 
 ### 后端约定
+- **AI 编程时**：`apps/server/package.json` 的 `dev` 脚本用 `nest start`（不带 `--watch`），避免批量改文件触发频繁重启；日常调试可改回 `--watch`
 - 新模块按 `module/service/controller` 三件套组织，在 `AppModule` 导入
 - API 路径前缀统一加 `/api`（main.ts `setGlobalPrefix`）
 - SSE 响应用 `Subject<SseEvent>` + NestJS `@Sse` 装饰器
@@ -53,10 +54,27 @@
 
 ---
 
+## 环境约定
+
+- **Docker**：必须用 `docker compose`（空格，v2），不能用 `docker-compose`（连字符，v1）[→ 详见](doc/docker-compose-v2.md)
+- **Docker Desktop**：需要 v4.68.0+，旧版（v4.19.0）有引擎通信 bug [→ 详见](doc/docker-desktop-bad-response.md)
+- **PostgreSQL**：只跑在 Docker 容器里（`pnpm db:start`），后端/前端直接在本机跑 Node.js
+- **Vite**：已配置 `server.open: true`，`pnpm dev` 自动打开浏览器
+
+---
+
+## 踩坑记录
+
+- **Docker Bad response**：v4.19.0 引擎通信失败，升级到 v4.68.0+ 解决 [→ 详见](doc/docker-desktop-bad-response.md)
+- **CSV close_time 解析**：`close_time` 是毫秒时间戳字符串，需 `new Date(Number(r.close_time))` [→ 详见](doc/csv-closetime-parse.md)
+- **docker compose v2**：Windows 新环境无 `docker-compose` 命令，package.json 中必须用空格写法 [→ 详见](doc/docker-compose-v2.md)
+
+---
+
 ## 常用命令速查
 
 ```bash
-pnpm dev              # 后端 :3000 + 前端 :5173 并行启动
+pnpm dev              # 后端 :3000 + 前端 :5173 并行启动（自动开浏览器）
 pnpm db:start         # 启动 PostgreSQL Docker 容器
 pnpm migrate:csv      # 从 cache/ 导入旧 CSV 数据到 DB
 pnpm build            # 前后端全量构建

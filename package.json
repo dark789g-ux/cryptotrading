@@ -9,12 +9,12 @@
   "scripts": {
     "dev": "pnpm db:start && pnpm --parallel --filter @cryptotrading/server --filter @cryptotrading/web dev",
     "build": "pnpm --filter @cryptotrading/server build && pnpm --filter @cryptotrading/web build",
-    "db:start": "docker-compose up -d postgres",
-    "db:stop": "docker-compose stop postgres",
-    "db:logs": "docker-compose logs -f postgres",
+    "db:start": "docker compose up -d postgres",
+    "db:stop": "docker compose stop postgres",
+    "db:logs": "docker compose logs -f postgres",
     "migrate:csv": "pnpm --filter @cryptotrading/server migration:csv",
-    "prod:up": "docker-compose -f docker-compose.prod.yml up -d --build",
-    "prod:down": "docker-compose -f docker-compose.prod.yml down"
+    "prod:up": "docker compose -f docker compose.prod.yml up -d --build",
+    "prod:down": "docker compose -f docker compose.prod.yml down"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

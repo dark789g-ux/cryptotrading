@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "nest start --watch",
+    "dev": "nest start",
     "build": "nest build",
     "start": "node dist/main",
     "migration:csv": "ts-node -r tsconfig-paths/register src/migration/csv-import.ts"

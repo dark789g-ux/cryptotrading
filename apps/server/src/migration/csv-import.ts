@@ -98,7 +98,7 @@ async function main() {
             low: r.low,
             close: r.close,
             volume: r.volume,
-            closeTime: r.close_time ? new Date(r.close_time) : null,
+            closeTime: r.close_time ? new Date(Number(r.close_time)) : null,
             quoteVolume: r.quote_volume ?? '0',
             trades: r.trades ?? '0',
             takerBuyBaseVol: r.taker_buy_base_vol ?? '0',
