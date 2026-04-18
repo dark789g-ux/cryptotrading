@@ -204,7 +204,7 @@ onMounted(() => { loadConfig(); loadSymbols() })
 </script>
 
 <style scoped>
-.sync-view { max-width: 1000px; }
+.sync-view { max-width: 1000px; margin: 0 auto; }
 .page-header { margin-bottom: 24px; }
 .page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
 .sync-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }

@@ -4,7 +4,6 @@
     <n-spin v-else-if="loading" style="width:100%;padding:60px 0;display:flex;justify-content:center" />
 
     <template v-else-if="run">
-      <!-- 历史运行选择 -->
       <div class="run-selector">
         <n-select
           v-model:value="selectedRunId"
@@ -12,11 +11,9 @@
           @update:value="loadRun"
           style="width: 280px"
         />
-        <span class="run-meta">{{ runMeta }}</span>
       </div>
 
       <template v-if="reportData">
-        <!-- 统计概览 -->
         <div class="stats-grid">
           <div v-for="item in statItems" :key="item.label" class="stat-item">
             <span class="label">{{ item.label }}</span>
@@ -26,21 +23,243 @@
 
         <n-divider />
 
-        <!-- 收益曲线 -->
-        <h4 class="section-title">资产净值曲线</h4>
-        <div ref="chartRef" class="chart-container"></div>
+        <n-tabs v-model:value="activeTab" type="line" animated>
+          <n-tab-pane name="chart" tab="资产净值曲线">
+            <div ref="chartRef" class="chart-container"></div>
+          </n-tab-pane>
 
-        <n-divider />
+          <n-tab-pane name="positions" :tab="`仓位记录（${reportData?.totalPositions ?? 0} 次）`">
+            <div class="table-filter-bar">
+              <n-select
+                v-model:value="posFiltersDraft.symbol"
+                :options="symbolOptions"
+                filterable
+                clearable
+                placeholder="标的"
+                class="filter-field"
+              />
+              <n-input-number v-model:value="posFiltersDraft.pnlMin" clearable placeholder="最小盈亏" class="filter-field" />
+              <n-input-number v-model:value="posFiltersDraft.pnlMax" clearable placeholder="最大盈亏" class="filter-field" />
+              <n-input-number v-model:value="posFiltersDraft.returnPctMin" clearable placeholder="最小收益率%" class="filter-field" />
+              <n-input-number v-model:value="posFiltersDraft.returnPctMax" clearable placeholder="最大收益率%" class="filter-field" />
+              <n-select
+                v-model:value="posFiltersDraft.stopType"
+                :options="stopTypeOptions"
+                filterable
+                clearable
+                placeholder="出场原因"
+                class="filter-field"
+              />
+              <n-date-picker
+                v-model:formatted-value="posFiltersDraft.entryStart"
+                type="datetime"
+                value-format="yyyy-MM-dd HH:mm:ss"
+                clearable
+                placeholder="买入开始时间"
+                class="filter-field filter-date"
+              />
+              <n-date-picker
+                v-model:formatted-value="posFiltersDraft.entryEnd"
+                type="datetime"
+                value-format="yyyy-MM-dd HH:mm:ss"
+                clearable
+                placeholder="买入结束时间"
+                class="filter-field filter-date"
+              />
+              <n-date-picker
+                v-model:formatted-value="posFiltersDraft.closeStart"
+                type="datetime"
+                value-format="yyyy-MM-dd HH:mm:ss"
+                clearable
+                placeholder="平仓开始时间"
+                class="filter-field filter-date"
+              />
+              <n-date-picker
+                v-model:formatted-value="posFiltersDraft.closeEnd"
+                type="datetime"
+                value-format="yyyy-MM-dd HH:mm:ss"
+                clearable
+                placeholder="平仓结束时间"
+                class="filter-field filter-date"
+              />
+              <div class="filter-actions">
+                <n-button type="primary" :loading="posLoading" @click="applyPosFilters">查询</n-button>
+                <n-button :disabled="posLoading" @click="resetPosFilters">重置</n-button>
+              </div>
+            </div>
+            <n-data-table
+              remote
+              :columns="posColumns"
+              :data="posRows"
+              :pagination="posPagination"
+              :empty-text="posEmptyText"
+              :loading="posLoading"
+              @update:page="onPosPage"
+              @update:page-size="onPosPageSize"
+              @update:sorter="onPosSort"
+              size="small"
+            />
+          </n-tab-pane>
 
-        <!-- 仓位记录 -->
-        <h4 class="section-title">仓位记录（{{ reportData.totalPositions }} 次）</h4>
-        <n-data-table :columns="posColumns" :data="reportData.positions" :pagination="{ pageSize: 10 }" size="small" />
+          <n-tab-pane name="symbols" tab="标的盈亏统计">
+            <div class="table-filter-bar">
+              <n-select
+                v-model:value="symFiltersDraft.symbol"
+                :options="symbolOptions"
+                filterable
+                clearable
+                placeholder="标的"
+                class="filter-field"
+              />
+              <n-input-number v-model:value="symFiltersDraft.totalPnlMin" clearable placeholder="最小总盈亏" class="filter-field" />
+              <n-input-number v-model:value="symFiltersDraft.totalPnlMax" clearable placeholder="最大总盈亏" class="filter-field" />
+              <n-input-number v-model:value="symFiltersDraft.winRateMin" clearable placeholder="最小胜率%" class="filter-field" />
+              <n-input-number v-model:value="symFiltersDraft.winRateMax" clearable placeholder="最大胜率%" class="filter-field" />
+              <div class="filter-actions">
+                <n-button type="primary" :loading="symLoading" @click="applySymFilters">查询</n-button>
+                <n-button :disabled="symLoading" @click="resetSymFilters">重置</n-button>
+              </div>
+            </div>
+            <n-data-table
+              remote
+              :columns="symColumns"
+              :data="symRows"
+              :pagination="symPagination"
+              :empty-text="symEmptyText"
+              :loading="symLoading"
+              @update:page="onSymPage"
+              @update:page-size="onSymPageSize"
+              @update:sorter="onSymSort"
+              size="small"
+            />
+          </n-tab-pane>
 
-        <n-divider />
+          <n-tab-pane name="candleLog" tab="K线记录">
+            <div class="table-filter-bar">
+              <n-select
+                v-model:value="candleFiltersDraft.symbol"
+                :options="symbolOptions"
+                filterable
+                clearable
+                placeholder="标的"
+                class="filter-field"
+              />
+              <n-select
+                v-model:value="candleFiltersDraft.inCooldown"
+                :options="cooldownOptions"
+                clearable
+                placeholder="是否冷却中"
+                class="filter-field"
+              />
+              <n-date-picker
+                v-model:formatted-value="candleFiltersDraft.startTs"
+                type="datetime"
+                value-format="yyyy-MM-dd HH:mm:ss"
+                clearable
+                placeholder="开始时间"
+                class="filter-field filter-date"
+              />
+              <n-date-picker
+                v-model:formatted-value="candleFiltersDraft.endTs"
+                type="datetime"
+                value-format="yyyy-MM-dd HH:mm:ss"
+                clearable
+                placeholder="结束时间"
+                class="filter-field filter-date"
+              />
+              <n-checkbox v-model:checked="candleFiltersDraft.onlyWithAction">仅显示有操作的K线</n-checkbox>
+              <div class="filter-actions">
+                <n-button type="primary" :loading="candleLogLoading" @click="applyCandleFilters">查询</n-button>
+                <n-button :disabled="candleLogLoading" @click="resetCandleFilters">重置</n-button>
+              </div>
+            </div>
+            <n-data-table
+              remote
+              :columns="candleLogColumns"
+              :data="candleLogRows"
+              :pagination="candleLogPagination"
+              :empty-text="candleEmptyText"
+              :loading="candleLogLoading"
+              @update:page="onCandleLogPage"
+              @update:page-size="onCandleLogPageSize"
+              @update:sorter="onCandleLogSort"
+              size="small"
+            />
+          </n-tab-pane>
 
-        <!-- 标的统计 -->
-        <h4 class="section-title">标的盈亏统计</h4>
-        <n-data-table :columns="symColumns" :data="reportData.symbols" :pagination="{ pageSize: 10 }" size="small" />
+          <n-tab-pane name="config" tab="策略配置">
+            <n-empty v-if="!configSnapshot" description="该历史回测未记录配置快照" />
+            <template v-else>
+              <div class="config-toolbar">
+                <n-button size="small" @click="toggleConfigView">
+                  {{ configView === 'form' ? '切换到 JSON 视图' : '切换到表单视图' }}
+                </n-button>
+                <template v-if="configView === 'json'">
+                  <n-button size="small" @click="selectAllJson">全选</n-button>
+                  <n-button size="small" @click="toggleFoldAll">
+                    {{ allFolded ? '展开全部' : '折叠全部' }}
+                  </n-button>
+                </template>
+                <n-button size="small" @click="copyConfig">复制 JSON</n-button>
+              </div>
+
+              <template v-if="configView === 'form'">
+                <n-descriptions
+                  v-for="grp in visibleConfigGroups"
+                  :key="grp.title"
+                  :title="grp.title"
+                  bordered
+                  :column="2"
+                  size="small"
+                  label-placement="left"
+                  class="config-group"
+                >
+                  <n-descriptions-item
+                    v-for="f in grp.fields"
+                    :key="f.key"
+                    :label="f.label"
+                  >
+                    {{ formatConfigValue(f.key, configSnapshot[f.key]) }}
+                  </n-descriptions-item>
+                </n-descriptions>
+              </template>
+
+              <div v-else ref="jsonViewRef" class="json-view">
+                <span class="json-brace">{</span>
+                <div
+                  v-for="(key, idx) in jsonKeys"
+                  :key="key"
+                  class="json-line"
+                >
+                  <span class="json-key">"{{ key }}"</span><span class="json-punct">: </span>
+                  <template v-if="isArray(configSnapshot[key])">
+                    <span class="json-toggle" @click="toggleFold(key)">{{ foldedKeys.has(key) ? '▶' : '▼' }}</span>
+                    <span class="json-bracket">[</span>
+                    <template v-if="!foldedKeys.has(key)">
+                      <template
+                        v-for="(item, i) in (configSnapshot[key] as unknown[])"
+                        :key="i"
+                      >
+                        <span :class="primClass(item)">{{ primText(item) }}</span>
+                        <span
+                          v-if="i < (configSnapshot[key] as unknown[]).length - 1"
+                          class="json-punct"
+                        >, </span>
+                      </template>
+                    </template>
+                    <span v-else class="json-ellipsis">…{{ (configSnapshot[key] as unknown[]).length }} 项</span>
+                    <span class="json-bracket">]</span>
+                  </template>
+                  <template v-else>
+                    <span :class="primClass(configSnapshot[key])">{{ primText(configSnapshot[key]) }}</span>
+                  </template>
+                  <span v-if="idx < jsonKeys.length - 1" class="json-punct">,</span>
+                </div>
+                <span class="json-brace">}</span>
+              </div>
+            </template>
+          </n-tab-pane>
+        </n-tabs>
       </template>
     </template>
   </div>
@@ -49,9 +268,17 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import { useMessage } from 'naive-ui'
+import {
+  useMessage,
+  NEmpty, NSpin, NSelect, NDivider, NDataTable, NTabs, NTabPane,
+  NDescriptions, NDescriptionsItem, NButton, NCheckbox, NInputNumber, NDatePicker,
+} from 'naive-ui'
 import { backtestApi } from '../../composables/useApi'
 import { useTheme } from '../../composables/useTheme'
+import { useBacktestCandleLog } from '../../composables/useBacktestCandleLog'
+import { useBacktestPositions } from '../../composables/useBacktestPositions'
+import { useBacktestSymbols } from '../../composables/useBacktestSymbols'
+import { useBacktestConfigSnapshot } from '../../composables/useBacktestConfigSnapshot'
 
 const props = defineProps<{ strategy: any; run: any; loading: boolean }>()
 
@@ -62,22 +289,16 @@ let chart: echarts.ECharts | null = null
 
 const allRuns = ref<any[]>([])
 const selectedRunId = ref<string | null>(null)
+const currentRunDetail = ref<any>(null)
 const reportData = ref<any>(null)
+const activeTab = ref<'chart' | 'positions' | 'symbols' | 'config' | 'candleLog'>('chart')
 
 const runOptions = computed(() =>
   allRuns.value.map((r) => ({
     label: `${new Date(r.createdAt).toLocaleString('zh-CN')} · ${r.timeframe}`,
     value: r.id,
-  }))
+  })),
 )
-
-const runMeta = computed(() => {
-  const r = allRuns.value.find((r) => r.id === selectedRunId.value)
-  if (!r) return ''
-  const s = r.stats?.stats
-  if (!s) return ''
-  return `收益 ${s.totalReturnPct?.toFixed(2)}%  回撤 ${s.maxDrawdownPct?.toFixed(2)}%`
-})
 
 const statItems = computed(() => {
   const s = reportData.value?.stats
@@ -92,43 +313,83 @@ const statItems = computed(() => {
     { label: '胜场平均收益', value: `${s.avgWinReturnPct?.toFixed(2)}%`, cls: 'trend-up' },
     { label: '败场平均亏损', value: `${s.avgLossReturnPct?.toFixed(2)}%`, cls: 'trend-down' },
     { label: '平均持仓周期', value: `${s.avgHoldCandles?.toFixed(1)} 根`, cls: '' },
-    { label: '总盈亏', value: `${s.totalPnl?.toLocaleString('zh-CN', { maximumFractionDigits: 2 })} USDT`, cls: s.totalPnl >= 0 ? 'trend-up' : 'trend-down' },
+    { label: '满仓K时长', value: `${s.fullPositionBars ?? 0} 根 (${s.fullPositionPct?.toFixed(1) ?? '0.0'}%)`, cls: '' },
   ]
 })
 
-const posColumns = [
-  { title: '#', key: 'posNo', width: 50 },
-  { title: '标的', key: 'symbol', width: 120 },
-  { title: '买入时间', key: 'entryTime', width: 150 },
-  { title: '买入价', key: 'entryPrice', width: 100 },
-  { title: '平仓时间', key: 'closeTime', width: 150 },
-  { title: '平均卖价', key: 'sellPrice', width: 100 },
-  { title: '盈亏(USDT)', key: 'pnl', width: 110, render: (r: any) => r.pnl?.toFixed(2) ?? '-' },
-  { title: '收益率', key: 'returnPct', width: 90, render: (r: any) => `${r.returnPct?.toFixed(2)}%` },
-  { title: '持仓根数', key: 'holdCandles', width: 90 },
-  { title: '出场原因', key: 'stopTypes', ellipsis: { tooltip: true }, render: (r: any) => r.stopTypes?.join(' / ') ?? '-' },
-]
+const {
+  rows: posRows,
+  loading: posLoading,
+  pagination: posPagination,
+  columns: posColumns,
+  filtersDraft: posFiltersDraft,
+  emptyText: posEmptyText,
+  applyFilters: applyPosFilters,
+  resetFilters: resetPosFilters,
+  onPage: onPosPage,
+  onPageSize: onPosPageSize,
+  onSort: onPosSort,
+} = useBacktestPositions(selectedRunId, activeTab)
 
-const symColumns = [
-  { title: '标的', key: 'symbol', width: 130 },
-  { title: '仓位数', key: 'posCount', width: 80 },
-  { title: '胜率', key: 'winRate', width: 80, render: (r: any) => `${r.winRate}%` },
-  { title: '总盈亏', key: 'totalPnl', width: 110, render: (r: any) => r.totalPnl?.toFixed(2) },
-  { title: '平均收益', key: 'avgReturn', width: 90, render: (r: any) => `${r.avgReturn?.toFixed(2)}%` },
-  { title: '最佳', key: 'bestReturn', width: 80, render: (r: any) => `${r.bestReturn?.toFixed(2)}%` },
-  { title: '最差', key: 'worstReturn', width: 80, render: (r: any) => `${r.worstReturn?.toFixed(2)}%` },
-  { title: '均持根数', key: 'avgHold', width: 80 },
-]
+const {
+  rows: symRows,
+  loading: symLoading,
+  pagination: symPagination,
+  columns: symColumns,
+  filtersDraft: symFiltersDraft,
+  emptyText: symEmptyText,
+  applyFilters: applySymFilters,
+  resetFilters: resetSymFilters,
+  onPage: onSymPage,
+  onPageSize: onSymPageSize,
+  onSort: onSymSort,
+} = useBacktestSymbols(selectedRunId, activeTab)
 
-const loadRun = async (runId: string) => {
-  try {
-    const full = await backtestApi.getRun(runId)
-    reportData.value = full?.stats ?? null
-    nextTick(() => renderChart())
-  } catch (err: any) {
-    message.error(err.message)
+const {
+  candleLogRows, candleLogLoading,
+  filtersDraft: candleFiltersDraft,
+  emptyText: candleEmptyText,
+  candleLogPagination, candleLogColumns,
+  applyFilters: applyCandleFilters,
+  resetFilters: resetCandleFilters,
+  onCandleLogPage, onCandleLogPageSize, onCandleLogSort,
+} = useBacktestCandleLog(selectedRunId, activeTab)
+
+const {
+  configSnapshot, visibleConfigGroups, configView, foldedKeys, jsonViewRef,
+  jsonKeys, allFolded, formatConfigValue, isArray, primClass, primText,
+  toggleConfigView, toggleFold, toggleFoldAll, selectAllJson, copyConfig,
+} = useBacktestConfigSnapshot(allRuns, selectedRunId)
+
+const symbolOptions = computed(() => {
+  const values = new Set<string>()
+  for (const item of currentRunDetail.value?.symbols ?? []) {
+    if (typeof item === 'string' && item.trim()) values.add(item.trim())
   }
-}
+  for (const row of reportData.value?.positions ?? []) {
+    if (typeof row?.symbol === 'string' && row.symbol.trim()) values.add(row.symbol.trim())
+  }
+  for (const row of reportData.value?.symbols ?? []) {
+    if (typeof row?.symbol === 'string' && row.symbol.trim()) values.add(row.symbol.trim())
+  }
+  return [...values].sort((a, b) => a.localeCompare(b)).map((value) => ({ label: value, value }))
+})
+
+const stopTypeOptions = computed(() => {
+  const values = new Set<string>()
+  for (const row of reportData.value?.positions ?? []) {
+    if (!Array.isArray(row?.stopTypes)) continue
+    for (const stopType of row.stopTypes) {
+      if (typeof stopType === 'string' && stopType.trim()) values.add(stopType.trim())
+    }
+  }
+  return [...values].sort((a, b) => a.localeCompare(b)).map((value) => ({ label: value, value }))
+})
+
+const cooldownOptions = [
+  { label: '冷却中', value: true },
+  { label: '非冷却中', value: false },
+]
 
 const renderChart = () => {
   if (!chartRef.value || !reportData.value?.portfolio) return
@@ -146,9 +407,23 @@ const renderChart = () => {
   })
 }
 
+const loadRun = async (runId: string) => {
+  try {
+    const full = await backtestApi.getRun(runId)
+    currentRunDetail.value = full ?? null
+    reportData.value = full?.stats ?? null
+    activeTab.value = 'chart'
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : String(err))
+  }
+}
+
+watch([activeTab, reportData], ([tab, data]) => {
+  if (tab === 'chart' && data?.portfolio) nextTick(() => renderChart())
+})
+
 watch(() => props.run, async (r) => {
-  if (!r) { reportData.value = null; return }
-  // load full run list
+  if (!r) { currentRunDetail.value = null; reportData.value = null; return }
   try {
     allRuns.value = await backtestApi.listRuns(props.strategy.id)
     if (allRuns.value.length) {
@@ -165,11 +440,45 @@ onUnmounted(() => { chart?.dispose(); window.removeEventListener('resize', () =>
 <style scoped>
 .backtest-detail { padding: 4px 0; }
 .run-selector { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
-.run-meta { font-size: 14px; color: var(--ember-text-secondary); }
 .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
 .stat-item { background: var(--ember-surface); border: 1px solid var(--ember-border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
 .label { font-size: 12px; color: var(--ember-neutral); }
 .value { font-size: 15px; font-weight: 600; color: var(--ember-text); }
 .section-title { font-family: 'Source Sans 3', sans-serif; font-size: 16px; font-weight: 600; margin: 0 0 12px; color: var(--ember-text); }
 .chart-container { height: 300px; width: 100%; }
+.table-filter-bar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; align-items: center; }
+.filter-field { width: 160px; }
+.filter-date { width: 220px; }
+.filter-actions { display: flex; gap: 8px; margin-left: auto; }
+.config-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
+.config-group { margin-bottom: 20px; }
+.json-view {
+  font-family: 'Source Code Pro', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--ember-surface);
+  border: 1px solid var(--ember-border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  color: var(--ember-text);
+  user-select: text;
+}
+.json-line { padding-left: 20px; }
+.json-brace, .json-bracket { color: var(--ember-text-secondary); }
+.json-key { color: var(--ember-warning); }
+.json-string { color: var(--ember-success); }
+.json-number { color: var(--ember-primary); }
+.json-boolean { color: var(--ember-info, #60a5fa); }
+.json-null { color: var(--ember-neutral); font-style: italic; }
+.json-punct { color: var(--ember-text-secondary); }
+.json-toggle {
+  display: inline-block;
+  width: 14px;
+  cursor: pointer;
+  color: var(--ember-text-secondary);
+  user-select: none;
+  margin-right: 2px;
+}
+.json-toggle:hover { color: var(--ember-primary); }
+.json-ellipsis { color: var(--ember-neutral); font-style: italic; margin: 0 4px; }
 </style>

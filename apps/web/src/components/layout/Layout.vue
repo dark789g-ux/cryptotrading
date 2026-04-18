@@ -14,16 +14,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
 import Sidebar from './Sidebar.vue'
+import { useSidebarCollapsed } from '../../composables/useSidebarCollapsed'
 
-const isCollapsed = ref(localStorage.getItem('sidebar-collapsed') === 'true')
-
-window.addEventListener('storage', (e) => {
-  if (e.key === 'sidebar-collapsed') {
-    isCollapsed.value = e.newValue === 'true'
-  }
-})
+const { isCollapsed } = useSidebarCollapsed()
 </script>
 
 <style scoped>

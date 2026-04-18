@@ -2,8 +2,8 @@
   <div class="sidebar" :class="{ collapsed: isCollapsed }">
     <div class="logo-section">
       <div class="logo">
-        <span class="logo-icon">📊</span>
-        <span v-show="!isCollapsed" class="logo-text">CryptoTrading</span>
+        <img class="logo-icon" src="/favicon.png" alt="logo" />
+        <span class="logo-text" :class="{ hidden: isCollapsed }">CryptoTrading</span>
       </div>
       <n-button quaternary circle class="collapse-btn" @click="toggleCollapse">
         <template #icon>
@@ -28,23 +28,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h } from 'vue'
+import { computed, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NMenu, NButton, NIcon } from 'naive-ui'
 import {
   ChevronBack, ChevronForward,
   TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline,
 } from '@vicons/ionicons5'
+import { useSidebarCollapsed } from '../../composables/useSidebarCollapsed'
 
 const route = useRoute()
 const router = useRouter()
 
-const isCollapsed = ref(localStorage.getItem('sidebar-collapsed') === 'true')
-
-const toggleCollapse = () => {
-  isCollapsed.value = !isCollapsed.value
-  localStorage.setItem('sidebar-collapsed', String(isCollapsed.value))
-}
+const { isCollapsed, toggle: toggleCollapse } = useSidebarCollapsed()
 
 const activeKey = computed(() => route.name as string)
 
@@ -99,8 +95,11 @@ const handleMenuSelect = (key: string) => {
 }
 
 .logo-icon {
-  font-size: 24px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 6px;
 }
 
 .logo-text {
@@ -110,6 +109,13 @@ const handleMenuSelect = (key: string) => {
   letter-spacing: -0.02em;
   color: var(--ember-text);
   white-space: nowrap;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.logo-text.hidden {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* 菜单区域 */

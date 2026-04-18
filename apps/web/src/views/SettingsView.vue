@@ -132,7 +132,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.settings-view { max-width: 900px; }
+.settings-view { max-width: 900px; margin: 0 auto; }
 .page-header { margin-bottom: 24px; }
 .page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
 .settings-grid { display: flex; flex-direction: column; gap: 24px; }

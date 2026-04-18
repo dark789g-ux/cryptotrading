@@ -8,6 +8,7 @@ import { SyncModule } from './sync/sync.module';
 import { StrategiesModule } from './strategies/strategies.module';
 import { BacktestModule } from './backtest/backtest.module';
 import { WatchlistsModule } from './watchlists/watchlists.module';
+import { SymbolPresetsModule } from './symbol-presets/symbol-presets.module';
 import { SettingsModule } from './settings/settings.module';
 import { SymbolEntity } from './entities/symbol.entity';
 import { KlineEntity } from './entities/kline.entity';
@@ -15,8 +16,11 @@ import { StrategyTypeEntity } from './entities/strategy-type.entity';
 import { StrategyEntity } from './entities/strategy.entity';
 import { BacktestRunEntity } from './entities/backtest-run.entity';
 import { BacktestTradeEntity } from './entities/backtest-trade.entity';
+import { BacktestCandleLogEntity } from './entities/backtest-candle-log.entity';
 import { WatchlistEntity } from './entities/watchlist.entity';
 import { WatchlistItemEntity } from './entities/watchlist-item.entity';
+import { SymbolPresetEntity } from './entities/symbol-preset.entity';
+import { SymbolPresetItemEntity } from './entities/symbol-preset-item.entity';
 import { AppConfigEntity } from './entities/app-config.entity';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
@@ -39,12 +43,15 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           StrategyEntity,
           BacktestRunEntity,
           BacktestTradeEntity,
+          BacktestCandleLogEntity,
           WatchlistEntity,
           WatchlistItemEntity,
+          SymbolPresetEntity,
+          SymbolPresetItemEntity,
           AppConfigEntity,
         ],
-        synchronize: true,
-        logging: false,
+        synchronize: false,
+        logging: ['error', 'warn'],
       }),
       inject: [ConfigService],
     }),
@@ -54,6 +61,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     StrategiesModule,
     BacktestModule,
     WatchlistsModule,
+    SymbolPresetsModule,
     SettingsModule,
   ],
 })

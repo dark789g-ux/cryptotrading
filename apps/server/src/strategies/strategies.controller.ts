@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
 import { StrategiesService } from './strategies.service';
 
 @Controller('strategies')
@@ -13,8 +13,11 @@ export class StrategiesController {
 
   /** GET /api/strategies */
   @Get()
-  list() {
-    return this.strategiesService.listStrategies();
+  list(
+    @Query('sortField') sortField?: string,
+    @Query('sortOrder') sortOrder?: 'ASC' | 'DESC',
+  ) {
+    return this.strategiesService.listStrategies({ sortField, sortOrder });
   }
 
   /** GET /api/strategies/:id */
@@ -25,7 +28,7 @@ export class StrategiesController {
 
   /** POST /api/strategies */
   @Post()
-  create(@Body() body: { name: string; typeId: string; params?: object; symbols?: string[] }) {
+  create(@Body() body: { name?: string; typeId: string; params?: object; symbols?: string[] }) {
     return this.strategiesService.createStrategy(body);
   }
 

@@ -11,6 +11,12 @@ export class SymbolsController {
     return this.symbolsService.getNames(interval);
   }
 
+  /** GET /api/symbols/date-range?interval= */
+  @Get('date-range')
+  getDateRange(@Query('interval') interval: string = '1d') {
+    return this.symbolsService.getDateRange(interval);
+  }
+
   /** GET /api/symbols/kline-columns */
   @Get('kline-columns')
   getKlineColumns() {

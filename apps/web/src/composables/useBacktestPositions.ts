@@ -1,0 +1,273 @@
+import { ref, computed, watch, type Ref } from 'vue'
+import { useMessage, type DataTableSortState } from 'naive-ui'
+import { backtestApi, type BacktestPositionFilters } from './useApi'
+
+type PositionFilterState = BacktestPositionFilters
+
+interface StoredState {
+  filtersDraft: PositionFilterState
+  filtersApplied: PositionFilterState
+  page: number
+  pageSize: number
+  sortBy: string
+  sortOrder: 'asc' | 'desc'
+}
+
+const DEFAULT_SORT_BY = 'entryTime'
+const DEFAULT_SORT_ORDER: 'asc' | 'desc' = 'desc'
+
+function createEmptyFilters(): PositionFilterState {
+  return {
+    symbol: '',
+    pnlMin: null,
+    pnlMax: null,
+    returnPctMin: null,
+    returnPctMax: null,
+    stopType: '',
+    entryStart: null,
+    entryEnd: null,
+    closeStart: null,
+    closeEnd: null,
+  }
+}
+
+function cloneFilters(filters: PositionFilterState): PositionFilterState {
+  return {
+    symbol: filters.symbol ?? '',
+    pnlMin: filters.pnlMin ?? null,
+    pnlMax: filters.pnlMax ?? null,
+    returnPctMin: filters.returnPctMin ?? null,
+    returnPctMax: filters.returnPctMax ?? null,
+    stopType: filters.stopType ?? '',
+    entryStart: filters.entryStart ?? null,
+    entryEnd: filters.entryEnd ?? null,
+    closeStart: filters.closeStart ?? null,
+    closeEnd: filters.closeEnd ?? null,
+  }
+}
+
+function hasRangeError(start?: string, end?: string) {
+  return Boolean(start && end && start > end)
+}
+
+export function useBacktestPositions(
+  selectedRunId: Ref<string | null>,
+  activeTab: Ref<string>,
+) {
+  const message = useMessage()
+
+  const rows = ref<any[]>([])
+  const total = ref(0)
+  const loading = ref(false)
+  const page = ref(1)
+  const pageSize = ref(10)
+  const sortBy = ref(DEFAULT_SORT_BY)
+  const sortOrder = ref<'asc' | 'desc'>(DEFAULT_SORT_ORDER)
+  const filtersDraft = ref<PositionFilterState>(createEmptyFilters())
+  const filtersApplied = ref<PositionFilterState>(createEmptyFilters())
+  const stateByRunId = new Map<string, StoredState>()
+
+  const pagination = computed(() => ({
+    page: page.value,
+    pageSize: pageSize.value,
+    itemCount: total.value,
+    pageSizes: [10, 20, 50],
+    showSizePicker: true,
+  }))
+
+  const hasAppliedFilters = computed(() => Object.values(filtersApplied.value).some((value) => value !== '' && value !== null))
+  const emptyText = computed(() => (hasAppliedFilters.value ? '当前筛选条件下无数据' : '暂无仓位记录'))
+
+  const columns = computed(() => [
+    { title: '#', key: 'posNo', width: 50, sortOrder: false as const, sorter: false },
+    { title: '标的', key: 'symbol', width: 120, sortOrder: false as const, sorter: false },
+    {
+      title: '买入时间',
+      key: 'entryTime',
+      width: 150,
+      sortOrder: sortBy.value === 'entryTime' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
+      sorter: true,
+    },
+    {
+      title: '买入价',
+      key: 'entryPrice',
+      width: 100,
+      sortOrder: sortBy.value === 'entryPrice' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
+      sorter: true,
+    },
+    {
+      title: '平仓时间',
+      key: 'closeTime',
+      width: 150,
+      sortOrder: sortBy.value === 'closeTime' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
+      sorter: true,
+    },
+    {
+      title: '平均卖价',
+      key: 'sellPrice',
+      width: 100,
+      sortOrder: sortBy.value === 'sellPrice' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
+      sorter: true,
+    },
+    {
+      title: '盈亏(USDT)',
+      key: 'pnl',
+      width: 110,
+      sortOrder: sortBy.value === 'pnl' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
+      sorter: true,
+      render: (r: any) => r.pnl?.toFixed(2) ?? '-',
+    },
+    {
+      title: '收益率',
+      key: 'returnPct',
+      width: 90,
+      sortOrder: sortBy.value === 'returnPct' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
+      sorter: true,
+      render: (r: any) => `${r.returnPct?.toFixed(2)}%`,
+    },
+    {
+      title: '持仓根数',
+      key: 'holdCandles',
+      width: 90,
+      sortOrder: sortBy.value === 'holdCandles' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
+      sorter: true,
+    },
+    { title: '出场原因', key: 'stopTypes', ellipsis: { tooltip: true }, render: (r: any) => r.stopTypes?.join(' / ') ?? '-' },
+  ])
+
+  const saveState = (runId: string) => {
+    stateByRunId.set(runId, {
+      filtersDraft: cloneFilters(filtersDraft.value),
+      filtersApplied: cloneFilters(filtersApplied.value),
+      page: page.value,
+      pageSize: pageSize.value,
+      sortBy: sortBy.value,
+      sortOrder: sortOrder.value,
+    })
+  }
+
+  const restoreState = (runId: string) => {
+    const cached = stateByRunId.get(runId)
+    if (!cached) {
+      filtersDraft.value = createEmptyFilters()
+      filtersApplied.value = createEmptyFilters()
+      page.value = 1
+      pageSize.value = 10
+      sortBy.value = DEFAULT_SORT_BY
+      sortOrder.value = DEFAULT_SORT_ORDER
+      return
+    }
+    filtersDraft.value = cloneFilters(cached.filtersDraft)
+    filtersApplied.value = cloneFilters(cached.filtersApplied)
+    page.value = cached.page
+    pageSize.value = cached.pageSize
+    sortBy.value = cached.sortBy
+    sortOrder.value = cached.sortOrder
+  }
+
+  const validateFilters = () => {
+    if (hasRangeError(filtersDraft.value.entryStart, filtersDraft.value.entryEnd)) {
+      message.error('买入开始时间不能晚于结束时间')
+      return false
+    }
+    if (hasRangeError(filtersDraft.value.closeStart, filtersDraft.value.closeEnd)) {
+      message.error('平仓开始时间不能晚于结束时间')
+      return false
+    }
+    return true
+  }
+
+  const load = async () => {
+    if (!selectedRunId.value) return
+    loading.value = true
+    try {
+      const res = await backtestApi.getRunPositions(selectedRunId.value, {
+        page: page.value,
+        pageSize: pageSize.value,
+        sortBy: sortBy.value,
+        sortOrder: sortOrder.value.toUpperCase() as 'ASC' | 'DESC',
+        ...filtersApplied.value,
+      })
+      rows.value = res.rows
+      total.value = res.total
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const applyFilters = () => {
+    if (!validateFilters()) return
+    filtersApplied.value = cloneFilters(filtersDraft.value)
+    page.value = 1
+    if (selectedRunId.value) saveState(selectedRunId.value)
+    load()
+  }
+
+  const resetFilters = () => {
+    filtersDraft.value = createEmptyFilters()
+    filtersApplied.value = createEmptyFilters()
+    page.value = 1
+    sortBy.value = DEFAULT_SORT_BY
+    sortOrder.value = DEFAULT_SORT_ORDER
+    if (selectedRunId.value) saveState(selectedRunId.value)
+    load()
+  }
+
+  const onPage = (p: number) => {
+    page.value = p
+    if (selectedRunId.value) saveState(selectedRunId.value)
+    load()
+  }
+
+  const onPageSize = (ps: number) => {
+    pageSize.value = ps
+    page.value = 1
+    if (selectedRunId.value) saveState(selectedRunId.value)
+    load()
+  }
+
+  const onSort = (sorterState: DataTableSortState | null) => {
+    if (!sorterState || !sorterState.order) {
+      sortBy.value = 'entryTime'
+      sortOrder.value = 'desc'
+    } else {
+      sortBy.value = String(sorterState.columnKey)
+      sortOrder.value = sorterState.order === 'ascend' ? 'asc' : 'desc'
+    }
+    page.value = 1
+    if (selectedRunId.value) saveState(selectedRunId.value)
+    load()
+  }
+
+  watch(filtersDraft, () => {
+    if (selectedRunId.value && activeTab.value === 'positions') saveState(selectedRunId.value)
+  }, { deep: true })
+
+  watch([selectedRunId, activeTab], ([id, tab], [prevId, prevTab]) => {
+    if (prevId && prevTab === 'positions') saveState(prevId)
+    if (id && tab === 'positions') {
+      restoreState(id)
+      load()
+    }
+  }, { immediate: true })
+
+  return {
+    rows,
+    total,
+    loading,
+    pagination,
+    columns,
+    filtersDraft,
+    filtersApplied,
+    hasAppliedFilters,
+    emptyText,
+    load,
+    applyFilters,
+    resetFilters,
+    onPage,
+    onPageSize,
+    onSort,
+  }
+}

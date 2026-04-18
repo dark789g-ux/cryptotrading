@@ -4,19 +4,50 @@
 
 import { KlineBarRow } from './models';
 
-const RECENT_WINDOW = 9;
+/**
+ * 预计算全量 KDJ，用于自定义周期（kdjN/M1/M2 != 9/3/3）时替换行内预存值。
+ * 返回 symbol → KDJ 数组（与 df 下标一一对应）。
+ */
+export function precomputeAllKdj(
+  data: Map<string, KlineBarRow[]>,
+  n: number,
+  m1: number,
+  m2: number,
+): Map<string, Array<{ k: number; d: number; j: number }>> {
+  const result = new Map<string, Array<{ k: number; d: number; j: number }>>();
+  for (const [symbol, df] of data) {
+    const arr: Array<{ k: number; d: number; j: number }> = new Array(df.length);
+    let k = 50, d = 50;
+    for (let i = 0; i < df.length; i++) {
+      const start = Math.max(0, i - n + 1);
+      let highN = -Infinity, lowN = Infinity;
+      for (let s = start; s <= i; s++) {
+        if (df[s].high > highN) highN = df[s].high;
+        if (df[s].low < lowN) lowN = df[s].low;
+      }
+      const rsv = highN === lowN ? 50 : ((df[i].close - lowN) / (highN - lowN)) * 100;
+      k = ((m1 - 1) * k + rsv) / m1;
+      d = ((m2 - 1) * d + k) / m2;
+      arr[i] = { k, d, j: 3 * k - 2 * d };
+    }
+    result.set(symbol, arr);
+  }
+  return result;
+}
 
 /**
  * 买入点 entryIdx 的近期低价（止损基准）
- * 翻译自 Python calc_recent_low()
+ * @param window  向前取最近 N 根 K 线的极值作为初始候选
+ * @param buffer  在 window 之外继续向前追溯，找更低的连续低点
  */
 export function calcRecentLow(
   df: KlineBarRow[],
   entryIdx: number,
-  lookbackBuffer: number,
+  window: number,
+  buffer: number,
 ): [number, string] {
   const winEnd = entryIdx;
-  const winStart = Math.max(0, entryIdx - RECENT_WINDOW);
+  const winStart = Math.max(0, entryIdx - window);
 
   if (winStart >= winEnd) {
     return [df[entryIdx]?.low ?? 0, String(df[entryIdx]?.open_time ?? '')];
@@ -32,11 +63,11 @@ export function calcRecentLow(
     }
   }
 
-  const limit = Math.max(0, entryIdx - lookbackBuffer);
+  const limit = Math.max(0, entryIdx - buffer);
   let idx = winStart - 1;
   while (idx >= limit) {
     const v = df[idx].low;
-    if (v <= recent) {
+    if (v < recent) {
       recent = v;
       bestIdx = idx;
       idx--;
@@ -50,15 +81,17 @@ export function calcRecentLow(
 
 /**
  * 买入点 entryIdx 的近期高价（阶段止盈触发价）
- * 翻译自 Python calc_recent_high()
+ * @param window  向前取最近 N 根 K 线的极值作为初始候选
+ * @param buffer  在 window 之外继续向前追溯，找更高的连续高点
  */
 export function calcRecentHigh(
   df: KlineBarRow[],
   entryIdx: number,
-  lookbackBuffer: number,
+  window: number,
+  buffer: number,
 ): [number, string] {
   const winEnd = entryIdx;
-  const winStart = Math.max(0, entryIdx - RECENT_WINDOW);
+  const winStart = Math.max(0, entryIdx - window);
 
   if (winStart >= winEnd) {
     return [df[entryIdx]?.high ?? 0, String(df[entryIdx]?.open_time ?? '')];
@@ -74,11 +107,11 @@ export function calcRecentHigh(
     }
   }
 
-  const limit = Math.max(0, entryIdx - lookbackBuffer);
+  const limit = Math.max(0, entryIdx - buffer);
   let idx = winStart - 1;
   while (idx >= limit) {
     const v = df[idx].high;
-    if (v >= recent) {
+    if (v > recent) {
       recent = v;
       bestIdx = idx;
       idx--;

@@ -33,6 +33,10 @@ export class BacktestRunEntity {
   @Column({ type: 'jsonb', nullable: true })
   stats: object;
 
+  // 回测时所用的完整策略配置快照
+  @Column({ name: 'config_snapshot', type: 'jsonb', nullable: true })
+  configSnapshot: Record<string, unknown>;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

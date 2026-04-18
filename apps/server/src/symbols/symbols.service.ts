@@ -49,6 +49,20 @@ export class SymbolsService {
     return rows.map((r) => r.symbol);
   }
 
+  /** 返回指定 interval 下所有 klines 的最早/最新 open_time */
+  async getDateRange(interval: string): Promise<{ min: string | null; max: string | null }> {
+    const row = await this.klineRepo
+      .createQueryBuilder('k')
+      .select('MIN(k.open_time)', 'min')
+      .addSelect('MAX(k.open_time)', 'max')
+      .where('k.interval = :interval', { interval })
+      .getRawOne<{ min: Date | null; max: Date | null }>();
+    return {
+      min: row?.min ? new Date(row.min).toISOString() : null,
+      max: row?.max ? new Date(row.max).toISOString() : null,
+    };
+  }
+
   /** 返回 klines 表指标列名（给前端动态渲染用） */
   getKlineColumns(): string[] {
     return Object.keys(INDICATOR_COLUMNS);

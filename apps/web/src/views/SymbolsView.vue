@@ -86,7 +86,7 @@ defineOptions({ name: 'SymbolsView' })
 import { ref, computed, onMounted, onUnmounted, h } from 'vue'
 import * as echarts from 'echarts'
 import {
-  NButton, NIcon, NSelect, NSpace, NInput, NBadge, NTag,
+  NButton, NIcon, NSelect, NSpace, NInput, NBadge, NTag, NTooltip,
   NCard, NDataTable, NInputNumber, NDivider, NEmpty, NDrawer, NDrawerContent,
   useMessage,
 } from 'naive-ui'
@@ -141,9 +141,12 @@ const columns = computed(() => [
   { title: '止损%', key: 'stopLossPct', width: 90, sorter: true, render: (r: any) => r.stopLossPct ? `${r.stopLossPct.toFixed(2)}%` : '-' },
   { title: '最新更新', key: 'openTime', width: 110, sorter: true, render: (r: any) => r.openTime ? new Date(r.openTime).toISOString().slice(0, 10) : '-' },
   {
-    title: '操作', key: 'actions', width: 100, fixed: 'right',
-    render: (r: any) => h(NButton, { size: 'small', quaternary: true, onClick: () => openChart(r.symbol) },
-      { icon: () => h(NIcon, null, () => h(TrendingUpOutline)), default: () => 'K线' }),
+    title: '操作', key: 'actions', width: 70, fixed: 'right',
+    render: (r: any) => h(NTooltip, null, {
+      trigger: () => h(NButton, { size: 'small', onClick: () => openChart(r.symbol) },
+        { icon: () => h(NIcon, null, () => h(TrendingUpOutline)) }),
+      default: () => 'K线',
+    }),
   },
 ])
 
@@ -201,6 +204,53 @@ const openChart = async (symbol: string) => {
   } catch (err: any) { message.error(err.message) }
 }
 
+const MA_COLORS = { MA5: '#f5a524', MA30: '#60a5fa', MA60: '#a78bfa', MA120: '#14b8a6', MA240: '#f97316' } as const
+const KDJ_COLORS = { 'KDJ.K': '#22c55e', 'KDJ.D': '#eab308', 'KDJ.J': '#ec4899' } as const
+const ARROW_RICH = {
+  up: { color: '#ef5350', fontSize: 12 },
+  down: { color: '#26a69a', fontSize: 12 },
+  eq: { color: '#888', fontSize: 12 },
+}
+
+const fmt = (v: any, d = 4) => (v === null || v === undefined || Number.isNaN(Number(v)) ? '-' : Number(v).toFixed(d))
+
+const arrow = (cur: any, prev: any): { sym: string; key: 'up' | 'down' | 'eq' } => {
+  const c = Number(cur), p = Number(prev)
+  if (!Number.isFinite(c) || !Number.isFinite(p)) return { sym: '-', key: 'eq' }
+  if (c > p) return { sym: '▲', key: 'up' }
+  if (c < p) return { sym: '▼', key: 'down' }
+  return { sym: '-', key: 'eq' }
+}
+
+const buildMaText = (idx: number) => {
+  const r = klineData[idx] || {}
+  const prev = klineData[idx - 1] || {}
+  const keys: (keyof typeof MA_COLORS)[] = ['MA5', 'MA30', 'MA60', 'MA120', 'MA240']
+  const segs = keys.map((k) => {
+    const a = arrow(r[k], prev[k])
+    const tag = k.toLowerCase()
+    return `${k}: {${tag}|${fmt(r[k])}}{${a.key}|${a.sym}}`
+  })
+  const rich: Record<string, any> = { ...ARROW_RICH }
+  keys.forEach((k) => { rich[k.toLowerCase()] = { color: MA_COLORS[k], fontSize: 12 } })
+  return { text: segs.join('  '), rich }
+}
+
+const buildKdjText = (idx: number) => {
+  const r = klineData[idx] || {}
+  const prev = klineData[idx - 1] || {}
+  const keys: (keyof typeof KDJ_COLORS)[] = ['KDJ.K', 'KDJ.D', 'KDJ.J']
+  const labels: Record<string, string> = { 'KDJ.K': 'K', 'KDJ.D': 'D', 'KDJ.J': 'J' }
+  const tagMap: Record<string, string> = { 'KDJ.K': 'k', 'KDJ.D': 'd', 'KDJ.J': 'j' }
+  const segs = keys.map((k) => {
+    const a = arrow(r[k], prev[k])
+    return `${labels[k]}: {${tagMap[k]}|${fmt(r[k], 2)}}{${a.key}|${a.sym}}`
+  })
+  const rich: Record<string, any> = { ...ARROW_RICH }
+  keys.forEach((k) => { rich[tagMap[k]] = { color: KDJ_COLORS[k], fontSize: 12 } })
+  return { text: segs.join('  '), rich }
+}
+
 const renderChart = () => {
   if (!chartRef.value || !klineData.length) return
   if (chart) chart.dispose()
@@ -208,25 +258,90 @@ const renderChart = () => {
   const upColor = '#ef5350'; const downColor = '#26a69a'
   const times = klineData.map((d) => d.open_time)
   const klines = klineData.map((d) => [d.open, d.close, d.low, d.high])
+  const lastIdx = klineData.length - 1
+
   chart.setOption({
     ...echartsTheme.value,
-    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-    grid: [{ left: '8%', right: '8%', top: '8%', height: '55%' }, { left: '8%', right: '8%', top: '70%', height: '20%' }],
-    xAxis: [
-      { type: 'category', data: times, axisLabel: { show: false } },
-      { type: 'category', data: times, gridIndex: 1, axisLabel: { show: false } },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      confine: true,
+      formatter: (params: any) => {
+        const p = Array.isArray(params) ? params.find((x: any) => x.seriesType === 'candlestick') : null
+        if (!p) return ''
+        const idx = p.dataIndex as number
+        const row = klineData[idx] || {}
+        const o = Number(row.open), h = Number(row.high), l = Number(row.low), c = Number(row.close)
+        const prev = idx > 0 ? Number(klineData[idx - 1].close) : c
+        const diff = c - prev
+        const pct = prev ? (diff / prev) * 100 : 0
+        const color = diff >= 0 ? '#ef5350' : '#26a69a'
+        const sign = diff >= 0 ? '+' : ''
+        return `
+          <div style="font-size:12px;line-height:1.6">
+            <div style="margin-bottom:4px;color:#888">${row.open_time ?? ''}</div>
+            <div>开: ${fmt(o, 4)}</div>
+            <div>高: ${fmt(h, 4)}</div>
+            <div>低: ${fmt(l, 4)}</div>
+            <div>收: ${fmt(c, 4)}</div>
+            <div style="color:${color}">涨跌: ${sign}${fmt(diff, 4)} (${sign}${pct.toFixed(2)}%)</div>
+          </div>
+        `
+      },
+    },
+    axisPointer: { link: [{ xAxisIndex: 'all' }] },
+    legend: [
+      {
+        orient: 'vertical', right: 12, top: '8%',
+        data: ['K线', 'MA5', 'MA30', 'MA60', 'MA120', 'MA240'],
+        textStyle: { fontSize: 11 }, itemWidth: 14, itemHeight: 8,
+      },
+      {
+        orient: 'vertical', right: 12, top: '70%',
+        data: ['KDJ.K', 'KDJ.D', 'KDJ.J'],
+        textStyle: { fontSize: 11 }, itemWidth: 14, itemHeight: 8,
+      },
     ],
-    yAxis: [{ scale: true }, { scale: true, gridIndex: 1 }],
+    grid: [{ left: '8%', right: '8%', top: '10%', height: '55%' }, { left: '8%', right: '8%', top: '72%', height: '20%' }],
+    xAxis: [
+      { type: 'category', data: times, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
+      { type: 'category', data: times, gridIndex: 1, axisLabel: { show: false }, axisPointer: { label: { show: true } } },
+    ],
+    yAxis: [
+      { scale: true, axisPointer: { label: { show: false } } },
+      { scale: true, gridIndex: 1, axisPointer: { label: { show: false } } },
+    ],
     dataZoom: [
       { type: 'inside', xAxisIndex: [0, 1], start: 70, end: 100 },
       { type: 'slider', xAxisIndex: [0, 1], start: 70, end: 100, bottom: '1%' },
     ],
+    graphic: [
+      { id: 'ma-values', type: 'text', left: '9%', top: '10%', z: 100, style: buildMaText(lastIdx) },
+      { id: 'kdj-values', type: 'text', left: '9%', top: '72%', z: 100, style: buildKdjText(lastIdx) },
+    ],
     series: [
       { name: 'K线', type: 'candlestick', data: klines, itemStyle: { color: upColor, color0: downColor, borderColor: upColor, borderColor0: downColor } },
-      { name: 'MA5', type: 'line', data: klineData.map((d) => d.MA5), showSymbol: false, lineStyle: { width: 1 } },
-      { name: 'MA30', type: 'line', data: klineData.map((d) => d.MA30), showSymbol: false, lineStyle: { width: 1 } },
-      { name: 'KDJ.J', type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: klineData.map((d) => d['KDJ.J']), showSymbol: false, lineStyle: { width: 1.5 } },
+      { name: 'MA5', type: 'line', data: klineData.map((d) => d.MA5), showSymbol: false, lineStyle: { width: 1, color: MA_COLORS.MA5 }, itemStyle: { color: MA_COLORS.MA5 } },
+      { name: 'MA30', type: 'line', data: klineData.map((d) => d.MA30), showSymbol: false, lineStyle: { width: 1, color: MA_COLORS.MA30 }, itemStyle: { color: MA_COLORS.MA30 } },
+      { name: 'MA60', type: 'line', data: klineData.map((d) => d.MA60), showSymbol: false, lineStyle: { width: 1, color: MA_COLORS.MA60 }, itemStyle: { color: MA_COLORS.MA60 } },
+      { name: 'MA120', type: 'line', data: klineData.map((d) => d.MA120), showSymbol: false, lineStyle: { width: 1, color: MA_COLORS.MA120 }, itemStyle: { color: MA_COLORS.MA120 } },
+      { name: 'MA240', type: 'line', data: klineData.map((d) => d.MA240), showSymbol: false, lineStyle: { width: 1, color: MA_COLORS.MA240 }, itemStyle: { color: MA_COLORS.MA240 } },
+      { name: 'KDJ.K', type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: klineData.map((d) => d['KDJ.K']), showSymbol: false, lineStyle: { width: 1, color: KDJ_COLORS['KDJ.K'] }, itemStyle: { color: KDJ_COLORS['KDJ.K'] } },
+      { name: 'KDJ.D', type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: klineData.map((d) => d['KDJ.D']), showSymbol: false, lineStyle: { width: 1, color: KDJ_COLORS['KDJ.D'] }, itemStyle: { color: KDJ_COLORS['KDJ.D'] } },
+      { name: 'KDJ.J', type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: klineData.map((d) => d['KDJ.J']), showSymbol: false, lineStyle: { width: 1, color: KDJ_COLORS['KDJ.J'] }, itemStyle: { color: KDJ_COLORS['KDJ.J'] } },
     ],
+  })
+
+  chart.on('updateAxisPointer', (ev: any) => {
+    const info = ev?.axesInfo?.find((a: any) => a.axisDim === 'x')
+    const idx = typeof info?.value === 'number' ? info.value : lastIdx
+    const safeIdx = idx >= 0 && idx < klineData.length ? idx : lastIdx
+    chart?.setOption({
+      graphic: [
+        { id: 'ma-values', style: buildMaText(safeIdx) },
+        { id: 'kdj-values', style: buildKdjText(safeIdx) },
+      ],
+    })
   })
 }
 
@@ -235,7 +350,7 @@ onUnmounted(() => { chart?.dispose(); window.removeEventListener('resize', () =>
 </script>
 
 <style scoped>
-.symbols-view { max-width: 1400px; }
+.symbols-view { max-width: 1400px; margin: 0 auto; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
 .page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
 .filter-card { margin-bottom: 20px; }

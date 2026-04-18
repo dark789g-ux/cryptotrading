@@ -28,12 +28,16 @@ export class BacktestDataService {
     const data = new Map<string, KlineBarRow[]>();
     const backtestStart = new Map<string, number>();
 
-    for (const symbol of symbols) {
-      const rows = await this.fetchSymbolKlines(symbol, interval, config);
-      if (!rows) continue;
-      data.set(symbol, rows.df);
-      backtestStart.set(symbol, rows.bstart);
-    }
+    // 并行加载所有 symbol，保持原输入顺序填入 Map
+    const results = await Promise.all(
+      symbols.map((symbol) => this.fetchSymbolKlines(symbol, interval, config)),
+    );
+    symbols.forEach((symbol, i) => {
+      const r = results[i];
+      if (!r) return;
+      data.set(symbol, r.df);
+      backtestStart.set(symbol, r.bstart);
+    });
 
     return { data, backtestStart };
   }
@@ -54,7 +58,10 @@ export class BacktestDataService {
     }
     if (config.dateEnd) {
       const end = new Date(config.dateEnd);
-      end.setDate(end.getDate() + 1);
+      // 纯日期（yyyy-MM-dd）扩展为当日结束；带时分秒则按原值处理
+      if (/^\d{4}-\d{2}-\d{2}$/.test(config.dateEnd)) {
+        end.setDate(end.getDate() + 1);
+      }
       qb.andWhere('k.open_time <= :dateEnd', { dateEnd: end });
     }
 
@@ -84,15 +91,29 @@ export class BacktestDataService {
   }
 }
 
+/** 必须非空的预计算指标字段（缺失视为数据未正常入库） */
+const REQUIRED_INDICATORS: Array<keyof KlineEntity> = [
+  'kdjK', 'kdjD', 'kdjJ', 'ma5', 'ma30', 'ma60', 'ma120', 'ma240',
+];
+
 function entityToRow(e: KlineEntity): KlineBarRow {
-  const fmt = (d: Date | null) => {
-    if (!d) return '';
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
-  };
+  if (!e.openTime) {
+    throw new Error(`${e.symbol} 存在 open_time 为空的 K 线，数据异常`);
+  }
+  for (const k of REQUIRED_INDICATORS) {
+    if (e[k] == null) {
+      throw new Error(
+        `${e.symbol} @${e.openTime.toISOString()} 指标 ${String(k)} 缺失，请先完成指标预计算`,
+      );
+    }
+  }
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const d = e.openTime;
+  const open_time = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
 
   return {
-    open_time: fmt(e.openTime),
+    open_time,
     open: Number(e.open),
     high: Number(e.high),
     low: Number(e.low),
@@ -101,14 +122,14 @@ function entityToRow(e: KlineEntity): KlineBarRow {
     DIF: e.dif ?? 0,
     DEA: e.dea ?? 0,
     MACD: e.macd ?? 0,
-    'KDJ.K': e.kdjK ?? 50,
-    'KDJ.D': e.kdjD ?? 50,
-    'KDJ.J': e.kdjJ ?? 50,
-    MA5: e.ma5 ?? 0,
-    MA30: e.ma30 ?? 0,
-    MA60: e.ma60 ?? 0,
-    MA120: e.ma120 ?? 0,
-    MA240: e.ma240 ?? 0,
+    'KDJ.K': e.kdjK as number,
+    'KDJ.D': e.kdjD as number,
+    'KDJ.J': e.kdjJ as number,
+    MA5: e.ma5 as number,
+    MA30: e.ma30 as number,
+    MA60: e.ma60 as number,
+    MA120: e.ma120 as number,
+    MA240: e.ma240 as number,
     BBI: e.bbi ?? 0,
     '10_quote_volume': e.quoteVolume10 ?? 0,
     atr_14: e.atr14 ?? 0,

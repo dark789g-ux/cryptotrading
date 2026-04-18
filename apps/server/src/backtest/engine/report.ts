@@ -4,6 +4,20 @@
 
 import { TradeRecord } from './models';
 
+/** 不同 K 线周期下每年的 bar 数（用于 Sharpe 年化） */
+const PERIODS_PER_YEAR: Record<string, number> = {
+  '1m': 525600,
+  '5m': 105120,
+  '15m': 35040,
+  '30m': 17520,
+  '1h': 8760,
+  '2h': 4380,
+  '4h': 2190,
+  '6h': 1460,
+  '12h': 730,
+  '1d': 365,
+};
+
 export interface BacktestStats {
   initialCapital: number;
   finalValue: number;
@@ -18,12 +32,15 @@ export interface BacktestStats {
   avgLossReturnPct: number;
   avgHoldCandles: number;
   backtestBars: number;
+  fullPositionBars: number;
+  fullPositionPct: number;
 }
 
 export function calcStats(
   allTrades: TradeRecord[],
   portfolioLog: [string, number][],
   initialCapital: number,
+  timeframe: string,
 ): BacktestStats {
   const pfValues = portfolioLog.map(([, v]) => v);
   const finalValue = pfValues[pfValues.length - 1] ?? initialCapital;
@@ -43,7 +60,8 @@ export function calcStats(
     const meanR = hourlyRets.reduce((a, b) => a + b, 0) / hourlyRets.length;
     const variance = hourlyRets.reduce((a, r) => a + (r - meanR) ** 2, 0) / hourlyRets.length;
     const stdR = Math.sqrt(variance);
-    sharpe = stdR > 1e-12 ? (meanR / stdR) * Math.sqrt(8760) : 0;
+    const periodsPerYear = PERIODS_PER_YEAR[timeframe] ?? 8760;
+    sharpe = stdR > 1e-12 ? (meanR / stdR) * Math.sqrt(periodsPerYear) : 0;
   }
 
   const fullTrades = allTrades.filter((t) => !t.isHalf);
@@ -73,6 +91,8 @@ export function calcStats(
     avgLossReturnPct: avgLossReturn,
     avgHoldCandles: avgHold,
     backtestBars: portfolioLog.length,
+    fullPositionBars: 0,
+    fullPositionPct: 0,
   };
 }
 
@@ -240,31 +260,42 @@ export function prepareReportData(
   allTrades: TradeRecord[],
   portfolioLog: [string, number][],
   stats: BacktestStats,
+  maxPositions: number,
   posSnapshots?: Array<Array<{ symbol: string; entryTime: string; holdH: number; pnlPct: number }>>,
 ): object {
+  const totalBars = portfolioLog.length;
+  const fullBars = posSnapshots
+    ? posSnapshots.filter((s) => s.length >= maxPositions).length
+    : 0;
+  const fullPositionPct = totalBars ? (fullBars / totalBars) * 100 : 0;
+  stats = { ...stats, fullPositionBars: fullBars, fullPositionPct };
+
   const sampleStep = Math.max(1, Math.floor(portfolioLog.length / 1000));
   const sampledLog = portfolioLog.filter((_, i) => i % sampleStep === 0);
   const sampledSnapshots = posSnapshots
     ? posSnapshots.filter((_, i) => i % sampleStep === 0)
     : sampledLog.map(() => []);
 
-  // monthly returns
+  // monthly returns —— 首月基准用 initialCapital，末月循环结束后补 flush
   const monthly: Map<string, number[]> = new Map();
   if (portfolioLog.length) {
     let baseVal = stats.initialCapital;
-    let prevMonth = '';
+    let curMonth = portfolioLog[0][0].slice(0, 7);
+    let lastVal = baseVal;
     for (const [ts, val] of portfolioLog) {
       const month = ts.slice(0, 7);
-      if (month !== prevMonth) {
-        if (prevMonth) {
-          const ret = baseVal ? ((val - baseVal) / baseVal) * 100 : 0;
-          if (!monthly.has(prevMonth)) monthly.set(prevMonth, []);
-          monthly.get(prevMonth)!.push(ret);
-          baseVal = val;
-        }
-        prevMonth = month;
+      if (month !== curMonth) {
+        const ret = baseVal ? ((lastVal - baseVal) / baseVal) * 100 : 0;
+        if (!monthly.has(curMonth)) monthly.set(curMonth, []);
+        monthly.get(curMonth)!.push(ret);
+        baseVal = lastVal;
+        curMonth = month;
       }
+      lastVal = val;
     }
+    const retFinal = baseVal ? ((lastVal - baseVal) / baseVal) * 100 : 0;
+    if (!monthly.has(curMonth)) monthly.set(curMonth, []);
+    monthly.get(curMonth)!.push(retFinal);
   }
 
   const pnlBySym = new Map<string, number>();
