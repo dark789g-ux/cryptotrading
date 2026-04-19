@@ -1,15 +1,6 @@
 # CryptoTrading
 
-币安 USDT 现货量化交易回测系统。提供 K 线数据同步、技术指标计算、策略回测，以及基于 FastAPI + Vue3 的可视化 Web 界面。
-
----
-
-## 功能概览
-
-- **数据同步**：从币安 REST API 批量拉取 1h / 4h / 1d K 线，支持增量更新
-- **指标计算**：MA、KDJ、MACD、布林带、止损价、风险回报比等
-- **策略回测**：多标的并行回测，支持多仓位、止盈止损、冷却期、连续亏损保护
-- **可视化界面**：三页 SPA，K 线图、策略 CRUD、回测结果抽屉、SSE 实时进度
+币安 USDT 现货量化交易回测系统。K 线采集 → PostgreSQL 存储 → 策略回测 → Web 可视化。
 
 ---
 
@@ -17,8 +8,9 @@
 
 | 层次 | 技术 |
 |------|------|
-| 后端 | Python 3.11+、FastAPI、pandas |
-| 前端 | Vue 3 + Vite、ECharts 5、Lucide Vue Next |
+| 后端 | NestJS + TypeScript + TypeORM + PostgreSQL |
+| 前端 | Vue 3 + TypeScript + Vite + Naive UI |
+| 包管理 | pnpm monorepo |
 | 数据源 | 币安公开 REST API |
 
 ---
@@ -27,43 +19,17 @@
 
 ```
 .
-├── main.py                   # FastAPI 入口，挂载所有路由与静态前端
-├── api/
-│   ├── symbols.py            # 标的列表与 K 线数据接口
-│   ├── backtest_api.py       # 策略 CRUD 与回测执行接口（SSE 进度）
-│   └── sync_api.py           # K 线数据同步接口（SSE 进度）
-├── backtest/
-│   ├── config.py             # 全局常量、BacktestConfig dataclass
-│   ├── data.py               # K 线加载与预处理
-│   ├── engine.py             # 回测主循环
-│   ├── signal_scanner.py     # 入场信号检测
-│   ├── position_handler.py   # 仓位管理与止盈止损
-│   ├── cooldown.py           # 冷却期逻辑
-│   ├── loss_tracker.py       # 连续亏损追踪
-│   ├── indicators.py         # 指标计算（MA、KDJ、MACD）
-│   ├── models.py             # 数据模型
-│   ├── report.py             # 回测报告生成
-│   └── trade_helper.py       # 交易辅助函数
-├── backtest_strategy.py      # 回测入口（可直接运行，也可由 API 调用）
-├── fetch_klines.py           # K 线数据抓取脚本
-├── fetch_symbols.py          # 标的列表抓取脚本
-├── kline_indicators.py       # 指标计算工具函数
-├── patch_klines_indicators.py# 补全已有 CSV 中缺失指标
-├── update_indicators.py      # 批量更新全部 CSV 指标
-├── frontend/                 # Vue3 + Vite 前端
-│   └── src/
-│       └── views/
-│           ├── SymbolsView.vue   # 标的展示页
-│           ├── BacktestView.vue  # 历史回测页
-│           └── SyncView.vue      # 数据同步页
-├── cache/                    # K 线 CSV 缓存（不提交）
-│   ├── 1h_klines/
-│   ├── 4h_klines/
-│   └── 1d_klines/
-├── data/
-│   ├── strategies.json       # 策略配置存储
-│   └── sync_preferences.json # 用户同步偏好
-└── backtest_results/         # 回测输出（不提交）
+├── apps/
+│   ├── server/          # NestJS 后端（:3000）
+│   └── web/             # Vue 3 前端（:5173）
+├── cache/               # 旧版 CSV K 线缓存（可通过 pnpm migrate:csv 导入 DB）
+├── data/                # 运行时配置（策略、同步偏好）
+├── doc/                 # 技术文档
+├── prd/                 # 产品需求文档
+├── test/                # 研究笔记
+├── docker-compose.yml          # 开发环境（PostgreSQL）
+├── docker-compose.prod.yml     # 生产环境（nginx + server + postgres）
+└── nginx.conf           # 生产前端代理配置
 ```
 
 ---
@@ -73,30 +39,34 @@
 ### 1. 安装依赖
 
 ```bash
-pip install fastapi uvicorn pandas requests
+pnpm install
 ```
 
-### 2. 构建前端
+### 2. 启动数据库
 
 ```bash
-cd frontend
-npm install
-npm run build
-cd ..
+pnpm db:start   # 启动 PostgreSQL Docker 容器
 ```
 
-### 3. 启动服务
+> 容器配置了 `restart: unless-stopped`，Docker Desktop 启动后会自动启动数据库，无需手动执行。
+
+**可视化数据库**：推荐 [DBeaver](https://dbeaver.io/)，连接参数：
+- Host: `localhost:5432`
+- User: `cryptouser` / Password: `cryptopass`
+- Database: `cryptodb`
+
+### 3. 启动开发服务
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+pnpm dev        # 后端 :3000 + 前端 :5173 并行启动
 ```
 
-访问 [http://localhost:8000](http://localhost:8000)
+访问 [http://localhost:5173](http://localhost:5173)
 
-### 4. 前端开发模式（热更新）
+### 4. 导入旧 CSV 数据（可选）
 
 ```bash
-cd frontend && npm run dev   # 代理到 :8000
+pnpm migrate:csv   # 将 cache/ 中的旧 CSV K 线导入 PostgreSQL
 ```
 
 ---
@@ -105,52 +75,35 @@ cd frontend && npm run dev   # 代理到 :8000
 
 | 路径 | 页面 | 功能 |
 |------|------|------|
-| `/symbols` | 标的展示 | 关键字 + 指标条件检索、服务端分页/排序、K 线图 |
-| `/backtest` | 历史回测 | 策略 CRUD、执行回测、实时进度、结果抽屉 |
-| `/sync` | 数据同步 | 多选标的与时间框架、同步进度实时推送（SSE） |
+| `/backtest` | 回测 | 策略 CRUD、执行回测、实时进度（SSE）、结果抽屉 |
+| `/symbols` | 标的 | 关键字 + 指标条件筛选、分页排序、K 线图 |
+| `/sync` | 同步 | 多标的多周期 K 线同步、实时进度推送（SSE） |
+| `/watchlists` | 自选列表 | 标的分组管理 |
+| `/settings` | 设置 | 全局参数配置 |
 
 ---
 
-## 回测策略说明
+## 回测策略
 
-默认策略（可在 `/backtest` 页面自定义）：
-
-- **入场**：`close > MA60` 且 `MA30 > MA60 > MA120`，且 `close > MA240`，且 `KDJ.J < 10`，下一根 K 线开盘买入
-- **仓位**：最多 2 个仓位，每仓 40%；两仓均阶段止盈后允许开第 3 仓
-- **止盈**：最高价突破近期高点时卖出一半
-- **止损**：近期低价止损 / 第 3 周期后收盘低于成本 / 第 5 周期后 MACD 方向未上升 / MACD 方向变化浮动止损
-- **冷却期**：连续亏损后自动冷却，逐步恢复
-
----
-
-## 数据同步流程
+默认策略入场条件：
 
 ```
-fetch_symbols.py            # 拉取全部 USDT 交易对列表
-    ↓
-fetch_klines.py             # 批量下载 K 线并计算技术指标
-    ↓
-patch_klines_indicators.py  # 补全旧 CSV 中缺失的指标列
-    ↓
-cache/{timeframe}_klines/   # 带指标的 K 线 CSV
+close > MA60
+AND MA30 > MA60 > MA120
+AND close > MA240
+AND KDJ.J < 10
+→ 下一根 K 线开盘买入
 ```
+
+- **仓位**：最多 2 个仓位，每仓 45%；两仓均阶段止盈后允许开第 3 仓
+- **止盈**：当根最高价突破近期高点时卖出一半
+- **止损**：近期低价止损 / 第 3 周期后收盘低于成本 / 第 5 周期后 MACD 未上升 / MACD 方向变化浮动止损
 
 ---
 
-## 主要 API 端点
+## 生产部署
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/symbols/kline-columns?interval=` | 某周期 K 线 CSV 表头并集 |
-| GET | `/api/symbols/names?interval=` | 交易对文件名列表（轻量） |
-| POST | `/api/symbols/query` | 分页查询标的（JSON：筛选、排序、返回列） |
-| GET | `/api/klines/{interval}/{symbol}` | 获取 K 线 CSV 文本 |
-| GET | `/api/strategies` | 获取策略列表 |
-| POST | `/api/strategies` | 创建策略 |
-| PUT | `/api/strategies/{id}` | 更新策略 |
-| DELETE | `/api/strategies/{id}` | 删除策略 |
-| POST | `/api/backtest/{strategy_id}/run` | 触发指定策略回测 |
-| GET | `/api/backtest/{strategy_id}/result` | 获取回测结果 JSON |
-| GET | `/api/sync/preferences` | 获取同步偏好 |
-| PUT | `/api/sync/preferences` | 保存同步偏好 |
-| POST | `/api/sync/run` | 触发数据同步（SSE 进度） |
+```bash
+pnpm build      # 前后端全量构建
+pnpm prod:up    # 启动生产三容器（nginx + server + postgres）
+```

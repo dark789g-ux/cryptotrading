@@ -1,0 +1,61 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: crypto-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cryptouser
+      POSTGRES_PASSWORD: cryptopass
+      POSTGRES_DB: cryptodb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cryptouser -d cryptodb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - crypto-net
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    container_name: crypto-server
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: cryptouser
+      DB_PASS: cryptopass
+      DB_NAME: cryptodb
+      SERVER_PORT: 3000
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - crypto-net
+
+  nginx:
+    image: nginx:alpine
+    container_name: crypto-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./apps/web/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - server
+    networks:
+      - crypto-net
+
+volumes:
+  postgres_data:
+
+networks:
+  crypto-net:
+    driver: bridge
