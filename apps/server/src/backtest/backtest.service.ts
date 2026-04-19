@@ -1,91 +1,30 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
+import { parseUTC } from './backtest-ts.util';
 import { BacktestRunEntity } from '../entities/backtest-run.entity';
 import { BacktestTradeEntity } from '../entities/backtest-trade.entity';
 import { BacktestCandleLogEntity } from '../entities/backtest-candle-log.entity';
-
 import { StrategyEntity } from '../entities/strategy.entity';
 import { BacktestDataService } from './engine/data.service';
-import { runBacktest } from './engine/engine';
-import { calcStats, prepareReportData } from './engine/report';
-import { BacktestConfig, DEFAULT_CONFIG, validateConfig } from './engine/models';
+import type {
+  BacktestProgress,
+  PositionQueryOptions,
+  SymbolQueryOptions,
+  RunSymbolMetricsQueryDto,
+  RunSymbolMetricRow,
+} from './backtest.types';
+import { PROGRESS_RETENTION_MS } from './backtest.types';
+import { filterSortPaginatePositions, filterSortPaginateSymbols } from './backtest-report-rows.util';
+import { resolveRunSymbolPool } from './backtest-symbol-pool.util';
+import {
+  METRICS_SORT_COL_MAP,
+  buildRunSymbolMetricsInnerSql,
+  mapMetricRow,
+} from './run-symbol-metrics.query';
+import { executeBacktestPipeline } from './backtest-execution.pipeline';
 
-export interface BacktestProgress {
-  status: 'running' | 'done' | 'error';
-  phase: string;
-  percent: number;
-  currentTs: string | null;
-  startTs: string | null;
-  endTs: string | null;
-  startedAt: number;
-  elapsedMs: number;
-  etaMs: number | null;
-  message?: string;
-  runId?: string;
-}
-
-const PROGRESS_RETENTION_MS = 30_000;
-type StatsRow = Record<string, unknown>;
-
-interface PositionQueryOptions {
-  page: number;
-  pageSize: number;
-  sortBy?: string;
-  sortOrder: 'ASC' | 'DESC';
-  symbol?: string;
-  pnlMin?: number;
-  pnlMax?: number;
-  returnPctMin?: number;
-  returnPctMax?: number;
-  stopType?: string;
-  entryStart?: string;
-  entryEnd?: string;
-  closeStart?: string;
-  closeEnd?: string;
-}
-
-interface SymbolQueryOptions {
-  page: number;
-  pageSize: number;
-  sortBy?: string;
-  sortOrder: 'ASC' | 'DESC';
-  symbol?: string;
-  totalPnlMin?: number;
-  totalPnlMax?: number;
-  winRateMin?: number;
-  winRateMax?: number;
-}
-
-function asNumber(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function asString(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
-function matchesNumberRange(value: unknown, min?: number, max?: number): boolean {
-  const num = asNumber(value);
-  if (num === null) return min === undefined && max === undefined;
-  if (min !== undefined && num < min) return false;
-  if (max !== undefined && num > max) return false;
-  return true;
-}
-
-function matchesTimeRange(value: unknown, start?: string, end?: string): boolean {
-  const time = asString(value);
-  if (!start && !end) return true;
-  if (!time) return false;
-  if (start && time < start) return false;
-  if (end && time > end) return false;
-  return true;
-}
+export type { BacktestProgress, RunSymbolMetricsQueryDto, RunSymbolMetricRow } from './backtest.types';
 
 @Injectable()
 export class BacktestService {
@@ -103,6 +42,8 @@ export class BacktestService {
     @InjectRepository(BacktestCandleLogEntity)
     private readonly candleLogRepo: Repository<BacktestCandleLogEntity>,
     private readonly dataService: BacktestDataService,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async listRuns(strategyId: string) {
@@ -119,84 +60,83 @@ export class BacktestService {
     return { ...run, trades };
   }
 
-  async getRunPositions(
-    runId: string,
-    opts: PositionQueryOptions,
-  ) {
+  async getRunPositions(runId: string, opts: PositionQueryOptions) {
     const run = await this.runRepo.findOneBy({ id: runId });
     if (!run) return null;
     const reportData = (run.stats ?? {}) as Record<string, unknown>;
-    let rows = [...((reportData.positions ?? []) as StatsRow[])];
-
-    if (opts.symbol?.trim()) {
-      rows = rows.filter((row) => asString(row.symbol) === opts.symbol!.trim());
-    }
-    if (opts.stopType?.trim()) {
-      rows = rows.filter((row) =>
-        Array.isArray(row.stopTypes) &&
-        row.stopTypes.some((item) => asString(item) === opts.stopType!.trim()),
-      );
-    }
-
-    rows = rows.filter((row) =>
-      matchesNumberRange(row.pnl, opts.pnlMin, opts.pnlMax) &&
-      matchesNumberRange(row.returnPct, opts.returnPctMin, opts.returnPctMax) &&
-      matchesTimeRange(row.entryTime, opts.entryStart, opts.entryEnd) &&
-      matchesTimeRange(row.closeTime, opts.closeStart, opts.closeEnd),
-    );
-
-    const ALLOWED = ['entryTime', 'entryPrice', 'closeTime', 'sellPrice', 'pnl', 'returnPct', 'holdCandles'];
-    const sortBy = ALLOWED.includes(opts.sortBy ?? '') ? opts.sortBy! : 'entryTime';
-    const dir = opts.sortOrder === 'ASC' ? 1 : -1;
-
-    rows.sort((a, b) => {
-      const av = a[sortBy] ?? 0;
-      const bv = b[sortBy] ?? 0;
-      if (typeof av === 'string' && typeof bv === 'string') {
-        return av.localeCompare(bv) * dir;
-      }
-      return ((av as number) - (bv as number)) * dir;
-    });
-
-    const total = rows.length;
-    const start = (opts.page - 1) * opts.pageSize;
-    return { rows: rows.slice(start, start + opts.pageSize), total, page: opts.page, pageSize: opts.pageSize };
+    return filterSortPaginatePositions(reportData, opts);
   }
 
-  async getRunSymbols(
+  /**
+   * 回测标的池在指定 open_time 上的指标快照（LEFT JOIN klines，缺行 dataStatus=missing）
+   */
+  async queryRunSymbolMetricsAtTs(
     runId: string,
-    opts: SymbolQueryOptions,
-  ) {
+    dto: RunSymbolMetricsQueryDto,
+  ): Promise<{ items: RunSymbolMetricRow[]; total: number; page: number; page_size: number } | null> {
+    const run = await this.runRepo.findOneBy({ id: runId });
+    if (!run) return null;
+
+    const tsDate = parseUTC(dto.ts);
+    if (!tsDate) {
+      throw new BadRequestException('ts 无法解析为有效时间');
+    }
+    const interval = run.timeframe?.trim();
+    if (!interval) {
+      throw new BadRequestException('回测未记录 K 线周期，无法查询指标快照');
+    }
+
+    const pool = await resolveRunSymbolPool(run, this.strategyRepo);
+    if (!pool.length) {
+      throw new BadRequestException('无法解析标的池：回测记录与策略均未包含标的列表');
+    }
+
+    let sortField = dto.sort.field;
+    if (!METRICS_SORT_COL_MAP[sortField]) {
+      sortField = 'symbol';
+    }
+    const sortAsc = dto.sort.asc;
+    const sortCol = METRICS_SORT_COL_MAP[sortField];
+
+    const { inner, params, nextParamIndex: pi } = buildRunSymbolMetricsInnerSql({
+      interval,
+      tsDate,
+      pool,
+      runId,
+      dto,
+    });
+
+    try {
+      const countSql = `SELECT COUNT(*)::int AS c FROM (${inner}) sub`;
+      const countRows = await this.dataSource.query(countSql, params);
+      const total = Number(countRows[0]?.c ?? 0);
+
+      const dir = sortAsc ? 'ASC' : 'DESC';
+      const dataSql = `${inner} ORDER BY ${sortCol} ${dir} NULLS LAST, p.symbol ASC`;
+      const offset = (dto.page - 1) * dto.page_size;
+      const dataParams = [...params, dto.page_size, offset];
+      const limitPi = pi;
+      const offsetPi = pi + 1;
+      const finalSql = `${dataSql} LIMIT $${limitPi} OFFSET $${offsetPi}`;
+
+      const rawItems = await this.dataSource.query(finalSql, dataParams);
+      const items = (rawItems as Record<string, unknown>[]).map(mapMetricRow);
+      return { items, total, page: dto.page, page_size: dto.page_size };
+    } catch (err) {
+      const e = err as Error;
+      this.logger.error(
+        `symbol-metrics 查询失败 runId=${runId}: ${e.message}`,
+        e.stack,
+      );
+      throw err;
+    }
+  }
+
+  async getRunSymbols(runId: string, opts: SymbolQueryOptions) {
     const run = await this.runRepo.findOneBy({ id: runId });
     if (!run) return null;
     const reportData = (run.stats ?? {}) as Record<string, unknown>;
-    let rows = [...((reportData.symbols ?? []) as StatsRow[])];
-
-    if (opts.symbol?.trim()) {
-      rows = rows.filter((row) => asString(row.symbol) === opts.symbol!.trim());
-    }
-
-    rows = rows.filter((row) =>
-      matchesNumberRange(row.totalPnl, opts.totalPnlMin, opts.totalPnlMax) &&
-      matchesNumberRange(row.winRate, opts.winRateMin, opts.winRateMax),
-    );
-
-    const ALLOWED = ['posCount', 'winRate', 'totalPnl', 'avgReturn', 'bestReturn', 'worstReturn', 'avgHold'];
-    const sortBy = ALLOWED.includes(opts.sortBy ?? '') ? opts.sortBy! : 'totalPnl';
-    const dir = opts.sortOrder === 'ASC' ? 1 : -1;
-
-    rows.sort((a, b) => {
-      const av = a[sortBy] ?? 0;
-      const bv = b[sortBy] ?? 0;
-      if (typeof av === 'string' && typeof bv === 'string') {
-        return av.localeCompare(bv) * dir;
-      }
-      return ((av as number) - (bv as number)) * dir;
-    });
-
-    const total = rows.length;
-    const start = (opts.page - 1) * opts.pageSize;
-    return { rows: rows.slice(start, start + opts.pageSize), total, page: opts.page, pageSize: opts.pageSize };
+    return filterSortPaginateSymbols(reportData, opts);
   }
 
   getProgress(strategyId: string): BacktestProgress | null {
@@ -251,158 +191,19 @@ export class BacktestService {
   }
 
   private async doBacktest(strategyId: string, symbols: string[]) {
-    try {
-      const strategy = await this.strategyRepo.findOneBy({ id: strategyId });
-      if (!strategy) {
-        this.finalizeProgress(strategyId, { status: 'error', message: `策略 ${strategyId} 不存在` });
-        return;
-      }
-
-      const params = (strategy.params ?? {}) as Partial<BacktestConfig>;
-      const config: BacktestConfig = { ...DEFAULT_CONFIG, ...params };
-      validateConfig(config);
-      const targetSymbols = symbols.length ? symbols : (strategy.symbols ?? []);
-
-      if (!targetSymbols.length) {
-        this.finalizeProgress(strategyId, { status: 'error', message: '未选择任何交易对' });
-        return;
-      }
-
-      this.updateProgress(strategyId, { phase: '加载 K 线数据', percent: 2 });
-
-      const { data, backtestStart } = await this.dataService.loadKlines(
-        targetSymbols,
-        config.timeframe,
-        config,
-      );
-
-      if (!data.size) {
-        this.finalizeProgress(strategyId, { status: 'error', message: '无可用数据' });
-        return;
-      }
-
-      // 计算全局时间轴端点，用于按时长比例展示进度
-      let minTs: string | null = null;
-      let maxTs: string | null = null;
-      for (const [sym, df] of data) {
-        const bstart = backtestStart.get(sym) ?? 0;
-        if (bstart < df.length) {
-          const first = String(df[bstart].open_time);
-          if (!minTs || first < minTs) minTs = first;
-        }
-        if (df.length) {
-          const last = String(df[df.length - 1].open_time);
-          if (!maxTs || last > maxTs) maxTs = last;
-        }
-      }
-      const startMs = minTs ? Date.parse(minTs.replace(' ', 'T') + 'Z') : 0;
-      const endMs = maxTs ? Date.parse(maxTs.replace(' ', 'T') + 'Z') : 0;
-      const spanMs = Math.max(1, endMs - startMs);
-
-      this.updateProgress(strategyId, {
-        phase: '运行回测引擎',
-        startTs: minTs,
-        endTs: maxTs,
-        percent: 5,
-      });
-
-      const { trades, portfolioLog, posSnapshots, candleLog } = await runBacktest(
-        data,
-        backtestStart,
-        config,
-        (_current, _total, _pct, currentTs) => {
-          const curMs = Date.parse(currentTs.replace(' ', 'T') + 'Z');
-          const timePct = ((curMs - startMs) / spanMs) * 100;
-          // 引擎阶段占整体 5% ~ 90%
-          const overall = 5 + Math.max(0, Math.min(100, timePct)) * 0.85;
-          this.updateProgress(strategyId, {
-            phase: '运行回测引擎',
-            percent: overall,
-            currentTs,
-          });
-        },
-      );
-
-      this.updateProgress(strategyId, { phase: '计算统计指标', percent: 92 });
-      const stats = calcStats(trades, portfolioLog, config.initialCapital, config.timeframe);
-      const reportData = prepareReportData(trades, portfolioLog, stats, config.maxPositions, posSnapshots);
-
-      this.updateProgress(strategyId, { phase: '保存结果', percent: 96 });
-
-      const run = this.runRepo.create({
-        strategyId,
-        timeframe: config.timeframe,
-        dateStart: config.dateStart,
-        dateEnd: config.dateEnd,
-        symbols: targetSymbols,
-        stats: reportData,
-        configSnapshot: config as unknown as Record<string, unknown>,
-      });
-      const savedRun = await this.runRepo.save(run);
-
-      if (trades.length) {
-        const tradeEntities: Partial<BacktestTradeEntity>[] = trades.map((t) => ({
-          runId: savedRun.id,
-          symbol: t.symbol,
-          entryTime: new Date(t.entryTime.replace(' ', 'T') + 'Z'),
-          entryPrice: t.entryPrice,
-          exitTime: new Date(t.exitTime.replace(' ', 'T') + 'Z'),
-          exitPrice: t.exitPrice,
-          pnl: t.pnl,
-          pnlPct: t.returnPct,
-          holdBars: t.holdCandles,
-        }));
-        await this.tradeRepo.save(tradeEntities as BacktestTradeEntity[]);
-      }
-
-      // ── 批量写入逐根 K 线日志（引擎若返回 candleLog 则持久化） ──
-      if (candleLog && candleLog.length > 0) {
-        const CHUNK_SIZE = 500;
-        for (let i = 0; i < candleLog.length; i += CHUNK_SIZE) {
-          const chunk = candleLog.slice(i, i + CHUNK_SIZE);
-          const values = chunk.map((entry) => ({
-            runId: savedRun.id,
-            barIdx: entry.barIdx,
-            // ts 字段来自引擎格式 "YYYY-MM-DD HH:mm:ss"，转为 ISO 再解析为 UTC Date
-            ts: new Date(entry.ts.replace(' ', 'T') + 'Z'),
-            openEquity: String(entry.openEquity),
-            closeEquity: String(entry.closeEquity),
-            posCount: entry.posCount,
-            maxPositions: config.maxPositions,
-            entriesJson: entry.entries,
-            exitsJson: entry.exits,
-            inCooldown: entry.inCooldown,
-          }));
-          await this.candleLogRepo
-            .createQueryBuilder()
-            .insert()
-            .into(BacktestCandleLogEntity)
-            .values(values)
-            .execute();
-        }
-        this.logger.log(`candleLog 写入完成：runId=${savedRun.id}，共 ${candleLog.length} 条`);
-      }
-
-      await this.strategyRepo.update(strategyId, {
-        lastBacktestAt: savedRun.createdAt,
-        lastBacktestReturn: stats.totalReturnPct,
-        symbols: targetSymbols,
-      });
-
-      this.finalizeProgress(strategyId, {
-        status: 'done',
-        phase: '完成',
-        percent: 100,
-        runId: savedRun.id,
-        message: '回测完成',
-      });
-    } catch (err) {
-      const e = err as Error;
-      this.logger.error(`回测失败 strategyId=${strategyId}: ${e.message}`, e.stack);
-      this.finalizeProgress(strategyId, {
-        status: 'error',
-        message: e.message || String(err),
-      });
-    }
+    await executeBacktestPipeline(
+      {
+        logger: this.logger,
+        runRepo: this.runRepo,
+        tradeRepo: this.tradeRepo,
+        strategyRepo: this.strategyRepo,
+        candleLogRepo: this.candleLogRepo,
+        dataService: this.dataService,
+        updateProgress: (id, patch) => this.updateProgress(id, patch),
+        finalizeProgress: (id, patch) => this.finalizeProgress(id, patch),
+      },
+      strategyId,
+      symbols,
+    );
   }
 }

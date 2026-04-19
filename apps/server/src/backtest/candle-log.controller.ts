@@ -42,7 +42,10 @@ export interface CandleLogPageResponse {
 }
 
 /** 允许排序的列白名单 */
-const ALLOWED_SORT_BY = new Set(['bar_idx', 'ts', 'open_equity', 'close_equity', 'pos_count']);
+const ALLOWED_SORT_BY = new Set([
+  'bar_idx', 'ts', 'open_equity', 'close_equity', 'pos_count',
+  'equity_change', 'equity_change_pct',
+]);
 
 function parseUtcDateTime(raw?: string): Date | null {
   if (!raw || !raw.trim()) return null;
@@ -74,6 +77,10 @@ export class CandleLogController {
     @Query('endTs') endTsRaw?: string,
     @Query('sortBy') sortByRaw?: string,
     @Query('sortOrder') sortOrderRaw?: string,
+    @Query('equityChangeMin') equityChangeMinRaw?: string,
+    @Query('equityChangeMax') equityChangeMaxRaw?: string,
+    @Query('equityChangePctMin') equityChangePctMinRaw?: string,
+    @Query('equityChangePctMax') equityChangePctMaxRaw?: string,
   ): Promise<CandleLogPageResponse> {
     // ── 1. 校验 run 是否存在 ──
     const run = await this.runRepo.findOneBy({ id: runId });
@@ -96,6 +103,11 @@ export class CandleLogController {
     // 排序列：仅允许白名单内的值，映射到实际列名
     const sortByInput = sortByRaw ?? 'bar_idx';
     const sortBy = ALLOWED_SORT_BY.has(sortByInput) ? sortByInput : 'bar_idx';
+    const equityChangeMin = equityChangeMinRaw !== undefined && equityChangeMinRaw !== '' ? parseFloat(equityChangeMinRaw) : null;
+    const equityChangeMax = equityChangeMaxRaw !== undefined && equityChangeMaxRaw !== '' ? parseFloat(equityChangeMaxRaw) : null;
+    const equityChangePctMin = equityChangePctMinRaw !== undefined && equityChangePctMinRaw !== '' ? parseFloat(equityChangePctMinRaw) : null;
+    const equityChangePctMax = equityChangePctMaxRaw !== undefined && equityChangePctMaxRaw !== '' ? parseFloat(equityChangePctMaxRaw) : null;
+
     // 实体别名为 cl，列名转驼峰映射
     const sortColumnMap: Record<string, string> = {
       bar_idx: 'cl.bar_idx',
@@ -103,6 +115,8 @@ export class CandleLogController {
       open_equity: 'cl.open_equity',
       close_equity: 'cl.close_equity',
       pos_count: 'cl.pos_count',
+      equity_change: '(cl.close_equity - cl.open_equity)',
+      equity_change_pct: '(cl.close_equity - cl.open_equity) / NULLIF(cl.open_equity, 0) * 100',
     };
     const sortColumn = sortColumnMap[sortBy] ?? 'cl.bar_idx';
 
@@ -114,10 +128,24 @@ export class CandleLogController {
       .createQueryBuilder('cl')
       .where('cl.run_id = :runId', { runId });
 
-    // onlyWithAction：entries 或 exits 不为空
+    // onlyWithAction：本根有成交事件，或收盘持仓集合相对上一根发生变化（与 symbol-metrics 仅本根有交易语义对齐）
+    // 不用 leftJoin 自连接：TypeORM 0.3 在 getManyAndCount + orderBy 时会对多余 join 别名取 metadata 触发 databaseName 空引用
     if (onlyWithAction) {
       qb.andWhere(
-        '(jsonb_array_length(cl.entries_json) > 0 OR jsonb_array_length(cl.exits_json) > 0)',
+        `(jsonb_array_length(COALESCE(cl.entries_json, CAST('[]' AS jsonb))) > 0
+          OR jsonb_array_length(COALESCE(cl.exits_json, CAST('[]' AS jsonb))) > 0
+          OR (
+            COALESCE(cl.open_symbols_json, CAST('[]' AS jsonb))
+            IS DISTINCT FROM COALESCE(
+              (
+                SELECT prev.open_symbols_json
+                FROM backtest_candle_logs prev
+                WHERE prev.run_id = cl.run_id AND prev.bar_idx = cl.bar_idx - 1
+                LIMIT 1
+              ),
+              CAST('[]' AS jsonb)
+            )
+          ))`,
       );
     }
 
@@ -143,6 +171,25 @@ export class CandleLogController {
 
     if (endTs) {
       qb.andWhere('cl.ts <= :endTs', { endTs });
+    }
+
+    if (equityChangeMin !== null && !Number.isNaN(equityChangeMin)) {
+      qb.andWhere('(cl.close_equity - cl.open_equity) >= :equityChangeMin', { equityChangeMin });
+    }
+    if (equityChangeMax !== null && !Number.isNaN(equityChangeMax)) {
+      qb.andWhere('(cl.close_equity - cl.open_equity) <= :equityChangeMax', { equityChangeMax });
+    }
+    if (equityChangePctMin !== null && !Number.isNaN(equityChangePctMin)) {
+      qb.andWhere(
+        '(cl.close_equity - cl.open_equity) / NULLIF(cl.open_equity, 0) * 100 >= :equityChangePctMin',
+        { equityChangePctMin },
+      );
+    }
+    if (equityChangePctMax !== null && !Number.isNaN(equityChangePctMax)) {
+      qb.andWhere(
+        '(cl.close_equity - cl.open_equity) / NULLIF(cl.open_equity, 0) * 100 <= :equityChangePctMax',
+        { equityChangePctMax },
+      );
     }
 
     // 分页 + 排序

@@ -193,6 +193,8 @@ export interface CandleLogEntry {
   maxPositions: number;
   entries: CandleEntryEvent[];
   exits: CandleExitEvent[];
+  /** 本根收盘后持仓标的（与引擎 positions 同步） */
+  openSymbols: string[];
   inCooldown: boolean;
 }
 

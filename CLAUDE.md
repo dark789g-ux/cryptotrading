@@ -33,6 +33,10 @@ crtptotrading:加密量化策略
 - 原生 SQL ID 参数用 `::text[]`（ID 列均为 `character varying`），禁 `::uuid[]`
 - 500 报错：开 TypeORM `logging: ['error','warn']` 并 `logger.error(err.stack)`，禁静态分析猜
 - 关闭 `synchronize`
+- 禁 `arr[i]||{}` 再读属性（会成 `{}`）
+- 禁猜 naive-ui 是否导出某类型（用本地联合或查声明）
+- TypeORM：`andWhere` 等字符串里禁 `'[]'::jsonb`（误绑 `:jsonb`），用 `CAST('[]' AS jsonb)`
+- 禁同表 `leftJoin` 再 `getManyAndCount`+`orderBy`（0.3 空 metadata）
 
 ## DO
 - 动手前用 `AskUserQuestion` 确认真实需求
@@ -41,10 +45,20 @@ crtptotrading:加密量化策略
 - 用 `中文` 思考与回答
 - 安装前端包：`cd apps/web && pnpm add ...`（在 bash 中执行）
 - 单文件不超过 500 行，模块化拆分
+- 大改后类型自检：`apps/server` 执行 `pnpm exec tsc --noEmit`；`apps/web` 执行 `pnpm exec vue-tsc --noEmit`（勿新增报错）
 - 编辑文件用 StrReplace / Write，禁止 PowerShell 文本处理
 
+## 时间规范
+- DB 时间列一律 `timestamptz`，禁 `timestamp`（无 TZ 列遇 JS Date 会按 Node 本地 TZ 落库，与 UTC 错位）。
+- 入库一律传 JS `Date`（UTC 瞬时）；字符串入参 `'YYYY-MM-DD HH:MM:SS'` 视为 UTC 墙钟，`new Date(s.replace(' ','T')+'Z')`。
+- 出参一律 UTC 墙钟字符串：`getUTCxxx` 拼装，禁 `toLocaleString`/`toISOString().slice`。
+- 裸 SQL 比对 `timestamptz` 列：`col = $n::timestamptz`，禁 `AT TIME ZONE`、禁 `::timestamp` 中转。
+- 跨进程/容器假设 Node TZ 不可控，绝不用 `getHours/getMonth` 等本地方法落库或入 SQL。
+
 ## 表格开发规范
-- 表格必须支持分页、表头排序、筛选，且全部走后端接口
-- 筛选、排序必须基于全量数据
-- 除非用户明确要求，否则不要设计行点击交互；统一在 `操作` 列放按钮
-- 排序使用 `n-data-table` 内置能力
+- 分页 / 表头排序 / 筛选：全后端；筛与排序基于全量数据。
+- 默认勿行点；交互放 `操作` 列。
+- 排序：`n-data-table` 内置。
+- 远程：未点表头时列 `sortOrder` 恒 false（无假高亮）；请求可仍带默认 `sortBy`/`sortOrder`。
+- `explicitSort`：辨默认与点击（同默认同列同向亦显式须亮）。清序或重置筛 → 默认且 `explicitSort=false`；仅筛不改。`runId` 缓存须含 `explicitSort`。
+- 无 CSV；分页默认 10。

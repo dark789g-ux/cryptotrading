@@ -14,18 +14,15 @@
       </div>
 
       <template v-if="reportData">
-        <div class="stats-grid">
-          <div v-for="item in statItems" :key="item.label" class="stat-item">
-            <span class="label">{{ item.label }}</span>
-            <span class="value" :class="item.cls">{{ item.value }}</span>
-          </div>
-        </div>
-
-        <n-divider />
-
         <n-tabs v-model:value="activeTab" type="line" animated>
-          <n-tab-pane name="chart" tab="资产净值曲线">
-            <div ref="chartRef" class="chart-container"></div>
+          <n-tab-pane name="kpiOverview" tab="统计概况">
+            <div class="stats-grid">
+              <div v-for="item in statItems" :key="item.label" class="stat-item">
+                <span class="label">{{ item.label }}</span>
+                <span class="value" :class="item.cls">{{ item.value }}</span>
+              </div>
+            </div>
+            <div ref="chartRef" class="chart-container" style="margin-top:16px"></div>
           </n-tab-pane>
 
           <n-tab-pane name="positions" :tab="`仓位记录（${reportData?.totalPositions ?? 0} 次）`">
@@ -167,6 +164,10 @@
                 placeholder="结束时间"
                 class="filter-field filter-date"
               />
+              <n-input-number v-model:value="candleFiltersDraft.equityChangeMin" clearable placeholder="净值变化最小值" class="filter-field" />
+              <n-input-number v-model:value="candleFiltersDraft.equityChangeMax" clearable placeholder="净值变化最大值" class="filter-field" />
+              <n-input-number v-model:value="candleFiltersDraft.equityChangePctMin" clearable placeholder="净值变化%最小值" class="filter-field" />
+              <n-input-number v-model:value="candleFiltersDraft.equityChangePctMax" clearable placeholder="净值变化%最大值" class="filter-field" />
               <n-checkbox v-model:checked="candleFiltersDraft.onlyWithAction">仅显示有操作的K线</n-checkbox>
               <div class="filter-actions">
                 <n-button type="primary" :loading="candleLogLoading" @click="applyCandleFilters">查询</n-button>
@@ -263,6 +264,12 @@
       </template>
     </template>
   </div>
+
+  <CandleDetailModal
+    v-model:show="showCandleDetail"
+    :candle-row="selectedCandleRow"
+    :run-id="selectedRunId"
+  />
 </template>
 
 <script setup lang="ts">
@@ -270,7 +277,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import {
   useMessage,
-  NEmpty, NSpin, NSelect, NDivider, NDataTable, NTabs, NTabPane,
+  NEmpty, NSpin, NSelect, NDataTable, NTabs, NTabPane,
   NDescriptions, NDescriptionsItem, NButton, NCheckbox, NInputNumber, NDatePicker,
 } from 'naive-ui'
 import { backtestApi } from '../../composables/useApi'
@@ -279,6 +286,7 @@ import { useBacktestCandleLog } from '../../composables/useBacktestCandleLog'
 import { useBacktestPositions } from '../../composables/useBacktestPositions'
 import { useBacktestSymbols } from '../../composables/useBacktestSymbols'
 import { useBacktestConfigSnapshot } from '../../composables/useBacktestConfigSnapshot'
+import CandleDetailModal from './CandleDetailModal.vue'
 
 const props = defineProps<{ strategy: any; run: any; loading: boolean }>()
 
@@ -291,7 +299,7 @@ const allRuns = ref<any[]>([])
 const selectedRunId = ref<string | null>(null)
 const currentRunDetail = ref<any>(null)
 const reportData = ref<any>(null)
-const activeTab = ref<'chart' | 'positions' | 'symbols' | 'config' | 'candleLog'>('chart')
+const activeTab = ref<'kpiOverview' | 'positions' | 'symbols' | 'config' | 'candleLog'>('kpiOverview')
 
 const runOptions = computed(() =>
   allRuns.value.map((r) => ({
@@ -353,6 +361,7 @@ const {
   applyFilters: applyCandleFilters,
   resetFilters: resetCandleFilters,
   onCandleLogPage, onCandleLogPageSize, onCandleLogSort,
+  showCandleDetail, selectedCandleRow,
 } = useBacktestCandleLog(selectedRunId, activeTab)
 
 const {
@@ -412,14 +421,14 @@ const loadRun = async (runId: string) => {
     const full = await backtestApi.getRun(runId)
     currentRunDetail.value = full ?? null
     reportData.value = full?.stats ?? null
-    activeTab.value = 'chart'
+    activeTab.value = 'kpiOverview'
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
   }
 }
 
 watch([activeTab, reportData], ([tab, data]) => {
-  if (tab === 'chart' && data?.portfolio) nextTick(() => renderChart())
+  if (tab === 'kpiOverview' && data?.portfolio) nextTick(() => renderChart())
 })
 
 watch(() => props.run, async (r) => {
@@ -438,7 +447,7 @@ onUnmounted(() => { chart?.dispose(); window.removeEventListener('resize', () =>
 </script>
 
 <style scoped>
-.backtest-detail { padding: 4px 0; }
+.backtest-detail { padding: 16px 20px; }
 .run-selector { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
 .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
 .stat-item { background: var(--ember-surface); border: 1px solid var(--ember-border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }

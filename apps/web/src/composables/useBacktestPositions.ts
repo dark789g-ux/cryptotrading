@@ -11,6 +11,8 @@ interface StoredState {
   pageSize: number
   sortBy: string
   sortOrder: 'asc' | 'desc'
+  /** 用户是否通过表头操作过排序（与程序默认同列同向时仍为 true） */
+  explicitSort: boolean
 }
 
 const DEFAULT_SORT_BY = 'entryTime'
@@ -63,6 +65,7 @@ export function useBacktestPositions(
   const pageSize = ref(10)
   const sortBy = ref(DEFAULT_SORT_BY)
   const sortOrder = ref<'asc' | 'desc'>(DEFAULT_SORT_ORDER)
+  const explicitSort = ref(false)
   const filtersDraft = ref<PositionFilterState>(createEmptyFilters())
   const filtersApplied = ref<PositionFilterState>(createEmptyFilters())
   const stateByRunId = new Map<string, StoredState>()
@@ -78,62 +81,68 @@ export function useBacktestPositions(
   const hasAppliedFilters = computed(() => Object.values(filtersApplied.value).some((value) => value !== '' && value !== null))
   const emptyText = computed(() => (hasAppliedFilters.value ? '当前筛选条件下无数据' : '暂无仓位记录'))
 
-  const columns = computed(() => [
-    { title: '#', key: 'posNo', width: 50, sortOrder: false as const, sorter: false },
-    { title: '标的', key: 'symbol', width: 120, sortOrder: false as const, sorter: false },
-    {
-      title: '买入时间',
-      key: 'entryTime',
-      width: 150,
-      sortOrder: sortBy.value === 'entryTime' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-    },
-    {
-      title: '买入价',
-      key: 'entryPrice',
-      width: 100,
-      sortOrder: sortBy.value === 'entryPrice' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-    },
-    {
-      title: '平仓时间',
-      key: 'closeTime',
-      width: 150,
-      sortOrder: sortBy.value === 'closeTime' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-    },
-    {
-      title: '平均卖价',
-      key: 'sellPrice',
-      width: 100,
-      sortOrder: sortBy.value === 'sellPrice' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-    },
-    {
-      title: '盈亏(USDT)',
-      key: 'pnl',
-      width: 110,
-      sortOrder: sortBy.value === 'pnl' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-      render: (r: any) => r.pnl?.toFixed(2) ?? '-',
-    },
-    {
-      title: '收益率',
-      key: 'returnPct',
-      width: 90,
-      sortOrder: sortBy.value === 'returnPct' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-      render: (r: any) => `${r.returnPct?.toFixed(2)}%`,
-    },
-    {
-      title: '持仓根数',
-      key: 'holdCandles',
-      width: 90,
-      sortOrder: sortBy.value === 'holdCandles' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-    },
-    { title: '出场原因', key: 'stopTypes', ellipsis: { tooltip: true }, render: (r: any) => r.stopTypes?.join(' / ') ?? '-' },
-  ])
+  const columns = computed(() => {
+    const headerOrder = (key: string) =>
+      explicitSort.value && sortBy.value === key
+        ? (sortOrder.value === 'desc' ? 'descend' : 'ascend')
+        : false
+    return [
+      { title: '#', key: 'posNo', width: 50, sortOrder: false as const, sorter: false },
+      { title: '标的', key: 'symbol', width: 120, sortOrder: false as const, sorter: false },
+      {
+        title: '买入时间',
+        key: 'entryTime',
+        width: 150,
+        sortOrder: headerOrder('entryTime'),
+        sorter: true,
+      },
+      {
+        title: '买入价',
+        key: 'entryPrice',
+        width: 100,
+        sortOrder: headerOrder('entryPrice'),
+        sorter: true,
+      },
+      {
+        title: '平仓时间',
+        key: 'closeTime',
+        width: 150,
+        sortOrder: headerOrder('closeTime'),
+        sorter: true,
+      },
+      {
+        title: '平均卖价',
+        key: 'sellPrice',
+        width: 100,
+        sortOrder: headerOrder('sellPrice'),
+        sorter: true,
+      },
+      {
+        title: '盈亏(USDT)',
+        key: 'pnl',
+        width: 110,
+        sortOrder: headerOrder('pnl'),
+        sorter: true,
+        render: (r: any) => r.pnl?.toFixed(2) ?? '-',
+      },
+      {
+        title: '收益率',
+        key: 'returnPct',
+        width: 90,
+        sortOrder: headerOrder('returnPct'),
+        sorter: true,
+        render: (r: any) => `${r.returnPct?.toFixed(2)}%`,
+      },
+      {
+        title: '持仓根数',
+        key: 'holdCandles',
+        width: 90,
+        sortOrder: headerOrder('holdCandles'),
+        sorter: true,
+      },
+      { title: '出场原因', key: 'stopTypes', ellipsis: { tooltip: true }, render: (r: any) => r.stopTypes?.join(' / ') ?? '-' },
+    ]
+  })
 
   const saveState = (runId: string) => {
     stateByRunId.set(runId, {
@@ -143,6 +152,7 @@ export function useBacktestPositions(
       pageSize: pageSize.value,
       sortBy: sortBy.value,
       sortOrder: sortOrder.value,
+      explicitSort: explicitSort.value,
     })
   }
 
@@ -155,6 +165,7 @@ export function useBacktestPositions(
       pageSize.value = 10
       sortBy.value = DEFAULT_SORT_BY
       sortOrder.value = DEFAULT_SORT_ORDER
+      explicitSort.value = false
       return
     }
     filtersDraft.value = cloneFilters(cached.filtersDraft)
@@ -163,6 +174,7 @@ export function useBacktestPositions(
     pageSize.value = cached.pageSize
     sortBy.value = cached.sortBy
     sortOrder.value = cached.sortOrder
+    explicitSort.value = cached.explicitSort === true
   }
 
   const validateFilters = () => {
@@ -211,6 +223,7 @@ export function useBacktestPositions(
     page.value = 1
     sortBy.value = DEFAULT_SORT_BY
     sortOrder.value = DEFAULT_SORT_ORDER
+    explicitSort.value = false
     if (selectedRunId.value) saveState(selectedRunId.value)
     load()
   }
@@ -230,11 +243,13 @@ export function useBacktestPositions(
 
   const onSort = (sorterState: DataTableSortState | null) => {
     if (!sorterState || !sorterState.order) {
-      sortBy.value = 'entryTime'
-      sortOrder.value = 'desc'
+      sortBy.value = DEFAULT_SORT_BY
+      sortOrder.value = DEFAULT_SORT_ORDER
+      explicitSort.value = false
     } else {
       sortBy.value = String(sorterState.columnKey)
       sortOrder.value = sorterState.order === 'ascend' ? 'asc' : 'desc'
+      explicitSort.value = true
     }
     page.value = 1
     if (selectedRunId.value) saveState(selectedRunId.value)

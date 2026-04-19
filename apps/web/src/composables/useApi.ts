@@ -86,6 +86,57 @@ export interface CandleLogPage {
   pageSize: number
 }
 
+export interface TradeOnBar {
+  type: 'entry' | 'exit'
+  symbol: string
+  price: number
+  shares: number
+  reason: string
+  pnl?: number
+  isHalf?: boolean
+}
+
+export interface KlineChartBar {
+  open_time: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+  MA5: number | null
+  MA30: number | null
+  MA60: number | null
+  MA120: number | null
+  MA240: number | null
+  'KDJ.K': number | null
+  'KDJ.D': number | null
+  'KDJ.J': number | null
+  DIF: number | null
+  DEA: number | null
+  MACD: number | null
+  BBI: number | null
+  trades?: TradeOnBar[]
+}
+
+export interface RunSymbolMetricRow {
+  symbol: string
+  dataStatus: 'ok' | 'missing'
+  close: number | null
+  ma5: number | null
+  ma30: number | null
+  ma60: number | null
+  kdjJ: number | null
+  riskRewardRatio: number | null
+  stopLossPct: number | null
+}
+
+export interface RunSymbolMetricsPage {
+  items: RunSymbolMetricRow[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface BacktestPositionFilters {
   symbol?: string
   pnlMin?: number | null
@@ -113,7 +164,11 @@ export interface BacktestCandleLogFilters {
   inCooldown?: boolean | null
   startTs?: string | null
   endTs?: string | null
-  sortBy?: 'bar_idx' | 'ts' | 'open_equity' | 'close_equity' | 'pos_count'
+  equityChangeMin?: number | null
+  equityChangeMax?: number | null
+  equityChangePctMin?: number | null
+  equityChangePctMax?: number | null
+  sortBy?: 'bar_idx' | 'ts' | 'open_equity' | 'close_equity' | 'pos_count' | 'equity_change' | 'equity_change_pct'
   sortOrder?: 'asc' | 'desc'
 }
 
@@ -208,10 +263,40 @@ export const backtestApi = {
     if (typeof params.inCooldown === 'boolean') qs.set('inCooldown', String(params.inCooldown))
     appendQueryParam(qs, 'startTs', params.startTs)
     appendQueryParam(qs, 'endTs', params.endTs)
+    appendQueryParam(qs, 'equityChangeMin', params.equityChangeMin)
+    appendQueryParam(qs, 'equityChangeMax', params.equityChangeMax)
+    appendQueryParam(qs, 'equityChangePctMin', params.equityChangePctMin)
+    appendQueryParam(qs, 'equityChangePctMax', params.equityChangePctMax)
     appendQueryParam(qs, 'sortBy', params.sortBy)
     appendQueryParam(qs, 'sortOrder', params.sortOrder)
     return request<CandleLogPage>(`${API_BASE}/backtest/runs/${runId}/candle-log?${qs.toString()}`)
   },
+  /** 获取指定标的在某时间点附近的 K 线数据（用于 K 线图） */
+  getKlineChart: (
+    runId: string,
+    params: { symbol: string; ts: string; before?: number; after?: number },
+  ) => {
+    const qs = new URLSearchParams()
+    qs.set('symbol', params.symbol)
+    qs.set('ts', params.ts)
+    if (params.before != null) qs.set('before', String(params.before))
+    if (params.after != null) qs.set('after', String(params.after))
+    return request<KlineChartBar[]>(`${API_BASE}/backtest/runs/${runId}/kline-chart?${qs.toString()}`)
+  },
+  /** 指定 ts 上回测标的池指标快照（分页、筛选、排序） */
+  querySymbolMetrics: (
+    runId: string,
+    body: {
+      ts: string
+      q?: string
+      conditions?: { field: string; op: string; value: number }[]
+      sort: { field: string; asc: boolean }
+      page: number
+      page_size: number
+      only_action_on_bar?: boolean
+      only_open_at_close?: boolean
+    },
+  ) => post<RunSymbolMetricsPage>(`${API_BASE}/backtest/runs/${runId}/symbol-metrics/query`, body),
 }
 
 // ── 标的 ────────────────────────────────────────────────────

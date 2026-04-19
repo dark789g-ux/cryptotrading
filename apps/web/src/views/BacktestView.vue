@@ -91,7 +91,13 @@
     </n-modal>
 
     <!-- 回测详情抽屉 -->
-    <n-drawer v-model:show="showDetailDrawer" :width="960" placement="right" :mask-closable="false" class="glass-drawer">
+    <n-drawer
+      v-model:show="showDetailDrawer"
+      width="min(1200px, 92vw)"
+      placement="right"
+      :mask-closable="false"
+      class="glass-drawer"
+    >
       <n-drawer-content :title="selectedStrategy ? `回测详情-${selectedStrategy.name}` : ''" closable>
         <BacktestDetail
           v-if="selectedStrategy"

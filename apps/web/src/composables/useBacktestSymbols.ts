@@ -11,6 +11,7 @@ interface StoredState {
   pageSize: number
   sortBy: string
   sortOrder: 'asc' | 'desc'
+  explicitSort: boolean
 }
 
 const DEFAULT_SORT_BY = 'totalPnl'
@@ -49,6 +50,7 @@ export function useBacktestSymbols(
   const pageSize = ref(10)
   const sortBy = ref(DEFAULT_SORT_BY)
   const sortOrder = ref<'asc' | 'desc'>(DEFAULT_SORT_ORDER)
+  const explicitSort = ref(false)
   const filtersDraft = ref<SymbolFilterState>(createEmptyFilters())
   const filtersApplied = ref<SymbolFilterState>(createEmptyFilters())
   const stateByRunId = new Map<string, StoredState>()
@@ -64,63 +66,69 @@ export function useBacktestSymbols(
   const hasAppliedFilters = computed(() => Object.values(filtersApplied.value).some((value) => value !== '' && value !== null))
   const emptyText = computed(() => (hasAppliedFilters.value ? '当前筛选条件下无数据' : '暂无标的盈亏统计'))
 
-  const columns = computed(() => [
-    { title: '标的', key: 'symbol', width: 130, sortOrder: false as const, sorter: false },
-    {
-      title: '仓位数',
-      key: 'posCount',
-      width: 80,
-      sortOrder: sortBy.value === 'posCount' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-    },
-    {
-      title: '胜率',
-      key: 'winRate',
-      width: 80,
-      sortOrder: sortBy.value === 'winRate' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-      render: (r: any) => `${r.winRate}%`,
-    },
-    {
-      title: '总盈亏',
-      key: 'totalPnl',
-      width: 110,
-      sortOrder: sortBy.value === 'totalPnl' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-      render: (r: any) => r.totalPnl?.toFixed(2),
-    },
-    {
-      title: '平均收益',
-      key: 'avgReturn',
-      width: 90,
-      sortOrder: sortBy.value === 'avgReturn' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-      render: (r: any) => `${r.avgReturn?.toFixed(2)}%`,
-    },
-    {
-      title: '最佳',
-      key: 'bestReturn',
-      width: 80,
-      sortOrder: sortBy.value === 'bestReturn' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-      render: (r: any) => `${r.bestReturn?.toFixed(2)}%`,
-    },
-    {
-      title: '最差',
-      key: 'worstReturn',
-      width: 80,
-      sortOrder: sortBy.value === 'worstReturn' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-      render: (r: any) => `${r.worstReturn?.toFixed(2)}%`,
-    },
-    {
-      title: '均持根数',
-      key: 'avgHold',
-      width: 80,
-      sortOrder: sortBy.value === 'avgHold' ? (sortOrder.value === 'desc' ? 'descend' : 'ascend') : false,
-      sorter: true,
-    },
-  ])
+  const columns = computed(() => {
+    const headerOrder = (key: string) =>
+      explicitSort.value && sortBy.value === key
+        ? (sortOrder.value === 'desc' ? 'descend' : 'ascend')
+        : false
+    return [
+      { title: '标的', key: 'symbol', width: 130, sortOrder: false as const, sorter: false },
+      {
+        title: '仓位数',
+        key: 'posCount',
+        width: 80,
+        sortOrder: headerOrder('posCount'),
+        sorter: true,
+      },
+      {
+        title: '胜率',
+        key: 'winRate',
+        width: 80,
+        sortOrder: headerOrder('winRate'),
+        sorter: true,
+        render: (r: any) => `${r.winRate}%`,
+      },
+      {
+        title: '总盈亏',
+        key: 'totalPnl',
+        width: 110,
+        sortOrder: headerOrder('totalPnl'),
+        sorter: true,
+        render: (r: any) => r.totalPnl?.toFixed(2),
+      },
+      {
+        title: '平均收益',
+        key: 'avgReturn',
+        width: 90,
+        sortOrder: headerOrder('avgReturn'),
+        sorter: true,
+        render: (r: any) => `${r.avgReturn?.toFixed(2)}%`,
+      },
+      {
+        title: '最佳',
+        key: 'bestReturn',
+        width: 80,
+        sortOrder: headerOrder('bestReturn'),
+        sorter: true,
+        render: (r: any) => `${r.bestReturn?.toFixed(2)}%`,
+      },
+      {
+        title: '最差',
+        key: 'worstReturn',
+        width: 80,
+        sortOrder: headerOrder('worstReturn'),
+        sorter: true,
+        render: (r: any) => `${r.worstReturn?.toFixed(2)}%`,
+      },
+      {
+        title: '均持根数',
+        key: 'avgHold',
+        width: 80,
+        sortOrder: headerOrder('avgHold'),
+        sorter: true,
+      },
+    ]
+  })
 
   const saveState = (runId: string) => {
     stateByRunId.set(runId, {
@@ -130,6 +138,7 @@ export function useBacktestSymbols(
       pageSize: pageSize.value,
       sortBy: sortBy.value,
       sortOrder: sortOrder.value,
+      explicitSort: explicitSort.value,
     })
   }
 
@@ -142,6 +151,7 @@ export function useBacktestSymbols(
       pageSize.value = 10
       sortBy.value = DEFAULT_SORT_BY
       sortOrder.value = DEFAULT_SORT_ORDER
+      explicitSort.value = false
       return
     }
     filtersDraft.value = cloneFilters(cached.filtersDraft)
@@ -150,6 +160,7 @@ export function useBacktestSymbols(
     pageSize.value = cached.pageSize
     sortBy.value = cached.sortBy
     sortOrder.value = cached.sortOrder
+    explicitSort.value = cached.explicitSort === true
   }
 
   const load = async () => {
@@ -185,6 +196,7 @@ export function useBacktestSymbols(
     page.value = 1
     sortBy.value = DEFAULT_SORT_BY
     sortOrder.value = DEFAULT_SORT_ORDER
+    explicitSort.value = false
     if (selectedRunId.value) saveState(selectedRunId.value)
     load()
   }
@@ -204,11 +216,13 @@ export function useBacktestSymbols(
 
   const onSort = (sorterState: DataTableSortState | null) => {
     if (!sorterState || !sorterState.order) {
-      sortBy.value = 'totalPnl'
-      sortOrder.value = 'desc'
+      sortBy.value = DEFAULT_SORT_BY
+      sortOrder.value = DEFAULT_SORT_ORDER
+      explicitSort.value = false
     } else {
       sortBy.value = String(sorterState.columnKey)
       sortOrder.value = sorterState.order === 'ascend' ? 'asc' : 'desc'
+      explicitSort.value = true
     }
     page.value = 1
     if (selectedRunId.value) saveState(selectedRunId.value)

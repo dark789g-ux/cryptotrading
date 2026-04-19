@@ -475,6 +475,7 @@ export async function runBacktest(
       maxPositions: config.maxPositions,
       entries: entryEvents,
       exits: exitEvents,
+      openSymbols: positions.map((p) => p.symbol),
       inCooldown: inCooldownNow,
     });
 

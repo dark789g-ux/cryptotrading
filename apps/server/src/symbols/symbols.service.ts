@@ -14,8 +14,8 @@ export interface QuerySymbolsDto {
   fields?: string[];
 }
 
-// 指标列名映射（CSV 字段名 → 实体列名）
-const INDICATOR_COLUMNS: Record<string, string> = {
+/** 指标列名映射（与 klines 表列名一致，供 symbols 查询与回测快照共用） */
+export const KLINE_INDICATOR_COLUMNS: Record<string, string> = {
   DIF: 'dif', DEA: 'dea', MACD: 'macd',
   'KDJ.K': 'kdj_k', 'KDJ.D': 'kdj_d', 'KDJ.J': 'kdj_j',
   BBI: 'bbi', MA5: 'ma5', MA30: 'ma30', MA60: 'ma60', MA120: 'ma120', MA240: 'ma240',
@@ -24,7 +24,7 @@ const INDICATOR_COLUMNS: Record<string, string> = {
   risk_reward_ratio: 'risk_reward_ratio',
 };
 
-const OP_MAP: Record<string, string> = {
+export const KLINE_OP_MAP: Record<string, string> = {
   gt: '>', gte: '>=', lt: '<', lte: '<=', eq: '=', neq: '!=',
 };
 
@@ -65,7 +65,7 @@ export class SymbolsService {
 
   /** 返回 klines 表指标列名（给前端动态渲染用） */
   getKlineColumns(): string[] {
-    return Object.keys(INDICATOR_COLUMNS);
+    return Object.keys(KLINE_INDICATOR_COLUMNS);
   }
 
   /** 分页查询标的（支持指标筛选、排序） */
@@ -120,8 +120,8 @@ export class SymbolsService {
     }
 
     for (const cond of conditions.slice(0, 10)) {
-      const col = INDICATOR_COLUMNS[cond.field];
-      const op = OP_MAP[cond.op];
+      const col = KLINE_INDICATOR_COLUMNS[cond.field];
+      const op = KLINE_OP_MAP[cond.op];
       if (!col || !op) continue;
       sql += ` AND k.${col} ${op} $${pi}`;
       params.push(cond.value);

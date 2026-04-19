@@ -4,6 +4,7 @@ import { BacktestController } from './backtest.controller';
 import { BacktestService } from './backtest.service';
 import { BacktestDataService } from './engine/data.service';
 import { CandleLogController } from './candle-log.controller';
+import { KlineChartController } from './kline-chart.controller';
 import { BacktestRunEntity } from '../entities/backtest-run.entity';
 import { BacktestTradeEntity } from '../entities/backtest-trade.entity';
 import { BacktestCandleLogEntity } from '../entities/backtest-candle-log.entity';
@@ -20,7 +21,7 @@ import { KlineEntity } from '../entities/kline.entity';
       KlineEntity,
     ]),
   ],
-  controllers: [BacktestController, CandleLogController],
+  controllers: [BacktestController, CandleLogController, KlineChartController],
   providers: [BacktestService, BacktestDataService],
   exports: [BacktestService],
 })

@@ -28,7 +28,7 @@ export class BacktestCandleLogEntity {
   barIdx: number;
 
   /** K 线时间戳（UTC） */
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   ts: Date;
 
   /** 该根 K 线开始时的组合净值 */
@@ -54,6 +54,10 @@ export class BacktestCandleLogEntity {
   /** 本根 K 线发生的出场记录（JSON 数组） */
   @Column({ name: 'exits_json', type: 'jsonb', default: () => "'[]'" })
   exitsJson: unknown[];
+
+  /** 本根 K 线收盘后仍持有的标的 symbol 列表（与引擎 positions 一致） */
+  @Column({ name: 'open_symbols_json', type: 'jsonb', default: () => "'[]'" })
+  openSymbolsJson: string[];
 
   /** 当前是否处于冷却期 */
   @Column({ name: 'in_cooldown', type: 'boolean', default: false })
