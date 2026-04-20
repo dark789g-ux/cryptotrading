@@ -4,7 +4,7 @@
  */
 
 import { DataSource } from 'typeorm';
-import { StrategyTypeEntity } from '../entities/strategy-type.entity';
+import { StrategyTypeEntity } from '../entities/strategy/strategy-type.entity';
 import { DEFAULT_CONFIG } from '../backtest/engine/models';
 
 export async function seedStrategyTypes(dataSource: DataSource): Promise<void> {

@@ -8,8 +8,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { BacktestCandleLogEntity } from '../entities/backtest-candle-log.entity';
-import { BacktestRunEntity } from '../entities/backtest-run.entity';
+import { BacktestCandleLogEntity } from '../entities/backtest/backtest-candle-log.entity';
+import { BacktestRunEntity } from '../entities/backtest/backtest-run.entity';
 
 /** Controller 返回给前端的单行结构 */
 export interface CandleLogRow {
@@ -22,6 +22,8 @@ export interface CandleLogRow {
   entries: unknown[];
   exits: unknown[];
   inCooldown: boolean;
+  cooldownDuration: number | null;
+  cooldownRemaining: number | null;
 }
 
 /** 将 Date 格式化为 "YYYY-MM-DD HH:MM:SS"（UTC） */
@@ -45,6 +47,7 @@ export interface CandleLogPageResponse {
 const ALLOWED_SORT_BY = new Set([
   'bar_idx', 'ts', 'open_equity', 'close_equity', 'pos_count',
   'equity_change', 'equity_change_pct',
+  'cooldown_duration', 'cooldown_remaining',
 ]);
 
 function parseUtcDateTime(raw?: string): Date | null {
@@ -52,6 +55,23 @@ function parseUtcDateTime(raw?: string): Date | null {
   const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
   const date = new Date(normalized.endsWith('Z') ? normalized : `${normalized}Z`);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+const TRADE_STATE_TOKENS = new Set(['position', 'entry', 'exit']);
+
+/** 逗号分隔；白名单去重；空串或未传视为不筛选本维度 */
+function parseTradeStates(raw?: string): Array<'position' | 'entry' | 'exit'> {
+  if (!raw || !raw.trim()) return [];
+  const seen = new Set<string>();
+  const out: Array<'position' | 'entry' | 'exit'> = [];
+  for (const part of raw.split(',')) {
+    const t = part.trim();
+    if (TRADE_STATE_TOKENS.has(t) && !seen.has(t)) {
+      seen.add(t);
+      out.push(t as 'position' | 'entry' | 'exit');
+    }
+  }
+  return out;
 }
 
 @Controller('backtest/runs/:runId/candle-log')
@@ -70,7 +90,7 @@ export class CandleLogController {
     @Param('runId') runId: string,
     @Query('page') pageRaw?: string,
     @Query('pageSize') pageSizeRaw?: string,
-    @Query('onlyWithAction') onlyWithActionRaw?: string,
+    @Query('tradeStates') tradeStatesRaw?: string,
     @Query('symbol') symbol?: string,
     @Query('inCooldown') inCooldownRaw?: string,
     @Query('startTs') startTsRaw?: string,
@@ -81,6 +101,10 @@ export class CandleLogController {
     @Query('equityChangeMax') equityChangeMaxRaw?: string,
     @Query('equityChangePctMin') equityChangePctMinRaw?: string,
     @Query('equityChangePctMax') equityChangePctMaxRaw?: string,
+    @Query('cooldownDurationMin') cooldownDurationMinRaw?: string,
+    @Query('cooldownDurationMax') cooldownDurationMaxRaw?: string,
+    @Query('cooldownRemainingMin') cooldownRemainingMinRaw?: string,
+    @Query('cooldownRemainingMax') cooldownRemainingMaxRaw?: string,
   ): Promise<CandleLogPageResponse> {
     // ── 1. 校验 run 是否存在 ──
     const run = await this.runRepo.findOneBy({ id: runId });
@@ -92,7 +116,7 @@ export class CandleLogController {
     const page = Math.max(1, parseInt(pageRaw ?? '1', 10) || 1);
     const pageSizeParsed = parseInt(pageSizeRaw ?? '50', 10) || 50;
     const pageSize = Math.min(200, Math.max(1, pageSizeParsed));
-    const onlyWithAction = onlyWithActionRaw === 'true';
+    const tradeStates = parseTradeStates(tradeStatesRaw);
     const inCooldown =
       inCooldownRaw === 'true' ? true
         : inCooldownRaw === 'false' ? false
@@ -107,6 +131,10 @@ export class CandleLogController {
     const equityChangeMax = equityChangeMaxRaw !== undefined && equityChangeMaxRaw !== '' ? parseFloat(equityChangeMaxRaw) : null;
     const equityChangePctMin = equityChangePctMinRaw !== undefined && equityChangePctMinRaw !== '' ? parseFloat(equityChangePctMinRaw) : null;
     const equityChangePctMax = equityChangePctMaxRaw !== undefined && equityChangePctMaxRaw !== '' ? parseFloat(equityChangePctMaxRaw) : null;
+    const cooldownDurationMin = cooldownDurationMinRaw !== undefined && cooldownDurationMinRaw !== '' ? parseInt(cooldownDurationMinRaw, 10) : null;
+    const cooldownDurationMax = cooldownDurationMaxRaw !== undefined && cooldownDurationMaxRaw !== '' ? parseInt(cooldownDurationMaxRaw, 10) : null;
+    const cooldownRemainingMin = cooldownRemainingMinRaw !== undefined && cooldownRemainingMinRaw !== '' ? parseInt(cooldownRemainingMinRaw, 10) : null;
+    const cooldownRemainingMax = cooldownRemainingMaxRaw !== undefined && cooldownRemainingMaxRaw !== '' ? parseInt(cooldownRemainingMaxRaw, 10) : null;
 
     // 实体别名为 cl，列名转驼峰映射
     const sortColumnMap: Record<string, string> = {
@@ -117,6 +145,8 @@ export class CandleLogController {
       pos_count: 'cl.pos_count',
       equity_change: '(cl.close_equity - cl.open_equity)',
       equity_change_pct: '(cl.close_equity - cl.open_equity) / NULLIF(cl.open_equity, 0) * 100',
+      cooldown_duration: 'cl.cooldown_duration',
+      cooldown_remaining: 'cl.cooldown_remaining',
     };
     const sortColumn = sortColumnMap[sortBy] ?? 'cl.bar_idx';
 
@@ -128,25 +158,24 @@ export class CandleLogController {
       .createQueryBuilder('cl')
       .where('cl.run_id = :runId', { runId });
 
-    // onlyWithAction：本根有成交事件，或收盘持仓集合相对上一根发生变化（与 symbol-metrics 仅本根有交易语义对齐）
-    // 不用 leftJoin 自连接：TypeORM 0.3 在 getManyAndCount + orderBy 时会对多余 join 别名取 metadata 触发 databaseName 空引用
-    if (onlyWithAction) {
-      qb.andWhere(
-        `(jsonb_array_length(COALESCE(cl.entries_json, CAST('[]' AS jsonb))) > 0
-          OR jsonb_array_length(COALESCE(cl.exits_json, CAST('[]' AS jsonb))) > 0
-          OR (
-            COALESCE(cl.open_symbols_json, CAST('[]' AS jsonb))
-            IS DISTINCT FROM COALESCE(
-              (
-                SELECT prev.open_symbols_json
-                FROM backtest_candle_logs prev
-                WHERE prev.run_id = cl.run_id AND prev.bar_idx = cl.bar_idx - 1
-                LIMIT 1
-              ),
-              CAST('[]' AS jsonb)
-            )
-          ))`,
-      );
+    if (tradeStates.length > 0) {
+      const orSql: string[] = [];
+      if (tradeStates.includes('position')) {
+        orSql.push('cl.pos_count > 0');
+      }
+      if (tradeStates.includes('entry')) {
+        orSql.push(
+          'jsonb_array_length(COALESCE(cl.entries_json, CAST(\'[]\' AS jsonb))) > 0',
+        );
+      }
+      if (tradeStates.includes('exit')) {
+        orSql.push(
+          'jsonb_array_length(COALESCE(cl.exits_json, CAST(\'[]\' AS jsonb))) > 0',
+        );
+      }
+      if (orSql.length > 0) {
+        qb.andWhere(`(${orSql.join(' OR ')})`);
+      }
     }
 
     // symbol 过滤：entries 或 exits 中含有该 symbol
@@ -192,6 +221,19 @@ export class CandleLogController {
       );
     }
 
+    if (cooldownDurationMin !== null && !Number.isNaN(cooldownDurationMin)) {
+      qb.andWhere('cl.cooldown_duration >= :cooldownDurationMin', { cooldownDurationMin });
+    }
+    if (cooldownDurationMax !== null && !Number.isNaN(cooldownDurationMax)) {
+      qb.andWhere('cl.cooldown_duration <= :cooldownDurationMax', { cooldownDurationMax });
+    }
+    if (cooldownRemainingMin !== null && !Number.isNaN(cooldownRemainingMin)) {
+      qb.andWhere('cl.cooldown_remaining >= :cooldownRemainingMin', { cooldownRemainingMin });
+    }
+    if (cooldownRemainingMax !== null && !Number.isNaN(cooldownRemainingMax)) {
+      qb.andWhere('cl.cooldown_remaining <= :cooldownRemainingMax', { cooldownRemainingMax });
+    }
+
     // 分页 + 排序
     qb.orderBy(sortColumn, sortOrder)
       .skip((page - 1) * pageSize)
@@ -220,6 +262,8 @@ export class CandleLogController {
       entries: e.entriesJson,
       exits: e.exitsJson,
       inCooldown: e.inCooldown,
+      cooldownDuration: e.cooldownDuration ?? null,
+      cooldownRemaining: e.cooldownRemaining ?? null,
     }));
 
     return { rows, total, page, pageSize };

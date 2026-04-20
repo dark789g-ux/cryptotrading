@@ -9,9 +9,9 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KlineEntity } from '../entities/kline.entity';
-import { BacktestRunEntity } from '../entities/backtest-run.entity';
-import { BacktestCandleLogEntity } from '../entities/backtest-candle-log.entity';
-import { fmtTs, parseUTC } from './backtest-ts.util';
+import { BacktestRunEntity } from '../entities/backtest/backtest-run.entity';
+import { BacktestCandleLogEntity } from '../entities/backtest/backtest-candle-log.entity';
+import { fmtTs, parseUTC } from './utils/backtest-ts.util';
 
 export interface TradeOnBar {
   type: 'entry' | 'exit';

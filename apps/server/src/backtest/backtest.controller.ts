@@ -54,7 +54,8 @@ function parseSymbolMetricsBody(body: unknown): RunSymbolMetricsQueryDto {
     }
   }
 
-  const only_action_on_bar = o.only_action_on_bar === true;
+  const only_buy_on_bar = o.only_buy_on_bar === true;
+  const only_sell_on_bar = o.only_sell_on_bar === true;
   const only_open_at_close = o.only_open_at_close === true;
 
   return {
@@ -64,7 +65,8 @@ function parseSymbolMetricsBody(body: unknown): RunSymbolMetricsQueryDto {
     sort,
     page,
     page_size,
-    only_action_on_bar,
+    only_buy_on_bar,
+    only_sell_on_bar,
     only_open_at_close,
   };
 }

@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { WatchlistEntity } from '../entities/watchlist.entity';
-import { WatchlistItemEntity } from '../entities/watchlist-item.entity';
+import { WatchlistEntity } from '../../entities/watchlist/watchlist.entity';
+import { WatchlistItemEntity } from '../../entities/watchlist/watchlist-item.entity';
 
 @Injectable()
 export class WatchlistsService {

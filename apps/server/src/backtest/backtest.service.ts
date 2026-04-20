@@ -1,11 +1,11 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { parseUTC } from './backtest-ts.util';
-import { BacktestRunEntity } from '../entities/backtest-run.entity';
-import { BacktestTradeEntity } from '../entities/backtest-trade.entity';
-import { BacktestCandleLogEntity } from '../entities/backtest-candle-log.entity';
-import { StrategyEntity } from '../entities/strategy.entity';
+import { parseUTC } from './utils/backtest-ts.util';
+import { BacktestRunEntity } from '../entities/backtest/backtest-run.entity';
+import { BacktestTradeEntity } from '../entities/backtest/backtest-trade.entity';
+import { BacktestCandleLogEntity } from '../entities/backtest/backtest-candle-log.entity';
+import { StrategyEntity } from '../entities/strategy/strategy.entity';
 import { BacktestDataService } from './engine/data.service';
 import type {
   BacktestProgress,
@@ -15,8 +15,8 @@ import type {
   RunSymbolMetricRow,
 } from './backtest.types';
 import { PROGRESS_RETENTION_MS } from './backtest.types';
-import { filterSortPaginatePositions, filterSortPaginateSymbols } from './backtest-report-rows.util';
-import { resolveRunSymbolPool } from './backtest-symbol-pool.util';
+import { filterSortPaginatePositions, filterSortPaginateSymbols } from './utils/backtest-report-rows.util';
+import { resolveRunSymbolPool } from './utils/backtest-symbol-pool.util';
 import {
   METRICS_SORT_COL_MAP,
   buildRunSymbolMetricsInnerSql,

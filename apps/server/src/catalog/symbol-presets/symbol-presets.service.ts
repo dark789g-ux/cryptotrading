@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, QueryFailedError, Not } from 'typeorm';
-import { SymbolPresetEntity } from '../entities/symbol-preset.entity';
-import { SymbolPresetItemEntity } from '../entities/symbol-preset-item.entity';
+import { SymbolPresetEntity } from '../../entities/symbol/symbol-preset.entity';
+import { SymbolPresetItemEntity } from '../../entities/symbol/symbol-preset-item.entity';
 
 type PresetDto = {
   id: string;

@@ -32,14 +32,15 @@ export function initCooldown(base: number): CooldownState {
  * 规则：
  * - isHalf=true 直接 return，不登记
  * - 亏损（pnl <= 0）：
- *     cooldownDuration = min(cooldownDuration+1, maxCooldownCandles)
+ *     cooldownDuration = min(cooldownDuration+extendOnLoss, maxCooldownCandles)
  *     consecLosses++
- *     若当前处于冷却期（cooldownUntilBarIdx != null && barIdx < cooldownUntilBarIdx）→ cooldownUntilBarIdx++（延长冷却）
+ *     若当前处于冷却期（cooldownUntilBarIdx != null && barIdx < cooldownUntilBarIdx）
+ *       → cooldownUntilBarIdx += extendOnLoss（延长冷却）
  *     若 consecLosses >= threshold → 设置/刷新 cooldownUntilBarIdx = barIdx + cooldownDuration
  * - 盈利（pnl > 0）：
- *     cooldownDuration = max(cooldownDuration-1, 0)
+ *     cooldownDuration = max(cooldownDuration-reduceOnProfit, 0)
  *     consecLosses = 0
- *     若当前处于冷却期 → cooldownUntilBarIdx--（缩短冷却）
+ *     若当前处于冷却期 → cooldownUntilBarIdx -= reduceOnProfit（缩短冷却）
  *     若 cooldownDuration == 0 → cooldownUntilBarIdx = null（立即解除）
  *
  * @param state              冷却状态（原地修改）
@@ -48,6 +49,8 @@ export function initCooldown(base: number): CooldownState {
  * @param barIdx             当前 K 线全局索引
  * @param consecutiveLossesThreshold  连续亏损触发冷却的阈值
  * @param maxCooldownCandles          最大冷却时长上限
+ * @param extendOnLoss                每次亏损为冷却时长/结束 bar 增加的根数（非负整数）
+ * @param reduceOnProfit              每次盈利为冷却时长/结束 bar 减少的根数（非负整数）
  */
 export function registerExit(
   state: CooldownState,
@@ -56,6 +59,8 @@ export function registerExit(
   barIdx: number,
   consecutiveLossesThreshold: number,
   maxCooldownCandles: number,
+  extendOnLoss: number,
+  reduceOnProfit: number,
 ): void {
   // 半仓交易不参与冷却统计
   if (isHalf) return;
@@ -65,12 +70,11 @@ export function registerExit(
 
   if (!isWin) {
     // ── 亏损路径 ──
-    state.cooldownDuration = Math.min(state.cooldownDuration + 1, maxCooldownCandles);
+    state.cooldownDuration = Math.min(state.cooldownDuration + extendOnLoss, maxCooldownCandles);
     state.consecLosses += 1;
 
     if (inCooldown) {
-      // 当前已在冷却中 → 延长一根
-      state.cooldownUntilBarIdx = state.cooldownUntilBarIdx! + 1;
+      state.cooldownUntilBarIdx = state.cooldownUntilBarIdx! + extendOnLoss;
     }
 
     if (state.consecLosses >= consecutiveLossesThreshold) {
@@ -79,12 +83,11 @@ export function registerExit(
     }
   } else {
     // ── 盈利路径 ──
-    state.cooldownDuration = Math.max(state.cooldownDuration - 1, 0);
+    state.cooldownDuration = Math.max(state.cooldownDuration - reduceOnProfit, 0);
     state.consecLosses = 0;
 
     if (inCooldown) {
-      // 当前处于冷却中 → 缩短一根
-      state.cooldownUntilBarIdx = state.cooldownUntilBarIdx! - 1;
+      state.cooldownUntilBarIdx = state.cooldownUntilBarIdx! - reduceOnProfit;
     }
 
     if (state.cooldownDuration === 0) {

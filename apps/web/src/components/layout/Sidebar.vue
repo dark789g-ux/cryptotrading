@@ -2,7 +2,7 @@
   <div class="sidebar" :class="{ collapsed: isCollapsed }">
     <div class="logo-section">
       <div class="logo">
-        <img class="logo-icon" src="/favicon.png" alt="logo" />
+        <img class="logo-icon" :src="logoUrl" alt="logo" />
         <span class="logo-text" :class="{ hidden: isCollapsed }">CryptoTrading</span>
       </div>
       <n-button quaternary circle class="collapse-btn" @click="toggleCollapse">
@@ -36,6 +36,7 @@ import {
   TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline,
 } from '@vicons/ionicons5'
 import { useSidebarCollapsed } from '../../composables/useSidebarCollapsed'
+import logoUrl from '@/assets/favicon.svg?url'
 
 const route = useRoute()
 const router = useRouter()

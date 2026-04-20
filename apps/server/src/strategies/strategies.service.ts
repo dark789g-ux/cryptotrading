@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { StrategyEntity } from '../entities/strategy.entity';
-import { StrategyTypeEntity } from '../entities/strategy-type.entity';
+import { StrategyEntity } from '../entities/strategy/strategy.entity';
+import { StrategyTypeEntity } from '../entities/strategy/strategy-type.entity';
 
 @Injectable()
 export class StrategiesService {

@@ -21,18 +21,22 @@
   margin-left: auto;
   flex-shrink: 0;
 }
-.filter-switch-item {
+.filter-status-item {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
   min-width: 0;
 }
-.switch-label {
+.filter-status-label {
   font-size: 13px;
   color: var(--n-text-color-2);
   cursor: default;
   white-space: nowrap;
+}
+.filter-status-select {
+  width: min(220px, 100%);
+  min-width: 140px;
 }
 .filter-tags-inline {
   display: flex;
@@ -44,6 +48,12 @@
 }
 .data-card :deep(.n-card-header) {
   padding-bottom: 8px;
+}
+.metric-row-status-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 .filter-form h4 {
   margin: 16px 0 8px;

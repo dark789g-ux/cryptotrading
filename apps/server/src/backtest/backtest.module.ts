@@ -5,10 +5,10 @@ import { BacktestService } from './backtest.service';
 import { BacktestDataService } from './engine/data.service';
 import { CandleLogController } from './candle-log.controller';
 import { KlineChartController } from './kline-chart.controller';
-import { BacktestRunEntity } from '../entities/backtest-run.entity';
-import { BacktestTradeEntity } from '../entities/backtest-trade.entity';
-import { BacktestCandleLogEntity } from '../entities/backtest-candle-log.entity';
-import { StrategyEntity } from '../entities/strategy.entity';
+import { BacktestRunEntity } from '../entities/backtest/backtest-run.entity';
+import { BacktestTradeEntity } from '../entities/backtest/backtest-trade.entity';
+import { BacktestCandleLogEntity } from '../entities/backtest/backtest-candle-log.entity';
+import { StrategyEntity } from '../entities/strategy/strategy.entity';
 import { KlineEntity } from '../entities/kline.entity';
 
 @Module({

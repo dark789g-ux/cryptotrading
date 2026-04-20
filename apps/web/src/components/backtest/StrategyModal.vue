@@ -17,15 +17,12 @@
       class="strategy-form"
     >
       <div class="import-bar">
-        <n-select
-          v-model:value="importStrategyId"
-          :options="importStrategyOptions"
+        <ImportStrategyPopover
+          v-model:show="showImportPopover"
+          v-model:searchText="importSearchText"
           :loading="loadingImportStrategies"
-          placeholder="从其他策略导入参数..."
-          filterable
-          clearable
-          @update:value="handleImportStrategy"
-          @focus="loadImportStrategies"
+          :options="filteredImportOptions"
+          @select="handleImport"
         />
       </div>
 
@@ -51,7 +48,7 @@
             :options="symbolOptionsWithAll"
             :loading="loadingSymbols"
             max-tag-count="responsive"
-            @update:value="handleSymbolChange"
+            @update:value="handleSymbolChangeWrapper"
             class="symbol-select"
           />
           <SymbolPresetPicker
@@ -73,7 +70,7 @@
       <n-form-item label="仓位比例">
         <n-slider v-model:value="formData.params.positionRatio" :min="0.01" :max="1" :step="0.0001" />
         <div class="param-edit">
-          <input class="param-input" v-model="positionPctDisplay" @change="commitPosition" @keydown.enter="($event.target as HTMLInputElement).blur()" />
+          <input class="param-input" v-model="positionPctDisplay" @change="commitPosition" @keydown.enter="blurInput" />
           <span class="param-suffix">%</span>
         </div>
       </n-form-item>
@@ -84,11 +81,9 @@
 
       <n-form-item>
         <template #label>
-          <span class="label-with-tip">仅全部盈利时开新仓
-            <n-tooltip><template #trigger><span class="tip-icon">?</span></template>
-              开启后：当前所有持仓的止损价须已上移至成本之上（止损价 &gt; 入场价），才允许开新仓；空仓不受限
-            </n-tooltip>
-          </span>
+          <LabelWithTip label="仅全部盈利时开新仓">
+            开启后：当前所有持仓的止损价须已上移至成本之上（止损价 &gt; 入场价），才允许开新仓；空仓不受限
+          </LabelWithTip>
         </template>
         <n-switch v-model:value="formData.params.requireAllPositionsProfitable" />
       </n-form-item>
@@ -97,44 +92,36 @@
 
       <n-form-item>
         <template #label>
-          <span class="label-with-tip">低点扫描(K线)
-            <n-tooltip style="max-width:260px"><template #trigger><span class="tip-icon">?</span></template>
-              向前取最近 N 根 K 线的最低价作为阶段低点候选；影响止损基准价和入场距低点判断
-            </n-tooltip>
-          </span>
+          <LabelWithTip label="低点扫描(K线)" :max-width="260">
+            向前取最近 N 根 K 线的最低价作为阶段低点候选；影响止损基准价和入场距低点判断
+          </LabelWithTip>
         </template>
         <n-input-number v-model:value="formData.params.recentLowWindow" :min="1" :max="200" style="width:100%" />
       </n-form-item>
 
       <n-form-item>
         <template #label>
-          <span class="label-with-tip">低点追溯缓冲
-            <n-tooltip style="max-width:260px"><template #trigger><span class="tip-icon">?</span></template>
-              在扫描窗口之外继续向前追溯最多 Y 根 K 线：若找到更低点则更新阶段低点并继续追溯，直到无更低点为止
-            </n-tooltip>
-          </span>
+          <LabelWithTip label="低点追溯缓冲" :max-width="260">
+            在扫描窗口之外继续向前追溯最多 Y 根 K 线：若找到更低点则更新阶段低点并继续追溯，直到无更低点为止
+          </LabelWithTip>
         </template>
         <n-input-number v-model:value="formData.params.recentLowBuffer" :min="0" :max="500" style="width:100%" />
       </n-form-item>
 
       <n-form-item>
         <template #label>
-          <span class="label-with-tip">高点窗口(K线)
-            <n-tooltip><template #trigger><span class="tip-icon">?</span></template>
-              计算阶段高点时，向前取最近 N 根 K 线的最高价作为初始候选，影响止盈目标价
-            </n-tooltip>
-          </span>
+          <LabelWithTip label="高点窗口(K线)">
+            计算阶段高点时，向前取最近 N 根 K 线的最高价作为初始候选，影响止盈目标价
+          </LabelWithTip>
         </template>
         <n-input-number v-model:value="formData.params.recentHighWindow" :min="1" :max="50" style="width:100%" />
       </n-form-item>
 
       <n-form-item>
         <template #label>
-          <span class="label-with-tip">高点回溯缓冲
-            <n-tooltip><template #trigger><span class="tip-icon">?</span></template>
-              在窗口之外继续向前追溯，找更高的连续高点；增大可找到更远的阻力位
-            </n-tooltip>
-          </span>
+          <LabelWithTip label="高点回溯缓冲">
+            在窗口之外继续向前追溯，找更高的连续高点；增大可找到更远的阻力位
+          </LabelWithTip>
         </template>
         <n-input-number v-model:value="formData.params.recentHighBuffer" :min="0" :max="500" style="width:100%" />
       </n-form-item>
@@ -149,27 +136,23 @@
 
       <n-form-item v-if="formData.params.stopLossMode === 'fixed'">
         <template #label>
-          <span class="label-with-tip">固定止损%
-            <n-tooltip><template #trigger><span class="tip-icon">?</span></template>
-              止损价 = 入场价 × (1 - 该%)，与阶段低点无关
-            </n-tooltip>
-          </span>
+          <LabelWithTip label="固定止损%">
+            止损价 = 入场价 × (1 - 该%)，与阶段低点无关
+          </LabelWithTip>
         </template>
         <n-input-number v-model:value="formData.params.fixedStopLossPct" :min="0.1" :max="50" :step="0.5" style="width:100%" />
       </n-form-item>
 
       <n-form-item v-if="formData.params.stopLossMode === 'atr'">
         <template #label>
-          <span class="label-with-tip">止损因子
-            <n-tooltip placement="top" style="max-width:280px"><template #trigger><span class="tip-icon">?</span></template>
-              止损价 = 阶段低点 × 止损因子。<br/>
-              = 1 时止损贴近低点；&lt; 1 时在低点下方（更宽松）；&gt; 1 时在低点上方（更紧）
-            </n-tooltip>
-          </span>
+          <LabelWithTip label="止损因子" placement="top" :max-width="280">
+            止损价 = 阶段低点 × 止损因子。<br/>
+            = 1 时止损贴近低点；&lt; 1 时在低点下方（更宽松）；&gt; 1 时在低点上方（更紧）
+          </LabelWithTip>
         </template>
         <n-slider v-model:value="formData.params.stopLossFactor" :min="0.5" :max="2" :step="0.0001" />
         <div class="param-edit">
-          <input class="param-input" v-model="stopLossDisplay" @change="commitStopLoss" @keydown.enter="($event.target as HTMLInputElement).blur()" />
+          <input class="param-input" v-model="stopLossDisplay" @change="commitStopLoss" @keydown.enter="blurInput" />
         </div>
       </n-form-item>
 
@@ -179,7 +162,7 @@
 
       <n-form-item label="MA5 破线出场">
         <span class="exit-strategy-desc">
-          始终启用：收盘价 &lt; MA5 且 MA5 &lt; 前根MA5（MA5 下行时破线出场）
+          始终启用：持仓期间收盘价曾站上 MA5 后，若出现收盘价 &lt; MA5 且 MA5 ≤ 前根 MA5，则全仓出场
         </span>
       </n-form-item>
 
@@ -187,48 +170,15 @@
 
       <n-form-item>
         <template #label>
-          <span class="label-with-tip">启用冷却期
-            <n-tooltip style="max-width:280px"><template #trigger><span class="tip-icon">?</span></template>
-              账户级全局冷却：连续亏损达到阈值后，暂停所有新开仓（已持仓可正常平仓）；盈利清零连亏计数
-            </n-tooltip>
-          </span>
+          <LabelWithTip label="启用冷却期" :max-width="280">
+            账户级全局冷却：连续亏损达到阈值后，暂停所有新开仓（已持仓可正常平仓）；盈利清零连亏计数
+          </LabelWithTip>
         </template>
         <n-switch v-model:value="formData.params.enableCooldown" />
       </n-form-item>
 
       <template v-if="formData.params.enableCooldown">
-        <n-form-item>
-          <template #label>
-            <span class="label-with-tip">基础冷却根数
-              <n-tooltip style="max-width:280px"><template #trigger><span class="tip-icon">?</span></template>
-                回测启动时冷却时长的初始值；后续每次亏损 +1、每次盈利 -1，在 [0, 最大冷却根数] 范围内变化
-              </n-tooltip>
-            </span>
-          </template>
-          <n-input-number v-model:value="formData.params.baseCooldownCandles" :min="0" :max="200" style="width:100%" />
-        </n-form-item>
-
-        <n-form-item>
-          <template #label>
-            <span class="label-with-tip">连亏触发阈值
-              <n-tooltip><template #trigger><span class="tip-icon">?</span></template>
-                账户连续亏损达到 N 次后，触发全局冷却期，暂停所有新开仓；盈利一笔即清零连亏计数
-              </n-tooltip>
-            </span>
-          </template>
-          <n-input-number v-model:value="formData.params.consecutiveLossesThreshold" :min="1" :max="20" style="width:100%" />
-        </n-form-item>
-
-        <n-form-item>
-          <template #label>
-            <span class="label-with-tip">最大冷却根数
-              <n-tooltip style="max-width:280px"><template #trigger><span class="tip-icon">?</span></template>
-                冷却时长的上限；冷却期间每亏损 1 根延长 1 根冷却，但不超过此上限；盈利 1 根缩短 1 根，降至 0 时立即解除冷却
-              </n-tooltip>
-            </span>
-          </template>
-          <n-input-number v-model:value="formData.params.maxCooldownCandles" :min="1" :max="10000" style="width:100%" />
-        </n-form-item>
+        <CooldownParamsSection v-model:params="formData.params" />
       </template>
 
       <n-divider>回测区间</n-divider>
@@ -249,16 +199,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import {
   useMessage,
   NModal, NForm, NFormItem, NInput, NSelect, NDivider,
-  NInputNumber, NSlider, NDatePicker, NButton, NSwitch, NTooltip,
+  NInputNumber, NSlider, NDatePicker, NButton, NSwitch,
 } from 'naive-ui'
-import { strategyApi, symbolApi } from '../../composables/useApi'
-import SymbolPresetPicker from './SymbolPresetPicker.vue'
-import ExitManagementSection from './ExitManagementSection.vue'
-import EntrySignalSection from './EntrySignalSection.vue'
+import { strategyApi } from '../../composables/useApi'
+import { useStrategyForm } from '../../composables/backtest/useStrategyForm'
+import { useImportStrategies } from '../../composables/backtest/useImportStrategies'
+import { useSymbolOptions } from '../../composables/useSymbolOptions'
+import { useDateRange } from '../../composables/useDateRange'
+import SymbolPresetPicker from './strategy/SymbolPresetPicker.vue'
+import ExitManagementSection from './strategy/ExitManagementSection.vue'
+import EntrySignalSection from './strategy/EntrySignalSection.vue'
+import ImportStrategyPopover from './strategy/ImportStrategyPopover.vue'
+import LabelWithTip from './strategy/LabelWithTip.vue'
+import CooldownParamsSection from './strategy/CooldownParamsSection.vue'
 
 const props = defineProps<{ show: boolean; isEdit: boolean; strategy?: unknown }>()
 const emit = defineEmits<{ (e: 'update:show', v: boolean): void; (e: 'success'): void }>()
@@ -267,66 +224,50 @@ const message = useMessage()
 const formRef = ref()
 const submitting = ref(false)
 const strategyTypeOptions = ref<{ label: string; value: string }[]>([])
-const symbolOptions = ref<{ label: string; value: string }[]>([])
-const loadingSymbols = ref(false)
-const SELECT_ALL = '__SELECT_ALL__'
 
-const importStrategyId = ref<string | null>(null)
-const importStrategyOptions = ref<{ label: string; value: string }[]>([])
-const loadingImportStrategies = ref(false)
-let importStrategiesLoaded = false
+const { formData, resetForm, clearDates, setDates, mergeImportedParams } = useStrategyForm(
+  { get value() { return props.strategy } },
+  { get value() { return props.isEdit } }
+)
 
-const loadImportStrategies = async () => {
-  if (importStrategiesLoaded) return
-  loadingImportStrategies.value = true
-  try {
-    const list = await strategyApi.getStrategies()
-    const selfId = (props.strategy as Record<string, unknown>)?.id
-    importStrategyOptions.value = (list as Record<string, unknown>[])
-      .filter((s) => s.id !== selfId)
-      .map((s) => ({ label: s.name as string, value: s.id as string }))
-    importStrategiesLoaded = true
-  } catch (err: unknown) {
-    message.error((err as Error).message || '加载策略列表失败')
-  } finally {
-    loadingImportStrategies.value = false
-  }
-}
+const {
+  showImportPopover,
+  importSearchText,
+  loadingImportStrategies,
+  filteredImportOptions,
+  resetImportState,
+  handleImportStrategy,
+} = useImportStrategies({ get strategy() { return props.strategy } })
 
-const handleImportStrategy = async (id: string | null) => {
-  if (!id) return
-  try {
-    const s = await strategyApi.getStrategy(id)
-    const imported = makeForm(s as Record<string, unknown>)
-    formData.value = {
-      ...imported,
-      name: formData.value.name,
-      symbols: formData.value.symbols,
-      params: {
-        ...imported.params,
+const {
+  symbolOptions,
+  loadingSymbols,
+  symbolOptionsWithAll,
+  loadSymbolOptions,
+  isSelectAll,
+  allSymbolValues,
+} = useSymbolOptions()
+
+const { datePickerType, dateFormat, applyDateRangeDefaults } = useDateRange(
+  { get params() { return formData.value.params } }
+)
+
+const handleImport = (id: string) => {
+  handleImportStrategy(id, {
+    onSuccess: (imported) => {
+      mergeImportedParams(imported, {
+        name: formData.value.name,
+        symbols: formData.value.symbols,
         dateStart: formData.value.params.dateStart,
         dateEnd: formData.value.params.dateEnd,
-      },
-    }
-    message.success('参数已导入')
-  } catch (err: unknown) {
-    message.error((err as Error).message || '导入失败')
-  } finally {
-    importStrategyId.value = null
-  }
+      })
+    },
+    onClose: () => { showImportPopover.value = false },
+  })
 }
 
-const symbolOptionsWithAll = computed(() => [
-  { label: '全选所有标的', value: SELECT_ALL },
-  ...symbolOptions.value,
-])
-
-const handleSymbolChange = (vals: string[]) => {
-  if (vals.includes(SELECT_ALL)) {
-    formData.value.symbols = symbolOptions.value.map((o) => o.value)
-  } else {
-    formData.value.symbols = vals
-  }
+const handleSymbolChangeWrapper = (vals: string[]) => {
+  formData.value.symbols = isSelectAll(vals) ? allSymbolValues() : vals
 }
 
 const timeframeOptions = [
@@ -340,150 +281,52 @@ const stopLossModeOptions = [
   { label: '固定百分比', value: 'fixed' },
 ]
 
-const defaultParams = () => ({
-  initialCapital: 1000000, positionRatio: 0.4, maxPositions: 2,
-  timeframe: '1h', dateStart: null as string | null, dateEnd: null as string | null,
-  // 入场信号
-  kdjN: 9, kdjM1: 3, kdjM2: 3, kdjJOversold: 10,
-  maConditions: [] as Array<{ left: string; right: string }>,
-  recentLowWindow: 9, recentLowBuffer: 5,
-  entryMaxDistFromLowPct: 5,
-  // 信号参数
-  recentHighWindow: 9, recentHighBuffer: 5,
-  // 止损策略
-  stopLossMode: 'atr' as 'atr' | 'fixed', fixedStopLossPct: 2,
-  // 出场管理
-  enablePartialProfit: false, partialProfitRatio: 0.5,
-  enableTrailingStop: false, trailingDrawdownPct: 3,
-  enableBreakevenStop: false, breakevenTriggerR: 1.0,
-  takeProfitTargets: [] as Array<{ rrRatio: number; sellRatio: number }>,
-  enableTrailingProfit: false, trailingProfitTriggerR: 2.0, trailingProfitDrawdownPct: 5,
-  // 风控参数
-  stopLossFactor: 1.0, minRiskRewardRatio: 4.0,
-  maxInitLoss: 0.01,
-  requireAllPositionsProfitable: false,
-  // 冷却期
-  enableCooldown: false,
-  baseCooldownCandles: 5,
-  consecutiveLossesThreshold: 3,
-  maxCooldownCandles: 20,
-})
-
-const normalizeDate = (v: unknown, tf: string): string | null => {
-  if (typeof v !== 'string' || !v) return null
-  const needsTime = tf !== '1d'
-  const hasTime = v.includes(' ')
-  if (needsTime && !hasTime) return `${v} 00:00:00`
-  if (!needsTime && hasTime) return v.split(' ')[0]
-  return v
-}
-
-const makeForm = (s?: Record<string, unknown>) => {
-  const params = { ...defaultParams(), ...(s?.params as Record<string, unknown> ?? {}) }
-  params.dateStart = normalizeDate(params.dateStart, params.timeframe as string)
-  params.dateEnd = normalizeDate(params.dateEnd, params.timeframe as string)
-  // 从已保存策略反推 enableCooldown 开关状态
-  if (s?.params) {
-    const sp = s.params as Record<string, unknown>
-    // 优先读取已有的 enableCooldown 字段；旧数据无此字段时 fallback 反推
-    if (sp.enableCooldown !== undefined) {
-      params.enableCooldown = !!sp.enableCooldown
-    } else {
-      params.enableCooldown = ((sp.baseCooldownCandles as number) ?? 0) > 0 || ((sp.consecutiveLossesThreshold as number) ?? 9999) < 9999 || ((sp.cooldownBars as number) ?? 0) > 0
-    }
+const useEditableNumber = (getValue: () => number, setValue: (v: number) => void, opts: { min: number; max: number; decimals: number; scale?: number }) => {
+  const display = ref('')
+  const updateDisplay = () => {
+    const v = getValue()
+    display.value = opts.scale ? (v * opts.scale).toFixed(opts.decimals) : v.toFixed(opts.decimals)
   }
-  return {
-    name: (s?.name as string) ?? '',
-    typeId: (s?.typeId as string) ?? 'ma_kdj',
-    symbols: ((s?.symbols as string[]) ?? []),
-    params,
-  }
-}
-
-const formData = ref(makeForm())
-
-const positionPctDisplay = ref('')
-const stopLossDisplay = ref('')
-
-watch(() => formData.value.params.positionRatio, (v) => {
-  positionPctDisplay.value = ((v as number) * 100).toFixed(2)
-}, { immediate: true })
-
-watch(() => formData.value.params.stopLossFactor, (v) => {
-  stopLossDisplay.value = (v as number).toFixed(4)
-}, { immediate: true })
-
-const commitPosition = () => {
-  const raw = positionPctDisplay.value.trim().replace('%', '')
-  const num = Number(raw)
-  if (!Number.isFinite(num) || raw === '') {
-    message.warning('请输入有效数字')
-    positionPctDisplay.value = ((formData.value.params.positionRatio as number) * 100).toFixed(2)
-    return
-  }
-  const ratio = num / 100
-  const min = 0.01, max = 1
-  let clamped = Math.min(max, Math.max(min, ratio))
-  clamped = Math.round(clamped * 10000) / 10000
-  if (Math.abs(clamped - ratio) > 1e-9) message.info(`已调整为 ${(clamped * 100).toFixed(2)}%`)
-  formData.value.params.positionRatio = clamped
-  positionPctDisplay.value = (clamped * 100).toFixed(2)
-}
-
-const commitStopLoss = () => {
-  const raw = stopLossDisplay.value.trim()
-  const num = Number(raw)
-  if (!Number.isFinite(num) || raw === '') {
-    message.warning('请输入有效数字')
-    stopLossDisplay.value = (formData.value.params.stopLossFactor as number).toFixed(4)
-    return
-  }
-  const min = 0.5, max = 2
-  let clamped = Math.min(max, Math.max(min, num))
-  clamped = Math.round(clamped * 10000) / 10000
-  if (Math.abs(clamped - num) > 1e-9) message.info(`已调整为 ${clamped.toFixed(4)}`)
-  formData.value.params.stopLossFactor = clamped
-  stopLossDisplay.value = clamped.toFixed(4)
-}
-
-const datePickerType = computed(() => (formData.value.params.timeframe === '1d' ? 'date' : 'datetime'))
-const dateFormat = computed(() => (formData.value.params.timeframe === '1d' ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm:ss'))
-
-const pad = (n: number) => n.toString().padStart(2, '0')
-const formatLocal = (iso: string, withTime: boolean) => {
-  const d = new Date(iso)
-  const s = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-  return withTime ? `${s} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` : s
-}
-
-const applyDateRangeDefaults = async (tf: string) => {
-  try {
-    const { min, max } = await symbolApi.getDateRange(tf)
-    if (!min || !max) {
-      formData.value.params.dateStart = null
-      formData.value.params.dateEnd = null
-      message.warning(`时间周期 ${tf} 暂无数据`)
+  watch(getValue, updateDisplay, { immediate: true })
+  const commit = () => {
+    const raw = display.value.trim().replace('%', '')
+    const num = Number(raw)
+    if (!Number.isFinite(num) || raw === '') {
+      message.warning('请输入有效数字')
+      updateDisplay()
       return
     }
-    const withTime = tf !== '1d'
-    formData.value.params.dateStart = formatLocal(min, withTime)
-    formData.value.params.dateEnd = formatLocal(max, withTime)
-  } catch (err: unknown) {
-    message.error((err as Error).message || '加载数据区间失败')
+    const val = opts.scale ? num / opts.scale : num
+    const clamped = Math.min(opts.max, Math.max(opts.min, val))
+    const rounded = Math.round(clamped * 10 ** opts.decimals) / 10 ** opts.decimals
+    if (Math.abs(rounded - val) > 1e-9) {
+      message.info(`已调整为 ${opts.scale ? (rounded * opts.scale).toFixed(opts.decimals) : rounded.toFixed(opts.decimals)}${opts.scale ? '%' : ''}`)
+    }
+    setValue(rounded)
+    display.value = opts.scale ? (rounded * opts.scale).toFixed(opts.decimals) : rounded.toFixed(opts.decimals)
   }
+  return { display, commit, updateDisplay }
 }
 
-watch(() => props.strategy, (s) => { if (s) formData.value = makeForm(s as Record<string, unknown>) }, { immediate: true })
-watch(() => props.show, (v) => {
-  if (!v) return
-  importStrategiesLoaded = false
-  importStrategyId.value = null
-  if (!props.isEdit) {
-    formData.value = makeForm()
-    applyDateRangeDefaults(formData.value.params.timeframe as string)
-  }
-  loadSymbolOptions(formData.value.params.timeframe as string)
-})
+const { display: positionPctDisplay, commit: commitPosition } = useEditableNumber(
+  () => formData.value.params.positionRatio,
+  (v) => { formData.value.params.positionRatio = v },
+  { min: 0.01, max: 1, decimals: 2, scale: 100 }
+)
+
+const { display: stopLossDisplay, commit: commitStopLoss } = useEditableNumber(
+  () => formData.value.params.stopLossFactor,
+  (v) => { formData.value.params.stopLossFactor = v },
+  { min: 0.5, max: 2, decimals: 4 }
+)
+
+const blurInput = (e: KeyboardEvent) => {
+  (e.target as HTMLInputElement).blur()
+}
+
+const handleClose = () => {
+  if (!props.isEdit) resetForm()
+}
 
 const handleSubmit = async () => {
   if (!formData.value.symbols.length) {
@@ -492,13 +335,11 @@ const handleSubmit = async () => {
   }
   submitting.value = true
   try {
-    const p = formData.value.params
-    // enableCooldown 直接传给后端，不再用 cooldownBars/threshold=9999 兼容
     const payload = {
       name: formData.value.name || undefined,
       typeId: formData.value.typeId,
       symbols: formData.value.symbols,
-      params: { ...p },
+      params: { ...formData.value.params },
     }
     const s = props.strategy as Record<string, unknown> | undefined
     if (props.isEdit) {
@@ -517,29 +358,29 @@ const handleSubmit = async () => {
   }
 }
 
-const handleClose = () => {
-  if (!props.isEdit) formData.value = makeForm()
-}
-
-const loadSymbolOptions = async (timeframe: string) => {
-  loadingSymbols.value = true
-  try {
-    const names = await symbolApi.getNames(timeframe)
-    symbolOptions.value = names.map((s: string) => ({ label: s, value: s }))
-  } catch (err: unknown) {
-    message.error((err as Error).message || '加载标的失败')
-  } finally {
-    loadingSymbols.value = false
+watch(
+  () => props.show,
+  (v) => {
+    if (!v) return
+    resetImportState()
+    if (!props.isEdit) {
+      resetForm()
+      applyDateRangeDefaults(formData.value.params.timeframe, setDates)
+    }
+    loadSymbolOptions(formData.value.params.timeframe)
   }
-}
+)
 
-watch(() => formData.value.params.timeframe, (tf) => {
-  if (!tf) return
-  formData.value.params.dateStart = null
-  formData.value.params.dateEnd = null
-  loadSymbolOptions(tf as string)
-  applyDateRangeDefaults(tf as string)
-}, { immediate: false })
+watch(
+  () => formData.value.params.timeframe,
+  (tf) => {
+    if (!tf) return
+    clearDates()
+    loadSymbolOptions(tf)
+    applyDateRangeDefaults(tf, setDates)
+  },
+  { immediate: false }
+)
 
 onMounted(async () => {
   try {
@@ -565,10 +406,4 @@ onMounted(async () => {
 .import-bar { margin-bottom: 16px; }
 .symbol-row { display: flex; gap: 8px; width: 100%; align-items: stretch; }
 .symbol-select { flex: 1; min-width: 0; }
-.label-with-tip { display: inline-flex; align-items: center; gap: 4px; }
-.tip-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--n-text-color-3, #888);
-  font-size: 10px; color: var(--n-text-color-3, #888); cursor: help; flex-shrink: 0;
-}
 </style>

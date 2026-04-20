@@ -152,6 +152,10 @@ export interface BacktestConfig {
   consecutiveLossesThreshold: number;
   baseCooldownCandles: number;
   maxCooldownCandles: number;
+  /** 每次亏损平仓：冷却时长与（若已在冷却）结束 bar 各增加若干根，非负整数 */
+  cooldownExtendOnLoss: number;
+  /** 每次盈利平仓：冷却时长与（若已在冷却）结束 bar 各减少若干根，非负整数 */
+  cooldownReduceOnProfit: number;
   warmupBars: number;
   lookbackBuffer: number;
   maxBacktestBars: number;
@@ -196,6 +200,10 @@ export interface CandleLogEntry {
   /** 本根收盘后持仓标的（与引擎 positions 同步） */
   openSymbols: string[];
   inCooldown: boolean;
+  /** 当前全局冷却期时长（根数），enableCooldown=false 时为 null */
+  cooldownDuration: number | null;
+  /** 距冷却结束的剩余根数，非冷却期为 0，enableCooldown=false 时为 null */
+  cooldownRemaining: number | null;
 }
 
 const SUPPORTED_TIMEFRAMES = new Set([
@@ -226,6 +234,10 @@ export function validateConfig(config: BacktestConfig): void {
     if (config.baseCooldownCandles < 0) errs.push('baseCooldownCandles 不得为负');
     if (config.maxCooldownCandles < config.baseCooldownCandles)
       errs.push('maxCooldownCandles 不得小于 baseCooldownCandles');
+    if (!Number.isInteger(config.cooldownExtendOnLoss) || config.cooldownExtendOnLoss < 0)
+      errs.push('cooldownExtendOnLoss 必须为非负整数');
+    if (!Number.isInteger(config.cooldownReduceOnProfit) || config.cooldownReduceOnProfit < 0)
+      errs.push('cooldownReduceOnProfit 必须为非负整数');
   }
   // 信号参数
   if (!(config.recentLowWindow >= 1)) errs.push('recentLowWindow 必须 >= 1');
@@ -293,6 +305,8 @@ export const DEFAULT_CONFIG: BacktestConfig = {
   consecutiveLossesThreshold: 3,
   baseCooldownCandles: 5,
   maxCooldownCandles: 20,
+  cooldownExtendOnLoss: 1,
+  cooldownReduceOnProfit: 1,
   warmupBars: 240,
   lookbackBuffer: 0,
   maxBacktestBars: 10000,

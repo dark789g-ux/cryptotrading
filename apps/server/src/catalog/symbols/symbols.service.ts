@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { SymbolEntity } from '../entities/symbol.entity';
-import { KlineEntity } from '../entities/kline.entity';
+import { SymbolEntity } from '../../entities/symbol/symbol.entity';
+import { KlineEntity } from '../../entities/kline.entity';
 
 export interface QuerySymbolsDto {
   interval: string;

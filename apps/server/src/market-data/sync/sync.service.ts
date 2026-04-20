@@ -3,12 +3,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
-import { SymbolEntity } from '../entities/symbol.entity';
-import { KlineEntity } from '../entities/kline.entity';
-import { AppConfigEntity } from '../entities/app-config.entity';
-import { SymbolsService } from '../symbols/symbols.service';
+import { SymbolEntity } from '../../entities/symbol/symbol.entity';
+import { KlineEntity } from '../../entities/kline.entity';
+import { AppConfigEntity } from '../../entities/app-config.entity';
+import { SymbolsService } from '../../catalog/symbols/symbols.service';
 import { KlinesService } from '../klines/klines.service';
-import { calcIndicators, KlineRow } from '../indicators/indicators';
+import { calcIndicators, KlineRow } from '../../indicators/indicators';
 import { Subject } from 'rxjs';
 
 export interface SseEvent {

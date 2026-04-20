@@ -13,23 +13,27 @@
           >
             <template #prefix><n-icon><search-outline /></n-icon></template>
           </n-input>
-          <div class="filter-switch-item">
+          <div class="filter-status-item">
             <n-tooltip placement="top">
               <template #trigger>
-                <span class="switch-label">仅本根有交易</span>
+                <span class="filter-status-label">状态</span>
               </template>
-              本根 K 线内有开仓/平仓，或相对上一根收盘持仓集合发生变化。
+              <div class="run-symbol-metrics-tooltip__status">
+                <div><strong>本根买入</strong>：entries 中出现该标的，或相对上一根收盘在本根新增持仓。</div>
+                <div><strong>本根卖出</strong>：exits 中出现该标的，或相对上一根收盘在本根减少持仓。</div>
+                <div><strong>本根持有</strong>：本根 K 线收盘时仍持仓的标的。</div>
+              </div>
             </n-tooltip>
-            <n-switch v-model:value="onlyActionOnBar" :disabled="loading" />
-          </div>
-          <div class="filter-switch-item">
-            <n-tooltip placement="top">
-              <template #trigger>
-                <span class="switch-label">仅当前持仓</span>
-              </template>
-              本根 K 线收盘时仍持仓的标的。
-            </n-tooltip>
-            <n-switch v-model:value="onlyOpenAtClose" :disabled="loading" />
+            <n-select
+              v-model:value="statusValues"
+              class="filter-status-select"
+              multiple
+              clearable
+              placeholder="状态"
+              :options="statusFilterOptions"
+              :disabled="loading"
+              max-tag-count="responsive"
+            />
           </div>
           <div v-if="conditions.length" class="filter-tags-inline">
             <n-tag
@@ -115,7 +119,7 @@
         :data="items"
         :loading="loading"
         :pagination="paginationState"
-        :scroll-x="1080"
+        :scroll-x="1360"
         remote
         @update:page="handlePageChange"
         @update:page-size="handlePageSizeChange"
@@ -148,7 +152,6 @@ import {
   NEmpty,
   NPopover,
   NSelect,
-  NSwitch,
   NSpin,
   NTooltip,
   useMessage,
@@ -171,8 +174,17 @@ const props = defineProps<{
 const message = useMessage()
 
 const searchQuery = ref('')
-const onlyActionOnBar = ref(true)
-const onlyOpenAtClose = ref(false)
+
+type StatusFilterValue = 'buy' | 'sell' | 'hold'
+const STATUS_BUY: StatusFilterValue = 'buy'
+const STATUS_SELL: StatusFilterValue = 'sell'
+const STATUS_HOLD: StatusFilterValue = 'hold'
+const statusFilterOptions: { label: string; value: StatusFilterValue }[] = [
+  { label: '本根买入', value: STATUS_BUY },
+  { label: '本根卖出', value: STATUS_SELL },
+  { label: '本根持有', value: STATUS_HOLD },
+]
+const statusValues = ref<StatusFilterValue[]>([STATUS_BUY, STATUS_SELL, STATUS_HOLD])
 const showFilterDrawer = ref(false)
 const fieldSelectRef = ref<{ focus: () => void } | null>(null)
 const klineModalShow = ref(false)
@@ -247,6 +259,25 @@ const columns = computed(() => [
             { default: () => '缺数据' },
           )
         : h(NTagComponent, { type: 'success', size: 'small', bordered: false }, { default: () => '正常' }),
+  },
+  {
+    title: '状态',
+    key: 'barStatus',
+    width: 200,
+    render: (r: RunSymbolMetricRow) => {
+      if (!r.buyOnBar && !r.sellOnBar && !r.holdAtClose) return '—'
+      const nodes: ReturnType<typeof h>[] = []
+      if (r.buyOnBar) {
+        nodes.push(h(NTagComponent, { type: 'info', size: 'small' }, { default: () => '本根买入' }))
+      }
+      if (r.sellOnBar) {
+        nodes.push(h(NTagComponent, { type: 'warning', size: 'small' }, { default: () => '本根卖出' }))
+      }
+      if (r.holdAtClose) {
+        nodes.push(h(NTagComponent, { type: 'success', size: 'small' }, { default: () => '本根持有' }))
+      }
+      return h('div', { class: 'metric-row-status-tags' }, nodes)
+    },
   },
   {
     title: '收盘价',
@@ -329,8 +360,9 @@ const buildBody = () => ({
   },
   page: page.value,
   page_size: pageSize.value,
-  only_action_on_bar: onlyActionOnBar.value,
-  only_open_at_close: onlyOpenAtClose.value,
+  only_buy_on_bar: statusValues.value.includes(STATUS_BUY),
+  only_sell_on_bar: statusValues.value.includes(STATUS_SELL),
+  only_open_at_close: statusValues.value.includes(STATUS_HOLD),
 })
 
 const loadData = async () => {
@@ -366,8 +398,7 @@ const applyFilters = () => {
 const resetFilters = () => {
   conditions.value = []
   searchQuery.value = ''
-  onlyActionOnBar.value = false
-  onlyOpenAtClose.value = false
+  statusValues.value = []
   page.value = 1
   explicitSort.value = false
   sortKey.value = 'symbol'
@@ -443,13 +474,21 @@ onMounted(() => {
 
 <style scoped src="./candle-run-symbol-metrics.css"></style>
 <style>
-/* n-popover 内容 teleport 到 body，不受 scoped 约束；类名加前缀避免污染全局 */
+/* n-tooltip / n-popover 内容 teleport 到 body，不受 scoped 约束；类名加前缀避免污染全局 */
+.run-symbol-metrics-tooltip__status {
+  max-width: 280px;
+  line-height: 1.5;
+  font-size: 13px;
+}
+.run-symbol-metrics-tooltip__status > div + div {
+  margin-top: 8px;
+}
 .run-symbol-metrics-popover__content {
   padding: 0;
   border-radius: 8px;
   box-shadow:
-    0 4px 16px rgba(15, 23, 42, 0.08),
-    0 0 0 1px rgba(15, 23, 42, 0.06);
+    0 4px 16px rgba(28, 25, 23, 0.08),
+    0 0 0 1px rgba(28, 25, 23, 0.06);
 }
 .run-symbol-metrics-popover__inner {
   width: min(400px, calc(100vw - 24px));
@@ -472,8 +511,8 @@ onMounted(() => {
   margin-top: 4px;
   padding: 20px 16px;
   border-radius: 8px;
-  background: rgba(100, 106, 115, 0.06);
-  border: 1px solid rgba(100, 106, 115, 0.12);
+  background: rgba(120, 113, 108, 0.06);
+  border: 1px solid rgba(120, 113, 108, 0.12);
 }
 .run-symbol-metrics-popover__inner .filter-conditions-empty .n-empty__description {
   margin-top: 8px;

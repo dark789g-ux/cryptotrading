@@ -1,9 +1,9 @@
 import type { Logger } from '@nestjs/common';
 import type { Repository } from 'typeorm';
-import { BacktestRunEntity } from '../entities/backtest-run.entity';
-import { BacktestTradeEntity } from '../entities/backtest-trade.entity';
-import { BacktestCandleLogEntity } from '../entities/backtest-candle-log.entity';
-import { StrategyEntity } from '../entities/strategy.entity';
+import { BacktestRunEntity } from '../entities/backtest/backtest-run.entity';
+import { BacktestTradeEntity } from '../entities/backtest/backtest-trade.entity';
+import { BacktestCandleLogEntity } from '../entities/backtest/backtest-candle-log.entity';
+import { StrategyEntity } from '../entities/strategy/strategy.entity';
 import { BacktestDataService } from './engine/data.service';
 import { runBacktest } from './engine/engine';
 import { calcStats, prepareReportData } from './engine/report';
@@ -144,6 +144,8 @@ export async function executeBacktestPipeline(
           exitsJson: entry.exits,
           openSymbolsJson: entry.openSymbols ?? [],
           inCooldown: entry.inCooldown,
+          cooldownDuration: entry.cooldownDuration ?? null,
+          cooldownRemaining: entry.cooldownRemaining ?? null,
         }));
         await ctx.candleLogRepo
           .createQueryBuilder()

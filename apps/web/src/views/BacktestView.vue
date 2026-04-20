@@ -2,30 +2,15 @@
   <div class="backtest-view">
     <div class="page-header">
       <h1 class="page-title">策略回测</h1>
-      <n-button type="primary" @click="showCreateModal = true">
-        <template #icon><n-icon><add-outline /></n-icon></template>
-        新建策略
-      </n-button>
-    </div>
-
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">策略总数</div>
-        <div class="stat-value">{{ strategies.length }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">已回测</div>
-        <div class="stat-value">{{ backtestedCount }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">平均收益率</div>
-        <div class="stat-value" :class="avgReturn >= 0 ? 'trend-up' : 'trend-down'">
-          {{ formatPercent(avgReturn) }}
-        </div>
-      </div>
     </div>
 
     <n-card class="strategy-table-card" :bordered="false">
+      <div class="strategy-table-toolbar">
+        <n-button type="primary" @click="showCreateModal = true">
+          <template #icon><n-icon><add-outline /></n-icon></template>
+          新建策略
+        </n-button>
+      </div>
       <n-data-table
         :columns="columns"
         :data="tableRows"
@@ -93,7 +78,7 @@
     <!-- 回测详情抽屉 -->
     <n-drawer
       v-model:show="showDetailDrawer"
-      width="min(1200px, 92vw)"
+      width="min(1600px, 96vw)"
       placement="right"
       :mask-closable="false"
       class="glass-drawer"
@@ -224,13 +209,6 @@ const pagination = ref({
   prefix: () => `共 ${strategies.value.length} 条`,
 })
 
-const backtestedCount = computed(() => strategies.value.filter((s) => s.lastBacktestAt).length)
-const avgReturn = computed(() => {
-  const tested = strategies.value.filter((s) => s.lastBacktestReturn != null)
-  if (!tested.length) return 0
-  return tested.reduce((a, s) => a + (s.lastBacktestReturn || 0), 0) / tested.length
-})
-
 const formatPercent = (val: number | null) => {
   if (val == null) return '-'
   return `${val >= 0 ? '+' : ''}${val.toFixed(2)}%`
@@ -252,8 +230,8 @@ function formatTs(ts: string | null): string {
 
 // ── 表格列定义 ────────────────────────────────────────────────
 const tableRows = computed(() => strategies.value)
-const BASE_COLS: Record<string, object> = {
-  name: { key: 'name', width: 200, ellipsis: { tooltip: true } },
+const BASE_COLS = {
+  name: { key: 'name', width: 200, ellipsis: { tooltip: true as const } },
   typeId: { key: 'typeId', width: 120, render: (row: any) => ({ ma_kdj: 'MA+KDJ' }[row.typeId as string] || row.typeId) },
   timeframe: { key: 'timeframe', width: 100, render: (row: any) => row.timeframe || '-' },
   createdAt: { key: 'createdAt', width: 160, sorter: true, render: (row: any) => formatDate(row.createdAt) },
@@ -275,18 +253,19 @@ const COL_LABELS: Record<string, string> = {
 
 const COL_KEYS = ['name', 'typeId', 'timeframe', 'createdAt', 'lastBacktestAt', 'lastBacktestReturn']
 
+type NaiveSortOrder = 'ascend' | 'descend' | false | undefined
 const columns = computed(() => {
   const ordered = COL_KEYS.map((key) => ({
-    ...BASE_COLS[key],
+    ...BASE_COLS[key as keyof typeof BASE_COLS],
     title: COL_LABELS[key],
-    sortOrder: (BASE_COLS[key] as any).sorter
+    sortOrder: ((BASE_COLS[key as keyof typeof BASE_COLS] as any).sorter
       ? (sortField.value === key ? (sortOrder.value === 'ASC' ? 'ascend' : 'descend') : false)
-      : undefined,
+      : undefined) as NaiveSortOrder,
   }))
   return [
     ...ordered,
     {
-      title: '操作', key: 'actions', width: 180, fixed: 'right',
+      title: '操作', key: 'actions', width: 180, fixed: 'right' as const,
       render: (row: any) => {
         const withTip = (tip: string, icon: any, onClick: () => void, type?: 'primary' | 'error') =>
           h(NTooltip, null, {
@@ -408,9 +387,9 @@ onMounted(loadStrategies)
 
 <style scoped>
 .backtest-view { max-width: 1400px; margin: 0 auto; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.page-header { margin-bottom: 24px; }
 .page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
-.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px; }
+.strategy-table-toolbar { margin-bottom: 16px; }
 .strategy-table-card { background: var(--ember-surface); }
 .action-btns { display: flex; gap: 8px; }
 .progress-modal-body { padding: 4px 0; }
