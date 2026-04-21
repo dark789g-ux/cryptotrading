@@ -15,7 +15,7 @@
 
         <!-- KDJ 超卖 -->
         <template v-if="type === 'kdj'">
-          <n-form-item label="周期" :show-feedback="false" label-placement="left" label-width="60px">
+          <n-form-item label="周期" :show-feedback="false" label-placement="left" label-width="120px">
             <div class="kdj-periods">
               <div class="period-item">
                 <span class="period-label">N</span>
@@ -31,7 +31,7 @@
               </div>
             </div>
           </n-form-item>
-          <n-form-item :show-feedback="false" label-placement="left" label-width="60px">
+          <n-form-item :show-feedback="false" label-placement="left" label-width="120px">
             <template #label>
               <span class="label-with-tip">J 阈值
                 <n-tooltip><template #trigger><span class="tip-icon">?</span></template>
@@ -39,7 +39,17 @@
                 </n-tooltip>
               </span>
             </template>
-            <n-input-number v-model:value="p.kdjJOversold" :min="-200" :max="200" style="width:100%" size="small" />
+            <n-input-number v-model:value="p.kdjJOversold" :min="-200" :max="200" style="width:120px" size="small" />
+          </n-form-item>
+          <n-form-item :show-feedback="false" label-placement="left" label-width="120px">
+            <template #label>
+              <span class="label-with-tip">J 取值偏移
+                <n-tooltip style="max-width:280px"><template #trigger><span class="tip-icon">?</span></template>
+                  与「J 阈值」比较时使用的 K 线：0 = 当前 K 线，1 = 上一根，以此类推（最多 99）
+                </n-tooltip>
+              </span>
+            </template>
+            <n-input-number v-model:value="p.kdjOversoldJOffset" :min="0" :max="99" :show-button="false" style="width:120px" size="small" />
           </n-form-item>
         </template>
 
@@ -47,12 +57,17 @@
         <template v-if="type === 'ma'">
           <n-form-item :show-feedback="false">
             <template #label>
-              <span class="label-with-tip">MA 条件
-                <n-tooltip style="max-width:260px"><template #trigger><span class="tip-icon">?</span></template>
-                  所有条件 AND 连接。例：CLOSE &gt; MA60 AND MA30 &gt; MA60<br/>
-                  为空时回退到默认硬编码条件
-                </n-tooltip>
-              </span>
+              <div class="ma-label-row">
+                <span class="label-with-tip">MA 条件
+                  <n-tooltip style="max-width:260px"><template #trigger><span class="tip-icon">?</span></template>
+                    所有条件 AND 连接。例：CLOSE &gt; MA60 AND MA30 &gt; MA60<br/>
+                    为空时回退到默认硬编码条件
+                  </n-tooltip>
+                </span>
+                <n-dropdown :options="maPresetDropdownOptions" @select="applyMaPreset">
+                  <n-button text size="small">常用组合</n-button>
+                </n-dropdown>
+              </div>
             </template>
             <n-dynamic-input
               v-model:value="p.maConditions"
@@ -74,10 +89,12 @@
         <template v-if="type === 'dist'">
           <n-form-item :show-feedback="false">
             <template #label>
-              <span class="label-with-tip">最大距低点(%)
+              <span class="label-with-tip">最大初始止损(%)
                 <n-tooltip style="max-width:260px"><template #trigger><span class="tip-icon">?</span></template>
-                  以阶段低点为止损点，入场后最大可接受的亏损幅度；超过该值的信号将被过滤。<br/>
-                  公式：(收盘价 - 阶段低点) ÷ 收盘价 × 100 ≤ N%
+                  按止损策略估算的预期初始止损幅度，超过该值的信号将被过滤。<br/>
+                  · ATR 模式：(收盘价 - 阶段低点 × 止损因子) ÷ 收盘价 × 100<br/>
+                  · 固定止损：直接使用固定止损百分比<br/>
+                  · 中点止损：(收盘价 - 信号K线中点 × 止损因子) ÷ 收盘价 × 100
                 </n-tooltip>
               </span>
             </template>
@@ -99,6 +116,25 @@
           </n-form-item>
         </template>
 
+        <!-- 砖型图 XG -->
+        <template v-if="type === 'brick'">
+          <div class="brick-desc">
+            砖型图 XG 转折信号：双重平滑随机振荡量之差从下降转上涨的第一根触发入场<br/>
+            <span class="brick-formula">HHV/LLV=4，SMA(4,1) + SMA(6,1) 双重平滑</span>
+          </div>
+          <n-form-item :show-feedback="false">
+            <template #label>
+              <span class="label-with-tip">DELTA 加速阈值
+                <n-tooltip style="max-width:280px"><template #trigger><span class="tip-icon">?</span></template>
+                  DELTA = |砖型图变化量| ÷ |前一期变化量|<br/>
+                  0 = 不过滤；&gt;1 = 要求加速（当前变化 > 前期变化）；建议 1～2
+                </n-tooltip>
+              </span>
+            </template>
+            <n-input-number v-model:value="p.brickDeltaMin" :min="0" :max="10" :step="0.1" style="width:100%" size="small" />
+          </n-form-item>
+        </template>
+
       </div>
     </div>
     <div v-if="i < activeList.length - 1" class="and-connector">AND</div>
@@ -112,11 +148,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { h, ref, computed, watch } from 'vue'
 import {
   NDivider, NFormItem, NInputNumber, NSelect, NTooltip, NDynamicInput,
   NButton, NDropdown,
+  useMessage,
 } from 'naive-ui'
+import type { DropdownOption } from 'naive-ui'
 
 export type MaOperand = 'close' | 'ma5' | 'ma30' | 'ma60' | 'ma120' | 'ma240'
 export type MaOperator = '>' | '>=' | '<' | '<=' | '=' | '!='
@@ -132,34 +170,40 @@ export interface EntrySignalParams {
   kdjM1: number
   kdjM2: number
   kdjJOversold: number
+  kdjOversoldJOffset: number
   maConditions: MaCondition[]
   entryMaxDistFromLowPct: number
   minRiskRewardRatio: number
+  brickXgEnabled: boolean
+  brickDeltaMin: number
 }
 
-type SignalType = 'kdj' | 'ma' | 'dist' | 'rr'
+type SignalType = 'kdj' | 'ma' | 'dist' | 'rr' | 'brick'
 
 const SIGNAL_LABELS: Record<SignalType, string> = {
   kdj: 'KDJ 超卖',
   ma: 'MA 条件',
   dist: '入场距低点',
   rr: '最小盈亏比',
+  brick: '砖型图 XG',
 }
 
-const SIGNAL_ORDER: SignalType[] = ['kdj', 'ma', 'dist', 'rr']
+const SIGNAL_ORDER: SignalType[] = ['kdj', 'ma', 'dist', 'rr', 'brick']
 
 const SIGNAL_DEFAULTS: Record<SignalType, () => Partial<EntrySignalParams>> = {
-  kdj:  () => ({ kdjN: 9, kdjM1: 3, kdjM2: 3, kdjJOversold: 10 }),
+  kdj:  () => ({ kdjN: 9, kdjM1: 3, kdjM2: 3, kdjJOversold: 10, kdjOversoldJOffset: 0 }),
   ma:   () => ({ maConditions: [{ left: 'close', op: '>', right: 'ma60' }] }),
   dist: () => ({ entryMaxDistFromLowPct: 5 }),
   rr:   () => ({ minRiskRewardRatio: 4.0 }),
+  brick: () => ({ brickXgEnabled: true, brickDeltaMin: 0 }),
 }
 
 const SIGNAL_SENTINELS: Record<SignalType, () => Partial<EntrySignalParams>> = {
-  kdj:  () => ({ kdjJOversold: 0 }),
+  kdj:  () => ({ kdjJOversold: 0, kdjOversoldJOffset: 0 }),
   ma:   () => ({ maConditions: [] }),
   dist: () => ({ entryMaxDistFromLowPct: 0 }),
   rr:   () => ({ minRiskRewardRatio: 0 }),
+  brick: () => ({ brickXgEnabled: false, brickDeltaMin: 0 }),
 }
 
 const deriveActive = (params: EntrySignalParams): Set<SignalType> => {
@@ -168,35 +212,77 @@ const deriveActive = (params: EntrySignalParams): Set<SignalType> => {
   if (params.maConditions.length > 0) s.add('ma')
   if (params.entryMaxDistFromLowPct !== 0) s.add('dist')
   if (params.minRiskRewardRatio !== 0) s.add('rr')
+  if (params.brickXgEnabled) s.add('brick')
   return s
 }
 
 const p = defineModel<EntrySignalParams>('params', { required: true })
 
-const activeSignals = ref<Set<SignalType>>(deriveActive(p.value))
+const message = useMessage()
+
+/** 多头排列：CLOSE>MA60 AND CLOSE>MA240 AND MA30>MA60 AND MA60>MA120 */
+const MA_PRESET_BULL_ALIGN: readonly MaCondition[] = [
+  { left: 'close', op: '>', right: 'ma60' },
+  { left: 'close', op: '>', right: 'ma240' },
+  { left: 'ma30', op: '>', right: 'ma60' },
+  { left: 'ma60', op: '>', right: 'ma120' },
+]
+
+const MA_PRESET_KEY_BULL_ALIGN = 'bull_align' as const
+
+const maPresetDropdownOptions: DropdownOption[] = [
+  {
+    key: MA_PRESET_KEY_BULL_ALIGN,
+    label: () => h('div', { class: 'ma-preset-option' }, [
+      h('div', { class: 'ma-preset-title' }, '多头排列'),
+      h(
+        'div',
+        { class: 'ma-preset-desc' },
+        'CLOSE>MA60 · CLOSE>MA240 · MA30>MA60 · MA60>MA120',
+      ),
+    ]),
+  },
+]
+
+const applyMaPreset = (key: string | number) => {
+  if (key !== MA_PRESET_KEY_BULL_ALIGN) return
+  p.value.maConditions = MA_PRESET_BULL_ALIGN.map((row) => ({
+    left: row.left,
+    op: row.op,
+    right: row.right,
+  }))
+  message.success('已应用：多头排列')
+}
+
+const signalOrder = ref<SignalType[]>(SIGNAL_ORDER.filter(t => deriveActive(p.value).has(t)))
 
 watch(p, (newVal) => {
-  activeSignals.value = deriveActive(newVal)
+  const active = deriveActive(newVal)
+  let next = signalOrder.value.filter(t => active.has(t))
+  for (const t of SIGNAL_ORDER) {
+    if (active.has(t) && !next.includes(t)) next.push(t)
+  }
+  signalOrder.value = next
 }, { deep: false })
 
-const activeList = computed(() => SIGNAL_ORDER.filter(t => activeSignals.value.has(t)))
+const activeList = computed(() => signalOrder.value)
+
+const activeSignalsSet = computed(() => new Set(signalOrder.value))
 
 const addSignal = (type: SignalType) => {
   Object.assign(p.value, SIGNAL_DEFAULTS[type]())
-  activeSignals.value = new Set([...activeSignals.value, type])
+  signalOrder.value = [...signalOrder.value, type]
 }
 
 const removeSignal = (type: SignalType) => {
   Object.assign(p.value, SIGNAL_SENTINELS[type]())
-  const next = new Set(activeSignals.value)
-  next.delete(type)
-  activeSignals.value = next
+  signalOrder.value = signalOrder.value.filter(x => x !== type)
 }
 
 const dropdownOptions = computed(() => SIGNAL_ORDER.map(type => ({
   label: SIGNAL_LABELS[type],
   key: type,
-  disabled: activeSignals.value.has(type),
+  disabled: activeSignalsSet.value.has(type),
 })))
 
 const maOperandOptions = [
@@ -268,6 +354,14 @@ const createMaCondition = (): MaCondition => ({ left: 'close', op: '>', right: '
   margin-top: 8px;
 }
 
+.ma-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
 .label-with-tip { display: inline-flex; align-items: center; gap: 4px; }
 .tip-icon {
   display: inline-flex; align-items: center; justify-content: center;
@@ -279,4 +373,35 @@ const createMaCondition = (): MaCondition => ({ left: 'close', op: '>', right: '
 .period-label { color: var(--n-text-color-3); font-size: 13px; white-space: nowrap; }
 .ma-row { display: flex; align-items: center; gap: 8px; flex: 1; }
 :deep(.ma-cond-item) { flex: 1; }
+.brick-desc {
+  font-size: 12px;
+  color: var(--ember-neutral, #78716C);
+  line-height: 1.6;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: var(--ember-surface-hover, #E7E5E4);
+  border-radius: 8px;
+}
+.brick-formula {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+/* 下拉菜单挂载在 body，需 :global */
+:global(.ma-preset-option) {
+  padding: 2px 0;
+  max-width: 280px;
+  line-height: 1.35;
+}
+:global(.ma-preset-title) {
+  font-size: 14px;
+  font-weight: 600;
+}
+:global(.ma-preset-desc) {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--n-text-color-3, #888);
+  white-space: normal;
+  word-break: break-all;
+}
 </style>

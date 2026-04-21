@@ -41,6 +41,9 @@ export interface Position {
   trailingProfitActive: boolean;
   trailingProfitHighClose: number;
   takeProfitNextTargetIdx: number;
+  ladderBreakevenHit: boolean;
+  ladderStopFrozen: boolean;
+  signalBarHigh: number;
 }
 
 export function createPosition(p: Partial<Position> & {
@@ -67,6 +70,9 @@ export function createPosition(p: Partial<Position> & {
     trailingProfitActive: false,
     trailingProfitHighClose: 0,
     takeProfitNextTargetIdx: 0,
+    ladderBreakevenHit: false,
+    ladderStopFrozen: false,
+    signalBarHigh: 0,
     ...p,
   };
 }
@@ -123,17 +129,26 @@ export interface BacktestConfig {
   kdjM1: number;
   kdjM2: number;
   kdjJOversold: number;
+  /** 超卖比较使用的 J：0=当根，n=往前第 n 根 K 线的 J */
+  kdjOversoldJOffset: number;
   maConditions: MaCondition[];
   entryMaxDistFromLowPct: number;
+  brickXgEnabled: boolean;
+  brickDeltaMin: number;
   // 信号参数
   recentLowWindow: number;
   recentLowBuffer: number;
   recentHighWindow: number;
   recentHighBuffer: number;
   // 止损策略
-  stopLossMode: 'atr' | 'fixed';
+  stopLossMode: 'atr' | 'fixed' | 'signal_midpoint';
   stopLossFactor: number;
   fixedStopLossPct: number;
+  enableProfitStopAdjust: boolean;
+  profitStopAdjustTo: 'midpoint' | 'breakeven';
+  enableMa5StopAdjust: boolean;
+  ma5StopAdjustTo: 'midpoint' | 'breakeven';
+  enableLadderStopLoss: boolean;
   // 出场管理
   enablePartialProfit: boolean;
   partialProfitRatio: number;
@@ -244,9 +259,20 @@ export function validateConfig(config: BacktestConfig): void {
   if (!(config.recentLowBuffer >= 0)) errs.push('recentLowBuffer 不得为负');
   if (!(config.recentHighWindow >= 1)) errs.push('recentHighWindow 必须 >= 1');
   if (!(config.recentHighBuffer >= 0)) errs.push('recentHighBuffer 不得为负');
+  if (
+    !Number.isInteger(config.kdjOversoldJOffset) ||
+    config.kdjOversoldJOffset < 0 ||
+    config.kdjOversoldJOffset > 99
+  ) {
+    errs.push('kdjOversoldJOffset 必须为 0～99 的整数');
+  }
   // 止损策略
-  if (!['atr', 'fixed'].includes(config.stopLossMode))
-    errs.push('stopLossMode 必须是 atr 或 fixed');
+  if (!['atr', 'fixed', 'signal_midpoint'].includes(config.stopLossMode))
+    errs.push('stopLossMode 必须是 atr、fixed 或 signal_midpoint');
+  if (!['midpoint', 'breakeven'].includes(config.profitStopAdjustTo))
+    errs.push('profitStopAdjustTo 必须是 midpoint 或 breakeven');
+  if (!['midpoint', 'breakeven'].includes(config.ma5StopAdjustTo))
+    errs.push('ma5StopAdjustTo 必须是 midpoint 或 breakeven');
   if (config.stopLossMode === 'fixed' && !(config.fixedStopLossPct > 0 && config.fixedStopLossPct < 100))
     errs.push('fixedStopLossPct 必须在 (0, 100)');
   // 出场管理
@@ -276,8 +302,11 @@ export const DEFAULT_CONFIG: BacktestConfig = {
   kdjM1: 3,
   kdjM2: 3,
   kdjJOversold: 10,
+  kdjOversoldJOffset: 0,
   maConditions: [],
   entryMaxDistFromLowPct: 0,
+  brickXgEnabled: false,
+  brickDeltaMin: 0,
   // 信号参数
   recentLowWindow: 9,
   recentLowBuffer: 5,
@@ -287,6 +316,11 @@ export const DEFAULT_CONFIG: BacktestConfig = {
   stopLossMode: 'atr',
   stopLossFactor: 1.0,
   fixedStopLossPct: 2,
+  enableProfitStopAdjust: true,
+  profitStopAdjustTo: 'midpoint',
+  enableMa5StopAdjust: true,
+  ma5StopAdjustTo: 'midpoint',
+  enableLadderStopLoss: false,
   // 出场管理
   enablePartialProfit: false,
   partialProfitRatio: 0.5,

@@ -50,16 +50,32 @@ export function executePendingBuys(
 
     const shares = alloc / openPrice;
     const [recLow, recLowTime] = calcRecentLow(df, curIdx, config.recentLowWindow, config.recentLowBuffer);
-    const stopP = config.stopLossMode === 'fixed'
-      ? openPrice * (1 - config.fixedStopLossPct / 100)
-      : recLow * config.stopLossFactor;
+    let stopP: number;
+    let midPrice: number | undefined;
+    let signalBar: KlineBarRow | null = null;
+    if (config.stopLossMode === 'fixed') {
+      stopP = openPrice * (1 - config.fixedStopLossPct / 100);
+      const sigIdx = idxMap.get(sigTs);
+      signalBar = sigIdx !== undefined ? df[sigIdx] : null;
+    } else if (config.stopLossMode === 'signal_midpoint') {
+      const sigIdx = idxMap.get(sigTs);
+      signalBar = sigIdx !== undefined ? df[sigIdx] : null;
+      midPrice = signalBar ? (signalBar.open + signalBar.close) / 2 : openPrice;
+      stopP = midPrice * config.stopLossFactor;
+    } else {
+      stopP = recLow * config.stopLossFactor;
+      const sigIdx = idxMap.get(sigTs);
+      signalBar = sigIdx !== undefined ? df[sigIdx] : null;
+    }
+    const signalBarHigh = signalBar ? signalBar.high : openPrice;
     const [recHigh, recHighTime] = calcRecentHigh(df, curIdx, config.recentHighWindow, config.recentHighBuffer);
-    const initStopLossPct = openPrice > 0 ? ((openPrice - recLow) / openPrice) * 100 : 0;
+    const initStopLossPct = openPrice > 0 ? ((openPrice - stopP) / openPrice) * 100 : 0;
 
     const entryReason =
       `盈亏比 ${rrRatio.toFixed(2)}\n` +
-      `阶段高点 ${recHighTime} ${recHigh.toPrecision(6)}\n` +
-      `阶段低点 ${recLowTime} ${recLow.toPrecision(6)}\n` +
+      (config.stopLossMode === 'signal_midpoint'
+        ? `信号K线中点价 ${(midPrice ?? openPrice).toPrecision(6)} (因子 ${config.stopLossFactor})\n`
+        : `阶段高点 ${recHighTime} ${recHigh.toPrecision(6)}\n阶段低点 ${recLowTime} ${recLow.toPrecision(6)}\n`) +
       `初次止损幅度 ${initStopLossPct.toFixed(2)}%`;
 
     const pos = createPosition({
@@ -76,6 +92,7 @@ export function executePendingBuys(
       recentLowTime: recLowTime,
       entryRrRatio: rrRatio,
       entryReason,
+      signalBarHigh,
     });
     cash -= alloc;
     positions.push(pos);

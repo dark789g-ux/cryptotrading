@@ -15,6 +15,16 @@ function calcR(entryPrice: number, initialStop: number, price: number): number {
   return (price - entryPrice) / risk;
 }
 
+function calcAdjustedStop(
+  entryPrice: number,
+  maxClose: number,
+  currentStop: number,
+  target: 'midpoint' | 'breakeven',
+): number {
+  const newStop = target === 'midpoint' ? (entryPrice + maxClose) / 2 : entryPrice;
+  return Math.max(currentStop, newStop);
+}
+
 /**
  * 收盘后更新止损价（移动止损 & 保本止损）。
  * 仅上移，不下移。
@@ -178,12 +188,11 @@ export function processCandle(
   // ──────────────────────────────────────────────────
 
   // ①' 阶段止盈后止损调节
-  if (hitProfit) {
+  if (hitProfit && config.enableProfitStopAdjust) {
     pos.maxClose = Math.max(pos.maxClose, close);
-    let newStop = (pos.entryPrice + pos.maxClose) / 2;
-    newStop = Math.max(pos.stopPrice, newStop);
+    const newStop = calcAdjustedStop(pos.entryPrice, pos.maxClose, pos.stopPrice, config.profitStopAdjustTo);
     pos.stopPrice = newStop;
-    pos.stopReason = '阶段止盈后止损';
+    pos.stopReason = config.profitStopAdjustTo === 'breakeven' ? '阶段止盈后保本' : '阶段止盈后止损';
     if (close < newStop) {
       const proceeds = pos.shares * close;
       const pnl = proceeds - pos.shares * pos.entryPrice;
@@ -208,9 +217,8 @@ export function processCandle(
     return ['exit_full', cashDelta, trades];
   }
 
-  if (!pos.ma5StopAdjusted && ma5 > prevMa5) {
-    let newStop = (pos.entryPrice + pos.maxClose) / 2;
-    newStop = Math.max(pos.stopPrice, newStop);
+  if (!pos.ma5StopAdjusted && ma5 > prevMa5 && config.enableMa5StopAdjust) {
+    const newStop = calcAdjustedStop(pos.entryPrice, pos.maxClose, pos.stopPrice, config.ma5StopAdjustTo);
     if (close < newStop) {
       const proceeds = pos.shares * close;
       const pnl = proceeds - pos.shares * pos.entryPrice;
@@ -218,9 +226,34 @@ export function processCandle(
       trades.push(createTradeRecord(pos, time, close, pos.shares, pnl, 'MA5上升后止损', pos.candleCount, false));
       return ['exit_full', cashDelta, trades];
     } else {
-      if (newStop > pos.stopPrice) pos.stopReason = 'MA5首次上升止损';
+      if (newStop > pos.stopPrice) pos.stopReason = config.ma5StopAdjustTo === 'breakeven' ? 'MA5上升后保本' : 'MA5首次上升止损';
       pos.stopPrice = newStop;
       pos.ma5StopAdjusted = true;
+    }
+  } else if (!pos.ma5StopAdjusted && ma5 > prevMa5) {
+    pos.ma5StopAdjusted = true;
+  }
+
+  // ②' 阶梯追踪止损
+  if (config.enableLadderStopLoss && !pos.ladderStopFrozen) {
+    if (!pos.ladderBreakevenHit) {
+      if (low > pos.entryPrice) {
+        const newStop = Math.max(pos.stopPrice, low);
+        if (newStop > pos.stopPrice) { pos.stopPrice = newStop; pos.stopReason = '阶梯止损-保本'; }
+        pos.ladderBreakevenHit = true;
+      } else if (close > pos.entryPrice) {
+        const newStop = Math.max(pos.stopPrice, pos.entryPrice);
+        if (newStop > pos.stopPrice) { pos.stopPrice = newStop; pos.stopReason = '阶梯止损-保本'; }
+        pos.ladderBreakevenHit = true;
+      }
+    }
+    if (pos.ladderBreakevenHit && low > pos.stopPrice) {
+      pos.stopPrice = low;
+      pos.stopReason = '阶梯止损-追踪';
+    }
+    if (pos.stopPrice > pos.signalBarHigh) {
+      pos.ladderStopFrozen = true;
+      pos.stopReason = '阶梯止损-封顶';
     }
   }
 
@@ -302,12 +335,11 @@ export function processEntryCandle(
   }
 
   // ①' 阶段止盈后止损调节
-  if (hitProfit) {
+  if (hitProfit && config.enableProfitStopAdjust) {
     pos.maxClose = Math.max(pos.maxClose, close);
-    let newStop = (pos.entryPrice + pos.maxClose) / 2;
-    newStop = Math.max(pos.stopPrice, newStop);
+    const newStop = calcAdjustedStop(pos.entryPrice, pos.maxClose, pos.stopPrice, config.profitStopAdjustTo);
     pos.stopPrice = newStop;
-    pos.stopReason = '阶段止盈后止损';
+    pos.stopReason = config.profitStopAdjustTo === 'breakeven' ? '阶段止盈后保本' : '阶段止盈后止损';
     if (close < newStop) {
       const proceeds = pos.shares * close;
       const pnl = proceeds - pos.shares * pos.entryPrice;
@@ -331,9 +363,8 @@ export function processEntryCandle(
     return [cash, trades, true];
   }
 
-  if (!pos.ma5StopAdjusted && ma5Cur > ma5Prev) {
-    let newStop = (pos.entryPrice + pos.maxClose) / 2;
-    newStop = Math.max(pos.stopPrice, newStop);
+  if (!pos.ma5StopAdjusted && ma5Cur > ma5Prev && config.enableMa5StopAdjust) {
+    const newStop = calcAdjustedStop(pos.entryPrice, pos.maxClose, pos.stopPrice, config.ma5StopAdjustTo);
     if (close < newStop) {
       const proceeds = pos.shares * close;
       const pnl = proceeds - pos.shares * pos.entryPrice;
@@ -341,9 +372,34 @@ export function processEntryCandle(
       trades.push(createTradeRecord(pos, ts, close, pos.shares, pnl, 'MA5上升后止损', 0, false));
       return [cash, trades, true];
     } else {
-      if (newStop > pos.stopPrice) pos.stopReason = 'MA5首次上升止损';
+      if (newStop > pos.stopPrice) pos.stopReason = config.ma5StopAdjustTo === 'breakeven' ? 'MA5上升后保本' : 'MA5首次上升止损';
       pos.stopPrice = newStop;
       pos.ma5StopAdjusted = true;
+    }
+  } else if (!pos.ma5StopAdjusted && ma5Cur > ma5Prev) {
+    pos.ma5StopAdjusted = true;
+  }
+
+  // ①'' 阶梯追踪止损（入场当根）
+  if (config.enableLadderStopLoss && !pos.ladderStopFrozen) {
+    if (!pos.ladderBreakevenHit) {
+      if (entryLow > pos.entryPrice) {
+        const newStop = Math.max(pos.stopPrice, entryLow);
+        if (newStop > pos.stopPrice) { pos.stopPrice = newStop; pos.stopReason = '阶梯止损-保本'; }
+        pos.ladderBreakevenHit = true;
+      } else if (close > pos.entryPrice) {
+        const newStop = Math.max(pos.stopPrice, pos.entryPrice);
+        if (newStop > pos.stopPrice) { pos.stopPrice = newStop; pos.stopReason = '阶梯止损-保本'; }
+        pos.ladderBreakevenHit = true;
+      }
+    }
+    if (pos.ladderBreakevenHit && entryLow > pos.stopPrice) {
+      pos.stopPrice = entryLow;
+      pos.stopReason = '阶梯止损-追踪';
+    }
+    if (pos.stopPrice > pos.signalBarHigh) {
+      pos.ladderStopFrozen = true;
+      pos.stopReason = '阶梯止损-封顶';
     }
   }
 

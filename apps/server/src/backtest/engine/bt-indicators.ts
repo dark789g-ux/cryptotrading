@@ -4,6 +4,75 @@
 
 import { KlineBarRow } from './models';
 
+// ─────────────────────────────────────────────────────────────
+// 砖型图指标预计算（通达信公式精确翻译）
+// 周期固定：HHV/LLV=4，VAR2A SMA N=4，VAR4A/VAR5A SMA N=6
+// 通达信 SMA(X,N,M) = (M*X + (N-M)*prev) / N
+// ─────────────────────────────────────────────────────────────
+
+export interface BrickBar {
+  brick: number;
+  delta: number;
+}
+
+const BRICK_P = 4;     // HHV/LLV 周期
+const BRICK_N1 = 4;    // VAR2A SMA 周期 N
+const BRICK_N2 = 6;    // VAR4A/VAR5A SMA 周期 N
+
+export function precomputeBrickChart(df: KlineBarRow[]): BrickBar[] {
+  const result: BrickBar[] = new Array(df.length);
+
+  let sma2a = 0, sma4a = 0, sma5a = 0;
+  let inited = false;
+
+  for (let i = 0; i < df.length; i++) {
+    const start = Math.max(0, i - BRICK_P + 1);
+    let hhv = -Infinity, llv = Infinity;
+    for (let s = start; s <= i; s++) {
+      if (df[s].high > hhv) hhv = df[s].high;
+      if (df[s].low < llv) llv = df[s].low;
+    }
+
+    const close = df[i].close;
+    const range = hhv - llv;
+    const var1a = range > 0 ? (hhv - close) / range * 100 - 90 : -90;
+    const var3a = range > 0 ? (close - llv) / range * 100 : 50;
+
+    if (!inited) {
+      sma2a = var1a;
+      sma4a = var3a;
+      sma5a = var3a;
+      inited = true;
+    } else {
+      sma2a = (var1a + (BRICK_N1 - 1) * sma2a) / BRICK_N1;
+      sma4a = (var3a + (BRICK_N2 - 1) * sma4a) / BRICK_N2;
+      sma5a = (sma4a + (BRICK_N2 - 1) * sma5a) / BRICK_N2;
+    }
+
+    const var6a = (sma5a + 100) - (sma2a + 100);
+    const brick = var6a > 4 ? var6a - 4 : 0;
+    result[i] = { brick, delta: 0 };
+  }
+
+  for (let i = 2; i < df.length; i++) {
+    const diff1 = Math.abs(result[i].brick - result[i - 1].brick);
+    const diff2 = Math.abs(result[i - 1].brick - result[i - 2].brick);
+    result[i].delta = diff2 > 1e-10 ? diff1 / diff2 : 0;
+  }
+
+  return result;
+}
+
+export function precomputeBrickChartAll(
+  data: Map<string, KlineBarRow[]>,
+): Map<string, BrickBar[]> {
+  const result = new Map<string, BrickBar[]>();
+  for (const [symbol, df] of data) {
+    result.set(symbol, precomputeBrickChart(df));
+  }
+  return result;
+}
+
 /**
  * 预计算全量 KDJ，用于自定义周期（kdjN/M1/M2 != 9/3/3）时替换行内预存值。
  * 返回 symbol → KDJ 数组（与 df 下标一一对应）。

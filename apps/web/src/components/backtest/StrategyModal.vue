@@ -4,7 +4,7 @@
     @update:show="$emit('update:show', $event)"
     :title="isEdit ? '编辑策略' : '新建策略'"
     preset="dialog"
-    style="width: 600px"
+    style="width: 780px"
     :show-icon="false"
     :mask-closable="false"
     @after-leave="handleClose"
@@ -143,17 +143,62 @@
         <n-input-number v-model:value="formData.params.fixedStopLossPct" :min="0.1" :max="50" :step="0.5" style="width:100%" />
       </n-form-item>
 
-      <n-form-item v-if="formData.params.stopLossMode === 'atr'">
+      <n-form-item v-if="formData.params.stopLossMode === 'atr' || formData.params.stopLossMode === 'signal_midpoint'">
         <template #label>
           <LabelWithTip label="止损因子" placement="top" :max-width="280">
-            止损价 = 阶段低点 × 止损因子。<br/>
-            = 1 时止损贴近低点；&lt; 1 时在低点下方（更宽松）；&gt; 1 时在低点上方（更紧）
+            止损价 = 基准价 × 止损因子。<br/>
+            = 1 时贴近基准价；&lt; 1 时更宽松；&gt; 1 时更紧
           </LabelWithTip>
         </template>
         <n-slider v-model:value="formData.params.stopLossFactor" :min="0.5" :max="2" :step="0.0001" />
         <div class="param-edit">
           <input class="param-input" v-model="stopLossDisplay" @change="commitStopLoss" @keydown.enter="blurInput" />
         </div>
+      </n-form-item>
+
+      <n-divider style="margin:8px 0">止损上调规则</n-divider>
+
+      <n-form-item>
+        <template #label>
+          <LabelWithTip label="阶段止盈后上调止损">
+            触发阶段止盈后，是否以及如何上调剩余仓位的止损价
+          </LabelWithTip>
+        </template>
+        <div class="adjust-row">
+          <n-switch v-model:value="formData.params.enableProfitStopAdjust" />
+          <n-select
+            v-if="formData.params.enableProfitStopAdjust"
+            v-model:value="formData.params.profitStopAdjustTo"
+            :options="[{ label: '中点价', value: 'midpoint' }, { label: '保本价', value: 'breakeven' }]"
+            style="width:120px;margin-left:8px"
+          />
+        </div>
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          <LabelWithTip label="MA5 上升后上调止损">
+            MA5 首次由平/跌转升后，是否以及如何上调止损价
+          </LabelWithTip>
+        </template>
+        <div class="adjust-row">
+          <n-switch v-model:value="formData.params.enableMa5StopAdjust" />
+          <n-select
+            v-if="formData.params.enableMa5StopAdjust"
+            v-model:value="formData.params.ma5StopAdjustTo"
+            :options="[{ label: '中点价', value: 'midpoint' }, { label: '保本价', value: 'breakeven' }]"
+            style="width:120px;margin-left:8px"
+          />
+        </div>
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          <LabelWithTip label="阶梯追踪止损">
+            开启后按规则链动态上移止损：首次价格高于入场价即保本，随后以每根K线最低点追踪，封顶于信号K线最高价
+          </LabelWithTip>
+        </template>
+        <n-switch v-model:value="formData.params.enableLadderStopLoss" />
       </n-form-item>
 
       <ExitManagementSection v-model:params="formData.params" />
@@ -279,6 +324,7 @@ const timeframeOptions = [
 const stopLossModeOptions = [
   { label: '阶段低点 × 因子（默认）', value: 'atr' },
   { label: '固定百分比', value: 'fixed' },
+  { label: '信号K线中点价', value: 'signal_midpoint' },
 ]
 
 const useEditableNumber = (getValue: () => number, setValue: (v: number) => void, opts: { min: number; max: number; decimals: number; scale?: number }) => {
@@ -391,7 +437,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.strategy-form { max-height: 60vh; overflow-y: auto; padding-right: 12px; }
+.strategy-form { max-height: 68vh; overflow-y: auto; padding-right: 16px; padding-left: 4px; }
 .param-edit { display: inline-flex; align-items: center; margin-left: 12px; gap: 2px; }
 .param-input {
   width: 64px; text-align: right; background: transparent; color: var(--text-secondary);
@@ -403,6 +449,7 @@ onMounted(async () => {
 .param-suffix { color: var(--text-secondary); font-size: 14px; }
 :deep(.n-divider) { margin: 16px 0; }
 .exit-strategy-desc { font-size: 13px; color: var(--n-text-color-3); line-height: 1.6; }
+.adjust-row { display: flex; align-items: center; }
 .import-bar { margin-bottom: 16px; }
 .symbol-row { display: flex; gap: 8px; width: 100%; align-items: stretch; }
 .symbol-select { flex: 1; min-width: 0; }

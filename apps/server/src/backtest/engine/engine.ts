@@ -5,7 +5,7 @@
  *   2. 主循环新增 candleLog 逐根事件收集
  */
 
-import { precomputeAllKdj } from './bt-indicators';
+import { precomputeAllKdj, precomputeBrickChartAll } from './bt-indicators';
 import { initCooldown, isInCooldown } from './cooldown';
 import { yieldToEventLoop } from './steps/engine.async';
 import type { BacktestResult } from './steps/engine.types';
@@ -47,6 +47,8 @@ export async function runBacktest(
     config.kdjN !== 9 || config.kdjM1 !== 3 || config.kdjM2 !== 3
       ? precomputeAllKdj(data, config.kdjN, config.kdjM1, config.kdjM2)
       : undefined;
+
+  const brickMap = config.brickXgEnabled ? precomputeBrickChartAll(data) : undefined;
 
   const timestamps = buildGlobalTimeline(data, backtestStart);
 
@@ -111,7 +113,7 @@ export async function runBacktest(
         const heldSymbols = new Set<string>(positions.map((p) => p.symbol));
         for (const [sym] of pendingBuys) heldSymbols.add(sym);
         // scanSignals 不再接收 cooldownUntil 参数
-        const candidates = scanSignals(data, ts, tsToIdx, heldSymbols, config, precomputedKdj);
+        const candidates = scanSignals(data, ts, tsToIdx, heldSymbols, config, precomputedKdj, brickMap);
         // 有意设计：即使 slotsToFill > 1，也每根只挂 1 单。
         if (candidates.length) {
           const [sym, rr] = candidates[0];

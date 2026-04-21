@@ -12,13 +12,16 @@ export interface StrategyParams {
   kdjM1: number
   kdjM2: number
   kdjJOversold: number
+  kdjOversoldJOffset: number
   maConditions: MaCondition[]
+  brickXgEnabled: boolean
+  brickDeltaMin: number
   recentLowWindow: number
   recentLowBuffer: number
   entryMaxDistFromLowPct: number
   recentHighWindow: number
   recentHighBuffer: number
-  stopLossMode: 'atr' | 'fixed'
+  stopLossMode: 'atr' | 'fixed' | 'signal_midpoint'
   fixedStopLossPct: number
   enablePartialProfit: boolean
   partialProfitRatio: number
@@ -31,6 +34,11 @@ export interface StrategyParams {
   trailingProfitTriggerR: number
   trailingProfitDrawdownPct: number
   stopLossFactor: number
+  enableProfitStopAdjust: boolean
+  profitStopAdjustTo: 'midpoint' | 'breakeven'
+  enableMa5StopAdjust: boolean
+  ma5StopAdjustTo: 'midpoint' | 'breakeven'
+  enableLadderStopLoss: boolean
   minRiskRewardRatio: number
   maxInitLoss: number
   requireAllPositionsProfitable: boolean
@@ -60,7 +68,10 @@ const defaultParams = (): StrategyParams => ({
   kdjM1: 3,
   kdjM2: 3,
   kdjJOversold: 0,
+  kdjOversoldJOffset: 0,
   maConditions: [],
+  brickXgEnabled: false,
+  brickDeltaMin: 0,
   recentLowWindow: 9,
   recentLowBuffer: 5,
   entryMaxDistFromLowPct: 0,
@@ -79,6 +90,11 @@ const defaultParams = (): StrategyParams => ({
   trailingProfitTriggerR: 2.0,
   trailingProfitDrawdownPct: 5,
   stopLossFactor: 1.0,
+  enableProfitStopAdjust: true,
+  profitStopAdjustTo: 'midpoint',
+  enableMa5StopAdjust: true,
+  ma5StopAdjustTo: 'midpoint',
+  enableLadderStopLoss: false,
   minRiskRewardRatio: 0,
   maxInitLoss: 0.01,
   requireAllPositionsProfitable: false,
