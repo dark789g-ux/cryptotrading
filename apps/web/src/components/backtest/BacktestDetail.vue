@@ -266,7 +266,7 @@ const {
 .stat-item { background: var(--ember-surface); border: 1px solid var(--ember-border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
 .label { font-size: 12px; color: var(--ember-neutral); }
 .value { font-size: 15px; font-weight: 600; color: var(--ember-text); }
-.section-title { font-family: 'Source Sans 3', sans-serif; font-size: 16px; font-weight: 600; margin: 0 0 12px; color: var(--ember-text); }
+.section-title { font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; font-weight: 600; margin: 0 0 12px; color: var(--ember-text); }
 .chart-container { height: 300px; width: 100%; }
 .table-filter-bar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; align-items: center; }
 .filter-field { width: 160px; min-width: 0; }

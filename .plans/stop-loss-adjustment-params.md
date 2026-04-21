@@ -50,15 +50,15 @@
 
 | 规则 | 触发条件 | 调整方式 |
 |------|----------|----------|
-| ① | 首次出现 **收盘价** 高于入场价 | 止损上移至 **入场价**（保本） |
-| ② | 首次出现 **最低价** 高于入场价 | 止损上移至 **最低价**（保本） |
-| ③ | 保本后，后续每根 K 线的 **最低价** 高于当前止损线 | 止损上移至该 K 线的 **最低价** |
-| ④ | 止损线首次高于 **信号 K 线最高价** | 后续不再抬高止损线（封顶冻结） |
+| ① | **入场那根 K 线收盘**，且 `close > open` | 止损上移至 **入场价**（成本线） |
+| ② | **入场那根 K 线收盘**，且 `close <= open` | 止损上移至 **该根最低价** |
+| ③ | 后续每根 K 线（含入场根首步之后的同根）**最低价** 高于当前止损线 | 止损上移至该 K 线的 **最低价** |
+| ④ | 在每根 K 的**收盘处理**中，完成本轮止损上移后，止损线首次高于 **信号 K 线最高价** | 后续不再抬高止损线（封顶冻结） |
 
 > **规则说明**：
-> - 规则② 比规则① 更敏感（最低价高于入场价意味着整根 K 线都在成本之上），实际执行时先检查规则②、再检查规则①；两者互斥，只触发一次保本。
-> - 规则③ 在保本后生效，以每根 K 线的最低价为新止损，实现"随低点不断抬升"的追踪效果。
-> - 规则④ 的"信号 K 线"指触发买入信号的那根 K 线（与 `signal_midpoint` 止损模式中的概念一致）。封顶后止损线不再随规则③ 上移，但已有的硬止损、移动止损、保本止损等逻辑仍正常生效。
+> - 规则① / ② 只在**入场当根收盘后**执行一次：阳线抬到成本线，阴线或平盘抬到该根最低价。
+> - 规则③ 在首步之后生效，以每根 K 线的最低价为新止损，实现“随低点不断抬升”的追踪效果。
+> - 规则④ 的“信号 K 线”指触发买入信号的那根 K 线（与 `signal_midpoint` 止损模式中的概念一致）。封顶判断不是盘中任意时刻触发，而是在每根 K 的收盘处理里，**先完成本轮上移，再判断是否超过信号 K 线最高价**；一旦封顶，本规则后续不再抬高止损，但已有的硬止损、移动止损、保本止损等逻辑仍正常生效。
 
 ## 计算公式
 
@@ -129,7 +129,7 @@ if (target === 'midpoint') {
 <n-form-item>
   <template #label>
     <LabelWithTip label="阶梯追踪止损">
-      开启后按规则链动态上移止损：首次价格高于入场价即保本，随后以每根K线最低点追踪，封顶于信号K线最高价
+      开启后按规则链动态上移止损：入场K收盘阳线抬至成本，阴线或平盘抬至当根最低价；随后每根K线最低价高于止损线时继续上移，首次超过信号K线最高价后封顶
     </LabelWithTip>
   </template>
   <n-switch v-model:value="formData.params.enableLadderStopLoss" />
@@ -302,44 +302,41 @@ if (config.enableMa5StopAdjust) {
 在收盘处理阶段，于「MA5 上升后止损调节」之后、「分批止盈」之前插入：
 
 ```ts
-// ⑤' 阶梯追踪止损
-if (config.enableLadderStopLoss && !pos.ladderStopFrozen) {
-  // 规则①②：首次价格高于入场价时保本
-  if (!pos.ladderBreakevenHit) {
-    if (low > pos.entryPrice) {
-      // 规则②：整根 K 线都在成本之上（更敏感），止损直接上移至该 K 线最低价
-      const newStop = Math.max(pos.stopPrice, low);
-      if (newStop > pos.stopPrice) {
-        pos.stopPrice = newStop;
-        pos.stopReason = '阶梯止损-保本';
-      }
-      pos.ladderBreakevenHit = true;
-    } else if (close > pos.entryPrice) {
-      // 规则①：收盘确认回本（有下影线跌破过成本）
-      const newStop = Math.max(pos.stopPrice, pos.entryPrice);
-      if (newStop > pos.stopPrice) {
-        pos.stopPrice = newStop;
-        pos.stopReason = '阶梯止损-保本';
-      }
-      pos.ladderBreakevenHit = true;
-    }
-  }
-
-  // 规则③：保本后，以每根 K 线最低点上移止损
+function applyLadderStopAfterClose(pos: Position, low: number): void {
   if (pos.ladderBreakevenHit && low > pos.stopPrice) {
     pos.stopPrice = low;
     pos.stopReason = '阶梯止损-追踪';
   }
 
-  // 规则④：封顶检查——止损线首次高于信号 K 线最高价后冻结
   if (pos.stopPrice > pos.signalBarHigh) {
     pos.ladderStopFrozen = true;
     pos.stopReason = '阶梯止损-封顶';
   }
 }
+
+// processEntryCandle：入场当根先按阴阳线做首步，再追踪，再封顶
+if (config.enableLadderStopLoss && !pos.ladderStopFrozen) {
+  if (!pos.ladderBreakevenHit) {
+    const barUp = close > entryOpen;
+    const target = barUp ? pos.entryPrice : entryLow;
+    const newStop = Math.max(pos.stopPrice, target);
+    if (newStop > pos.stopPrice) {
+      pos.stopPrice = newStop;
+      pos.stopReason = barUp ? '阶梯止损-保本' : '阶梯止损-入场阴';
+    }
+    pos.ladderBreakevenHit = true;
+  }
+
+  applyLadderStopAfterClose(pos, entryLow);
+}
+
+// processCandle：后续 K 线仅追踪，再封顶
+if (config.enableLadderStopLoss && !pos.ladderStopFrozen) {
+  applyLadderStopAfterClose(pos, low);
+}
 ```
 
-> **注意**：`low` 为当前 K 线最低价，`close` 为当前 K 线收盘价。由于前面的硬止损检查已确保 `low > pos.stopPrice_initial`（未触发硬止损），但止损可能已被前序逻辑（如阶段止盈后上调）抬高，因此 `low > pos.stopPrice` 在规则③ 中并非恒成立，需正常判断。
+> **注意**：封顶判断发生在每根 K 的收盘处理里，且位于本轮止损上移之后；`low > pos.stopPrice` 在规则③ 中也并非恒成立，因为前序逻辑可能已先把止损抬高。
 
 ### 5. `apps/server/src/backtest/engine/steps/engine.pending-execution.ts`
 
@@ -373,7 +370,7 @@ const pos = createPosition({
 3. 将「阶段止盈后上调止损」设为「保本价」后，阶段止盈后止损价 = 入场价。
 4. 关闭「MA5 上升后上调止损」开关后，MA5 上升不再上调止损价。
 5. 开启「阶梯追踪止损」后：
-   - 首次收盘价高于入场价时，止损价自动上移至入场价；
-   - 保本后，后续每根 K 线最低价高于止损线时，止损价上移至该最低价；
-   - 止损价超过信号 K 线最高价后，不再继续上调。
+   - 入场 K 收盘为阳线时，止损价自动上移至入场价；阴线或平盘时，止损价上移至该根最低价；
+   - 之后每根 K 线最低价高于止损线时，止损价继续上移至该最低价；
+   - 在当根收盘处理、完成本轮上移后，若止损价超过信号 K 线最高价，则后续不再继续上调。
 6. 类型检查无新增报错（`pnpm exec vue-tsc --noEmit` + `pnpm exec tsc --noEmit`）。

@@ -43,10 +43,10 @@ const p = defineModel<ExitParams>('params', { required: true })
 .label-with-tip { display: inline-flex; align-items: center; gap: 4px; }
 .tip-icon {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--n-text-color-3, #888);
-  font-size: 10px; color: var(--n-text-color-3, #888); cursor: help; flex-shrink: 0;
+  width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--ember-neutral, var(--color-text-muted));
+  font-size: 10px; color: var(--ember-neutral, var(--color-text-muted)); cursor: help; flex-shrink: 0;
 }
-.val-label { margin-left: 10px; min-width: 36px; color: var(--n-text-color-3); font-size: 13px; }
+.val-label { margin-left: 10px; min-width: 36px; color: var(--ember-neutral, var(--color-text-muted)); font-size: 13px; }
 .target-row { display: flex; align-items: center; gap: 6px; flex: 1; }
 .target-label { color: var(--n-text-color-3); font-size: 13px; white-space: nowrap; }
 :deep(.target-item) { flex: 1; }

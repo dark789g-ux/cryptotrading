@@ -92,6 +92,7 @@ import {
 } from 'naive-ui'
 import { RefreshOutline, SearchOutline, FilterOutline, CloseOutline, TrendingUpOutline } from '@vicons/ionicons5'
 import { symbolApi, klinesApi } from '../composables/useApi'
+import { colors } from '../styles/tokens'
 import { useTheme } from '../composables/useTheme'
 import { MA_COLORS, KDJ_COLORS, CANDLE_COLORS } from '../composables/chartColors'
 
@@ -278,7 +279,7 @@ const renderChart = () => {
         const sign = diff >= 0 ? '+' : ''
         return `
           <div style="font-size:12px;line-height:1.6">
-            <div style="margin-bottom:4px;color:#78716C">${row.open_time ?? ''}</div>
+            <div style="margin-bottom:4px;color:${colors.text.muted}">${row.open_time ?? ''}</div>
             <div>开: ${fmt(o, 4)}</div>
             <div>高: ${fmt(h, 4)}</div>
             <div>低: ${fmt(l, 4)}</div>
@@ -351,7 +352,7 @@ onUnmounted(() => { chart?.dispose(); window.removeEventListener('resize', () =>
 <style scoped>
 .symbols-view { max-width: 1400px; margin: 0 auto; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
+.page-title { font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--ember-text); margin: 0; }
 .filter-card { margin-bottom: 20px; }
 .filter-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .filter-tags { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }

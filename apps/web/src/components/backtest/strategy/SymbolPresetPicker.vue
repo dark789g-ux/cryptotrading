@@ -218,19 +218,19 @@ const submitCreate = async () => {
 </script>
 
 <style scoped>
-.preset-btn { flex-shrink: 0; }
+.preset-btn { flex-shrink: 0; border-radius: 8px; }
 .preset-panel { display: flex; flex-direction: column; max-height: 420px; }
 .preset-search { padding: 10px 12px 6px 12px; }
-.preset-empty { padding: 24px 12px; text-align: center; color: var(--text-secondary); font-size: 13px; }
+.preset-empty { padding: 24px 12px; text-align: center; color: var(--ember-text-secondary, var(--color-text-muted)); font-size: 13px; }
 .preset-list { flex: 1; overflow-y: auto; max-height: 280px; padding: 0 4px; }
 .preset-item {
   display: flex; align-items: center; justify-content: space-between;
   padding: 6px 8px; gap: 8px; border-radius: 4px;
 }
-.preset-item:hover { background: var(--hover-bg, rgba(255,255,255,0.04)); }
+.preset-item:hover { background: var(--ember-surface-hover, var(--color-surface-elevated)); }
 .preset-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; }
 .preset-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
-.preset-count { color: var(--text-secondary); font-size: 12px; flex-shrink: 0; }
+.preset-count { color: var(--ember-text-secondary, var(--color-text-muted)); font-size: 12px; flex-shrink: 0; }
 .preset-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.preset-footer { padding: 8px 12px; border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); }
+.preset-footer { padding: 8px 12px; border-top: 1px solid var(--ember-border, var(--color-border)); }
 </style>

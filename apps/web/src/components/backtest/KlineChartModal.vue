@@ -33,6 +33,7 @@ import * as echarts from 'echarts'
 import { useMessage, NModal, NSpin, NEmpty } from 'naive-ui'
 import { backtestApi, type KlineChartBar, type TradeOnBar } from '../../composables/useApi'
 import { useTheme } from '../../composables/useTheme'
+import { colors } from '../../styles/tokens'
 import { MA_COLORS, KDJ_COLORS, CANDLE_COLORS, TRADE_COLORS, TOOLTIP_STYLE, ANCHOR_LINE_COLOR } from '../../composables/chartColors'
 
 const props = defineProps<{
@@ -165,7 +166,7 @@ const buildMarkPoints = (data: KlineChartBar[], currentTs: string) => {
         label: {
           show: true,
           formatter: isEntry ? 'B' : 'S',
-          color: '#fff',
+          color: colors.surface.DEFAULT,
           fontSize: isCurrentBar ? 13 : 8,
           fontWeight: isCurrentBar ? 'bold' : 'normal',
         },

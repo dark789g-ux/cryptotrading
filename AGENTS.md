@@ -4,6 +4,9 @@ crtptotrading:加密量化策略
 ## 背景
 - 开发环境：windows11
 
+## 语言风格
+- 书写的文本，以自然语言为主，代码作为引用，减少理解门槛。
+
 ## 硬约束
 - 所有源代码文件使用 UTF-8 编码
 - 涉及文件 I/O 操作时，始终显式指定 encoding='utf-8'
@@ -24,12 +27,12 @@ crtptotrading:加密量化策略
 - 开发：`pnpm run dev`
 - 构建：`pnpm run build`
 - 查询数据库：`docker exec crypto-postgres psql -U cryptouser -d cryptodb -c ...`
-
 ## NOT DO
+- 禁在 PowerShell 命令中用 `&&`；正确：`cd apps/web; pnpm exec tsc` 或分两次调用 Shell
 - 禁 `any`，改用 `unknown` + 类型收窄
 - 错误必须反馈用户，不得静默
 - 禁用 `git log` / `git diff` 查历史
-- 禁在 PowerShell 用 `&&`
+- 禁在 `.vue` / `.ts` / `.css` 中手写 `#xxxxxx` / `rgba(...)` 颜色值，必须到 `apps/web/src/styles/tokens` 里引用
 - 原生 SQL ID 参数用 `::text[]`（ID 列均为 `character varying`），禁 `::uuid[]`
 - 500 报错：开 TypeORM `logging: ['error','warn']` 并 `logger.error(err.stack)`，禁静态分析猜
 - 关闭 `synchronize`
@@ -47,6 +50,7 @@ crtptotrading:加密量化策略
 - 单文件不超过 500 行，模块化拆分
 - 大改后类型自检：`apps/server` 执行 `pnpm exec tsc --noEmit`；`apps/web` 执行 `pnpm exec vue-tsc --noEmit`（勿新增报错）
 - 编辑文件用 StrReplace / Write，禁止 PowerShell 文本处理
+- tokens 中找不到需要的颜色或样式时，必须先 `AskUserQuestion` 向用户确认，禁止擅自新增
 
 ## 时间规范
 - DB 时间列一律 `timestamptz`，禁 `timestamp`（无 TZ 列遇 JS Date 会按 Node 本地 TZ 落库，与 UTC 错位）。

@@ -30,6 +30,7 @@ const { isCollapsed } = useSidebarCollapsed()
   margin-left: 256px;
   padding: 32px;
   min-height: 100vh;
+  background: var(--color-surface);
   transition: margin-left 0.2s ease;
 }
 .main-content.collapsed {

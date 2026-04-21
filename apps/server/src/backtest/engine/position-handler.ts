@@ -25,6 +25,22 @@ function calcAdjustedStop(
   return Math.max(currentStop, newStop);
 }
 
+function applyLadderStopAfterClose(
+  pos: Position,
+  low: number,
+): void {
+  if (pos.ladderBreakevenHit && low > pos.stopPrice) {
+    pos.stopPrice = low;
+    pos.stopReason = '阶梯止损-追踪';
+  }
+
+  // 仅在收盘后的阶梯处理段、且完成本轮上移后检查封顶。
+  if (pos.stopPrice > pos.signalBarHigh) {
+    pos.ladderStopFrozen = true;
+    pos.stopReason = '阶梯止损-封顶';
+  }
+}
+
 /**
  * 收盘后更新止损价（移动止损 & 保本止损）。
  * 仅上移，不下移。
@@ -236,25 +252,7 @@ export function processCandle(
 
   // ②' 阶梯追踪止损
   if (config.enableLadderStopLoss && !pos.ladderStopFrozen) {
-    if (!pos.ladderBreakevenHit) {
-      if (low > pos.entryPrice) {
-        const newStop = Math.max(pos.stopPrice, low);
-        if (newStop > pos.stopPrice) { pos.stopPrice = newStop; pos.stopReason = '阶梯止损-保本'; }
-        pos.ladderBreakevenHit = true;
-      } else if (close > pos.entryPrice) {
-        const newStop = Math.max(pos.stopPrice, pos.entryPrice);
-        if (newStop > pos.stopPrice) { pos.stopPrice = newStop; pos.stopReason = '阶梯止损-保本'; }
-        pos.ladderBreakevenHit = true;
-      }
-    }
-    if (pos.ladderBreakevenHit && low > pos.stopPrice) {
-      pos.stopPrice = low;
-      pos.stopReason = '阶梯止损-追踪';
-    }
-    if (pos.stopPrice > pos.signalBarHigh) {
-      pos.ladderStopFrozen = true;
-      pos.stopReason = '阶梯止损-封顶';
-    }
+    applyLadderStopAfterClose(pos, low);
   }
 
   // ③ 分批止盈（收盘 R 检查）
@@ -383,24 +381,17 @@ export function processEntryCandle(
   // ①'' 阶梯追踪止损（入场当根）
   if (config.enableLadderStopLoss && !pos.ladderStopFrozen) {
     if (!pos.ladderBreakevenHit) {
-      if (entryLow > pos.entryPrice) {
-        const newStop = Math.max(pos.stopPrice, entryLow);
-        if (newStop > pos.stopPrice) { pos.stopPrice = newStop; pos.stopReason = '阶梯止损-保本'; }
-        pos.ladderBreakevenHit = true;
-      } else if (close > pos.entryPrice) {
-        const newStop = Math.max(pos.stopPrice, pos.entryPrice);
-        if (newStop > pos.stopPrice) { pos.stopPrice = newStop; pos.stopReason = '阶梯止损-保本'; }
-        pos.ladderBreakevenHit = true;
+      const barUp = close > entryOpen;
+      const target = barUp ? pos.entryPrice : entryLow;
+      const newStop = Math.max(pos.stopPrice, target);
+      if (newStop > pos.stopPrice) {
+        pos.stopPrice = newStop;
+        pos.stopReason = barUp ? '阶梯止损-保本' : '阶梯止损-入场阴';
       }
+      pos.ladderBreakevenHit = true;
     }
-    if (pos.ladderBreakevenHit && entryLow > pos.stopPrice) {
-      pos.stopPrice = entryLow;
-      pos.stopReason = '阶梯止损-追踪';
-    }
-    if (pos.stopPrice > pos.signalBarHigh) {
-      pos.ladderStopFrozen = true;
-      pos.stopReason = '阶梯止损-封顶';
-    }
+
+    applyLadderStopAfterClose(pos, entryLow);
   }
 
   // 分批止盈

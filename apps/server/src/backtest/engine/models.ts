@@ -41,6 +41,7 @@ export interface Position {
   trailingProfitActive: boolean;
   trailingProfitHighClose: number;
   takeProfitNextTargetIdx: number;
+  /** 入场 K 已执行阶梯首步，后续仅做低点追踪。 */
   ladderBreakevenHit: boolean;
   ladderStopFrozen: boolean;
   signalBarHigh: number;

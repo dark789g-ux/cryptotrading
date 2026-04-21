@@ -487,8 +487,8 @@ onMounted(() => {
   padding: 0;
   border-radius: 8px;
   box-shadow:
-    0 4px 16px rgba(28, 25, 23, 0.08),
-    0 0 0 1px rgba(28, 25, 23, 0.06);
+    0 4px 16px color-mix(in srgb, var(--color-ink) 8%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-ink) 6%, transparent);
 }
 .run-symbol-metrics-popover__inner {
   width: min(400px, calc(100vw - 24px));
@@ -511,8 +511,8 @@ onMounted(() => {
   margin-top: 4px;
   padding: 20px 16px;
   border-radius: 8px;
-  background: rgba(120, 113, 108, 0.06);
-  border: 1px solid rgba(120, 113, 108, 0.12);
+  background: color-mix(in srgb, var(--color-text-muted) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 12%, transparent);
 }
 .run-symbol-metrics-popover__inner .filter-conditions-empty .n-empty__description {
   margin-top: 8px;

@@ -6,7 +6,14 @@
     placement="bottom-start"
   >
     <template #trigger>
-      <n-button>导入参数...</n-button>
+      <n-button type="default" ghost>
+        <template #icon>
+          <n-icon>
+            <DownloadOutline />
+          </n-icon>
+        </template>
+        导入参数
+      </n-button>
     </template>
     <div class="import-panel">
       <n-input
@@ -37,6 +44,7 @@
 <script setup lang="ts">
 import {
   NButton,
+  NIcon,
   NPopover,
   NInput,
   NSpin,
@@ -45,6 +53,7 @@ import {
   NListItem,
   NEmpty,
 } from 'naive-ui'
+import { DownloadOutline } from '@vicons/ionicons5'
 
 defineProps<{
   show: boolean
@@ -63,7 +72,7 @@ defineEmits<{
 <style scoped>
 .import-panel {
   width: 300px;
-  padding: 8px;
+  padding: 12px;
 }
 .import-search {
   margin-bottom: 8px;

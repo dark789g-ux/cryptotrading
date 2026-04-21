@@ -36,9 +36,9 @@ withDefaults(defineProps<{
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 1px solid var(--n-text-color-3, #888);
+  border: 1px solid var(--ember-neutral, var(--color-text-muted));
   font-size: 10px;
-  color: var(--n-text-color-3, #888);
+  color: var(--ember-neutral, var(--color-text-muted));
   cursor: help;
   flex-shrink: 0;
 }

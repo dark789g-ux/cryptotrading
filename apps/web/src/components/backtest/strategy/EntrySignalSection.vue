@@ -9,7 +9,12 @@
     <div class="signal-card">
       <div class="signal-card-header">
         <span>{{ SIGNAL_LABELS[type] }}</span>
-        <n-button text size="small" @click="removeSignal(type)">删除</n-button>
+        <div class="header-actions">
+          <n-dropdown v-if="type === 'ma'" :options="maPresetDropdownOptions" @select="applyMaPreset">
+            <n-button text type="primary" size="small">应用预设</n-button>
+          </n-dropdown>
+          <n-button text size="small" @click="removeSignal(type)">删除</n-button>
+        </div>
       </div>
       <div class="signal-card-body">
 
@@ -57,17 +62,12 @@
         <template v-if="type === 'ma'">
           <n-form-item :show-feedback="false">
             <template #label>
-              <div class="ma-label-row">
-                <span class="label-with-tip">MA 条件
-                  <n-tooltip style="max-width:260px"><template #trigger><span class="tip-icon">?</span></template>
-                    所有条件 AND 连接。例：CLOSE &gt; MA60 AND MA30 &gt; MA60<br/>
-                    为空时回退到默认硬编码条件
-                  </n-tooltip>
-                </span>
-                <n-dropdown :options="maPresetDropdownOptions" @select="applyMaPreset">
-                  <n-button text size="small">常用组合</n-button>
-                </n-dropdown>
-              </div>
+              <span class="label-with-tip">MA 条件
+                <n-tooltip style="max-width:260px"><template #trigger><span class="tip-icon">?</span></template>
+                  所有条件 AND 连接。例：CLOSE &gt; MA60 AND MA30 &gt; MA60<br/>
+                  为空时回退到默认硬编码条件
+                </n-tooltip>
+              </span>
             </template>
             <n-dynamic-input
               v-model:value="p.maConditions"
@@ -220,6 +220,11 @@ const p = defineModel<EntrySignalParams>('params', { required: true })
 
 const message = useMessage()
 
+const formatMaCondition = (cond: MaCondition): string => {
+  const findLabel = (v: MaOperand) => maOperandOptions.find(o => o.value === v)?.label ?? v
+  return `${findLabel(cond.left)} ${cond.op} ${findLabel(cond.right)}`
+}
+
 /** 多头排列：CLOSE>MA60 AND CLOSE>MA240 AND MA30>MA60 AND MA60>MA120 */
 const MA_PRESET_BULL_ALIGN: readonly MaCondition[] = [
   { left: 'close', op: '>', right: 'ma60' },
@@ -235,10 +240,8 @@ const maPresetDropdownOptions: DropdownOption[] = [
     key: MA_PRESET_KEY_BULL_ALIGN,
     label: () => h('div', { class: 'ma-preset-option' }, [
       h('div', { class: 'ma-preset-title' }, '多头排列'),
-      h(
-        'div',
-        { class: 'ma-preset-desc' },
-        'CLOSE>MA60 · CLOSE>MA240 · MA30>MA60 · MA60>MA120',
+      ...MA_PRESET_BULL_ALIGN.map(cond =>
+        h('div', { class: 'ma-preset-cond' }, `• ${formatMaCondition(cond)}`),
       ),
     ]),
   },
@@ -310,16 +313,16 @@ const createMaCondition = (): MaCondition => ({ left: 'close', op: '>', right: '
 .signal-empty {
   text-align: center;
   padding: 20px;
-  color: var(--ember-neutral, #78716C);
+  color: var(--ember-neutral, var(--color-text-muted));
   font-size: 13px;
-  border: 1px dashed var(--ember-border, #D6D3D1);
+  border: 1px dashed var(--ember-border, var(--color-border));
   border-radius: 12px;
   margin-bottom: 8px;
 }
 
 .signal-card {
-  background: var(--ember-surface, #F5F5F4);
-  border: 1px solid var(--ember-border, #D6D3D1);
+  background: var(--ember-surface, var(--color-surface));
+  border: 1px solid var(--ember-border, var(--color-border));
   border-radius: 12px;
   overflow: hidden;
 }
@@ -329,11 +332,11 @@ const createMaCondition = (): MaCondition => ({ left: 'close', op: '>', right: '
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  background: var(--ember-surface-hover, #E7E5E4);
-  border-bottom: 1px solid var(--ember-border, #D6D3D1);
+  background: var(--ember-surface-hover, var(--color-surface-elevated));
+  border-bottom: 1px solid var(--ember-border, var(--color-border));
   font-weight: 600;
   font-size: 14px;
-  color: var(--ember-text, #1C1917);
+  color: var(--ember-text, var(--color-text));
 }
 
 .signal-card-body {
@@ -347,26 +350,23 @@ const createMaCondition = (): MaCondition => ({ left: 'close', op: '>', right: '
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ember-neutral, #78716C);
+  color: var(--ember-neutral, var(--color-text-muted));
 }
 
 .add-signal-row {
   margin-top: 8px;
 }
 
-.ma-label-row {
+.header-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  width: 100%;
-  box-sizing: border-box;
 }
 .label-with-tip { display: inline-flex; align-items: center; gap: 4px; }
 .tip-icon {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--n-text-color-3, #888);
-  font-size: 10px; color: var(--n-text-color-3, #888); cursor: help; flex-shrink: 0;
+  width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--ember-neutral, var(--color-text-muted));
+  font-size: 10px; color: var(--ember-neutral, var(--color-text-muted)); cursor: help; flex-shrink: 0;
 }
 .kdj-periods { display: flex; gap: 12px; align-items: center; }
 .period-item { display: flex; align-items: center; gap: 6px; }
@@ -375,11 +375,11 @@ const createMaCondition = (): MaCondition => ({ left: 'close', op: '>', right: '
 :deep(.ma-cond-item) { flex: 1; }
 .brick-desc {
   font-size: 12px;
-  color: var(--ember-neutral, #78716C);
+  color: var(--ember-neutral, var(--color-text-muted));
   line-height: 1.6;
   margin-bottom: 10px;
   padding: 8px 10px;
-  background: var(--ember-surface-hover, #E7E5E4);
+  background: var(--ember-surface-hover, var(--color-surface-elevated));
   border-radius: 8px;
 }
 .brick-formula {
@@ -389,19 +389,18 @@ const createMaCondition = (): MaCondition => ({ left: 'close', op: '>', right: '
 
 /* 下拉菜单挂载在 body，需 :global */
 :global(.ma-preset-option) {
-  padding: 2px 0;
-  max-width: 280px;
-  line-height: 1.35;
+  padding: 6px 4px;
+  line-height: 1.5;
 }
 :global(.ma-preset-title) {
   font-size: 14px;
   font-weight: 600;
+  margin-bottom: 6px;
 }
-:global(.ma-preset-desc) {
-  margin-top: 4px;
+:global(.ma-preset-cond) {
   font-size: 12px;
-  color: var(--n-text-color-3, #888);
-  white-space: normal;
-  word-break: break-all;
+  color: var(--n-text-color-3, var(--color-text-muted));
+  white-space: nowrap;
+  padding-left: 4px;
 }
 </style>

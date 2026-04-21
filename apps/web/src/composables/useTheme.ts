@@ -1,28 +1,28 @@
 import { computed } from 'vue'
 
-/** Ember Studio — 仅浅色模式 */
+/** Binance Inspired — 仅浅色模式 */
 export function useTheme() {
   const echartsTheme = computed(() => ({
     backgroundColor: 'transparent',
-    textStyle: { color: '#57534E' },
-    title: { textStyle: { color: '#1C1917' } },
-    legend: { textStyle: { color: '#57534E' } },
+    textStyle: { color: '#848E9C' },
+    title: { textStyle: { color: '#1E2026' } },
+    legend: { textStyle: { color: '#848E9C' } },
     tooltip: {
-      backgroundColor: '#FAFAF9',
-      borderColor: '#D6D3D1',
-      textStyle: { color: '#1C1917' },
+      backgroundColor: '#FFFFFF',
+      borderColor: '#E6E8EA',
+      textStyle: { color: '#1E2026' },
     },
     xAxis: {
-      axisLine: { lineStyle: { color: '#D6D3D1' } },
-      axisLabel: { color: '#78716C' },
-      splitLine: { lineStyle: { color: '#E7E5E4' } },
+      axisLine: { lineStyle: { color: '#E6E8EA' } },
+      axisLabel: { color: '#848E9C' },
+      splitLine: { lineStyle: { color: '#F5F5F5' } },
     },
     yAxis: {
-      axisLine: { lineStyle: { color: '#D6D3D1' } },
-      axisLabel: { color: '#78716C' },
-      splitLine: { lineStyle: { color: '#E7E5E4' } },
+      axisLine: { lineStyle: { color: '#E6E8EA' } },
+      axisLabel: { color: '#848E9C' },
+      splitLine: { lineStyle: { color: '#F5F5F5' } },
     },
-    grid: { borderColor: '#D6D3D1' },
+    grid: { borderColor: '#E6E8EA' },
   }))
 
   return { echartsTheme }

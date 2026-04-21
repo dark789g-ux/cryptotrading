@@ -100,10 +100,11 @@ import { ref, computed, onMounted, onBeforeUnmount, h } from 'vue'
 import {
   useMessage, useDialog,
   NButton, NIcon, NCard, NDataTable, NDrawer, NDrawerContent,
-  NProgress, NTooltip, NModal, NTag, type DataTableSortState,
+  NProgress, NTooltip, NModal, NTag, NDropdown, type DataTableSortState,
 } from 'naive-ui'
-import { AddOutline, PlayOutline, CreateOutline, TrashOutline, EyeOutline } from '@vicons/ionicons5'
+import { AddOutline, PlayOutline, CreateOutline, TrashOutline, EyeOutline, EllipsisVerticalOutline, TimeOutline } from '@vicons/ionicons5'
 import { strategyApi, backtestApi, type BacktestProgress } from '../composables/useApi'
+import { colors } from '../styles/tokens'
 import StrategyModal from '../components/backtest/StrategyModal.vue'
 import BacktestDetail from '../components/backtest/BacktestDetail.vue'
 
@@ -265,20 +266,49 @@ const columns = computed(() => {
   return [
     ...ordered,
     {
-      title: '操作', key: 'actions', width: 180, fixed: 'right' as const,
+      title: '操作', key: 'actions', width: 140, fixed: 'right' as const,
       render: (row: any) => {
-        const withTip = (tip: string, icon: any, onClick: () => void, type?: 'primary' | 'error') =>
+        const isRunning = pollingIds.value.has(row.id)
+
+        const withTip = (tip: string, icon: any, onClick: () => void, type?: 'primary' | 'error' | 'info') =>
           h(NTooltip, null, {
             trigger: () => h(NButton, { size: 'small', type, onClick }, {
               icon: () => h(NIcon, null, { default: () => h(icon) }),
             }),
             default: () => tip,
           })
+
+        const moreOptions = [
+          {
+            label: '编辑',
+            key: 'edit',
+            icon: () => h(NIcon, null, { default: () => h(CreateOutline) }),
+          },
+          {
+            label: '删除',
+            key: 'delete',
+            icon: () => h(NIcon, null, { default: () => h(TrashOutline) }),
+            props: { style: { color: colors.error.DEFAULT } },
+          },
+        ]
+
         return h('div', { class: 'action-btns' }, [
           withTip('详情', EyeOutline, () => handleViewDetail(row)),
-          withTip('运行', PlayOutline, () => openRun(row), 'primary'),
-          withTip('编辑', CreateOutline, () => handleEdit(row)),
-          withTip('删除', TrashOutline, () => handleDelete(row), 'error'),
+          withTip(isRunning ? '查看进度' : '运行', isRunning ? TimeOutline : PlayOutline, () => openRun(row), 'primary'),
+          h(NDropdown, {
+            options: moreOptions,
+            onSelect: (key: string) => {
+              if (key === 'edit') handleEdit(row)
+              else if (key === 'delete') handleDelete(row)
+            },
+          }, {
+            default: () => h(NTooltip, null, {
+              trigger: () => h(NButton, { size: 'small' }, {
+                icon: () => h(NIcon, null, { default: () => h(EllipsisVerticalOutline) }),
+              }),
+              default: () => '更多',
+            }),
+          }),
         ])
       },
     },
@@ -388,7 +418,7 @@ onMounted(loadStrategies)
 <style scoped>
 .backtest-view { max-width: 1400px; margin: 0 auto; }
 .page-header { margin-bottom: 24px; }
-.page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
+.page-title { font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--ember-text); margin: 0; }
 .strategy-table-toolbar { margin-bottom: 16px; }
 .strategy-table-card { background: var(--ember-surface); }
 .action-btns { display: flex; gap: 8px; }
@@ -396,8 +426,8 @@ onMounted(loadStrategies)
 .progress-status-row { margin-bottom: 4px; }
 .progress-details { display: flex; flex-direction: column; gap: 10px; }
 .progress-detail-item { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
-.detail-label { color: var(--n-text-color-3, #999); }
+.detail-label { color: var(--n-text-color-3, var(--color-text-muted)); }
 .detail-value { font-variant-numeric: tabular-nums; }
-.progress-error-msg { margin-top: 6px; padding: 8px 12px; background: rgba(231,76,60,.08); border-radius: 6px; color: #e74c3c; font-size: 13px; }
-.progress-init { color: var(--n-text-color-3, #999); font-size: 13px; text-align: center; padding: 24px 0; }
+.progress-error-msg { margin-top: 6px; padding: 8px 12px; background: color-mix(in srgb, var(--color-error) 8%, transparent); border-radius: 6px; color: var(--color-error); font-size: 13px; }
+.progress-init { color: var(--n-text-color-3, var(--color-text-muted)); font-size: 13px; text-align: center; padding: 24px 0; }
 </style>
