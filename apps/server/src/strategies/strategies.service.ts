@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { StrategyEntity } from '../entities/strategy.entity';
-import { StrategyTypeEntity } from '../entities/strategy-type.entity';
+import { StrategyEntity } from '../entities/strategy/strategy.entity';
+import { StrategyTypeEntity } from '../entities/strategy/strategy-type.entity';
 
 @Injectable()
 export class StrategiesService {
@@ -17,18 +17,24 @@ export class StrategiesService {
     return this.typeRepo.find({ order: { id: 'ASC' } });
   }
 
-  async listStrategies(opts?: { sortField?: string; sortOrder?: 'ASC' | 'DESC' }) {
+  async listStrategies(opts?: { sortField?: string; sortOrder?: 'ASC' | 'DESC'; page?: number; pageSize?: number }) {
     const ALLOWED = ['createdAt', 'lastBacktestAt', 'lastBacktestReturn', 'name'] as const;
     type AllowedField = typeof ALLOWED[number];
     const field: AllowedField = (ALLOWED as readonly string[]).includes(opts?.sortField ?? '')
       ? (opts!.sortField as AllowedField)
       : 'createdAt';
     const order = opts?.sortOrder === 'ASC' ? 'ASC' : 'DESC';
-    const rows = await this.strategyRepo.find({
+    const page = Math.max(1, opts?.page ?? 1);
+    const pageSize = Math.max(1, opts?.pageSize ?? 10);
+
+    const [entities, total] = await this.strategyRepo.findAndCount({
       select: ['id', 'name', 'typeId', 'params', 'lastBacktestAt', 'lastBacktestReturn', 'createdAt'],
       order: { [field]: order },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
-    return rows.map((r) => ({
+
+    const rows = entities.map((r) => ({
       id: r.id,
       name: r.name,
       typeId: r.typeId,
@@ -37,6 +43,8 @@ export class StrategiesService {
       lastBacktestReturn: r.lastBacktestReturn,
       createdAt: r.createdAt,
     }));
+
+    return { rows, total, page, pageSize };
   }
 
   async getStrategy(id: string) {

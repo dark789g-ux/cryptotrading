@@ -2,7 +2,7 @@
   <div class="sidebar" :class="{ collapsed: isCollapsed }">
     <div class="logo-section">
       <div class="logo">
-        <img class="logo-icon" src="/favicon.png" alt="logo" />
+        <img class="logo-icon" :src="logoUrl" alt="logo" />
         <span class="logo-text" :class="{ hidden: isCollapsed }">CryptoTrading</span>
       </div>
       <n-button quaternary circle class="collapse-btn" @click="toggleCollapse">
@@ -36,6 +36,7 @@ import {
   TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline,
 } from '@vicons/ionicons5'
 import { useSidebarCollapsed } from '../../composables/useSidebarCollapsed'
+import logoUrl from '@/assets/favicon.svg?url'
 
 const route = useRoute()
 const router = useRouter()
@@ -69,8 +70,8 @@ const handleMenuSelect = (key: string) => {
   left: 0;
   top: 0;
   z-index: 100;
-  background: var(--ember-bg);
-  border-right: 1px solid var(--ember-border);
+  background: var(--color-surface-dark);
+  border-right: 1px solid var(--color-ink);
   transition: width 0.2s ease;
 }
 
@@ -84,7 +85,7 @@ const handleMenuSelect = (key: string) => {
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border-bottom: 1px solid var(--ember-border);
+  border-bottom: 1px solid var(--color-surface-dark-card);
 }
 
 .logo {
@@ -103,11 +104,11 @@ const handleMenuSelect = (key: string) => {
 }
 
 .logo-text {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 18px;
   font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--ember-text);
+  letter-spacing: -0.01em;
+  color: var(--color-text-on-dark);
   white-space: nowrap;
   opacity: 1;
   transition: opacity 0.2s ease;
@@ -131,35 +132,25 @@ const handleMenuSelect = (key: string) => {
 
 :deep(.n-menu-item) {
   margin: 4px 8px;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
+/* 自定义 padding（themeOverrides 无法配置此项） */
 :deep(.n-menu-item-content) {
   padding: 10px 16px !important;
 }
 
-/* 激活项 — 赤陶土色左侧强调条 + 暖底色 */
+/* 选中态左侧黄色强调条（颜色由 App.vue themeOverrides 统一管理） */
 :deep(.n-menu-item-content--selected) {
-  background: rgba(194, 65, 12, 0.08) !important;
-  color: var(--ember-primary) !important;
-  border-left: 3px solid var(--ember-primary);
-}
-
-:deep(.n-menu-item-content--selected .n-menu-item-content__icon) {
-  color: var(--ember-primary) !important;
-}
-
-/* 悬浮 */
-:deep(.n-menu-item-content:not(.n-menu-item-content--selected):hover) {
-  background: var(--ember-surface-hover) !important;
+  border-left: 3px solid var(--color-primary);
 }
 
 /* 折叠按钮 */
 .collapse-btn {
-  color: var(--ember-neutral);
+  color: var(--color-text-muted);
 }
 
 .collapse-btn:hover {
-  color: var(--ember-text);
+  color: var(--color-text-on-dark);
 }
 </style>

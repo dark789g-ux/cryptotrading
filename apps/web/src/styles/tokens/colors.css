@@ -1,0 +1,110 @@
+/**
+ * 颜色设计令牌（CSS 自定义属性）
+ * 供 <style> 标签、工具类、全局样式引用
+ */
+
+:root {
+  /* 主品牌色 */
+  --color-primary: #F0B90B;
+  --color-primary-hover: #D0980B;
+  --color-primary-pressed: #D0980B;
+  --color-primary-suppl: #F0B90B;
+
+  /* 信息色 */
+  --color-info: #848E9C;
+  --color-info-hover: #686A6C;
+  --color-info-pressed: #32313A;
+
+  /* 成功 — 绿涨 */
+  --color-success: #0ECB81;
+  --color-success-hover: #0DBA75;
+  --color-success-pressed: #0BAF6E;
+
+  /* 警告 */
+  --color-warning: #D0980B;
+  --color-warning-hover: #B8860B;
+  --color-warning-pressed: #A67C00;
+
+  /* 错误 — 红跌 */
+  --color-error: #F6465D;
+  --color-error-hover: #E03E4F;
+  --color-error-pressed: #D13647;
+
+  /* 表面/背景 */
+  --color-surface: #222126;
+  --color-surface-elevated: #2B2F36;
+  --color-surface-dark: #222126;
+  --color-surface-dark-card: #2B2F36;
+
+  /* 文字 */
+  --color-text: #D0D4DC;
+  --color-text-secondary: #848E9C;
+  --color-text-muted: #686A6C;
+  --color-text-on-dark: #D0D4DC;
+
+  /* 边框 */
+  --color-border: #3A3F48;
+
+  /* 其他辅助色 */
+  --color-black: #000000;
+  --color-ink: #1E2026;
+  --color-snow: #F5F5F5;
+  --color-focus-blue: #1EAEDB;
+  --color-gold: #FFD000;
+  --color-light-gold: #F8D12F;
+  --color-steel: #686A6C;
+  --color-hover-dark: #1A1A1A;
+
+  /* ========== 向后兼容映射（只读） ========== */
+  /* 旧 Ember 变量 → 新语义变量 */
+  --ember-primary: var(--color-primary);
+  --ember-primary-hover: var(--color-primary-hover);
+  --ember-accent: var(--color-gold);
+  --ember-neutral: var(--color-text-muted);
+  --ember-bg: var(--color-surface);
+  --ember-surface: var(--color-surface);
+  --ember-surface-hover: var(--color-surface-elevated);
+  --ember-text: var(--color-text);
+  --ember-text-secondary: var(--color-text-muted);
+  --ember-border: var(--color-border);
+  --ember-warning: var(--color-warning);
+  --ember-success: var(--color-success);
+
+  /* 旧 Binance 变量 → 新语义变量 */
+  --binance-yellow: var(--color-primary);
+  --binance-yellow-hover: var(--color-primary-hover);
+  --binance-gold: var(--color-gold);
+  --binance-light-gold: var(--color-light-gold);
+  --binance-focus-blue: var(--color-focus-blue);
+  --binance-white: var(--color-surface);
+  --binance-snow: var(--color-snow);
+  --binance-dark: var(--color-surface-dark);
+  --binance-dark-card: var(--color-surface-dark-card);
+  --binance-ink: var(--color-ink);
+  --binance-text: var(--color-text);
+  --binance-text-secondary: var(--color-text-secondary);
+  --binance-slate: var(--color-text-muted);
+  --binance-steel: var(--color-steel);
+  --binance-muted: var(--color-text-muted);
+  --binance-hover-dark: var(--color-hover-dark);
+  --binance-border: var(--color-border);
+  --binance-border-gold: var(--color-gold);
+  --binance-green: var(--color-success);
+  --binance-red: var(--color-error);
+
+  /* 旧通用变量 → 新语义变量 */
+  --text-primary: var(--color-text);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
+  --accent-primary: var(--color-primary);
+  --accent-secondary: var(--color-gold);
+  --accent-gradient: var(--color-primary);
+  --bg-body: var(--color-surface);
+  --bg-card: var(--color-surface);
+  --bg-hover: var(--color-surface-elevated);
+  --border-light: var(--color-border);
+  --border-dark: var(--color-border);
+  --color-success: var(--color-success);
+  --color-warning: var(--color-warning);
+  --color-error: var(--color-error);
+}

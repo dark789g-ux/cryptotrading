@@ -41,6 +41,10 @@ export interface Position {
   trailingProfitActive: boolean;
   trailingProfitHighClose: number;
   takeProfitNextTargetIdx: number;
+  /** 入场 K 已执行阶梯首步，后续仅做低点追踪。 */
+  ladderBreakevenHit: boolean;
+  ladderStopFrozen: boolean;
+  signalBarHigh: number;
 }
 
 export function createPosition(p: Partial<Position> & {
@@ -67,6 +71,9 @@ export function createPosition(p: Partial<Position> & {
     trailingProfitActive: false,
     trailingProfitHighClose: 0,
     takeProfitNextTargetIdx: 0,
+    ladderBreakevenHit: false,
+    ladderStopFrozen: false,
+    signalBarHigh: 0,
     ...p,
   };
 }
@@ -123,17 +130,26 @@ export interface BacktestConfig {
   kdjM1: number;
   kdjM2: number;
   kdjJOversold: number;
+  /** 超卖比较使用的 J：0=当根，n=往前第 n 根 K 线的 J */
+  kdjOversoldJOffset: number;
   maConditions: MaCondition[];
   entryMaxDistFromLowPct: number;
+  brickXgEnabled: boolean;
+  brickDeltaMin: number;
   // 信号参数
   recentLowWindow: number;
   recentLowBuffer: number;
   recentHighWindow: number;
   recentHighBuffer: number;
   // 止损策略
-  stopLossMode: 'atr' | 'fixed';
+  stopLossMode: 'atr' | 'fixed' | 'signal_midpoint';
   stopLossFactor: number;
   fixedStopLossPct: number;
+  enableProfitStopAdjust: boolean;
+  profitStopAdjustTo: 'midpoint' | 'breakeven';
+  enableMa5StopAdjust: boolean;
+  ma5StopAdjustTo: 'midpoint' | 'breakeven';
+  enableLadderStopLoss: boolean;
   // 出场管理
   enablePartialProfit: boolean;
   partialProfitRatio: number;
@@ -152,6 +168,10 @@ export interface BacktestConfig {
   consecutiveLossesThreshold: number;
   baseCooldownCandles: number;
   maxCooldownCandles: number;
+  /** 每次亏损平仓：冷却时长与（若已在冷却）结束 bar 各增加若干根，非负整数 */
+  cooldownExtendOnLoss: number;
+  /** 每次盈利平仓：冷却时长与（若已在冷却）结束 bar 各减少若干根，非负整数 */
+  cooldownReduceOnProfit: number;
   warmupBars: number;
   lookbackBuffer: number;
   maxBacktestBars: number;
@@ -196,6 +216,10 @@ export interface CandleLogEntry {
   /** 本根收盘后持仓标的（与引擎 positions 同步） */
   openSymbols: string[];
   inCooldown: boolean;
+  /** 当前全局冷却期时长（根数），enableCooldown=false 时为 null */
+  cooldownDuration: number | null;
+  /** 距冷却结束的剩余根数，非冷却期为 0，enableCooldown=false 时为 null */
+  cooldownRemaining: number | null;
 }
 
 const SUPPORTED_TIMEFRAMES = new Set([
@@ -226,15 +250,30 @@ export function validateConfig(config: BacktestConfig): void {
     if (config.baseCooldownCandles < 0) errs.push('baseCooldownCandles 不得为负');
     if (config.maxCooldownCandles < config.baseCooldownCandles)
       errs.push('maxCooldownCandles 不得小于 baseCooldownCandles');
+    if (!Number.isInteger(config.cooldownExtendOnLoss) || config.cooldownExtendOnLoss < 0)
+      errs.push('cooldownExtendOnLoss 必须为非负整数');
+    if (!Number.isInteger(config.cooldownReduceOnProfit) || config.cooldownReduceOnProfit < 0)
+      errs.push('cooldownReduceOnProfit 必须为非负整数');
   }
   // 信号参数
   if (!(config.recentLowWindow >= 1)) errs.push('recentLowWindow 必须 >= 1');
   if (!(config.recentLowBuffer >= 0)) errs.push('recentLowBuffer 不得为负');
   if (!(config.recentHighWindow >= 1)) errs.push('recentHighWindow 必须 >= 1');
   if (!(config.recentHighBuffer >= 0)) errs.push('recentHighBuffer 不得为负');
+  if (
+    !Number.isInteger(config.kdjOversoldJOffset) ||
+    config.kdjOversoldJOffset < 0 ||
+    config.kdjOversoldJOffset > 99
+  ) {
+    errs.push('kdjOversoldJOffset 必须为 0～99 的整数');
+  }
   // 止损策略
-  if (!['atr', 'fixed'].includes(config.stopLossMode))
-    errs.push('stopLossMode 必须是 atr 或 fixed');
+  if (!['atr', 'fixed', 'signal_midpoint'].includes(config.stopLossMode))
+    errs.push('stopLossMode 必须是 atr、fixed 或 signal_midpoint');
+  if (!['midpoint', 'breakeven'].includes(config.profitStopAdjustTo))
+    errs.push('profitStopAdjustTo 必须是 midpoint 或 breakeven');
+  if (!['midpoint', 'breakeven'].includes(config.ma5StopAdjustTo))
+    errs.push('ma5StopAdjustTo 必须是 midpoint 或 breakeven');
   if (config.stopLossMode === 'fixed' && !(config.fixedStopLossPct > 0 && config.fixedStopLossPct < 100))
     errs.push('fixedStopLossPct 必须在 (0, 100)');
   // 出场管理
@@ -264,8 +303,11 @@ export const DEFAULT_CONFIG: BacktestConfig = {
   kdjM1: 3,
   kdjM2: 3,
   kdjJOversold: 10,
+  kdjOversoldJOffset: 0,
   maConditions: [],
   entryMaxDistFromLowPct: 0,
+  brickXgEnabled: false,
+  brickDeltaMin: 0,
   // 信号参数
   recentLowWindow: 9,
   recentLowBuffer: 5,
@@ -275,6 +317,11 @@ export const DEFAULT_CONFIG: BacktestConfig = {
   stopLossMode: 'atr',
   stopLossFactor: 1.0,
   fixedStopLossPct: 2,
+  enableProfitStopAdjust: true,
+  profitStopAdjustTo: 'midpoint',
+  enableMa5StopAdjust: true,
+  ma5StopAdjustTo: 'midpoint',
+  enableLadderStopLoss: false,
   // 出场管理
   enablePartialProfit: false,
   partialProfitRatio: 0.5,
@@ -293,6 +340,8 @@ export const DEFAULT_CONFIG: BacktestConfig = {
   consecutiveLossesThreshold: 3,
   baseCooldownCandles: 5,
   maxCooldownCandles: 20,
+  cooldownExtendOnLoss: 1,
+  cooldownReduceOnProfit: 1,
   warmupBars: 240,
   lookbackBuffer: 0,
   maxBacktestBars: 10000,

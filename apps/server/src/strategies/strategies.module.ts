@@ -2,8 +2,8 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StrategiesController } from './strategies.controller';
 import { StrategiesService } from './strategies.service';
-import { StrategyEntity } from '../entities/strategy.entity';
-import { StrategyTypeEntity } from '../entities/strategy-type.entity';
+import { StrategyEntity } from '../entities/strategy/strategy.entity';
+import { StrategyTypeEntity } from '../entities/strategy/strategy-type.entity';
 
 @Module({
   imports: [TypeOrmModule.forFeature([StrategyEntity, StrategyTypeEntity])],

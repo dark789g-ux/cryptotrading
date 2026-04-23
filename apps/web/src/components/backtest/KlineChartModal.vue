@@ -33,6 +33,8 @@ import * as echarts from 'echarts'
 import { useMessage, NModal, NSpin, NEmpty } from 'naive-ui'
 import { backtestApi, type KlineChartBar, type TradeOnBar } from '../../composables/useApi'
 import { useTheme } from '../../composables/useTheme'
+import { colors } from '../../styles/tokens'
+import { MA_COLORS, KDJ_COLORS, CANDLE_COLORS, TRADE_COLORS, TOOLTIP_STYLE, ANCHOR_LINE_COLOR } from '../../composables/chartColors'
 
 const props = defineProps<{
   show: boolean
@@ -57,14 +59,19 @@ const modalTitle = computed(() => {
   return s ? `K线 · ${s} · ${t}` : `K线 · ${t}`
 })
 
-const MA_COLORS = { MA5: '#f5a524', MA30: '#60a5fa', MA60: '#a78bfa', MA120: '#14b8a6', MA240: '#f97316' } as const
-const KDJ_COLORS = { 'KDJ.K': '#22c55e', 'KDJ.D': '#eab308', 'KDJ.J': '#ec4899' } as const
 /** 上升红、下降绿；名称避免与 ECharts rich 内置片段冲突 */
 const ARROW_RICH = {
-  arrowUp: { color: '#ef5350', fontSize: 12 },
-  arrowDown: { color: '#26a69a', fontSize: 12 },
-  arrowEq: { color: '#888', fontSize: 12 },
+  arrowUp: { color: CANDLE_COLORS.up, fontSize: 12 },
+  arrowDown: { color: CANDLE_COLORS.down, fontSize: 12 },
+  arrowEq: { color: CANDLE_COLORS.eq, fontSize: 12 },
 }
+
+const GRAPHIC_BG = {
+  color: colors.text.DEFAULT,
+  backgroundColor: 'rgba(24,25,30,0.78)',
+  padding: [4, 8],
+  borderRadius: 3,
+} as const
 
 const GRAPHIC_MA = { id: 'ma-values', type: 'text' as const, left: '9%', top: '10%', z: 100 }
 const GRAPHIC_KDJ = { id: 'kdj-values', type: 'text' as const, left: '9%', top: '71%', z: 100 }
@@ -75,10 +82,10 @@ const arrowRichTag = (key: 'up' | 'down' | 'eq'): string => {
   return 'arrowEq'
 }
 
-const ENTRY_COLOR = '#26a69a'
-const EXIT_COLOR = '#ef5350'
-const ENTRY_COLOR_DIM = 'rgba(38,166,154,0.45)'
-const EXIT_COLOR_DIM = 'rgba(239,83,80,0.45)'
+const ENTRY_COLOR = TRADE_COLORS.entry
+const EXIT_COLOR = TRADE_COLORS.exit
+const ENTRY_COLOR_DIM = TRADE_COLORS.entryDim
+const EXIT_COLOR_DIM = TRADE_COLORS.exitDim
 
 /** 相对 low 下移比例，标记整体离 K 线更远 */
 const MARK_BASE_GAP = 0.008
@@ -106,14 +113,14 @@ const buildMaText = (idx: number, data: KlineChartBar[]) => {
     rich[k.toLowerCase()] = { color: MA_COLORS[k], fontSize: 12 }
   })
   if (!row) {
-    return { text: '', rich }
+    return { text: '', rich, ...GRAPHIC_BG }
   }
   const segs = keys.map((k) => {
     const a = arrow(row[k], prev?.[k])
     const at = arrowRichTag(a.key)
     return `${k}: {${k.toLowerCase()}|${fmt(row[k])}}{${at}|${a.sym}}`
   })
-  return { text: segs.join('  '), rich }
+  return { text: segs.join('  '), rich, ...GRAPHIC_BG }
 }
 
 const buildKdjText = (idx: number, data: KlineChartBar[]) => {
@@ -127,14 +134,14 @@ const buildKdjText = (idx: number, data: KlineChartBar[]) => {
     rich[tagMap[k]] = { color: KDJ_COLORS[k], fontSize: 12 }
   })
   if (!row) {
-    return { text: '', rich }
+    return { text: '', rich, ...GRAPHIC_BG }
   }
   const segs = keys.map((k) => {
     const a = arrow(row[k], prev?.[k])
     const at = arrowRichTag(a.key)
     return `${labels[k]}: {${tagMap[k]}|${fmt(row[k], 2)}}{${at}|${a.sym}}`
   })
-  return { text: segs.join('  '), rich }
+  return { text: segs.join('  '), rich, ...GRAPHIC_BG }
 }
 
 const buildMarkPoints = (data: KlineChartBar[], currentTs: string) => {
@@ -166,7 +173,7 @@ const buildMarkPoints = (data: KlineChartBar[], currentTs: string) => {
         label: {
           show: true,
           formatter: isEntry ? 'B' : 'S',
-          color: '#fff',
+          color: colors.surface.DEFAULT,
           fontSize: isCurrentBar ? 13 : 8,
           fontWeight: isCurrentBar ? 'bold' : 'normal',
         },
@@ -196,7 +203,7 @@ const reasonLinesToHtml = (reason: string, lineStyle: string) =>
 const buildTradesHtml = (trades: TradeOnBar[]): string => {
   if (!trades.length) return ''
   const detailStyle = 'padding-left:12px;margin-top:2px'
-  const reasonLineStyle = `${detailStyle};color:#aaa`
+  const reasonLineStyle = `${detailStyle};color:${TOOLTIP_STYLE.dimText}`
   const fmtPnl = (n: number) => (n > 0 ? `+${n.toFixed(2)}` : n.toFixed(2))
   const lines = trades.map((t) => {
     if (t.type === 'entry') {
@@ -209,7 +216,7 @@ const buildTradesHtml = (trades: TradeOnBar[]): string => {
     }
     const rawPnl = Number(t.pnl)
     const pnlNum = Number.isFinite(rawPnl) ? rawPnl : 0
-    const pColor = pnlNum > 0 ? ENTRY_COLOR : pnlNum < 0 ? EXIT_COLOR : '#888'
+    const pColor = pnlNum > 0 ? ENTRY_COLOR : pnlNum < 0 ? EXIT_COLOR : CANDLE_COLORS.eq
     const exitReasonBlock = t.isHalf ? `${t.reason}\n分批` : t.reason
     return `<div style="color:${EXIT_COLOR};margin-top:4px">
       <div>▶ 出场</div>
@@ -218,7 +225,7 @@ const buildTradesHtml = (trades: TradeOnBar[]): string => {
       <div style="${detailStyle}">盈亏: <span style="color:${pColor}">${fmtPnl(pnlNum)}</span></div>
     </div>`
   })
-  return `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #444">${lines.join('')}</div>`
+  return `<div style="margin-top:6px;padding-top:6px;border-top:1px solid ${TOOLTIP_STYLE.divider}">${lines.join('')}</div>`
 }
 
 const handleResize = () => chartInstance?.resize()
@@ -231,8 +238,8 @@ const renderChart = () => {
   if (chartInstance) chartInstance.dispose()
   chartInstance = echarts.init(el)
 
-  const upColor = '#ef5350'
-  const downColor = '#26a69a'
+  const upColor = CANDLE_COLORS.up
+  const downColor = CANDLE_COLORS.down
   const times = data.map((d) => d.open_time)
   const klines = data.map((d) => [d.open, d.close, d.low, d.high])
   const lastIdx = data.length - 1
@@ -261,7 +268,7 @@ const renderChart = () => {
         const sign = diff >= 0 ? '+' : ''
         const tradesHtml = row.trades?.length ? buildTradesHtml(row.trades) : ''
         return `<div style="font-size:12px;line-height:1.6;max-width:min(360px,85vw);word-break:break-word;overflow-wrap:break-word;box-sizing:border-box">
-          <div style="margin-bottom:4px;color:#888">${row.open_time ?? ''}</div>
+          <div style="margin-bottom:4px;color:${TOOLTIP_STYLE.muted}">${row.open_time ?? ''}</div>
           <div>开: ${fmt(o, 4)}</div><div>高: ${fmt(h, 4)}</div>
           <div>低: ${fmt(l, 4)}</div><div>收: ${fmt(c, 4)}</div>
           <div style="color:${color}">涨跌: ${sign}${fmt(diff, 4)} (${sign}${pct.toFixed(2)}%)</div>
@@ -276,7 +283,7 @@ const renderChart = () => {
         right: 12,
         top: '8%',
         data: ['K线', 'MA5', 'MA30', 'MA60', 'MA120', 'MA240'],
-        textStyle: { fontSize: 11 },
+        textStyle: { fontSize: 12, color: '#D0D4DC' },
         itemWidth: 14,
         itemHeight: 8,
       },
@@ -285,7 +292,7 @@ const renderChart = () => {
         right: 12,
         top: '69%',
         data: ['KDJ.K', 'KDJ.D', 'KDJ.J'],
-        textStyle: { fontSize: 11 },
+        textStyle: { fontSize: 12, color: '#D0D4DC' },
         itemWidth: 14,
         itemHeight: 8,
       },
@@ -321,7 +328,7 @@ const renderChart = () => {
           symbol: 'none',
           silent: true,
           data: [{ xAxis: currentTs }],
-          lineStyle: { color: '#f5a524', width: 1, type: 'dashed' },
+          lineStyle: { color: ANCHOR_LINE_COLOR, width: 1, type: 'dashed' },
           label: { show: false },
         },
       },

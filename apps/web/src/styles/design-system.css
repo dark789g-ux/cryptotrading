@@ -1,0 +1,301 @@
+/* Binance Inspired 设计系统 — 加密货币量化交易风格 */
+@import url('./tokens/index.css');
+
+/* ===== 全局样式 ===== */
+* {
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 400;
+  font-size: 16px;
+  background: var(--binance-dark);
+  color: var(--binance-text);
+}
+
+/* 标题：统一无衬线，权威感 */
+h1, h2, h3 {
+  font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--binance-text);
+}
+
+/* 代码字体 */
+code, pre, .code {
+  font-family: 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-feature-settings: "liga" 1;
+}
+
+/* ===== 卡片 ===== */
+.glass-card {
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--binance-border);
+  border-radius: 12px;
+  box-shadow: color-mix(in srgb, var(--color-ink) 5%, transparent) 0px 3px 5px 0px;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.glass-card:hover {
+  box-shadow: color-mix(in srgb, var(--color-black) 5%, transparent) 0px 3px 5px 5px;
+}
+
+/* 选中卡片 — 左侧黄色边框 */
+.glass-card.active,
+.glass-card.selected {
+  border-left: 2px solid var(--binance-yellow);
+}
+
+/* 深色卡片 — 用于内容区局部深色区块 */
+.dark-card {
+  background: var(--binance-dark-card);
+  border: 1px solid var(--binance-dark);
+  border-radius: 12px;
+  color: var(--color-text-on-dark);
+}
+
+/* ===== 按钮 ===== */
+.glass-btn {
+  background: transparent;
+  border: 1px solid var(--binance-border);
+  border-radius: 6px;
+  padding: 6px 32px;
+  color: var(--binance-text);
+  cursor: pointer;
+  transition: background 200ms ease;
+  font-family: Arial, sans-serif;
+  font-weight: 600;
+}
+
+.glass-btn:hover {
+  background: var(--color-surface-elevated);
+}
+
+/* 主按钮 — Binance Yellow */
+.glass-btn-primary {
+  background: var(--binance-yellow);
+  border: none;
+  color: var(--binance-ink);
+}
+
+.glass-btn-primary:hover {
+  background: var(--binance-yellow-hover);
+}
+
+/* Pill 按钮 */
+.glass-btn-pill {
+  background: var(--binance-gold);
+  border: 1px solid var(--binance-gold);
+  border-radius: 50px;
+  padding: 10px 24px;
+  color: var(--color-text-on-dark);
+  box-shadow: color-mix(in srgb, var(--color-text-muted) 60%, transparent) 0px 2px 10px -3px;
+}
+
+.glass-btn-pill:hover {
+  background: var(--binance-focus-blue);
+  border-color: var(--binance-focus-blue);
+}
+
+/* 危险按钮 */
+.glass-btn-danger {
+  background: var(--color-error);
+  border: none;
+  color: var(--color-surface);
+}
+
+.glass-btn-danger:hover {
+  background: var(--color-error-hover);
+}
+
+/* ===== 输入框 ===== */
+.glass-input {
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--binance-border);
+  border-radius: 8px;
+  padding: 0px 12px;
+  color: var(--color-text);
+  font-size: 16px;
+  font-family: Arial, sans-serif;
+  outline: none;
+  transition: border-color 200ms ease;
+}
+
+.glass-input:focus {
+  border-color: var(--color-black);
+  box-shadow: 0 0 0 1px var(--color-black);
+}
+
+.glass-input::placeholder {
+  color: var(--binance-slate);
+}
+
+/* ===== 侧边栏 ===== */
+.glass-sidebar {
+  background: var(--binance-dark);
+  border-right: 1px solid var(--binance-dark);
+}
+
+/* ===== 头部 ===== */
+.glass-header {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--binance-border);
+}
+
+/* ===== 抽屉 ===== */
+.glass-drawer {
+  background: var(--color-surface) !important;
+}
+
+/* ===== 表格 ===== */
+.glass-table {
+  background: transparent;
+}
+
+.glass-table .n-data-table-table {
+  background: var(--color-surface-elevated);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* ===== 统计卡片 ===== */
+.stat-card {
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--binance-border);
+  border-radius: 12px;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--binance-yellow);
+}
+
+.stat-value {
+  font-family: Arial, sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--binance-text);
+  margin: 8px 0;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: var(--binance-slate);
+}
+
+/* ===== 标签片 (Chips) ===== */
+.ember-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 14px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--color-surface-elevated);
+  color: var(--binance-slate);
+}
+
+.ember-chip.active {
+  background: var(--binance-yellow);
+  color: var(--binance-ink);
+}
+
+/* ===== 进度条 ===== */
+.ember-progress-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--color-surface-elevated);
+}
+
+.ember-progress-fill {
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--binance-yellow);
+  transition: width 300ms ease;
+}
+
+/* ===== 滚动条 ===== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--binance-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--binance-slate);
+}
+
+/* ===== 趋势指示 ===== */
+.trend-up {
+  color: var(--binance-green);
+}
+
+.trend-down {
+  color: var(--binance-red);
+}
+
+/* ===== 过渡动画 ===== */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: transform 0.2s ease;
+}
+
+.slide-right-enter-from,
+.slide-right-leave-to {
+  transform: translateX(100%);
+}
+
+/* ===== 响应式 — 桌面端专用 ===== */
+@media (max-width: 768px) {
+  body::before {
+    content: '此应用仅支持桌面端访问';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--color-surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    z-index: 9999;
+    padding: 20px;
+    text-align: center;
+    color: var(--binance-text);
+  }
+}

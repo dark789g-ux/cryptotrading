@@ -134,7 +134,7 @@ onMounted(() => {
 <style scoped>
 .settings-view { max-width: 900px; margin: 0 auto; }
 .page-header { margin-bottom: 24px; }
-.page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
+.page-title { font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--ember-text); margin: 0; }
 .settings-grid { display: flex; flex-direction: column; gap: 24px; }
 .settings-card { background: var(--ember-surface); }
 .card-desc { margin: 0 0 16px; font-size: 14px; color: var(--ember-text-secondary); }

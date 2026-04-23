@@ -52,15 +52,26 @@ export interface RunSymbolMetricsQueryDto {
   sort: { field: string; asc: boolean };
   page: number;
   page_size: number;
-  /** 仅保留本根 entries/exits 中出现过的标的 */
-  only_action_on_bar?: boolean;
-  /** 仅保留本根收盘仍持仓的标的（依赖 open_symbols_json，旧 run 需重跑回测） */
+  /** 仅保留本根买入语义标的（entries 或相对上一根新增收盘持仓） */
+  only_buy_on_bar?: boolean;
+  /** 仅保留本根卖出语义标的（exits 或相对上一根减少收盘持仓） */
+  only_sell_on_bar?: boolean;
+  /**
+   * 仅保留本根收盘仍持仓的标的（依赖 open_symbols_json，旧 run 需重跑回测）。
+   * 与 only_buy_on_bar / only_sell_on_bar 多选时为所选条件的并集（OR）。
+   */
   only_open_at_close?: boolean;
 }
 
 export interface RunSymbolMetricRow {
   symbol: string;
   dataStatus: 'ok' | 'missing';
+  /** entries 或本根相对上一根新增收盘持仓 */
+  buyOnBar: boolean;
+  /** exits 或本根相对上一根减少收盘持仓 */
+  sellOnBar: boolean;
+  /** 本根 K 线收盘时仍持仓 */
+  holdAtClose: boolean;
   close: number | null;
   ma5: number | null;
   ma30: number | null;

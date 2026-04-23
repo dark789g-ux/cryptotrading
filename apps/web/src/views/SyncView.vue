@@ -206,7 +206,7 @@ onMounted(() => { loadConfig(); loadSymbols() })
 <style scoped>
 .sync-view { max-width: 1000px; margin: 0 auto; }
 .page-header { margin-bottom: 24px; }
-.page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
+.page-title { font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--ember-text); margin: 0; }
 .sync-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .config-card { grid-column: 1 / 2; grid-row: 1 / 3; }
 .status-card { grid-column: 2 / 3; }
@@ -217,10 +217,10 @@ onMounted(() => { loadConfig(); loadSymbols() })
   width: 80px; height: 80px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; margin-bottom: 16px;
 }
-.status-icon.idle { background: rgba(168, 162, 158, 0.15); color: var(--ember-neutral); }
-.status-icon.running { background: rgba(194, 65, 12, 0.12); color: var(--ember-primary); }
-.status-icon.done { background: rgba(22, 163, 74, 0.12); color: var(--color-success); }
-.status-icon.error { background: rgba(220, 38, 38, 0.12); color: var(--color-error); }
+.status-icon.idle { background: color-mix(in srgb, var(--color-text-muted) 15%, transparent); color: var(--color-text-muted); }
+.status-icon.running { background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-primary); }
+.status-icon.done { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.status-icon.error { background: color-mix(in srgb, var(--color-error) 12%, transparent); color: var(--color-error); }
 .spinning { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .status-info { text-align: center; margin-bottom: 20px; }
@@ -229,7 +229,7 @@ onMounted(() => { loadConfig(); loadSymbols() })
 .sync-progress { width: 100%; }
 .overview-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .overview-item { text-align: center; padding: 16px; background: var(--ember-surface); border-radius: 12px; border: 1px solid var(--ember-border); }
-.overview-value { font-family: 'Playfair Display', Georgia, serif; font-size: 18px; font-weight: 700; color: var(--ember-text); margin-bottom: 4px; }
+.overview-value { font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 18px; font-weight: 700; color: var(--ember-text); margin-bottom: 4px; }
 .overview-label { font-size: 12px; color: var(--ember-text-secondary); }
 .log-container { height: 200px; overflow-y: auto; background: var(--ember-surface); border-radius: 12px; padding: 12px; font-family: 'Fira Code', Consolas, monospace; font-size: 13px; }
 .log-empty { text-align: center; color: var(--ember-neutral); padding: 40px; }

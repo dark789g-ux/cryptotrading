@@ -92,7 +92,9 @@ import {
 } from 'naive-ui'
 import { RefreshOutline, SearchOutline, FilterOutline, CloseOutline, TrendingUpOutline } from '@vicons/ionicons5'
 import { symbolApi, klinesApi } from '../composables/useApi'
+import { colors } from '../styles/tokens'
 import { useTheme } from '../composables/useTheme'
+import { MA_COLORS, KDJ_COLORS, CANDLE_COLORS } from '../composables/chartColors'
 
 const message = useMessage()
 const { echartsTheme } = useTheme()
@@ -131,7 +133,7 @@ const paginationState = computed(() => ({
 }))
 
 const columns = computed(() => [
-  { title: '标的', key: 'symbol', width: 120, fixed: 'left', sorter: true },
+  { title: '标的', key: 'symbol', width: 120, fixed: 'left' as const, sorter: true },
   { title: '收盘价', key: 'close', width: 110, sorter: true, render: (r: any) => Number(r.close).toPrecision(6) },
   { title: 'MA5', key: 'ma5', width: 110, sorter: true, render: (r: any) => r.ma5?.toFixed(4) ?? '-' },
   { title: 'MA30', key: 'ma30', width: 110, sorter: true, render: (r: any) => r.ma30?.toFixed(4) ?? '-' },
@@ -141,7 +143,7 @@ const columns = computed(() => [
   { title: '止损%', key: 'stopLossPct', width: 90, sorter: true, render: (r: any) => r.stopLossPct ? `${r.stopLossPct.toFixed(2)}%` : '-' },
   { title: '最新更新', key: 'openTime', width: 110, sorter: true, render: (r: any) => r.openTime ? new Date(r.openTime).toISOString().slice(0, 10) : '-' },
   {
-    title: '操作', key: 'actions', width: 70, fixed: 'right',
+    title: '操作', key: 'actions', width: 70, fixed: 'right' as const,
     render: (r: any) => h(NTooltip, null, {
       trigger: () => h(NButton, { size: 'small', onClick: () => openChart(r.symbol) },
         { icon: () => h(NIcon, null, () => h(TrendingUpOutline)) }),
@@ -204,12 +206,10 @@ const openChart = async (symbol: string) => {
   } catch (err: any) { message.error(err.message) }
 }
 
-const MA_COLORS = { MA5: '#f5a524', MA30: '#60a5fa', MA60: '#a78bfa', MA120: '#14b8a6', MA240: '#f97316' } as const
-const KDJ_COLORS = { 'KDJ.K': '#22c55e', 'KDJ.D': '#eab308', 'KDJ.J': '#ec4899' } as const
 const ARROW_RICH = {
-  up: { color: '#ef5350', fontSize: 12 },
-  down: { color: '#26a69a', fontSize: 12 },
-  eq: { color: '#888', fontSize: 12 },
+  up: { color: CANDLE_COLORS.up, fontSize: 12 },
+  down: { color: CANDLE_COLORS.down, fontSize: 12 },
+  eq: { color: CANDLE_COLORS.eq, fontSize: 12 },
 }
 
 const fmt = (v: any, d = 4) => (v === null || v === undefined || Number.isNaN(Number(v)) ? '-' : Number(v).toFixed(d))
@@ -255,7 +255,7 @@ const renderChart = () => {
   if (!chartRef.value || !klineData.length) return
   if (chart) chart.dispose()
   chart = echarts.init(chartRef.value)
-  const upColor = '#ef5350'; const downColor = '#26a69a'
+  const upColor = CANDLE_COLORS.up; const downColor = CANDLE_COLORS.down
   const times = klineData.map((d) => d.open_time)
   const klines = klineData.map((d) => [d.open, d.close, d.low, d.high])
   const lastIdx = klineData.length - 1
@@ -275,11 +275,11 @@ const renderChart = () => {
         const prev = idx > 0 ? Number(klineData[idx - 1].close) : c
         const diff = c - prev
         const pct = prev ? (diff / prev) * 100 : 0
-        const color = diff >= 0 ? '#ef5350' : '#26a69a'
+        const color = diff >= 0 ? CANDLE_COLORS.up : CANDLE_COLORS.down
         const sign = diff >= 0 ? '+' : ''
         return `
           <div style="font-size:12px;line-height:1.6">
-            <div style="margin-bottom:4px;color:#888">${row.open_time ?? ''}</div>
+            <div style="margin-bottom:4px;color:${colors.text.muted}">${row.open_time ?? ''}</div>
             <div>开: ${fmt(o, 4)}</div>
             <div>高: ${fmt(h, 4)}</div>
             <div>低: ${fmt(l, 4)}</div>
@@ -352,7 +352,7 @@ onUnmounted(() => { chart?.dispose(); window.removeEventListener('resize', () =>
 <style scoped>
 .symbols-view { max-width: 1400px; margin: 0 auto; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
+.page-title { font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--ember-text); margin: 0; }
 .filter-card { margin-bottom: 20px; }
 .filter-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .filter-tags { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }

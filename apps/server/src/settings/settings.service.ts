@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SymbolEntity } from '../entities/symbol.entity';
+import { SymbolEntity } from '../entities/symbol/symbol.entity';
 import { AppConfigEntity } from '../entities/app-config.entity';
 
 @Injectable()

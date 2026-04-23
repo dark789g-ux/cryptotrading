@@ -2,30 +2,15 @@
   <div class="backtest-view">
     <div class="page-header">
       <h1 class="page-title">策略回测</h1>
-      <n-button type="primary" @click="showCreateModal = true">
-        <template #icon><n-icon><add-outline /></n-icon></template>
-        新建策略
-      </n-button>
-    </div>
-
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">策略总数</div>
-        <div class="stat-value">{{ strategies.length }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">已回测</div>
-        <div class="stat-value">{{ backtestedCount }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">平均收益率</div>
-        <div class="stat-value" :class="avgReturn >= 0 ? 'trend-up' : 'trend-down'">
-          {{ formatPercent(avgReturn) }}
-        </div>
-      </div>
     </div>
 
     <n-card class="strategy-table-card" :bordered="false">
+      <div class="strategy-table-toolbar">
+        <n-button type="primary" @click="showCreateModal = true">
+          <template #icon><n-icon><add-outline /></n-icon></template>
+          新建策略
+        </n-button>
+      </div>
       <n-data-table
         :columns="columns"
         :data="tableRows"
@@ -34,6 +19,8 @@
         :row-key="(row: any) => row.id"
         remote
         @update:sorter="handleSorterChange"
+        @update:page="handlePageChange"
+        @update:page-size="handlePageSizeChange"
       />
     </n-card>
 
@@ -93,7 +80,7 @@
     <!-- 回测详情抽屉 -->
     <n-drawer
       v-model:show="showDetailDrawer"
-      width="min(1200px, 92vw)"
+      width="min(1600px, 96vw)"
       placement="right"
       :mask-closable="false"
       class="glass-drawer"
@@ -115,10 +102,11 @@ import { ref, computed, onMounted, onBeforeUnmount, h } from 'vue'
 import {
   useMessage, useDialog,
   NButton, NIcon, NCard, NDataTable, NDrawer, NDrawerContent,
-  NProgress, NTooltip, NModal, NTag, type DataTableSortState,
+  NProgress, NTooltip, NModal, NTag, NDropdown, type DataTableSortState,
 } from 'naive-ui'
-import { AddOutline, PlayOutline, CreateOutline, TrashOutline, EyeOutline } from '@vicons/ionicons5'
+import { AddOutline, PlayOutline, CreateOutline, TrashOutline, EyeOutline, EllipsisVerticalOutline, TimeOutline } from '@vicons/ionicons5'
 import { strategyApi, backtestApi, type BacktestProgress } from '../composables/useApi'
+import { colors } from '../styles/tokens'
 import StrategyModal from '../components/backtest/StrategyModal.vue'
 import BacktestDetail from '../components/backtest/BacktestDetail.vue'
 
@@ -136,6 +124,9 @@ const latestRun = ref<any>(null)
 const detailLoading = ref(false)
 const sortField = ref('createdAt')
 const sortOrder = ref<'ASC' | 'DESC'>('DESC')
+const page = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
 
 // ── 进度 Modal ────────────────────────────────────────────────
 const showProgressModal = ref(false)
@@ -215,21 +206,15 @@ onBeforeUnmount(() => {
 })
 
 // ── 格式化工具 ────────────────────────────────────────────────
-const pagination = ref({
-  page: 1,
-  pageSize: 10,
+const pagination = computed(() => ({
+  page: page.value,
+  pageSize: pageSize.value,
   pageSizes: [10, 20, 50],
   showSizePicker: true,
   showQuickJumper: true,
-  prefix: () => `共 ${strategies.value.length} 条`,
-})
-
-const backtestedCount = computed(() => strategies.value.filter((s) => s.lastBacktestAt).length)
-const avgReturn = computed(() => {
-  const tested = strategies.value.filter((s) => s.lastBacktestReturn != null)
-  if (!tested.length) return 0
-  return tested.reduce((a, s) => a + (s.lastBacktestReturn || 0), 0) / tested.length
-})
+  itemCount: total.value,
+  prefix: () => `共 ${total.value} 条`,
+}))
 
 const formatPercent = (val: number | null) => {
   if (val == null) return '-'
@@ -252,8 +237,8 @@ function formatTs(ts: string | null): string {
 
 // ── 表格列定义 ────────────────────────────────────────────────
 const tableRows = computed(() => strategies.value)
-const BASE_COLS: Record<string, object> = {
-  name: { key: 'name', width: 200, ellipsis: { tooltip: true } },
+const BASE_COLS = {
+  name: { key: 'name', width: 200, ellipsis: { tooltip: true as const } },
   typeId: { key: 'typeId', width: 120, render: (row: any) => ({ ma_kdj: 'MA+KDJ' }[row.typeId as string] || row.typeId) },
   timeframe: { key: 'timeframe', width: 100, render: (row: any) => row.timeframe || '-' },
   createdAt: { key: 'createdAt', width: 160, sorter: true, render: (row: any) => formatDate(row.createdAt) },
@@ -275,31 +260,61 @@ const COL_LABELS: Record<string, string> = {
 
 const COL_KEYS = ['name', 'typeId', 'timeframe', 'createdAt', 'lastBacktestAt', 'lastBacktestReturn']
 
+type NaiveSortOrder = 'ascend' | 'descend' | false | undefined
 const columns = computed(() => {
   const ordered = COL_KEYS.map((key) => ({
-    ...BASE_COLS[key],
+    ...BASE_COLS[key as keyof typeof BASE_COLS],
     title: COL_LABELS[key],
-    sortOrder: (BASE_COLS[key] as any).sorter
+    sortOrder: ((BASE_COLS[key as keyof typeof BASE_COLS] as any).sorter
       ? (sortField.value === key ? (sortOrder.value === 'ASC' ? 'ascend' : 'descend') : false)
-      : undefined,
+      : undefined) as NaiveSortOrder,
   }))
   return [
     ...ordered,
     {
-      title: '操作', key: 'actions', width: 180, fixed: 'right',
+      title: '操作', key: 'actions', width: 140, fixed: 'right' as const,
       render: (row: any) => {
-        const withTip = (tip: string, icon: any, onClick: () => void, type?: 'primary' | 'error') =>
+        const isRunning = pollingIds.value.has(row.id)
+
+        const withTip = (tip: string, icon: any, onClick: () => void, type?: 'primary' | 'error' | 'info') =>
           h(NTooltip, null, {
             trigger: () => h(NButton, { size: 'small', type, onClick }, {
               icon: () => h(NIcon, null, { default: () => h(icon) }),
             }),
             default: () => tip,
           })
+
+        const moreOptions = [
+          {
+            label: '编辑',
+            key: 'edit',
+            icon: () => h(NIcon, null, { default: () => h(CreateOutline) }),
+          },
+          {
+            label: '删除',
+            key: 'delete',
+            icon: () => h(NIcon, null, { default: () => h(TrashOutline) }),
+            props: { style: { color: colors.error.DEFAULT } },
+          },
+        ]
+
         return h('div', { class: 'action-btns' }, [
           withTip('详情', EyeOutline, () => handleViewDetail(row)),
-          withTip('运行', PlayOutline, () => openRun(row), 'primary'),
-          withTip('编辑', CreateOutline, () => handleEdit(row)),
-          withTip('删除', TrashOutline, () => handleDelete(row), 'error'),
+          withTip(isRunning ? '查看进度' : '运行', isRunning ? TimeOutline : PlayOutline, () => openRun(row), 'primary'),
+          h(NDropdown, {
+            options: moreOptions,
+            onSelect: (key: string) => {
+              if (key === 'edit') handleEdit(row)
+              else if (key === 'delete') handleDelete(row)
+            },
+          }, {
+            default: () => h(NTooltip, null, {
+              trigger: () => h(NButton, { size: 'small' }, {
+                icon: () => h(NIcon, null, { default: () => h(EllipsisVerticalOutline) }),
+              }),
+              default: () => '更多',
+            }),
+          }),
         ])
       },
     },
@@ -319,10 +334,24 @@ const handleSorterChange = (sorter: DataTableSortState | null) => {
   loadStrategies()
 }
 
+const handlePageChange = (p: number) => {
+  page.value = p
+  loadStrategies()
+}
+
+const handlePageSizeChange = (s: number) => {
+  pageSize.value = s
+  page.value = 1
+  loadStrategies()
+}
+
 const loadStrategies = async () => {
   loading.value = true
-  try { strategies.value = await strategyApi.getStrategies(sortField.value, sortOrder.value) }
-  catch (err: any) { message.error(err.message) }
+  try {
+    const res = await strategyApi.getStrategies(sortField.value, sortOrder.value, page.value, pageSize.value)
+    strategies.value = res.rows
+    total.value = res.total
+  } catch (err: any) { message.error(err.message) }
   finally { loading.value = false }
 }
 
@@ -408,17 +437,17 @@ onMounted(loadStrategies)
 
 <style scoped>
 .backtest-view { max-width: 1400px; margin: 0 auto; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.page-title { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ember-text); margin: 0; }
-.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px; }
+.page-header { margin-bottom: 24px; }
+.page-title { font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--ember-text); margin: 0; }
+.strategy-table-toolbar { margin-bottom: 16px; }
 .strategy-table-card { background: var(--ember-surface); }
 .action-btns { display: flex; gap: 8px; }
 .progress-modal-body { padding: 4px 0; }
 .progress-status-row { margin-bottom: 4px; }
 .progress-details { display: flex; flex-direction: column; gap: 10px; }
 .progress-detail-item { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
-.detail-label { color: var(--n-text-color-3, #999); }
+.detail-label { color: var(--n-text-color-3, var(--color-text-muted)); }
 .detail-value { font-variant-numeric: tabular-nums; }
-.progress-error-msg { margin-top: 6px; padding: 8px 12px; background: rgba(231,76,60,.08); border-radius: 6px; color: #e74c3c; font-size: 13px; }
-.progress-init { color: var(--n-text-color-3, #999); font-size: 13px; text-align: center; padding: 24px 0; }
+.progress-error-msg { margin-top: 6px; padding: 8px 12px; background: color-mix(in srgb, var(--color-error) 8%, transparent); border-radius: 6px; color: var(--color-error); font-size: 13px; }
+.progress-init { color: var(--n-text-color-3, var(--color-text-muted)); font-size: 13px; text-align: center; padding: 24px 0; }
 </style>

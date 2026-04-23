@@ -1,4 +1,4 @@
-import { KLINE_INDICATOR_COLUMNS, KLINE_OP_MAP } from '../symbols/symbols.service';
+import { KLINE_INDICATOR_COLUMNS, KLINE_OP_MAP } from '../catalog/symbols/symbols.service';
 import type { RunSymbolMetricRow, RunSymbolMetricsQueryDto } from './backtest.types';
 
 export const METRICS_SORT_COL_MAP: Record<string, string> = {
@@ -19,6 +19,12 @@ function metricNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function metricBool(v: unknown): boolean {
+  if (v === true) return true;
+  if (v === false) return false;
+  return false;
+}
+
 export function mapMetricRow(r: Record<string, unknown>): RunSymbolMetricRow {
   const st = r.dataStatus === 'missing' ? 'missing' : 'ok';
   return {
@@ -31,6 +37,9 @@ export function mapMetricRow(r: Record<string, unknown>): RunSymbolMetricRow {
     kdjJ: metricNum(r.kdjJ),
     riskRewardRatio: metricNum(r.riskRewardRatio),
     stopLossPct: metricNum(r.stopLossPct),
+    buyOnBar: metricBool(r.buyOnBar),
+    sellOnBar: metricBool(r.sellOnBar),
+    holdAtClose: metricBool(r.holdAtClose),
   };
 }
 
@@ -43,9 +52,31 @@ export function buildRunSymbolMetricsInnerSql(opts: {
 }): { inner: string; params: unknown[]; nextParamIndex: number } {
   const { interval, tsDate, pool, runId, dto } = opts;
 
-  const onlyAction = dto.only_action_on_bar === true;
+  const onlyBuy = dto.only_buy_on_bar === true;
+  const onlySell = dto.only_sell_on_bar === true;
   const onlyOpen = dto.only_open_at_close === true;
-  const needCandleJoin = onlyAction || onlyOpen;
+
+  const buyBarPredicate = `(
+        EXISTS (
+          SELECT 1 FROM jsonb_array_elements(COALESCE(cl.entries_json, '[]'::jsonb)) AS ej
+          WHERE ej->>'symbol' = p.symbol
+        )
+        OR (
+          (COALESCE(cl.open_symbols_json, '[]'::jsonb) @> jsonb_build_array(p.symbol))
+          AND NOT (COALESCE(prev.open_symbols_json, '[]'::jsonb) @> jsonb_build_array(p.symbol))
+        )
+      )`;
+  const sellBarPredicate = `(
+        EXISTS (
+          SELECT 1 FROM jsonb_array_elements(COALESCE(cl.exits_json, '[]'::jsonb)) AS xj
+          WHERE xj->>'symbol' = p.symbol
+        )
+        OR (
+          (COALESCE(prev.open_symbols_json, '[]'::jsonb) @> jsonb_build_array(p.symbol))
+          AND NOT (COALESCE(cl.open_symbols_json, '[]'::jsonb) @> jsonb_build_array(p.symbol))
+        )
+      )`;
+  const openAtClosePredicate = `COALESCE(cl.open_symbols_json, '[]'::jsonb) @> jsonb_build_array(p.symbol)`;
 
   let inner = `
       SELECT
@@ -57,7 +88,10 @@ export function buildRunSymbolMetricsInnerSql(opts: {
         k.ma60 AS "ma60",
         k.kdj_j AS "kdjJ",
         k.risk_reward_ratio AS "riskRewardRatio",
-        k.stop_loss_pct AS "stopLossPct"
+        k.stop_loss_pct AS "stopLossPct",
+        ( ${buyBarPredicate} ) AS "buyOnBar",
+        ( ${sellBarPredicate} ) AS "sellOnBar",
+        ( ${openAtClosePredicate} ) AS "holdAtClose"
       FROM (
         SELECT DISTINCT unnest($3::varchar[]) AS symbol
       ) p
@@ -66,18 +100,15 @@ export function buildRunSymbolMetricsInnerSql(opts: {
 
   const params: unknown[] = [interval, tsDate, pool];
   let pi = 4;
-  if (needCandleJoin) {
-    inner += `
+
+  inner += `
       LEFT JOIN backtest_candle_logs cl
         ON cl.run_id = $${pi} AND cl.ts = $2::timestamptz`;
-    params.push(runId);
-    pi += 1;
-    if (onlyAction) {
-      inner += `
+  params.push(runId);
+  pi += 1;
+  inner += `
       LEFT JOIN backtest_candle_logs prev
         ON prev.run_id = cl.run_id AND prev.bar_idx = cl.bar_idx - 1`;
-    }
-  }
 
   inner += `
       WHERE 1=1`;
@@ -97,26 +128,12 @@ export function buildRunSymbolMetricsInnerSql(opts: {
     pi++;
   }
 
-  if (onlyAction) {
-    // 与 entries/exits 一致；并兼容「收盘持仓集合相对上一根变化」但事件 JSON 未落库的边缘情况
-    inner += ` AND (
-        EXISTS (
-          SELECT 1 FROM jsonb_array_elements(COALESCE(cl.entries_json, '[]'::jsonb)) AS ej
-          WHERE ej->>'symbol' = p.symbol
-        )
-        OR EXISTS (
-          SELECT 1 FROM jsonb_array_elements(COALESCE(cl.exits_json, '[]'::jsonb)) AS xj
-          WHERE xj->>'symbol' = p.symbol
-        )
-        OR (
-          (COALESCE(cl.open_symbols_json, '[]'::jsonb) @> jsonb_build_array(p.symbol))
-          IS DISTINCT FROM
-          (COALESCE(prev.open_symbols_json, '[]'::jsonb) @> jsonb_build_array(p.symbol))
-        )
-      )`;
-  }
-  if (onlyOpen) {
-    inner += ` AND COALESCE(cl.open_symbols_json, '[]'::jsonb) @> jsonb_build_array(p.symbol)`;
+  const statusPreds: string[] = [];
+  if (onlyBuy) statusPreds.push(buyBarPredicate);
+  if (onlySell) statusPreds.push(sellBarPredicate);
+  if (onlyOpen) statusPreds.push(openAtClosePredicate);
+  if (statusPreds.length > 0) {
+    inner += ` AND ( ${statusPreds.join(' OR ')} )`;
   }
 
   return { inner, params, nextParamIndex: pi };

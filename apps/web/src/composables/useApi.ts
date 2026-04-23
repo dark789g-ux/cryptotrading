@@ -35,12 +35,14 @@ function del<T>(url: string): Promise<T> {
 // ── 策略 ────────────────────────────────────────────────────
 export const strategyApi = {
   getStrategyTypes: () => request<any[]>(`${API_BASE}/strategies/types`),
-  getStrategies: (sortField?: string, sortOrder?: 'ASC' | 'DESC') => {
+  getStrategies: (sortField?: string, sortOrder?: 'ASC' | 'DESC', page?: number, pageSize?: number) => {
     const params = new URLSearchParams()
     if (sortField) params.set('sortField', sortField)
     if (sortOrder) params.set('sortOrder', sortOrder)
+    if (page != null) params.set('page', String(page))
+    if (pageSize != null) params.set('pageSize', String(pageSize))
     const qs = params.toString()
-    return request<any[]>(`${API_BASE}/strategies${qs ? `?${qs}` : ''}`)
+    return request<{ rows: any[]; total: number; page: number; pageSize: number }>(`${API_BASE}/strategies${qs ? `?${qs}` : ''}`)
   },
   getStrategy: (id: string) => request<any>(`${API_BASE}/strategies/${id}`),
   createStrategy: (data: object) => post<any>(`${API_BASE}/strategies`, data),
@@ -77,6 +79,8 @@ export interface CandleLogRow {
   entries: CandleLogEntry[]
   exits: CandleLogExit[]
   inCooldown: boolean
+  cooldownDuration: number | null
+  cooldownRemaining: number | null
 }
 
 export interface CandleLogPage {
@@ -121,6 +125,12 @@ export interface KlineChartBar {
 export interface RunSymbolMetricRow {
   symbol: string
   dataStatus: 'ok' | 'missing'
+  /** entries 或本根相对上一根新增收盘持仓 */
+  buyOnBar: boolean
+  /** exits 或本根相对上一根减少收盘持仓 */
+  sellOnBar: boolean
+  /** 本根 K 线收盘时仍持仓 */
+  holdAtClose: boolean
   close: number | null
   ma5: number | null
   ma30: number | null
@@ -158,8 +168,10 @@ export interface BacktestSymbolFilters {
   winRateMax?: number | null
 }
 
+export type BacktestCandleLogTradeState = 'position' | 'entry' | 'exit'
+
 export interface BacktestCandleLogFilters {
-  onlyWithAction?: boolean
+  tradeStates?: readonly BacktestCandleLogTradeState[]
   symbol?: string
   inCooldown?: boolean | null
   startTs?: string | null
@@ -168,7 +180,11 @@ export interface BacktestCandleLogFilters {
   equityChangeMax?: number | null
   equityChangePctMin?: number | null
   equityChangePctMax?: number | null
-  sortBy?: 'bar_idx' | 'ts' | 'open_equity' | 'close_equity' | 'pos_count' | 'equity_change' | 'equity_change_pct'
+  cooldownDurationMin?: number | null
+  cooldownDurationMax?: number | null
+  cooldownRemainingMin?: number | null
+  cooldownRemainingMax?: number | null
+  sortBy?: 'bar_idx' | 'ts' | 'open_equity' | 'close_equity' | 'pos_count' | 'equity_change' | 'equity_change_pct' | 'cooldown_duration' | 'cooldown_remaining'
   sortOrder?: 'asc' | 'desc'
 }
 
@@ -258,7 +274,9 @@ export const backtestApi = {
     const qs = new URLSearchParams()
     appendQueryParam(qs, 'page', params.page)
     appendQueryParam(qs, 'pageSize', params.pageSize)
-    if (params.onlyWithAction) qs.set('onlyWithAction', 'true')
+    if (params.tradeStates && params.tradeStates.length > 0) {
+      qs.set('tradeStates', params.tradeStates.join(','))
+    }
     appendQueryParam(qs, 'symbol', params.symbol)
     if (typeof params.inCooldown === 'boolean') qs.set('inCooldown', String(params.inCooldown))
     appendQueryParam(qs, 'startTs', params.startTs)
@@ -267,6 +285,10 @@ export const backtestApi = {
     appendQueryParam(qs, 'equityChangeMax', params.equityChangeMax)
     appendQueryParam(qs, 'equityChangePctMin', params.equityChangePctMin)
     appendQueryParam(qs, 'equityChangePctMax', params.equityChangePctMax)
+    appendQueryParam(qs, 'cooldownDurationMin', params.cooldownDurationMin)
+    appendQueryParam(qs, 'cooldownDurationMax', params.cooldownDurationMax)
+    appendQueryParam(qs, 'cooldownRemainingMin', params.cooldownRemainingMin)
+    appendQueryParam(qs, 'cooldownRemainingMax', params.cooldownRemainingMax)
     appendQueryParam(qs, 'sortBy', params.sortBy)
     appendQueryParam(qs, 'sortOrder', params.sortOrder)
     return request<CandleLogPage>(`${API_BASE}/backtest/runs/${runId}/candle-log?${qs.toString()}`)
@@ -283,7 +305,10 @@ export const backtestApi = {
     if (params.after != null) qs.set('after', String(params.after))
     return request<KlineChartBar[]>(`${API_BASE}/backtest/runs/${runId}/kline-chart?${qs.toString()}`)
   },
-  /** 指定 ts 上回测标的池指标快照（分页、筛选、排序） */
+  /**
+   * 指定 ts 上回测标的池指标快照（分页、筛选、排序）。
+   * only_buy_on_bar / only_sell_on_bar / only_open_at_close 多选时为并集（OR）。
+   */
   querySymbolMetrics: (
     runId: string,
     body: {
@@ -293,7 +318,8 @@ export const backtestApi = {
       sort: { field: string; asc: boolean }
       page: number
       page_size: number
-      only_action_on_bar?: boolean
+      only_buy_on_bar?: boolean
+      only_sell_on_bar?: boolean
       only_open_at_close?: boolean
     },
   ) => post<RunSymbolMetricsPage>(`${API_BASE}/backtest/runs/${runId}/symbol-metrics/query`, body),

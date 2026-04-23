@@ -16,8 +16,12 @@ export class StrategiesController {
   list(
     @Query('sortField') sortField?: string,
     @Query('sortOrder') sortOrder?: 'ASC' | 'DESC',
+    @Query('page') pageRaw?: string,
+    @Query('pageSize') pageSizeRaw?: string,
   ) {
-    return this.strategiesService.listStrategies({ sortField, sortOrder });
+    const page = Math.max(1, parseInt(pageRaw ?? '1', 10) || 1);
+    const pageSize = Math.min(200, Math.max(1, parseInt(pageSizeRaw ?? '10', 10) || 10));
+    return this.strategiesService.listStrategies({ sortField, sortOrder, page, pageSize });
   }
 
   /** GET /api/strategies/:id */

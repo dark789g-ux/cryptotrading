@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SettingsController } from './settings.controller';
 import { SettingsService } from './settings.service';
-import { SymbolEntity } from '../entities/symbol.entity';
+import { SymbolEntity } from '../entities/symbol/symbol.entity';
 import { AppConfigEntity } from '../entities/app-config.entity';
 
 @Module({

@@ -3,7 +3,7 @@
  */
 
 import { KlineBarRow, BacktestConfig, MaOperand, MaOperator } from './models';
-import { calcRecentLow, calcRecentHigh } from './bt-indicators';
+import { calcRecentLow, calcRecentHigh, BrickBar } from './bt-indicators';
 
 function getMaOperandValue(row: KlineBarRow, key: MaOperand): number {
   if (key === 'close') return row.close;
@@ -29,6 +29,7 @@ function evalMaOp(left: number, op: MaOperator, right: number): boolean {
  *          否则回退到原始硬编码条件（close > MA60 AND MA30 > MA60 AND MA60 > MA120 AND close > MA240）。
  *
  * KDJ 条件：若 precomputedKdj 非空（自定义周期），取预计算值；否则使用行内预存 KDJ。
+ *          J 取自当根或往前 kdjOversoldJOffset 根（0=当根）。
  *
  * 入场距低点：若 config.entryMaxDistFromLowPct > 0，用该值（%）限制距低点距离；否则回退 config.maxInitLoss。
  *
@@ -41,6 +42,7 @@ export function scanSignals(
   heldSymbols: Set<string>,
   config: BacktestConfig,
   precomputedKdj?: Map<string, Array<{ k: number; d: number; j: number }>>,
+  brickMap?: Map<string, BrickBar[]>,
 ): [string, number][] {
   const candidates: [string, number][] = [];
   const minWindow = Math.max(config.recentLowWindow, config.recentHighWindow);
@@ -78,12 +80,15 @@ export function scanSignals(
     }
 
     // ── KDJ 条件 ──
+    const jIdx = idx - config.kdjOversoldJOffset;
+    if (jIdx < 0 || jIdx >= df.length) continue;
+
     let kdjJ: number;
     const customKdj = precomputedKdj?.get(symbol);
     if (customKdj) {
-      kdjJ = customKdj[idx].j;
+      kdjJ = customKdj[jIdx].j;
     } else {
-      kdjJ = row['KDJ.J'] as number;
+      kdjJ = df[jIdx]['KDJ.J'] as number;
     }
 
     // J 超卖阈值（入场信号区）
@@ -91,11 +96,20 @@ export function scanSignals(
 
     const [recentLow] = calcRecentLow(df, idx + 1, config.recentLowWindow, config.recentLowBuffer);
 
-    // ── 入场距低点限制 ──
+    // ── 入场初始止损限制（随止损策略联动）──
     const distLimit = config.entryMaxDistFromLowPct > 0
       ? config.entryMaxDistFromLowPct / 100
       : config.maxInitLoss;
-    const initLoss = 1 - recentLow / close;
+    let initLoss: number;
+    if (config.stopLossMode === 'fixed') {
+      initLoss = config.fixedStopLossPct / 100;
+    } else if (config.stopLossMode === 'signal_midpoint') {
+      const signalMidpoint = (row.open + close) / 2;
+      initLoss = 1 - (signalMidpoint * config.stopLossFactor) / close;
+    } else {
+      // atr (default)
+      initLoss = 1 - (recentLow * config.stopLossFactor) / close;
+    }
     if (initLoss >= distLimit) continue;
 
     const buyPrice = close;
@@ -105,6 +119,16 @@ export function scanSignals(
     const rrRatio = risk > 0 ? reward / risk : 0;
 
     if (rrRatio <= config.minRiskRewardRatio) continue;
+
+    // ── 砖型图 XG 转折信号 ──
+    if (config.brickXgEnabled && brickMap) {
+      const bars = brickMap.get(symbol);
+      if (!bars || idx < 2) continue;
+      const aa = bars[idx].brick > bars[idx - 1].brick;
+      const aaPrev = bars[idx - 1].brick > bars[idx - 2].brick;
+      if (!(!aaPrev && aa)) continue;
+      if (config.brickDeltaMin > 0 && bars[idx].delta < config.brickDeltaMin) continue;
+    }
 
     candidates.push([symbol, rrRatio]);
   }
