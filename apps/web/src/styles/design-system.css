@@ -18,6 +18,7 @@ body {
   font-size: 16px;
   background: var(--binance-dark);
   color: var(--binance-text);
+  overflow: hidden;
 }
 
 /* 标题：统一无衬线，权威感 */
@@ -32,6 +33,73 @@ h1, h2, h3 {
 code, pre, .code {
   font-family: 'Fira Code', 'Cascadia Code', Consolas, monospace;
   font-feature-settings: "liga" 1;
+}
+
+.workspace-panel {
+  min-height: calc(100vh - 36px);
+  padding: 36px 38px 40px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
+  border-radius: 30px 0 0 30px;
+  background: color-mix(in srgb, var(--color-surface-elevated) 92%, var(--color-surface));
+  box-shadow:
+    0 18px 44px color-mix(in srgb, var(--color-black) 22%, transparent),
+    -18px 0 28px color-mix(in srgb, var(--color-black) 12%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--color-snow) 5%, transparent);
+}
+
+.workspace-page {
+  width: min(100%, 1480px);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.workspace-page.workspace-page--medium {
+  width: min(100%, 1280px);
+}
+
+.workspace-page.workspace-page--narrow {
+  width: min(100%, 1080px);
+}
+
+.workspace-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0;
+}
+
+.workspace-page-title {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.1;
+}
+
+.workspace-page :is(.n-card, .overview-item, .log-container) {
+  border: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
+  box-shadow:
+    0 10px 24px color-mix(in srgb, var(--color-black) 10%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--color-snow) 4%, transparent);
+}
+
+.workspace-page .n-card {
+  background: color-mix(in srgb, var(--color-surface) 88%, var(--color-surface-elevated));
+  border-radius: 22px;
+}
+
+.workspace-page .n-card > .n-card__content,
+.workspace-page .n-card > .n-card-header,
+.workspace-page .n-card > .n-card__action {
+  position: relative;
+  z-index: 1;
+}
+
+.workspace-page .n-card:hover {
+  box-shadow:
+    0 16px 36px color-mix(in srgb, var(--color-black) 12%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--color-snow) 5%, transparent);
 }
 
 /* ===== 卡片 ===== */
@@ -163,6 +231,48 @@ code, pre, .code {
   background: var(--color-surface-elevated);
   border-radius: 12px;
   overflow: hidden;
+}
+
+/* ===== Descriptions（暗色卡片表单） ===== */
+.dark-descriptions {
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.dark-descriptions.n-descriptions .n-descriptions-header {
+  margin-bottom: 12px;
+}
+
+.dark-descriptions.n-descriptions .n-descriptions-title {
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.dark-descriptions.n-descriptions .n-descriptions-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+}
+
+.dark-descriptions.n-descriptions .n-descriptions-table-header,
+.dark-descriptions.n-descriptions .n-descriptions-table-content {
+  border-color: var(--color-border);
+}
+
+.dark-descriptions.n-descriptions .n-descriptions-table-header {
+  background: color-mix(in srgb, var(--color-surface-elevated) 72%, var(--color-surface));
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.dark-descriptions.n-descriptions .n-descriptions-table-content {
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 
 /* ===== 统计卡片 ===== */

@@ -41,27 +41,9 @@
 
 <script setup lang="ts">
 import { NFormItem, NInputNumber } from 'naive-ui'
+import type { StrategyParams } from '../../../composables/backtest/useStrategyForm'
+import './strategy-section.css'
 import LabelWithTip from './LabelWithTip.vue'
 
-const params = defineModel<any>('params', { required: true })
+const params = defineModel<StrategyParams>('params', { required: true })
 </script>
-
-<style scoped>
-.section-card {
-  background: var(--ember-surface, var(--color-surface));
-  border: 1px solid var(--ember-border, var(--color-border));
-  border-radius: 12px;
-  padding: 16px 20px;
-  margin-bottom: 16px;
-}
-.section-title {
-  font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: -0.01em;
-  color: var(--ember-text, var(--color-text));
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--ember-border, var(--color-border));
-}
-</style>

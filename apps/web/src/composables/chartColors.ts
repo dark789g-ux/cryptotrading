@@ -13,6 +13,14 @@ export const KDJ_COLORS = {
   'KDJ.J': '#0ECB81',
 } as const
 
+export const BRICK_COLORS = {
+  brickUp: '#0ECB81',
+  brickDown: '#F6465D',
+  step: '#D0D4DC',
+  delta: '#1EAEDB',
+  xg: '#F0B90B',
+} as const
+
 // K线：国际惯例 绿涨红跌
 export const CANDLE_COLORS = {
   up:   '#0ECB81',

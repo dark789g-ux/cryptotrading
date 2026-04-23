@@ -1,7 +1,7 @@
 <template>
-  <div class="sync-view">
-    <div class="page-header">
-      <h1 class="page-title">数据同步</h1>
+  <div class="sync-view workspace-page workspace-page--medium">
+    <div class="page-header workspace-page-header">
+      <h1 class="page-title workspace-page-title">数据同步</h1>
     </div>
 
     <div class="sync-grid">
@@ -204,9 +204,7 @@ onMounted(() => { loadConfig(); loadSymbols() })
 </script>
 
 <style scoped>
-.sync-view { max-width: 1000px; margin: 0 auto; }
-.page-header { margin-bottom: 24px; }
-.page-title { font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--ember-text); margin: 0; }
+.sync-view { max-width: 1000px; }
 .sync-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .config-card { grid-column: 1 / 2; grid-row: 1 / 3; }
 .status-card { grid-column: 2 / 3; }

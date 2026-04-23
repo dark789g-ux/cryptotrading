@@ -141,8 +141,8 @@ import { useStrategyForm } from '../../composables/backtest/useStrategyForm'
 import { useImportStrategies } from '../../composables/backtest/useImportStrategies'
 import { useSymbolOptions } from '../../composables/useSymbolOptions'
 import { useDateRange } from '../../composables/useDateRange'
+import './strategy/strategy-section.css'
 import SymbolPresetPicker from './strategy/SymbolPresetPicker.vue'
-import ExitManagementSection from './strategy/ExitManagementSection.vue'
 import EntrySignalSection from './strategy/EntrySignalSection.vue'
 import StrategyCapitalSection from './strategy/StrategyCapitalSection.vue'
 import StrategyConfigSection from './strategy/StrategyConfigSection.vue'
@@ -324,33 +324,8 @@ onMounted(async () => {
 }
 
 /* 区块卡片 */
-.section-card {
-  background: var(--ember-surface, var(--color-surface));
-  border: 1px solid var(--ember-border, var(--color-border));
-  border-radius: 12px;
-  padding: 16px 20px;
-  margin-bottom: 16px;
-}
 .strategy-form-tabs :deep(.n-tab-pane) .section-card:last-child {
   margin-bottom: 4px;
-}
-.section-title {
-  font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: -0.01em;
-  color: var(--ember-text, var(--color-text));
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--ember-border, var(--color-border));
-}
-.sub-section-title {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--ember-text-secondary, var(--color-text-muted));
-  margin: 8px 0 12px;
-  padding-left: 8px;
-  border-left: 2px solid var(--ember-primary, var(--color-primary));
 }
 
 .import-bar {

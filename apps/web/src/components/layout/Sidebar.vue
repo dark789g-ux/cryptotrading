@@ -45,14 +45,14 @@ const { isCollapsed, toggle: toggleCollapse } = useSidebarCollapsed()
 
 const activeKey = computed(() => route.name as string)
 
-const renderIcon = (icon: any) => () => h(NIcon, null, { default: () => h(icon) })
+const renderIcon = (icon: unknown) => () => h(NIcon, null, { default: () => h(icon as never) })
 
 const menuOptions = [
-  { label: '回测', key: 'backtest', icon: renderIcon(TrendingUpOutline) },
-  { label: '标的', key: 'symbols', icon: renderIcon(ListOutline) },
-  { label: '同步', key: 'sync', icon: renderIcon(SyncOutline) },
+  { label: '策略回测', key: 'backtest', icon: renderIcon(TrendingUpOutline) },
+  { label: '标的筛选', key: 'symbols', icon: renderIcon(ListOutline) },
+  { label: '数据同步', key: 'sync', icon: renderIcon(SyncOutline) },
   { label: '自选列表', key: 'watchlists', icon: renderIcon(BookmarkOutline) },
-  { label: '设置', key: 'settings', icon: renderIcon(SettingsOutline) },
+  { label: '系统设置', key: 'settings', icon: renderIcon(SettingsOutline) },
 ]
 
 const handleMenuSelect = (key: string) => {
@@ -69,23 +69,23 @@ const handleMenuSelect = (key: string) => {
   position: fixed;
   left: 0;
   top: 0;
-  z-index: 100;
+  z-index: 1;
   background: var(--color-surface-dark);
-  border-right: 1px solid var(--color-ink);
-  transition: width 0.2s ease;
+  border-right: 1px solid color-mix(in srgb, var(--color-border) 62%, transparent);
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--color-black) 14%, transparent);
+  transition: width 0.24s ease;
 }
 
 .sidebar.collapsed {
   width: 64px;
 }
 
-/* Logo 区域 */
 .logo-section {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px;
-  border-bottom: 1px solid var(--color-surface-dark-card);
+  padding: 18px 16px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 56%, transparent);
 }
 
 .logo {
@@ -119,10 +119,9 @@ const handleMenuSelect = (key: string) => {
   pointer-events: none;
 }
 
-/* 菜单区域 */
 .menu-section {
   flex: 1;
-  padding: 12px 0;
+  padding: 14px 0 18px;
   overflow-y: auto;
 }
 
@@ -131,21 +130,18 @@ const handleMenuSelect = (key: string) => {
 }
 
 :deep(.n-menu-item) {
-  margin: 4px 8px;
-  border-radius: 6px;
+  margin: 4px 10px;
+  border-radius: 10px;
 }
 
-/* 自定义 padding（themeOverrides 无法配置此项） */
 :deep(.n-menu-item-content) {
   padding: 10px 16px !important;
 }
 
-/* 选中态左侧黄色强调条（颜色由 App.vue themeOverrides 统一管理） */
 :deep(.n-menu-item-content--selected) {
   border-left: 3px solid var(--color-primary);
 }
 
-/* 折叠按钮 */
 .collapse-btn {
   color: var(--color-text-muted);
 }

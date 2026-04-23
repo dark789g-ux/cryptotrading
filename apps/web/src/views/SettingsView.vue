@@ -1,7 +1,7 @@
 <template>
-  <div class="settings-view">
-    <div class="page-header">
-      <h1 class="page-title">系统设置</h1>
+  <div class="settings-view workspace-page workspace-page--narrow">
+    <div class="page-header workspace-page-header">
+      <h1 class="page-title workspace-page-title">系统设置</h1>
     </div>
 
     <div class="settings-grid">
@@ -132,11 +132,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.settings-view { max-width: 900px; margin: 0 auto; }
-.page-header { margin-bottom: 24px; }
-.page-title { font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--ember-text); margin: 0; }
+.settings-view { max-width: 900px; }
 .settings-grid { display: flex; flex-direction: column; gap: 24px; }
-.settings-card { background: var(--ember-surface); }
 .card-desc { margin: 0 0 16px; font-size: 14px; color: var(--ember-text-secondary); }
 .quick-presets { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 .preset-label { font-size: 14px; color: var(--ember-neutral); }

@@ -42,7 +42,21 @@
                 <n-button :disabled="posLoading" @click="resetPosFilters">重置</n-button>
               </div>
             </div>
-            <n-data-table remote :columns="posColumns" :data="posRows" :pagination="posPagination" :empty-text="posEmptyText" :loading="posLoading" @update:page="onPosPage" @update:page-size="onPosPageSize" @update:sorter="onPosSort" size="small" />
+            <div class="detail-table-shell">
+              <n-data-table
+                class="detail-data-table"
+                remote
+                :columns="posColumns"
+                :data="posRows"
+                :pagination="posPagination"
+                :empty-text="posEmptyText"
+                :loading="posLoading"
+                @update:page="onPosPage"
+                @update:page-size="onPosPageSize"
+                @update:sorter="onPosSort"
+                size="small"
+              />
+            </div>
           </n-tab-pane>
 
           <n-tab-pane name="symbols" :tab="`标的盈亏统计（${symbolTabCount} 个）`">
@@ -57,7 +71,21 @@
                 <n-button :disabled="symLoading" @click="resetSymFilters">重置</n-button>
               </div>
             </div>
-            <n-data-table remote :columns="symColumns" :data="symRows" :pagination="symPagination" :empty-text="symEmptyText" :loading="symLoading" @update:page="onSymPage" @update:page-size="onSymPageSize" @update:sorter="onSymSort" size="small" />
+            <div class="detail-table-shell">
+              <n-data-table
+                class="detail-data-table"
+                remote
+                :columns="symColumns"
+                :data="symRows"
+                :pagination="symPagination"
+                :empty-text="symEmptyText"
+                :loading="symLoading"
+                @update:page="onSymPage"
+                @update:page-size="onSymPageSize"
+                @update:sorter="onSymSort"
+                size="small"
+              />
+            </div>
           </n-tab-pane>
 
           <n-tab-pane name="candleLog" :tab="`K线记录（${candleLogTotal} 根）`">
@@ -88,22 +116,34 @@
                 <n-button :disabled="candleLogLoading" @click="resetCandleFilters">重置</n-button>
               </div>
             </div>
-            <n-data-table remote :columns="candleLogColumns" :data="candleLogRows" :empty-text="candleEmptyText" :loading="candleLogLoading" :row-props="candleLogRowProps" @update:sorter="onCandleLogSort" size="small" />
-            <div class="candle-table-footer">
-              <span class="record-count">
-                <template v-if="candleHasAppliedFilters">筛选 {{ candleLogTotal }} / 共 {{ candleLogGrandTotal }} 条</template>
-                <template v-else>共 {{ candleLogTotal }} 条</template>
-              </span>
-              <n-pagination
-                v-model:page="candleLogPage"
-                :item-count="candleLogTotal"
-                :page-size="candleLogPageSize"
-                :page-sizes="[10, 20, 50]"
-                show-size-picker
-                :disabled="candleLogLoading"
-                @update:page="onCandleLogPage"
-                @update:page-size="onCandleLogPageSize"
+            <div class="detail-table-shell">
+              <n-data-table
+                class="detail-data-table"
+                remote
+                :columns="candleLogColumns"
+                :data="candleLogRows"
+                :empty-text="candleEmptyText"
+                :loading="candleLogLoading"
+                :row-props="candleLogRowProps"
+                @update:sorter="onCandleLogSort"
+                size="small"
               />
+              <div class="candle-table-footer">
+                <span class="record-count">
+                  <template v-if="candleHasAppliedFilters">筛选 {{ candleLogTotal }} / 共 {{ candleLogGrandTotal }} 条</template>
+                  <template v-else>共 {{ candleLogTotal }} 条</template>
+                </span>
+                <n-pagination
+                  v-model:page="candleLogPage"
+                  :item-count="candleLogTotal"
+                  :page-size="candleLogPageSize"
+                  :page-sizes="[10, 20, 50]"
+                  show-size-picker
+                  :disabled="candleLogLoading"
+                  @update:page="onCandleLogPage"
+                  @update:page-size="onCandleLogPageSize"
+                />
+              </div>
             </div>
           </n-tab-pane>
 
@@ -132,7 +172,7 @@
                   :column="2"
                   size="small"
                   label-placement="left"
-                  class="config-group"
+                  class="config-group dark-descriptions"
                 >
                   <n-descriptions-item v-for="f in grp.fields" :key="f.key" :label="f.label">
                     {{ formatConfigValue(f.key, configSnapshot[f.key]) }}
@@ -287,6 +327,69 @@ const {
 }
 .filter-date { width: 220px; }
 .filter-actions { display: flex; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.detail-table-shell {
+  width: 100%;
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.detail-data-table {
+  width: 100%;
+}
+.detail-table-shell :deep(.n-data-table-wrapper) {
+  border-radius: 12px 12px 0 0;
+}
+.detail-table-shell :deep(.n-data-table-table) {
+  background: var(--color-surface);
+}
+.detail-table-shell :deep(.n-data-table-base-table-header),
+.detail-table-shell :deep(.n-data-table-base-table-body),
+.detail-table-shell :deep(.n-data-table-base-table-body .n-scrollbar-content) {
+  background: transparent;
+}
+.detail-table-shell :deep(.n-data-table-th) {
+  background: var(--color-surface-elevated);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-border);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+.detail-table-shell :deep(.n-data-table-th--sortable:hover),
+.detail-table-shell :deep(.n-data-table-th--sorted),
+.detail-table-shell :deep(.n-data-table-th--sorted:hover) {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+.detail-table-shell :deep(.n-data-table-th:first-child) {
+  border-top-left-radius: 12px;
+}
+.detail-table-shell :deep(.n-data-table-th:last-child) {
+  border-top-right-radius: 12px;
+}
+.detail-table-shell :deep(.n-data-table-td) {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+.detail-table-shell :deep(.n-data-table-tr:hover .n-data-table-td) {
+  background: var(--color-surface-elevated);
+}
+.detail-table-shell :deep(.n-data-table-sorter) {
+  color: var(--color-text-muted);
+}
+.detail-table-shell :deep(.n-data-table-th--sorted .n-data-table-sorter) {
+  color: var(--n-th-icon-color-active, var(--n-primary-color));
+}
+.detail-table-shell :deep(.n-data-table-empty) {
+  background: var(--color-surface);
+}
+.detail-table-shell :deep(.n-data-table-loading-container) {
+  background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+}
+.detail-table-shell :deep(.n-pagination) {
+  padding: 12px 16px 16px;
+}
 .config-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
 .config-group { margin-bottom: 20px; }
 .json-view {
@@ -318,6 +421,13 @@ const {
 }
 .json-toggle:hover { color: var(--ember-primary); }
 .json-ellipsis { color: var(--ember-neutral); font-style: italic; margin: 0 4px; }
-.candle-table-footer { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
+.candle-table-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-elevated);
+}
 .record-count { font-size: 13px; color: var(--ember-neutral); margin-right: auto; }
 </style>

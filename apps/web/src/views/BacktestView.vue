@@ -1,7 +1,7 @@
 <template>
-  <div class="backtest-view">
-    <div class="page-header">
-      <h1 class="page-title">策略回测</h1>
+  <div class="backtest-view workspace-page">
+    <div class="page-header workspace-page-header">
+      <h1 class="page-title workspace-page-title">策略回测</h1>
     </div>
 
     <n-card class="strategy-table-card" :bordered="false">
@@ -436,11 +436,8 @@ onMounted(loadStrategies)
 </script>
 
 <style scoped>
-.backtest-view { max-width: 1400px; margin: 0 auto; }
-.page-header { margin-bottom: 24px; }
-.page-title { font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--ember-text); margin: 0; }
+.backtest-view { max-width: 1400px; }
 .strategy-table-toolbar { margin-bottom: 16px; }
-.strategy-table-card { background: var(--ember-surface); }
 .action-btns { display: flex; gap: 8px; }
 .progress-modal-body { padding: 4px 0; }
 .progress-status-row { margin-bottom: 4px; }

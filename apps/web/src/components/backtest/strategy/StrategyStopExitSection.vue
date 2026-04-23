@@ -87,11 +87,13 @@
 
 <script setup lang="ts">
 import { NFormItem, NSelect, NInputNumber, NSlider, NSwitch } from 'naive-ui'
+import type { StrategyParams } from '../../../composables/backtest/useStrategyForm'
+import { useEditableNumber } from '../../../composables/useEditableNumber'
+import './strategy-section.css'
 import LabelWithTip from './LabelWithTip.vue'
 import ExitManagementSection from './ExitManagementSection.vue'
-import { useEditableNumber } from '../../../composables/useEditableNumber'
 
-const params = defineModel<any>('params', { required: true })
+const params = defineModel<StrategyParams>('params', { required: true })
 
 const stopLossModeOptions = [
   { label: '阶段低点 × 因子（默认）', value: 'atr' },
@@ -111,31 +113,6 @@ const blurInput = (e: KeyboardEvent) => {
 </script>
 
 <style scoped>
-.section-card {
-  background: var(--ember-surface, var(--color-surface));
-  border: 1px solid var(--ember-border, var(--color-border));
-  border-radius: 12px;
-  padding: 16px 20px;
-  margin-bottom: 16px;
-}
-.section-title {
-  font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: -0.01em;
-  color: var(--ember-text, var(--color-text));
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--ember-border, var(--color-border));
-}
-.sub-section-title {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--ember-text-secondary, var(--color-text-muted));
-  margin: 8px 0 12px;
-  padding-left: 8px;
-  border-left: 2px solid var(--ember-primary, var(--color-primary));
-}
 .param-edit {
   display: inline-flex;
   align-items: center;
@@ -160,7 +137,7 @@ const blurInput = (e: KeyboardEvent) => {
 }
 .param-input:focus {
   border-color: var(--ember-primary, var(--color-primary));
-  box-shadow: 0 0 0 2px rgba(240, 185, 11, 0.12);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ember-primary, var(--color-primary)) 12%, transparent);
   color: var(--ember-text, var(--color-text));
 }
 .exit-strategy-desc {

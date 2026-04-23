@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KlineEntity } from '../../entities/kline.entity';
+import { calcBrickChartPoints } from '../../indicators/brick-chart';
 
 @Injectable()
 export class KlinesService {
@@ -17,7 +18,15 @@ export class KlinesService {
       order: { openTime: 'ASC' },
     });
 
-    return rows.map((r) => ({
+    const brickChart = calcBrickChartPoints(
+      rows.map((row) => ({
+        high: parseFloat(row.high),
+        low: parseFloat(row.low),
+        close: parseFloat(row.close),
+      })),
+    );
+
+    return rows.map((r, index) => ({
       open_time: r.openTime,
       open: parseFloat(r.open),
       high: parseFloat(r.high),
@@ -46,6 +55,7 @@ export class KlinesService {
       high_9: r.high9,
       stop_loss_pct: r.stopLossPct,
       risk_reward_ratio: r.riskRewardRatio,
+      brickChart: brickChart[index],
     }));
   }
 

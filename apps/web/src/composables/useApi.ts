@@ -100,6 +100,12 @@ export interface TradeOnBar {
   isHalf?: boolean
 }
 
+export interface BrickChartPoint {
+  brick: number
+  delta: number
+  xg: boolean
+}
+
 export interface KlineChartBar {
   open_time: string
   open: number
@@ -119,6 +125,7 @@ export interface KlineChartBar {
   DEA: number | null
   MACD: number | null
   BBI: number | null
+  brickChart?: BrickChartPoint
   trades?: TradeOnBar[]
 }
 
@@ -343,7 +350,7 @@ export const symbolApi = {
 // ── K 线 ────────────────────────────────────────────────────
 export const klinesApi = {
   getKlines: (symbol: string, interval = '1d') =>
-    request<any[]>(`${API_BASE}/klines/${symbol}/${interval}`),
+    request<KlineChartBar[]>(`${API_BASE}/klines/${symbol}/${interval}`),
 }
 
 // ── 同步 ────────────────────────────────────────────────────

@@ -1,14 +1,16 @@
 <template>
   <div class="layout">
     <Sidebar />
-    <main class="main-content" :class="{ collapsed: isCollapsed }">
-      <router-view v-slot="{ Component }">
-        <transition name="fade" mode="out-in">
-          <keep-alive include="SymbolsView">
-            <component :is="Component" />
-          </keep-alive>
-        </transition>
-      </router-view>
+    <main class="main-shell" :class="{ collapsed: isCollapsed }">
+      <div class="main-content workspace-panel">
+        <router-view v-slot="{ Component }">
+          <transition name="fade" mode="out-in">
+            <keep-alive include="SymbolsView">
+              <component :is="Component" />
+            </keep-alive>
+          </transition>
+        </router-view>
+      </div>
     </main>
   </div>
 </template>
@@ -25,16 +27,23 @@ const { isCollapsed } = useSidebarCollapsed()
   display: flex;
   min-height: 100vh;
 }
-.main-content {
+
+.main-shell {
   flex: 1;
-  margin-left: 256px;
-  padding: 32px;
   min-height: 100vh;
-  /* 主工作区比侧栏略抬升（Dark Card 面），形成分层，不用渐变 */
-  background: var(--color-surface-elevated);
-  transition: margin-left 0.2s ease;
+  margin-left: 228px;
+  padding: 18px 18px 18px 0;
+  position: relative;
+  z-index: 2;
+  transition: margin-left 0.24s ease, padding 0.24s ease;
 }
-.main-content.collapsed {
-  margin-left: 64px;
+
+.main-shell.collapsed {
+  margin-left: 52px;
+}
+
+.main-content {
+  min-height: calc(100vh - 36px);
+  overflow: hidden;
 }
 </style>

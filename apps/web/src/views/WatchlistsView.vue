@@ -1,7 +1,7 @@
 <template>
-  <div class="watchlists-view">
-    <div class="page-header">
-      <h1 class="page-title">自选列表</h1>
+  <div class="watchlists-view workspace-page workspace-page--medium">
+    <div class="page-header workspace-page-header">
+      <h1 class="page-title workspace-page-title">自选列表</h1>
       <n-button type="primary" @click="openCreate">
         <template #icon><n-icon><add-outline /></n-icon></template>
         新建列表
@@ -169,11 +169,9 @@ onMounted(loadWatchlists)
 </script>
 
 <style scoped>
-.watchlists-view { max-width: 1200px; margin: 0 auto; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.page-title { font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--ember-text); margin: 0; }
+.watchlists-view { max-width: 1200px; }
 .lists-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; }
-.watchlist-card { background: var(--ember-surface); transition: box-shadow 0.2s ease, transform 0.2s ease; }
+.watchlist-card { transition: box-shadow 0.2s ease, transform 0.2s ease; }
 .watchlist-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px color-mix(in srgb, var(--color-ink) 6%, transparent); }
 .symbol-tags { display: flex; flex-wrap: wrap; gap: 8px; min-height: 40px; }
 .card-footer { display: flex; justify-content: space-between; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--ember-border); }
