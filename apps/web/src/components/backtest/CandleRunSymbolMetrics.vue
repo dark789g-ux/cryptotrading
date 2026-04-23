@@ -1,117 +1,16 @@
 <template>
   <div class="metrics-wrap">
-    <n-card class="filter-card" :bordered="false" size="small">
-      <n-spin :show="loading" size="small">
-        <div class="table-filter-bar">
-          <n-input
-            v-model:value="searchQuery"
-            class="filter-field"
-            placeholder="搜索标的..."
-            clearable
-            :disabled="loading"
-            @keyup.enter="applyFilters"
-          >
-            <template #prefix><n-icon><search-outline /></n-icon></template>
-          </n-input>
-          <div class="filter-status-item">
-            <n-tooltip placement="top">
-              <template #trigger>
-                <span class="filter-status-label">状态</span>
-              </template>
-              <div class="run-symbol-metrics-tooltip__status">
-                <div><strong>本根买入</strong>：entries 中出现该标的，或相对上一根收盘在本根新增持仓。</div>
-                <div><strong>本根卖出</strong>：exits 中出现该标的，或相对上一根收盘在本根减少持仓。</div>
-                <div><strong>本根持有</strong>：本根 K 线收盘时仍持仓的标的。</div>
-              </div>
-            </n-tooltip>
-            <n-select
-              v-model:value="statusValues"
-              class="filter-status-select"
-              multiple
-              clearable
-              placeholder="状态"
-              :options="statusFilterOptions"
-              :disabled="loading"
-              max-tag-count="responsive"
-            />
-          </div>
-          <div v-if="conditions.length" class="filter-tags-inline">
-            <n-tag
-              v-for="(cond, i) in conditions"
-              :key="i"
-              :closable="!loading"
-              @close="removeCondition(i)"
-            >
-              {{ cond.field }} {{ opLabels[cond.op] }} {{ cond.value }}
-            </n-tag>
-          </div>
-          <div class="filter-actions">
-            <n-popover
-              v-model:show="showFilterDrawer"
-              trigger="click"
-              placement="bottom-end"
-              :flip="true"
-              :show-arrow="false"
-              content-class="advanced-filter-popover-content run-symbol-metrics-popover__content"
-            >
-              <template #trigger>
-                <n-button :disabled="loading">
-                  <template #icon><n-icon><filter-outline /></n-icon></template>
-                  高级筛选
-                  <n-badge v-if="conditions.length" :value="conditions.length" />
-                </n-button>
-              </template>
-              <div class="filter-popover-inner run-symbol-metrics-popover__inner">
-                <div class="filter-popover-header">高级筛选</div>
-                <div class="filter-form">
-                  <h4>可用字段</h4>
-                  <n-select
-                    ref="fieldSelectRef"
-                    v-model:value="newCondition.field"
-                    :options="fieldOptions"
-                    placeholder="选择字段"
-                  />
-                  <h4>操作符</h4>
-                  <n-select v-model:value="newCondition.op" :options="opOptions" placeholder="选择操作符" />
-                  <h4>数值</h4>
-                  <n-input-number v-model:value="newCondition.value" style="width: 100%" />
-                  <n-button
-                    type="primary"
-                    block
-                    :disabled="!canAddCondition"
-                    style="margin-top: 12px"
-                    @click="addCondition"
-                  >
-                    添加条件
-                  </n-button>
-                  <n-divider />
-                  <h4>当前条件</h4>
-                  <n-empty
-                    v-if="!conditions.length"
-                    class="filter-conditions-empty"
-                    description="暂无筛选条件"
-                  >
-                    <template #extra>
-                      <span class="filter-empty-hint">在上方选择字段、操作符与数值后，点击「添加条件」</span>
-                    </template>
-                  </n-empty>
-                  <div v-else class="condition-list">
-                    <div v-for="(cond, i) in conditions" :key="i" class="condition-item">
-                      <span>{{ cond.field }} {{ opLabels[cond.op] }} {{ cond.value }}</span>
-                      <n-button quaternary circle size="small" @click="removeCondition(i)">
-                        <template #icon><n-icon><close-outline /></n-icon></template>
-                      </n-button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </n-popover>
-            <n-button :disabled="loading" @click="resetFilters">重置</n-button>
-            <n-button type="primary" :disabled="loading" @click="applyFilters">应用筛选</n-button>
-          </div>
-        </div>
-      </n-spin>
-    </n-card>
+    <CandleRunSymbolMetricsFilterBar
+      v-model:search-query="searchQuery"
+      v-model:status-values="statusValues"
+      :loading="loading"
+      :conditions="conditions"
+      :field-options="fieldOptions"
+      @apply="applyFilters"
+      @reset="resetFilters"
+      @add-condition="addCondition"
+      @remove-condition="removeCondition"
+    />
 
     <n-card class="data-card" :bordered="false" size="small" title="本根 K · 回测标的池指标">
       <n-data-table
@@ -127,42 +26,27 @@
       />
     </n-card>
 
-    <KlineChartModal
-      v-model:show="klineModalShow"
-      :run-id="runId"
-      :ts="ts"
-      :symbol="klineSymbol"
-    />
-
+    <KlineChartModal v-model:show="klineModalShow" :run-id="runId" :ts="ts" :symbol="klineSymbol" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, h, nextTick } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { NCard, NDataTable, useMessage, type DataTableSortState } from 'naive-ui'
 import {
-  NButton,
-  NIcon,
-  NInput,
-  NBadge,
-  NTag,
-  NCard,
-  NDataTable,
-  NInputNumber,
-  NDivider,
-  NEmpty,
-  NPopover,
-  NSelect,
-  NSpin,
-  NTooltip,
-  useMessage,
-  type DataTableSortState,
-  NTag as NTagComponent,
-} from 'naive-ui'
-
-/** n-data-table 列 sortOrder 与 remote 表头高亮一致 */
-type ColSortOrder = false | 'ascend' | 'descend'
-import { SearchOutline, FilterOutline, CloseOutline } from '@vicons/ionicons5'
+  DEFAULT_STATUS_VALUES,
+  STATUS_BUY,
+  STATUS_HOLD,
+  STATUS_SELL,
+  type RunSymbolMetricCondition,
+  type StatusFilterValue,
+} from '../../composables/backtest/candleRunSymbolMetrics'
+import {
+  useCandleRunSymbolMetricsColumns,
+  type ColSortOrder,
+} from '../../composables/backtest/useCandleRunSymbolMetricsColumns'
 import { backtestApi, symbolApi, type RunSymbolMetricRow } from '../../composables/useApi'
+import CandleRunSymbolMetricsFilterBar from './CandleRunSymbolMetricsFilterBar.vue'
 import KlineChartModal from './KlineChartModal.vue'
 
 const props = defineProps<{
@@ -174,19 +58,9 @@ const props = defineProps<{
 const message = useMessage()
 
 const searchQuery = ref('')
-
-type StatusFilterValue = 'buy' | 'sell' | 'hold'
-const STATUS_BUY: StatusFilterValue = 'buy'
-const STATUS_SELL: StatusFilterValue = 'sell'
-const STATUS_HOLD: StatusFilterValue = 'hold'
-const statusFilterOptions: { label: string; value: StatusFilterValue }[] = [
-  { label: '本根买入', value: STATUS_BUY },
-  { label: '本根卖出', value: STATUS_SELL },
-  { label: '本根持有', value: STATUS_HOLD },
-]
-const statusValues = ref<StatusFilterValue[]>([STATUS_BUY, STATUS_SELL, STATUS_HOLD])
-const showFilterDrawer = ref(false)
-const fieldSelectRef = ref<{ focus: () => void } | null>(null)
+const statusValues = ref<StatusFilterValue[]>([...DEFAULT_STATUS_VALUES])
+const conditions = ref<RunSymbolMetricCondition[]>([])
+const fieldOptions = ref<Array<{ label: string; value: string }>>([])
 const klineModalShow = ref(false)
 const klineSymbol = ref<string | null>(null)
 const loading = ref(false)
@@ -194,20 +68,6 @@ const items = ref<RunSymbolMetricRow[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
-
-const conditions = ref<{ field: string; op: string; value: number }[]>([])
-const newCondition = ref({ field: '', op: 'gt', value: 0 })
-const fieldOptions = ref<{ label: string; value: string }[]>([])
-
-const opOptions = [
-  { label: '大于', value: 'gt' },
-  { label: '小于', value: 'lt' },
-  { label: '大于等于', value: 'gte' },
-  { label: '小于等于', value: 'lte' },
-]
-const opLabels: Record<string, string> = { gt: '>', lt: '<', gte: '≥', lte: '≤' }
-const canAddCondition = computed(() => !!newCondition.value.field)
-
 const sortKey = ref('symbol')
 const sortOrder = ref<'ascend' | 'descend' | null>(null)
 const explicitSort = ref(false)
@@ -228,127 +88,15 @@ const headerOrder = (key: string): ColSortOrder =>
       : 'ascend'
     : false
 
-const fmtNum = (v: number | null | undefined, d = 4) =>
-  v === null || v === undefined || Number.isNaN(Number(v)) ? '-' : Number(v).toFixed(d)
-
 const openKline = (symbol: string) => {
   klineSymbol.value = symbol
   klineModalShow.value = true
 }
 
-const columns = computed(() => [
-  {
-    title: '标的',
-    key: 'symbol',
-    width: 120,
-    fixed: 'left' as const,
-    sortOrder: headerOrder('symbol'),
-    sorter: true,
-  },
-  {
-    title: '数据',
-    key: 'dataStatus',
-    width: 88,
-    sortOrder: headerOrder('dataStatus'),
-    sorter: true,
-    render: (r: RunSymbolMetricRow) =>
-      r.dataStatus === 'missing'
-        ? h(
-            NTagComponent,
-            { type: 'warning', size: 'small' },
-            { default: () => '缺数据' },
-          )
-        : h(NTagComponent, { type: 'success', size: 'small', bordered: false }, { default: () => '正常' }),
-  },
-  {
-    title: '状态',
-    key: 'barStatus',
-    width: 200,
-    render: (r: RunSymbolMetricRow) => {
-      if (!r.buyOnBar && !r.sellOnBar && !r.holdAtClose) return '—'
-      const nodes: ReturnType<typeof h>[] = []
-      if (r.buyOnBar) {
-        nodes.push(h(NTagComponent, { type: 'info', size: 'small' }, { default: () => '本根买入' }))
-      }
-      if (r.sellOnBar) {
-        nodes.push(h(NTagComponent, { type: 'warning', size: 'small' }, { default: () => '本根卖出' }))
-      }
-      if (r.holdAtClose) {
-        nodes.push(h(NTagComponent, { type: 'success', size: 'small' }, { default: () => '本根持有' }))
-      }
-      return h('div', { class: 'metric-row-status-tags' }, nodes)
-    },
-  },
-  {
-    title: '收盘价',
-    key: 'close',
-    width: 110,
-    sortOrder: headerOrder('close'),
-    sorter: true,
-    render: (r: RunSymbolMetricRow) => (r.dataStatus === 'missing' ? '-' : fmtNum(r.close, 6)),
-  },
-  {
-    title: 'MA5',
-    key: 'ma5',
-    width: 100,
-    sortOrder: headerOrder('ma5'),
-    sorter: true,
-    render: (r: RunSymbolMetricRow) => (r.dataStatus === 'missing' ? '-' : fmtNum(r.ma5, 4)),
-  },
-  {
-    title: 'MA30',
-    key: 'ma30',
-    width: 100,
-    sortOrder: headerOrder('ma30'),
-    sorter: true,
-    render: (r: RunSymbolMetricRow) => (r.dataStatus === 'missing' ? '-' : fmtNum(r.ma30, 4)),
-  },
-  {
-    title: 'MA60',
-    key: 'ma60',
-    width: 100,
-    sortOrder: headerOrder('ma60'),
-    sorter: true,
-    render: (r: RunSymbolMetricRow) => (r.dataStatus === 'missing' ? '-' : fmtNum(r.ma60, 4)),
-  },
-  {
-    title: 'KDJ.J',
-    key: 'kdjJ',
-    width: 90,
-    sortOrder: headerOrder('kdjJ'),
-    sorter: true,
-    render: (r: RunSymbolMetricRow) => (r.dataStatus === 'missing' ? '-' : fmtNum(r.kdjJ, 2)),
-  },
-  {
-    title: '盈亏比',
-    key: 'riskRewardRatio',
-    width: 90,
-    sortOrder: headerOrder('riskRewardRatio'),
-    sorter: true,
-    render: (r: RunSymbolMetricRow) => (r.dataStatus === 'missing' ? '-' : fmtNum(r.riskRewardRatio, 2)),
-  },
-  {
-    title: '止损%',
-    key: 'stopLossPct',
-    width: 90,
-    sortOrder: headerOrder('stopLossPct'),
-    sorter: true,
-    render: (r: RunSymbolMetricRow) =>
-      r.dataStatus === 'missing' || r.stopLossPct == null ? '-' : `${fmtNum(r.stopLossPct, 2)}%`,
-  },
-  {
-    title: '操作',
-    key: 'actions',
-    width: 96,
-    fixed: 'right' as const,
-    render: (r: RunSymbolMetricRow) =>
-      h(
-        NButton,
-        { size: 'small', type: 'primary', quaternary: true, onClick: () => openKline(r.symbol) },
-        { default: () => 'K线' },
-      ),
-  },
-])
+const { columns } = useCandleRunSymbolMetricsColumns({
+  headerOrder,
+  onOpenKline: openKline,
+})
 
 const buildBody = () => ({
   ts: props.ts,
@@ -369,9 +117,9 @@ const loadData = async () => {
   if (!props.show || !props.runId || !props.ts.trim()) return
   loading.value = true
   try {
-    const res = await backtestApi.querySymbolMetrics(props.runId, buildBody())
-    items.value = res.items
-    total.value = res.total
+    const response = await backtestApi.querySymbolMetrics(props.runId, buildBody())
+    items.value = response.items
+    total.value = response.total
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
     items.value = []
@@ -383,8 +131,8 @@ const loadData = async () => {
 
 const loadFields = async () => {
   try {
-    const cols = await symbolApi.getKlineColumns()
-    fieldOptions.value = cols.map((c) => ({ label: c, value: c }))
+    const columns = await symbolApi.getKlineColumns()
+    fieldOptions.value = columns.map((column) => ({ label: column, value: column }))
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
   }
@@ -392,7 +140,7 @@ const loadFields = async () => {
 
 const applyFilters = () => {
   page.value = 1
-  loadData()
+  void loadData()
 }
 
 const resetFilters = () => {
@@ -403,53 +151,46 @@ const resetFilters = () => {
   explicitSort.value = false
   sortKey.value = 'symbol'
   sortOrder.value = null
-  loadData()
+  void loadData()
 }
 
-const addCondition = () => {
-  if (!canAddCondition.value) return
-  conditions.value.push({ ...newCondition.value })
-  newCondition.value = { field: '', op: 'gt', value: 0 }
+const addCondition = (condition: RunSymbolMetricCondition) => {
+  conditions.value.push(condition)
 }
 
-const removeCondition = (i: number) => {
-  conditions.value.splice(i, 1)
+const removeCondition = (index: number) => {
+  conditions.value.splice(index, 1)
   applyFilters()
 }
 
-const handlePageChange = (p: number) => {
-  page.value = p
-  loadData()
+const handlePageChange = (nextPage: number) => {
+  page.value = nextPage
+  void loadData()
 }
 
-const handlePageSizeChange = (s: number) => {
-  pageSize.value = s
+const handlePageSizeChange = (nextPageSize: number) => {
+  pageSize.value = nextPageSize
   page.value = 1
-  loadData()
+  void loadData()
 }
 
 const handleSort = (sorter: DataTableSortState | DataTableSortState[] | null) => {
-  const s = Array.isArray(sorter) ? sorter[0] : sorter
-  const o = s?.order
-  if (o === false || o === undefined) {
+  const state = Array.isArray(sorter) ? sorter[0] : sorter
+  const order = state?.order
+
+  if (order === false || order === undefined) {
     explicitSort.value = false
     sortKey.value = 'symbol'
     sortOrder.value = null
   } else {
     explicitSort.value = true
-    sortKey.value = (s?.columnKey as string) ?? 'symbol'
-    sortOrder.value = o
+    sortKey.value = typeof state?.columnKey === 'string' ? state.columnKey : 'symbol'
+    sortOrder.value = order
   }
-  page.value = 1
-  loadData()
-}
 
-watch(showFilterDrawer, (open) => {
-  if (!open) return
-  void nextTick(() => {
-    fieldSelectRef.value?.focus()
-  })
-})
+  page.value = 1
+  void loadData()
+}
 
 watch(
   () => [props.show, props.runId, props.ts] as const,
@@ -461,78 +202,18 @@ watch(
       klineSymbol.value = null
       return
     }
+
     page.value = 1
-    loadData()
+    void loadData()
   },
 )
 
 onMounted(() => {
-  loadFields()
-  if (props.show && props.runId && props.ts.trim()) loadData()
+  void loadFields()
+  if (props.show && props.runId && props.ts.trim()) {
+    void loadData()
+  }
 })
 </script>
 
 <style scoped src="./candle-run-symbol-metrics.css"></style>
-<style>
-/* n-tooltip / n-popover 内容 teleport 到 body，不受 scoped 约束；类名加前缀避免污染全局 */
-.run-symbol-metrics-tooltip__status {
-  max-width: 280px;
-  line-height: 1.5;
-  font-size: 13px;
-}
-.run-symbol-metrics-tooltip__status > div + div {
-  margin-top: 8px;
-}
-.run-symbol-metrics-popover__content {
-  padding: 0;
-  border-radius: 8px;
-  box-shadow:
-    0 4px 16px color-mix(in srgb, var(--color-ink) 8%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--color-ink) 6%, transparent);
-}
-.run-symbol-metrics-popover__inner {
-  width: min(400px, calc(100vw - 24px));
-  max-width: 100%;
-  box-sizing: border-box;
-  padding: 12px 16px 16px;
-  background: var(--n-color);
-}
-.run-symbol-metrics-popover__inner .filter-popover-header {
-  margin: 0 0 12px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--n-text-color-1);
-  letter-spacing: 0.02em;
-}
-.run-symbol-metrics-popover__inner .filter-form h4:first-of-type {
-  margin-top: 0;
-}
-.run-symbol-metrics-popover__inner .filter-conditions-empty {
-  margin-top: 4px;
-  padding: 20px 16px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-text-muted) 6%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-text-muted) 12%, transparent);
-}
-.run-symbol-metrics-popover__inner .filter-conditions-empty .n-empty__description {
-  margin-top: 8px;
-  font-size: 13px;
-  color: var(--n-text-color-2);
-}
-.run-symbol-metrics-popover__inner .filter-empty-hint {
-  display: block;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--n-text-color-3);
-  text-align: center;
-  max-width: 280px;
-  margin-left: auto;
-  margin-right: auto;
-}
-@media (max-width: 420px) {
-  .run-symbol-metrics-popover__inner {
-    width: calc(100vw - 24px);
-  }
-}
-</style>

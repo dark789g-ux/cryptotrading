@@ -66,6 +66,13 @@ const ARROW_RICH = {
   arrowEq: { color: CANDLE_COLORS.eq, fontSize: 12 },
 }
 
+const GRAPHIC_BG = {
+  color: colors.text.DEFAULT,
+  backgroundColor: 'rgba(24,25,30,0.78)',
+  padding: [4, 8],
+  borderRadius: 3,
+} as const
+
 const GRAPHIC_MA = { id: 'ma-values', type: 'text' as const, left: '9%', top: '10%', z: 100 }
 const GRAPHIC_KDJ = { id: 'kdj-values', type: 'text' as const, left: '9%', top: '71%', z: 100 }
 
@@ -106,14 +113,14 @@ const buildMaText = (idx: number, data: KlineChartBar[]) => {
     rich[k.toLowerCase()] = { color: MA_COLORS[k], fontSize: 12 }
   })
   if (!row) {
-    return { text: '', rich }
+    return { text: '', rich, ...GRAPHIC_BG }
   }
   const segs = keys.map((k) => {
     const a = arrow(row[k], prev?.[k])
     const at = arrowRichTag(a.key)
     return `${k}: {${k.toLowerCase()}|${fmt(row[k])}}{${at}|${a.sym}}`
   })
-  return { text: segs.join('  '), rich }
+  return { text: segs.join('  '), rich, ...GRAPHIC_BG }
 }
 
 const buildKdjText = (idx: number, data: KlineChartBar[]) => {
@@ -127,14 +134,14 @@ const buildKdjText = (idx: number, data: KlineChartBar[]) => {
     rich[tagMap[k]] = { color: KDJ_COLORS[k], fontSize: 12 }
   })
   if (!row) {
-    return { text: '', rich }
+    return { text: '', rich, ...GRAPHIC_BG }
   }
   const segs = keys.map((k) => {
     const a = arrow(row[k], prev?.[k])
     const at = arrowRichTag(a.key)
     return `${labels[k]}: {${tagMap[k]}|${fmt(row[k], 2)}}{${at}|${a.sym}}`
   })
-  return { text: segs.join('  '), rich }
+  return { text: segs.join('  '), rich, ...GRAPHIC_BG }
 }
 
 const buildMarkPoints = (data: KlineChartBar[], currentTs: string) => {
@@ -276,7 +283,7 @@ const renderChart = () => {
         right: 12,
         top: '8%',
         data: ['K线', 'MA5', 'MA30', 'MA60', 'MA120', 'MA240'],
-        textStyle: { fontSize: 11 },
+        textStyle: { fontSize: 12, color: '#D0D4DC' },
         itemWidth: 14,
         itemHeight: 8,
       },
@@ -285,7 +292,7 @@ const renderChart = () => {
         right: 12,
         top: '69%',
         data: ['KDJ.K', 'KDJ.D', 'KDJ.J'],
-        textStyle: { fontSize: 11 },
+        textStyle: { fontSize: 12, color: '#D0D4DC' },
         itemWidth: 14,
         itemHeight: 8,
       },

@@ -3,6 +3,7 @@ crtptotrading:加密量化策略
 
 ## 背景
 - 开发环境：windows11
+- 编码为 GBK
 
 ## 语言风格
 - 书写的文本，以自然语言为主，代码作为引用，减少理解门槛。
@@ -24,13 +25,11 @@ crtptotrading:加密量化策略
 - **部署**：Docker Compose（`docker-compose.prod.yml`）
 
 ## 常用命令
-- 开发：`pnpm run dev`
-- 构建：`pnpm run build`
 - 查询数据库：`docker exec crypto-postgres psql -U cryptouser -d cryptodb -c ...`
+
 ## NOT DO
 - 禁在 PowerShell 命令中用 `&&`；正确：`cd apps/web; pnpm exec tsc` 或分两次调用 Shell
 - 禁 `any`，改用 `unknown` + 类型收窄
-- 错误必须反馈用户，不得静默
 - 禁用 `git log` / `git diff` 查历史
 - 禁在 `.vue` / `.ts` / `.css` 中手写 `#xxxxxx` / `rgba(...)` 颜色值，必须到 `apps/web/src/styles/tokens` 里引用
 - 原生 SQL ID 参数用 `::text[]`（ID 列均为 `character varying`），禁 `::uuid[]`
@@ -40,6 +39,7 @@ crtptotrading:加密量化策略
 - 禁猜 naive-ui 是否导出某类型（用本地联合或查声明）
 - TypeORM：`andWhere` 等字符串里禁 `'[]'::jsonb`（误绑 `:jsonb`），用 `CAST('[]' AS jsonb)`
 - 禁同表 `leftJoin` 再 `getManyAndCount`+`orderBy`（0.3 空 metadata）
+- 不要设计导出CSV的功能。
 
 ## DO
 - 动手前用 `AskUserQuestion` 确认真实需求
@@ -59,10 +59,40 @@ crtptotrading:加密量化策略
 - 裸 SQL 比对 `timestamptz` 列：`col = $n::timestamptz`，禁 `AT TIME ZONE`、禁 `::timestamp` 中转。
 - 跨进程/容器假设 Node TZ 不可控，绝不用 `getHours/getMonth` 等本地方法落库或入 SQL。
 
+## UI / UX
+- UI 设计规范参考 @.prompts/misc/DESIGN-binance.md
+- K 线图参考 @apps/web/src/components/backtest/KlineChartModal.vue
+- 样式统一走 @apps/web/src/styles/design-system.css；需新增 token 时须先与用户确认
+
 ## 表格开发规范
 - 分页 / 表头排序 / 筛选：全后端；筛与排序基于全量数据。
 - 默认勿行点；交互放 `操作` 列。
 - 排序：`n-data-table` 内置。
 - 远程：未点表头时列 `sortOrder` 恒 false（无假高亮）；请求可仍带默认 `sortBy`/`sortOrder`。
 - `explicitSort`：辨默认与点击（同默认同列同向亦显式须亮）。清序或重置筛 → 默认且 `explicitSort=false`；仅筛不改。`runId` 缓存须含 `explicitSort`。
-- 无 CSV；分页默认 10。
+- 表格默认带分页器，有[10,20,50]3个选项，默认为10
+
+### n-data-table `remote` 模式分页规范（经验教训）
+`n-data-table` 开启 `remote` 后，组件**不会**接管任何数据或分页状态的管理，所有行为必须由调用方显式控制。以下规范由实际踩坑总结：
+
+1. **必须显式监听分页事件**  
+   必须同时绑定 `@update:page` 和 `@update:page-size` 事件处理器，在回调中手动更新响应式状态（如 `page.value`、`pageSize.value`），并触发重新加载。  
+   错误示例：只绑定 `@update:sorter`，不处理分页事件 → 分页器点击后数值不更新。
+
+2. **`pagination` 必须包含 `itemCount`**  
+   `remote` 模式下分页器依赖 `itemCount` 计算总页数和翻页按钮状态。缺少该字段会导致分页器显示异常。  
+   正确：`pagination` computed 中始终包含 `itemCount: total.value`。
+
+3. **`:data` 必须是当前页数据，组件不做切片**  
+   `remote=true` 时，Naive UI 假设 `:data` 已经是后端分页后的当前页数据，**不会**自动根据 `page`/`pageSize` 做 slice。  
+   若后端未分页而前端声明 `remote=true`，表格将始终展示全部行，出现"分页器变了但行数不变"的脱节现象。
+
+4. **前后端分页接口必须对齐**  
+   前端使用 `remote` 即承诺后端已分页。后端接口必须：
+   - 接收 `page`/`pageSize`（或 `skip`/`take`）参数
+   - 返回统一的分页结构，如 `{ rows, total, page, pageSize }`
+   - 优先使用项目中已有模式（TypeORM `findAndCount`、QueryBuilder `skip`/`take` + `getManyAndCount`、原生 SQL `LIMIT`/`OFFSET`）
+
+5. **新增分页表格前，先参考已有实现**  
+   前端参考 `SymbolsView.vue`、`BacktestDetail.vue`（`page`/`pageSize`/`total` ref + computed `paginationState`）；  
+   后端参考 `candle-log.controller.ts`、`symbols.service.ts`（统一返回 `{ rows, total, page, pageSize }`）。

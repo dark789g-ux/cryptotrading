@@ -38,9 +38,9 @@ export function useImportStrategies(propsRef: { strategy?: unknown }) {
     if (importStrategiesLoaded) return
     loadingImportStrategies.value = true
     try {
-      const list = await strategyApi.getStrategies()
+      const res = await strategyApi.getStrategies()
       const selfId = (propsRef.strategy as Record<string, unknown>)?.id
-      importStrategyOptions.value = (list as Record<string, unknown>[])
+      importStrategyOptions.value = (res.rows as Record<string, unknown>[])
         .filter((s) => s.id !== selfId)
         .map((s) => ({ label: s.name as string, value: s.id as string }))
       importStrategiesLoaded = true

@@ -1,0 +1,72 @@
+.filter-card {
+  margin-bottom: 12px;
+}
+
+.table-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.filter-field {
+  width: 160px;
+  min-width: 0;
+}
+
+.filter-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.filter-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.filter-status-label {
+  font-size: 13px;
+  color: var(--n-text-color-2);
+  cursor: default;
+  white-space: nowrap;
+}
+
+.filter-status-select {
+  width: min(220px, 100%);
+  min-width: 140px;
+}
+
+.filter-tags-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-form h4 {
+  margin: 16px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.condition-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.condition-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--ember-surface-hover, rgba(128, 128, 128, 0.12));
+  border-radius: 8px;
+}

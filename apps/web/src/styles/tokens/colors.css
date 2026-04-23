@@ -31,19 +31,19 @@
   --color-error-pressed: #D13647;
 
   /* 表面/背景 */
-  --color-surface: #FFFFFF;
-  --color-surface-elevated: #F5F5F5;
+  --color-surface: #222126;
+  --color-surface-elevated: #2B2F36;
   --color-surface-dark: #222126;
   --color-surface-dark-card: #2B2F36;
 
   /* 文字 */
-  --color-text: #1E2026;
-  --color-text-secondary: #32313A;
-  --color-text-muted: #848E9C;
+  --color-text: #D0D4DC;
+  --color-text-secondary: #848E9C;
+  --color-text-muted: #686A6C;
   --color-text-on-dark: #D0D4DC;
 
   /* 边框 */
-  --color-border: #E6E8EA;
+  --color-border: #3A3F48;
 
   /* 其他辅助色 */
   --color-black: #000000;

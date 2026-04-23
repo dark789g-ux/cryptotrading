@@ -42,23 +42,23 @@ export const colors = {
 
   /** 表面/背景 */
   surface: {
-    DEFAULT: '#FFFFFF',
-    elevated: '#F5F5F5',
+    DEFAULT: '#222126',
+    elevated: '#2B2F36',
     dark: '#222126',
     darkCard: '#2B2F36',
   },
 
   /** 文字 */
   text: {
-    DEFAULT: '#1E2026',
-    secondary: '#32313A',
-    muted: '#848E9C',
+    DEFAULT: '#D0D4DC',
+    secondary: '#848E9C',
+    muted: '#686A6C',
     onDark: '#D0D4DC',
   },
 
   /** 边框 */
   border: {
-    DEFAULT: '#E6E8EA',
+    DEFAULT: '#3A3F48',
   },
 
   /** 其他辅助色 */

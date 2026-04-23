@@ -19,6 +19,8 @@
         :row-key="(row: any) => row.id"
         remote
         @update:sorter="handleSorterChange"
+        @update:page="handlePageChange"
+        @update:page-size="handlePageSizeChange"
       />
     </n-card>
 
@@ -122,6 +124,9 @@ const latestRun = ref<any>(null)
 const detailLoading = ref(false)
 const sortField = ref('createdAt')
 const sortOrder = ref<'ASC' | 'DESC'>('DESC')
+const page = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
 
 // ── 进度 Modal ────────────────────────────────────────────────
 const showProgressModal = ref(false)
@@ -201,14 +206,15 @@ onBeforeUnmount(() => {
 })
 
 // ── 格式化工具 ────────────────────────────────────────────────
-const pagination = ref({
-  page: 1,
-  pageSize: 10,
+const pagination = computed(() => ({
+  page: page.value,
+  pageSize: pageSize.value,
   pageSizes: [10, 20, 50],
   showSizePicker: true,
   showQuickJumper: true,
-  prefix: () => `共 ${strategies.value.length} 条`,
-})
+  itemCount: total.value,
+  prefix: () => `共 ${total.value} 条`,
+}))
 
 const formatPercent = (val: number | null) => {
   if (val == null) return '-'
@@ -328,10 +334,24 @@ const handleSorterChange = (sorter: DataTableSortState | null) => {
   loadStrategies()
 }
 
+const handlePageChange = (p: number) => {
+  page.value = p
+  loadStrategies()
+}
+
+const handlePageSizeChange = (s: number) => {
+  pageSize.value = s
+  page.value = 1
+  loadStrategies()
+}
+
 const loadStrategies = async () => {
   loading.value = true
-  try { strategies.value = await strategyApi.getStrategies(sortField.value, sortOrder.value) }
-  catch (err: any) { message.error(err.message) }
+  try {
+    const res = await strategyApi.getStrategies(sortField.value, sortOrder.value, page.value, pageSize.value)
+    strategies.value = res.rows
+    total.value = res.total
+  } catch (err: any) { message.error(err.message) }
   finally { loading.value = false }
 }
 

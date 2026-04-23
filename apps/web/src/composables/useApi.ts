@@ -35,12 +35,14 @@ function del<T>(url: string): Promise<T> {
 // ── 策略 ────────────────────────────────────────────────────
 export const strategyApi = {
   getStrategyTypes: () => request<any[]>(`${API_BASE}/strategies/types`),
-  getStrategies: (sortField?: string, sortOrder?: 'ASC' | 'DESC') => {
+  getStrategies: (sortField?: string, sortOrder?: 'ASC' | 'DESC', page?: number, pageSize?: number) => {
     const params = new URLSearchParams()
     if (sortField) params.set('sortField', sortField)
     if (sortOrder) params.set('sortOrder', sortOrder)
+    if (page != null) params.set('page', String(page))
+    if (pageSize != null) params.set('pageSize', String(pageSize))
     const qs = params.toString()
-    return request<any[]>(`${API_BASE}/strategies${qs ? `?${qs}` : ''}`)
+    return request<{ rows: any[]; total: number; page: number; pageSize: number }>(`${API_BASE}/strategies${qs ? `?${qs}` : ''}`)
   },
   getStrategy: (id: string) => request<any>(`${API_BASE}/strategies/${id}`),
   createStrategy: (data: object) => post<any>(`${API_BASE}/strategies`, data),

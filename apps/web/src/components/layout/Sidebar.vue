@@ -108,7 +108,7 @@ const handleMenuSelect = (key: string) => {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: var(--color-surface);
+  color: var(--color-text-on-dark);
   white-space: nowrap;
   opacity: 1;
   transition: opacity 0.2s ease;
@@ -151,6 +151,6 @@ const handleMenuSelect = (key: string) => {
 }
 
 .collapse-btn:hover {
-  color: var(--color-surface);
+  color: var(--color-text-on-dark);
 }
 </style>

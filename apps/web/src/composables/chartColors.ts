@@ -3,8 +3,8 @@ export const MA_COLORS = {
   MA5:   '#F0B90B',
   MA30:  '#1EAEDB',
   MA60:  '#0ECB81',
-  MA120: '#848E9C',
-  MA240: '#32313A',
+  MA120: '#E8804C',
+  MA240: '#C882E7',
 } as const
 
 export const KDJ_COLORS = {
@@ -30,11 +30,11 @@ export const TRADE_COLORS = {
 
 // 图表内嵌 tooltip（浅色主题）
 export const TOOLTIP_STYLE = {
-  bg:      '#FFFFFF',
-  border:  '#E6E8EA',
+  bg:      '#222126',
+  border:  '#3A3F48',
   muted:   '#848E9C',
   dimText: '#848E9C',
-  divider: '#E6E8EA',
+  divider: '#3A3F48',
 } as const
 
 // 参考线（锚点价格线等）

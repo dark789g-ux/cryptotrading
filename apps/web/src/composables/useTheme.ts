@@ -5,24 +5,24 @@ export function useTheme() {
   const echartsTheme = computed(() => ({
     backgroundColor: 'transparent',
     textStyle: { color: '#848E9C' },
-    title: { textStyle: { color: '#1E2026' } },
+    title: { textStyle: { color: '#D0D4DC' } },
     legend: { textStyle: { color: '#848E9C' } },
     tooltip: {
-      backgroundColor: '#FFFFFF',
-      borderColor: '#E6E8EA',
-      textStyle: { color: '#1E2026' },
+      backgroundColor: '#2B2F36',
+      borderColor: '#3A3F48',
+      textStyle: { color: '#D0D4DC' },
     },
     xAxis: {
-      axisLine: { lineStyle: { color: '#E6E8EA' } },
+      axisLine: { lineStyle: { color: '#3A3F48' } },
       axisLabel: { color: '#848E9C' },
-      splitLine: { lineStyle: { color: '#F5F5F5' } },
+      splitLine: { lineStyle: { color: '#3A3F48' } },
     },
     yAxis: {
-      axisLine: { lineStyle: { color: '#E6E8EA' } },
+      axisLine: { lineStyle: { color: '#3A3F48' } },
       axisLabel: { color: '#848E9C' },
-      splitLine: { lineStyle: { color: '#F5F5F5' } },
+      splitLine: { lineStyle: { color: '#3A3F48' } },
     },
-    grid: { borderColor: '#E6E8EA' },
+    grid: { borderColor: '#3A3F48' },
   }))
 
   return { echartsTheme }
