@@ -5,7 +5,6 @@ crtptotrading:加密量化策略
 - 文本精简，惜字如金
 - 引用使用 `@/path/to/file` 的格式
 
-
 ## 背景
 - 开发环境：windows11
 - 编码为 GBK
@@ -16,7 +15,7 @@ crtptotrading:加密量化策略
 ## 硬约束
 - 所有源代码文件使用 UTF-8 编码
 - 涉及文件 I/O 操作时，始终显式指定 encoding='utf-8'
-- 中文文本编辑与乱码处理规范：见 [doc/规范/edit-tool-cjk-mojibake.md](doc/规范/edit-tool-cjk-mojibake.md)、[doc/规范/conventions.md](doc/规范/conventions.md)
+- 中文文本编辑与乱码处理规范：见 [doc/规范/conventions.md](doc/规范/conventions.md)
 - HTML 模板必须包含 <meta charset="UTF-8">
 - 数据库连接字符串使用 utf8mb4
 - 对象键名使用英文（避免 Windows GBK 终端下中文裸键名解析错误）

@@ -7,7 +7,6 @@
 /cache/
 /backups/
 /.cursorback/
-/.claude/
 
 # Node / pnpm
 node_modules/

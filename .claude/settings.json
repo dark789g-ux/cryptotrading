@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm exec tsc --noEmit *)",
+      "Bash(pnpm exec vue-tsc --noEmit *)",
+      "Bash(pnpm --filter * exec tsc --noEmit *)",
+      "Bash(pnpm --filter * exec vue-tsc --noEmit *)"
+    ]
+  }
+}
