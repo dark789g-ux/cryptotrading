@@ -495,7 +495,7 @@ export function buildKlineChartOption({
       { left: '8%', right: '8%', top: '10%', height: '36%' },
       { left: '8%', right: '8%', top: '52%', height: '11%' },
       { left: '8%', right: '8%', top: '68%', height: '11%' },
-      { left: '8%', right: '8%', top: '84%', height: '12%' },
+      { left: '8%', right: '8%', top: '84%', height: '8%' },
     ],
     xAxis: [
       { type: 'category', data: times, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
