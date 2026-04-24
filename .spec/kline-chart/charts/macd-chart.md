@@ -4,46 +4,40 @@
 
 ## 系列
 
-MACD 副图包含 3 个系列：
+MACD 副图包含 4 个 series（xAxisIndex 2，yAxisIndex 2）：
 
-| 系列 | 类型 | 说明 |
-|------|------|------|
-| `DIF` | line | EMA12 - EMA26，快线 |
-| `DEA` | line | EMA9 of DIF，信号线 |
-| `MACD` | bar | 2 * (DIF - DEA)，柱状图 |
+| 系列 name | 类型 | 颜色 | 说明 |
+|-----------|------|------|------|
+| `DIF` | line | `#FFFFFF` | EMA12 - EMA26，快线 |
+| `DEA` | line | `#F0B90B` | EMA9 of DIF，信号线 |
+| `MACD`（上涨） | bar | `#0ECB81`（实心） | 当前值 > 前一根时 |
+| `MACD`（下跌） | bar | 透明填充 + `#F6465D` 边框（空心） | 当前值 ≤ 前一根时 |
 
-## 颜色
-
-| 系列 | 颜色 | 色值 |
-|------|------|------|
-| DIF | 白色 | `#FFFFFF` |
-| DEA | 币安黄 | `#F0B90B` |
-| MACD 当前 > 前一根 | Crypto Green | `#0ECB81`，实心 |
-| MACD 当前 ≤ 前一根 | Crypto Red | `#F6465D`，空心 |
-| 零轴参考线 | 灰色虚线 | `#848E9C` |
-
-## 图例
-
-MACD 图例位于 MACD pane 右侧，内容为：
-
-- `DIF`
-- `DEA`
-- `MACD`
+> MACD 用两个 bar series 实现实心/空心效果，两者 `name` 均为 `'MACD'`，图例只显示一条。  
+> 上涨柱数据：`row.MACD`（条件：`MACD != null && MACD > data[i-1].MACD`），其余为 `null`。  
+> 下跌柱数据：`row.MACD`（条件：`MACD != null && (i===0 || MACD <= data[i-1].MACD)`），其余为 `null`。
 
 ## 零轴参考线
 
-MACD pane 显示零轴水平虚线（y = 0），线色 `#848E9C`（Slate），`lineStyle.type = 'dashed'`。
+DIF 系列附加零轴水平虚线（`markLine`）：
 
-## 左上角指标面板
+- `y = 0`，线色 `#848E9C`（Slate），`lineStyle.type: 'dashed'`，`label.show: false`，`symbol: 'none'`
 
-MACD pane 左上角显示：
+## 图例
+
+MACD 图例位于 MACD pane 右侧（`right: 12, top: '68%'`，垂直排列）：
 
 - `DIF`
 - `DEA`
 - `MACD`
 
-规则与主图/KDJ 一致：
+## 左上角指标面板
 
-- 随十字光标定位刷新
-- 离开后显示最新一根
-- 与上一根比较显示方向标记
+MACD pane 左上角（`left: '9%', top: '68%'`）显示：
+
+- `DIF`（颜色 `#FFFFFF`）
+- `DEA`（颜色 `#F0B90B`）
+- `MACD`（颜色 `#0ECB81`，固定用涨色展示）
+
+每项格式：`DIF: {值}{方向符号}`，值保留 4 位小数。  
+方向符号规则见父文档「左上角面板通用规则」。

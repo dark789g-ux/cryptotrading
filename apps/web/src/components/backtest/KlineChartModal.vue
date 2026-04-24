@@ -3,11 +3,19 @@
     :show="show"
     :title="modalTitle"
     preset="card"
-    style="width: 1150px; max-width: 95vw"
+    :style="modalStyle"
     :bordered="false"
     :segmented="{ content: true }"
     @update:show="emit('update:show', $event)"
   >
+    <template #header-extra>
+      <n-button text style="margin-right: 4px" @click="toggleFullscreen">
+        <template #icon>
+          <n-icon><contract-outline v-if="isFullscreen" /><expand-outline v-else /></n-icon>
+        </template>
+      </n-button>
+    </template>
+
     <n-empty
       v-if="!symbol?.trim()"
       description="No symbol selected"
@@ -22,7 +30,7 @@
         description="No kline data"
         style="padding: 40px 0"
       />
-      <div v-else ref="chartRef" class="kline-chart" />
+      <div v-else ref="chartRef" class="kline-chart" :style="chartStyle" />
     </template>
   </n-modal>
 </template>
@@ -30,7 +38,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
-import { NEmpty, NModal, NSpin, useMessage } from 'naive-ui'
+import { NButton, NEmpty, NIcon, NModal, NSpin, useMessage } from 'naive-ui'
+import { ContractOutline, ExpandOutline } from '@vicons/ionicons5'
 import { buildKlineChartGraphics, buildKlineChartOption } from '../../composables/klineChartOptions'
 import { backtestApi, type KlineChartBar } from '../../composables/useApi'
 import { useTheme } from '../../composables/useTheme'
@@ -50,6 +59,7 @@ const { echartsTheme } = useTheme()
 const loading = ref(false)
 const klineData = ref<KlineChartBar[]>([])
 const chartRef = ref<HTMLElement | null>(null)
+const isFullscreen = ref(false)
 let chartInstance: echarts.ECharts | null = null
 
 const modalTitle = computed(() => {
@@ -57,6 +67,21 @@ const modalTitle = computed(() => {
   const ts = props.ts ?? ''
   return symbol ? `Kline Chart · ${symbol} · ${ts}` : `Kline Chart · ${ts}`
 })
+
+const modalStyle = computed(() =>
+  isFullscreen.value
+    ? 'width: 100vw; height: 100vh; max-width: 100vw; border-radius: 0; margin: 0; top: 0; left: 0'
+    : 'width: 1150px; max-width: 95vw',
+)
+
+const chartStyle = computed(() => ({
+  height: isFullscreen.value ? 'calc(100vh - 60px)' : '600px',
+  width: '100%',
+}))
+
+const toggleFullscreen = () => {
+  isFullscreen.value = !isFullscreen.value
+}
 
 const handleResize = () => chartInstance?.resize()
 
@@ -125,12 +150,18 @@ watch(
       chartInstance?.dispose()
       chartInstance = null
       klineData.value = []
+      isFullscreen.value = false
       return
     }
     if (!runId || !ts?.trim() || !symbol?.trim()) return
     await loadKline()
   },
 )
+
+watch(isFullscreen, async () => {
+  await nextTick()
+  chartInstance?.resize()
+})
 
 onUnmounted(() => {
   chartInstance?.dispose()
@@ -140,7 +171,6 @@ onUnmounted(() => {
 
 <style scoped>
 .kline-chart {
-  height: 600px;
   width: 100%;
 }
 

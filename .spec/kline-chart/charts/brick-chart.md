@@ -51,25 +51,29 @@ DELTA = diff2 > 1e-10 ? diff1 / diff2 : 0
 
 ## 系列
 
-Brick 副图包含 2 个绘图系列：
+Brick 副图只有 1 个绘图系列（xAxisIndex 3）：
 
-- `BRICK`：浮动柱状主体，每根柱子起点为上一周期 brick 值、终点为当前周期 brick 值；brick 上涨时用涨色，下跌时用跌色
-- `DELTA`：折线辅助，绑定独立的右侧 yAxis，不影响 BRICK 的量程
+| 系列 | 类型 | yAxisIndex | 颜色 | 说明 |
+|------|------|------------|------|------|
+| `BRICK` | custom（rect） | 3 | 上涨 `#0ECB81` / 下跌 `#F6465D` | 浮动柱：起点为上一周期 brick，终点为当前周期 brick |
+
+**DELTA 折线已永久移除**：不再创建 `deltaSeries`，不再需要 yAxisIndex 4（右侧独立 yAxis 可同步删除）。DELTA 数值仍在左上角面板展示。
+
+BRICK custom series 数据格式：`[idx, prevBrick, currentBrick]`（`flatMap` 过滤无 brickChart 的项，禁止含 null 项，见 CLAUDE.md ECharts custom series 规范）。x 坐标从 `api.value(0)` 读取原始索引。
 
 ## 图例
 
-Brick 图例位于最下方 pane 右侧，内容为：
+Brick 图例位于最下方 pane 右侧（`right: 12, top: '84%'`，垂直排列）：
 
-- `BRICK`
-- `DELTA`
+- `BRICK`（仅此一项，DELTA 不再出现于图例）
 
 ## 左上角指标面板
 
-Brick pane 左上角只显示：
+Brick pane 左上角（`left: '9%', top: '84%'`）显示（仅当 `row.brickChart` 存在时才渲染文字）：
 
-- `XG`（文本数值，不在图中绘制散点）
-- `DELTA`
-- `BRICK`
+- `XG`：显示 `1`（true）或 `0`（false），颜色 `#F0B90B`，加粗
+- `DELTA`：颜色 `#1EAEDB`，2 位小数（仅面板显示，无对应折线）
+- `BRICK`：颜色 `#0ECB81`（涨色），2 位小数
 
 不显示以下内容：
 
