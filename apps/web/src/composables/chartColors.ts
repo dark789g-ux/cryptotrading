@@ -45,5 +45,13 @@ export const TOOLTIP_STYLE = {
   divider: '#3A3F48',
 } as const
 
+export const MACD_COLORS = {
+  DIF: '#FFFFFF',
+  DEA: '#F0B90B',
+  macdUp: '#0ECB81',
+  macdDown: '#F6465D',
+  zeroLine: '#848E9C',
+} as const
+
 // 参考线（锚点价格线等）
 export const ANCHOR_LINE_COLOR = '#F0B90B'

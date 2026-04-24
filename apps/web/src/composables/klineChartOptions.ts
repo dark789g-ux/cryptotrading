@@ -1,4 +1,5 @@
 import type {
+  BarSeriesOption,
   CandlestickSeriesOption,
   CustomSeriesOption,
   CustomSeriesRenderItemAPI,
@@ -16,6 +17,7 @@ import {
   CANDLE_COLORS,
   KDJ_COLORS,
   MA_COLORS,
+  MACD_COLORS,
   TOOLTIP_STYLE,
   TRADE_COLORS,
 } from './chartColors'
@@ -38,8 +40,9 @@ const GRAPHIC_BG = {
 } as const
 
 const GRAPHIC_MA = { id: 'ma-values', type: 'text' as const, left: '9%', top: '10%', z: 100 }
-const GRAPHIC_KDJ = { id: 'kdj-values', type: 'text' as const, left: '9%', top: '61%', z: 100 }
-const GRAPHIC_BRICK = { id: 'brick-values', type: 'text' as const, left: '9%', top: '79%', z: 100 }
+const GRAPHIC_KDJ = { id: 'kdj-values', type: 'text' as const, left: '9%', top: '52%', z: 100 }
+const GRAPHIC_BRICK = { id: 'brick-values', type: 'text' as const, left: '9%', top: '84%', z: 100 }
+const GRAPHIC_MACD = { id: 'macd-values', type: 'text' as const, left: '9%', top: '68%', z: 100 }
 
 const ARROW_RICH = {
   arrowUp: { fill: CANDLE_COLORS.up, fontSize: 12 },
@@ -120,6 +123,21 @@ const buildBrickText = (idx: number, data: KlineChartBar[]) => {
     },
     ...GRAPHIC_BG,
   }
+}
+
+const buildMacdText = (idx: number, data: KlineChartBar[]) => {
+  const row = idx >= 0 && idx < data.length ? data[idx] : undefined
+  const prev = idx > 0 && idx - 1 < data.length ? data[idx - 1] : undefined
+  const rich: Record<string, unknown> = { ...ARROW_RICH }
+  rich['dif'] = { fill: MACD_COLORS.DIF, fontSize: 12 }
+  rich['dea'] = { fill: MACD_COLORS.DEA, fontSize: 12 }
+  rich['macd'] = { fill: MACD_COLORS.macdUp, fontSize: 12 }
+  if (!row) return { text: '', rich, ...GRAPHIC_BG }
+  const difState = arrow(row.DIF, prev?.DIF)
+  const deaState = arrow(row.DEA, prev?.DEA)
+  const macdState = arrow(row.MACD, prev?.MACD)
+  const text = `DIF: {dif|${fmt(row.DIF, 4)}}{${arrowRichTag(difState.key)}|${difState.sym}}  DEA: {dea|${fmt(row.DEA, 4)}}{${arrowRichTag(deaState.key)}|${deaState.sym}}  MACD: {macd|${fmt(row.MACD, 4)}}{${arrowRichTag(macdState.key)}|${macdState.sym}}`
+  return { text, rich, ...GRAPHIC_BG }
 }
 
 const escapeHtml = (text: string) =>
@@ -228,6 +246,7 @@ const buildTooltip = (row: KlineChartBar, idx: number, data: KlineChartBar[]) =>
 const buildGraphics = (idx: number, data: KlineChartBar[]): GraphicComponentOption[] => [
   { ...GRAPHIC_MA, style: buildMaText(idx, data) },
   { ...GRAPHIC_KDJ, style: buildKdjText(idx, data) },
+  { ...GRAPHIC_MACD, style: buildMacdText(idx, data) },
   { ...GRAPHIC_BRICK, style: buildBrickText(idx, data) },
 ]
 
@@ -247,6 +266,11 @@ export function buildKlineChartOption({
     if (current === undefined || prev === undefined) return []
     return [[idx, prev, current]]
   })
+
+  const difValues = data.map((row) => row.DIF)
+  const deaValues = data.map((row) => row.DEA)
+  const macdUpData = data.map((row) => (row.MACD != null && row.MACD >= 0 ? row.MACD : null))
+  const macdDownData = data.map((row) => (row.MACD != null && row.MACD < 0 ? row.MACD : null))
 
   const candleSeries: CandlestickSeriesOption = {
     name: 'K',
@@ -293,8 +317,8 @@ export function buildKlineChartOption({
   const brickSeries: CustomSeriesOption = {
     name: 'BRICK',
     type: 'custom',
-    xAxisIndex: 2,
-    yAxisIndex: 2,
+    xAxisIndex: 3,
+    yAxisIndex: 3,
     clip: true,
     encode: { x: 0, y: [1, 2] },
     data: brickRangeValues,
@@ -324,18 +348,73 @@ export function buildKlineChartOption({
   const deltaSeries: LineSeriesOption = {
     name: 'DELTA',
     type: 'line',
-    xAxisIndex: 2,
-    yAxisIndex: 3,
+    xAxisIndex: 3,
+    yAxisIndex: 4,
     data: deltaValues,
     showSymbol: false,
     lineStyle: { width: 1, color: BRICK_COLORS.delta },
     itemStyle: { color: BRICK_COLORS.delta },
   }
 
+  const difSeries: LineSeriesOption = {
+    name: 'DIF',
+    type: 'line',
+    xAxisIndex: 2,
+    yAxisIndex: 2,
+    data: difValues,
+    showSymbol: false,
+    lineStyle: { width: 1, color: MACD_COLORS.DIF },
+    itemStyle: { color: MACD_COLORS.DIF },
+    markLine: {
+      silent: true,
+      symbol: 'none',
+      data: [{ yAxis: 0 }],
+      lineStyle: { color: MACD_COLORS.zeroLine, type: 'dashed' },
+      label: { show: false },
+    },
+  }
+
+  const deaSeries: LineSeriesOption = {
+    name: 'DEA',
+    type: 'line',
+    xAxisIndex: 2,
+    yAxisIndex: 2,
+    data: deaValues,
+    showSymbol: false,
+    lineStyle: { width: 1, color: MACD_COLORS.DEA },
+    itemStyle: { color: MACD_COLORS.DEA },
+    markLine: { silent: true, symbol: 'none', data: [], label: { show: false } },
+  }
+
+  const macdUpSeries: BarSeriesOption = {
+    name: 'MACD',
+    type: 'bar',
+    xAxisIndex: 2,
+    yAxisIndex: 2,
+    data: macdUpData,
+    itemStyle: { color: MACD_COLORS.macdUp, borderColor: MACD_COLORS.macdUp },
+  }
+
+  const macdDownSeries: BarSeriesOption = {
+    name: 'MACD',
+    type: 'bar',
+    xAxisIndex: 2,
+    yAxisIndex: 2,
+    data: macdDownData,
+    itemStyle: {
+      color: 'transparent',
+      borderColor: MACD_COLORS.macdDown,
+    },
+  }
+
   const series: SeriesOption[] = [
     candleSeries,
     ...maSeries,
     ...kdjSeries,
+    difSeries,
+    deaSeries,
+    macdUpSeries,
+    macdDownSeries,
     brickSeries,
     deltaSeries,
   ]
@@ -371,7 +450,7 @@ export function buildKlineChartOption({
       {
         orient: 'vertical',
         right: 12,
-        top: '61%',
+        top: '52%',
         data: ['KDJ.K', 'KDJ.D', 'KDJ.J'],
         textStyle: { fontSize: 12, color: colors.text.DEFAULT },
         itemWidth: 14,
@@ -380,7 +459,16 @@ export function buildKlineChartOption({
       {
         orient: 'vertical',
         right: 12,
-        top: '79%',
+        top: '68%',
+        data: ['DIF', 'DEA', 'MACD'],
+        textStyle: { fontSize: 12, color: colors.text.DEFAULT },
+        itemWidth: 14,
+        itemHeight: 8,
+      },
+      {
+        orient: 'vertical',
+        right: 12,
+        top: '84%',
         data: ['BRICK', 'DELTA'],
         textStyle: { fontSize: 12, color: colors.text.DEFAULT },
         itemWidth: 14,
@@ -388,24 +476,27 @@ export function buildKlineChartOption({
       },
     ],
     grid: [
-      { left: '8%', right: '8%', top: '10%', height: '42%' },
-      { left: '8%', right: '8%', top: '61%', height: '13%' },
-      { left: '8%', right: '8%', top: '79%', height: '13%' },
+      { left: '8%', right: '8%', top: '10%', height: '36%' },
+      { left: '8%', right: '8%', top: '52%', height: '11%' },
+      { left: '8%', right: '8%', top: '68%', height: '11%' },
+      { left: '8%', right: '8%', top: '84%', height: '12%' },
     ],
     xAxis: [
       { type: 'category', data: times, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
       { type: 'category', data: times, gridIndex: 1, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
-      { type: 'category', data: times, gridIndex: 2, axisLabel: { show: false }, axisPointer: { label: { show: true } } },
+      { type: 'category', data: times, gridIndex: 2, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
+      { type: 'category', data: times, gridIndex: 3, axisLabel: { show: false }, axisPointer: { label: { show: true } } },
     ],
     yAxis: [
       { scale: true, axisPointer: { label: { show: false } } },
       { scale: true, gridIndex: 1, axisPointer: { label: { show: false } } },
       { scale: true, gridIndex: 2, axisPointer: { label: { show: false } } },
-      { scale: true, gridIndex: 2, position: 'right', splitLine: { show: false }, axisPointer: { label: { show: false } } },
+      { scale: true, gridIndex: 3, axisPointer: { label: { show: false } } },
+      { scale: true, gridIndex: 3, position: 'right', splitLine: { show: false }, axisPointer: { label: { show: false } } },
     ],
     dataZoom: [
-      { type: 'inside', xAxisIndex: [0, 1, 2], start: sliderStart, end: 100 },
-      { type: 'slider', xAxisIndex: [0, 1, 2], start: sliderStart, end: 100, bottom: 20, height: 22 },
+      { type: 'inside', xAxisIndex: [0, 1, 2, 3], start: sliderStart, end: 100 },
+      { type: 'slider', xAxisIndex: [0, 1, 2, 3], start: sliderStart, end: 100, bottom: 20, height: 22 },
     ],
     graphic: buildGraphics(lastIdx, data),
     series,

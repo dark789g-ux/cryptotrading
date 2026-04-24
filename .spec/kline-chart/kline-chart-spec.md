@@ -80,10 +80,10 @@ interface KlineChartBar {
 
 ## 各图实现
 
-- [主图](main-chart.md)（K 线 + MA）
-- [KDJ 副图](kdj-chart.md)
-- [MACD 副图](macd-chart.md)
-- [Brick 副图](brick-chart.md)
+- [主图](charts/main-chart.md)（K 线 + MA）
+- [KDJ 副图](charts/kdj-chart.md)
+- [MACD 副图](charts/macd-chart.md)
+- [Brick 副图](charts/brick-chart.md)
 
 ## Tooltip
 
