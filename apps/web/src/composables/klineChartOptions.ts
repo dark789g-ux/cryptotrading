@@ -7,7 +7,6 @@ import type {
   GraphicComponentOption,
   LineSeriesOption,
   MarkPointComponentOption,
-  ScatterSeriesOption,
   SeriesOption,
 } from 'echarts'
 import { colors } from '../styles/tokens'
@@ -29,7 +28,7 @@ interface BuildKlineChartOptionsParams {
   sliderStart?: number
 }
 
-type BrickRangeDatum = [string, number, number]
+type BrickRangeDatum = [number, number, number]
 
 const GRAPHIC_BG = {
   fill: colors.text.DEFAULT,
@@ -242,12 +241,11 @@ export function buildKlineChartOption({
   const klines = data.map((row) => [row.open, row.close, row.low, row.high])
   const lastIdx = data.length - 1
   const deltaValues = data.map((row) => row.brickChart?.delta ?? 0)
-  const xgPoints = data.map((row) => (row.brickChart?.xg ? row.brickChart.brick : null))
-  const brickRangeValues = data.map<BrickRangeDatum | null>((row, idx) => {
+  const brickRangeValues = data.flatMap<BrickRangeDatum>((row, idx) => {
     const current = row.brickChart?.brick
     const prev = idx > 0 ? data[idx - 1]?.brickChart?.brick : undefined
-    if (current === undefined || prev === undefined) return null
-    return [row.open_time, prev, current]
+    if (current === undefined || prev === undefined) return []
+    return [[idx, prev, current]]
   })
 
   const candleSeries: CandlestickSeriesOption = {
@@ -301,28 +299,23 @@ export function buildKlineChartOption({
     encode: { x: 0, y: [1, 2] },
     data: brickRangeValues,
     renderItem: (_params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI) => {
-      const xValue = api.ordinalRawValue(0) ?? api.value(0)
+      const xIdx = api.value(0)
       const start = api.value(1)
       const end = api.value(2)
-      if ((typeof xValue !== 'string' && typeof xValue !== 'number') || typeof start !== 'number' || typeof end !== 'number') return null
-      const startPoint = api.coord([xValue, start])
-      const endPoint = api.coord([xValue, end])
-      const rawWidth = Number(api.size([1, 0])[0]) * 0.88
-      const barWidth = Math.max(rawWidth, 1)
+      if (typeof start !== 'number' || typeof end !== 'number') return null
+      const startPoint = api.coord([xIdx, start])
+      const endPoint = api.coord([xIdx, end])
+      const barWidth = Math.max(Number(api.size([1, 0])[0]) * 0.7, 1)
       const left = startPoint[0] - barWidth / 2
       const top = Math.min(startPoint[1], endPoint[1])
       const height = Math.max(Math.abs(endPoint[1] - startPoint[1]), 1)
+      const isUp = end >= start
       return {
         type: 'rect',
-        shape: {
-          x: left,
-          y: top,
-          width: barWidth,
-          height,
-        },
+        shape: { x: left, y: top, width: barWidth, height },
         style: api.style({
-          fill: end >= start ? BRICK_COLORS.brickUp : BRICK_COLORS.brickDown,
-          stroke: end >= start ? BRICK_COLORS.brickUp : BRICK_COLORS.brickDown,
+          fill: isUp ? BRICK_COLORS.brickUp : BRICK_COLORS.brickDown,
+          stroke: isUp ? BRICK_COLORS.brickUp : BRICK_COLORS.brickDown,
         }),
       }
     },
@@ -332,22 +325,11 @@ export function buildKlineChartOption({
     name: 'DELTA',
     type: 'line',
     xAxisIndex: 2,
-    yAxisIndex: 2,
+    yAxisIndex: 3,
     data: deltaValues,
     showSymbol: false,
     lineStyle: { width: 1, color: BRICK_COLORS.delta },
     itemStyle: { color: BRICK_COLORS.delta },
-  }
-
-  const xgSeries: ScatterSeriesOption = {
-    name: 'XG',
-    type: 'scatter',
-    xAxisIndex: 2,
-    yAxisIndex: 2,
-    data: xgPoints,
-    symbol: 'triangle',
-    symbolSize: 10,
-    itemStyle: { color: BRICK_COLORS.xg },
   }
 
   const series: SeriesOption[] = [
@@ -356,7 +338,6 @@ export function buildKlineChartOption({
     ...kdjSeries,
     brickSeries,
     deltaSeries,
-    xgSeries,
   ]
 
   return {
@@ -400,7 +381,7 @@ export function buildKlineChartOption({
         orient: 'vertical',
         right: 12,
         top: '79%',
-        data: ['BRICK', 'DELTA', 'XG'],
+        data: ['BRICK', 'DELTA'],
         textStyle: { fontSize: 12, color: colors.text.DEFAULT },
         itemWidth: 14,
         itemHeight: 8,
@@ -420,6 +401,7 @@ export function buildKlineChartOption({
       { scale: true, axisPointer: { label: { show: false } } },
       { scale: true, gridIndex: 1, axisPointer: { label: { show: false } } },
       { scale: true, gridIndex: 2, axisPointer: { label: { show: false } } },
+      { scale: true, gridIndex: 2, position: 'right', splitLine: { show: false }, axisPointer: { label: { show: false } } },
     ],
     dataZoom: [
       { type: 'inside', xAxisIndex: [0, 1, 2], start: sliderStart, end: 100 },

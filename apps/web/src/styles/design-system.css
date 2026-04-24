@@ -388,24 +388,3 @@ code, pre, .code {
 .slide-right-leave-to {
   transform: translateX(100%);
 }
-
-/* ===== 响应式 — 桌面端专用 ===== */
-@media (max-width: 768px) {
-  body::before {
-    content: '此应用仅支持桌面端访问';
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: var(--color-surface);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    z-index: 9999;
-    padding: 20px;
-    text-align: center;
-    color: var(--binance-text);
-  }
-}

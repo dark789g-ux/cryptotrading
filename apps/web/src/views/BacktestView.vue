@@ -248,7 +248,11 @@ const BASE_COLS = {
     render: (row: any) => {
       const val = row.lastBacktestReturn
       if (val == null) return '-'
-      return h('span', { class: val >= 0 ? 'trend-up' : 'trend-down' }, formatPercent(val))
+      const up = val >= 0
+      return h('span', {
+        class: up ? 'trend-up' : 'trend-down',
+        style: { color: up ? colors.success.DEFAULT : colors.error.DEFAULT },
+      }, formatPercent(val))
     },
   },
 }

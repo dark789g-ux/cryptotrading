@@ -35,6 +35,8 @@ crtptotrading:加密量化策略
 
 ## NOT DO
 - 禁在 PowerShell 命令中用 `&&`；正确：`cd apps/web; pnpm exec tsc` 或分两次调用 Shell
+- ECharts custom series 禁用 `data.map()` 产生 `null` 项：null 项仍会触发 `renderItem`，`api.value(n)` 返回 `0`，`typeof 0 === 'number'` 绕过空值检查，在 y=0 处生成幽灵柱并破坏 yAxis 量程；必须用 `data.flatMap()` 过滤掉 `null`（见 [ECharts custom series 规范](#echarts-custom-series-规范)）
+- ECharts custom series 过滤 null 后禁用 `params.dataIndex` 定位 x：`params.dataIndex` 是过滤后数组的局部索引，与 category 轴错位；应将原始索引 `idx` 存入 data 第 0 维，renderItem 中用 `api.value(0)` 取出作为 x 坐标
 - 禁 `any`，改用 `unknown` + 类型收窄
 - 禁用 `git log` / `git diff` 查历史
 - 禁在 `.vue` / `.ts` / `.css` 中手写 `#xxxxxx` / `rgba(...)` 颜色值，必须到 `apps/web/src/styles/tokens` 里引用
@@ -57,6 +59,22 @@ crtptotrading:加密量化策略
 - 大改后类型自检：`apps/server` 执行 `pnpm exec tsc --noEmit`；`apps/web` 执行 `pnpm exec vue-tsc --noEmit`（勿新增报错）
 - 编辑文件用 StrReplace / Write，禁止 PowerShell 文本处理
 - tokens 中找不到需要的颜色或样式时，必须先 `AskUserQuestion` 向用户确认，禁止擅自新增
+
+## ECharts custom series 规范
+
+基于 Brick 副图柱体不显示的实际踩坑总结：
+
+1. **数据不能含 null 项**  
+   custom series `data` 中的 `null` 项仍触发 `renderItem`，`api.value(n)` 对 null 项返回 `0`。用 `typeof x !== 'number'` 无法拦截，结果在 y=0 渲染幽灵柱，破坏 yAxis 自动量程。  
+   正确：用 `flatMap` 过滤，只保留有效项。
+
+2. **x 坐标定位不能依赖 params.dataIndex**  
+   过滤 null 后，`params.dataIndex` 是新数组的局部下标，与 category 轴原始位置错位。  
+   正确：将原始数组索引 `idx` 存入 data 第 0 维，renderItem 中用 `api.value(0)` 取出。
+
+3. **多系列共享 yAxis 会压缩量程**  
+   若值域差异悬殊的系列共用同一 yAxis（如 BRICK 值 ~4.5、DELTA 值 ~1），yAxis 自动缩放至最大范围，导致差值小的系列柱体几乎不可见。  
+   正确：各系列按值域绑定独立 yAxis（`position: 'right'` 叠加在同一 grid）。
 
 ## 时间规范
 - DB 时间列一律 `timestamptz`，禁 `timestamp`（无 TZ 列遇 JS Date 会按 Node 本地 TZ 落库，与 UTC 错位）。
