@@ -269,8 +269,12 @@ export function buildKlineChartOption({
 
   const difValues = data.map((row) => row.DIF)
   const deaValues = data.map((row) => row.DEA)
-  const macdUpData = data.map((row) => (row.MACD != null && row.MACD >= 0 ? row.MACD : null))
-  const macdDownData = data.map((row) => (row.MACD != null && row.MACD < 0 ? row.MACD : null))
+  const macdRisingData = data.map((row, i) =>
+    row.MACD != null && i > 0 && row.MACD > (data[i - 1].MACD ?? 0) ? row.MACD : null,
+  )
+  const macdFallingData = data.map((row, i) =>
+    row.MACD != null && (i === 0 || row.MACD <= (data[i - 1].MACD ?? 0)) ? row.MACD : null,
+  )
 
   const candleSeries: CandlestickSeriesOption = {
     name: 'K',
@@ -303,7 +307,8 @@ export function buildKlineChartOption({
     itemStyle: { color: MA_COLORS[key] },
   }))
 
-  const kdjSeries: LineSeriesOption[] = (['KDJ.K', 'KDJ.D', 'KDJ.J'] as const).map((key) => ({
+  const kdjRefLineStyle = { color: '#848E9C', type: 'dashed' as const }
+  const kdjSeries: LineSeriesOption[] = (['KDJ.K', 'KDJ.D', 'KDJ.J'] as const).map((key, idx) => ({
     name: key,
     type: 'line',
     xAxisIndex: 1,
@@ -312,6 +317,17 @@ export function buildKlineChartOption({
     showSymbol: false,
     lineStyle: { width: 1, color: KDJ_COLORS[key] },
     itemStyle: { color: KDJ_COLORS[key] },
+    ...(idx === 0
+      ? {
+          markLine: {
+            silent: true,
+            symbol: 'none',
+            data: [{ yAxis: 0 }, { yAxis: 10 }, { yAxis: 90 }],
+            lineStyle: kdjRefLineStyle,
+            label: { show: false },
+          },
+        }
+      : {}),
   }))
 
   const brickSeries: CustomSeriesOption = {
@@ -386,21 +402,21 @@ export function buildKlineChartOption({
     markLine: { silent: true, symbol: 'none', data: [], label: { show: false } },
   }
 
-  const macdUpSeries: BarSeriesOption = {
+  const macdRisingSeries: BarSeriesOption = {
     name: 'MACD',
     type: 'bar',
     xAxisIndex: 2,
     yAxisIndex: 2,
-    data: macdUpData,
+    data: macdRisingData,
     itemStyle: { color: MACD_COLORS.macdUp, borderColor: MACD_COLORS.macdUp },
   }
 
-  const macdDownSeries: BarSeriesOption = {
+  const macdFallingSeries: BarSeriesOption = {
     name: 'MACD',
     type: 'bar',
     xAxisIndex: 2,
     yAxisIndex: 2,
-    data: macdDownData,
+    data: macdFallingData,
     itemStyle: {
       color: 'transparent',
       borderColor: MACD_COLORS.macdDown,
@@ -413,8 +429,8 @@ export function buildKlineChartOption({
     ...kdjSeries,
     difSeries,
     deaSeries,
-    macdUpSeries,
-    macdDownSeries,
+    macdRisingSeries,
+    macdFallingSeries,
     brickSeries,
     deltaSeries,
   ]
@@ -488,10 +504,10 @@ export function buildKlineChartOption({
       { type: 'category', data: times, gridIndex: 3, axisLabel: { show: false }, axisPointer: { label: { show: true } } },
     ],
     yAxis: [
-      { scale: true, axisPointer: { label: { show: false } } },
-      { scale: true, gridIndex: 1, axisPointer: { label: { show: false } } },
-      { scale: true, gridIndex: 2, axisPointer: { label: { show: false } } },
-      { scale: true, gridIndex: 3, axisPointer: { label: { show: false } } },
+      { scale: true, splitLine: { show: false }, axisPointer: { label: { show: false } } },
+      { scale: true, splitLine: { show: false }, gridIndex: 1, axisPointer: { label: { show: false } } },
+      { scale: true, splitLine: { show: false }, gridIndex: 2, axisPointer: { label: { show: false } } },
+      { scale: true, splitLine: { show: false }, gridIndex: 3, axisPointer: { label: { show: false } } },
       { scale: true, gridIndex: 3, position: 'right', splitLine: { show: false }, axisPointer: { label: { show: false } } },
     ],
     dataZoom: [

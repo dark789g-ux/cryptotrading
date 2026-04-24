@@ -18,8 +18,8 @@ MACD 副图包含 3 个系列：
 |------|------|------|
 | DIF | 白色 | `#FFFFFF` |
 | DEA | 币安黄 | `#F0B90B` |
-| MACD 正柱 | Crypto Green | `#0ECB81`，实心 |
-| MACD 负柱 | Crypto Red | `#F6465D`，空心 |
+| MACD 当前 > 前一根 | Crypto Green | `#0ECB81`，实心 |
+| MACD 当前 ≤ 前一根 | Crypto Red | `#F6465D`，空心 |
 | 零轴参考线 | 灰色虚线 | `#848E9C` |
 
 ## 图例

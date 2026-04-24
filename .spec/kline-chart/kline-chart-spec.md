@@ -129,5 +129,7 @@ Tooltip 由主图触发，显示当前 bar 的：
 2. 接口字段与 @apps/web/src/composables/useApi.ts、@apps/server/src/backtest/kline-chart.controller.ts 一致
 3. 文档明确区分行情页与回测弹窗两条接口，并说明 `deltaMin` 来源差异
 4. Brick 副图只出现 `BRICK / DELTA` 两个绘图系列；`XG` 仅在左上角面板以文本数值显示，不在图中绘制散点；不出现阈值线、`AA1 / BB1 / CC1`
-5. MACD 副图包含 `DIF / DEA / MACD` 三个系列，MACD 正柱实心、负柱空心，零轴虚线
-6. 适用路径与当前仓库真实路径一致
+5. MACD 副图包含 `DIF / DEA / MACD` 三个系列，MACD 当前值大于前一根时实心、否则空心，零轴虚线
+6. KDJ 副图显示 0、10、90 三条水平参考虚线（超买超卖边界）
+7. 所有 pane 关闭 yAxis 默认水平网格线（`splitLine: { show: false }`），仅通过 markLine 添加有意义的参考线
+8. 适用路径与当前仓库真实路径一致
