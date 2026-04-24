@@ -2,7 +2,6 @@
 # cryptotrading：本地数据与本机生成物
 #   · K 线 CSV 缓存（迁移用）：cache/
 #   · DB 手工备份（pg_dump 等）：backups/
-#   · 工具本地目录：.cursorback/、.claude/
 # ═══════════════════════════════════════════════════════════════════
 /cache/
 /backups/
