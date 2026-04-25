@@ -26,17 +26,22 @@ KDJ pane 的 `KDJ.K` 系列上附加三条水平虚线（通过 `markLine`，挂
 
 ## 区间背景色
 
-`KDJ.K` 系列通过 `markArea` 添加两个固定 y 范围的半透明背景区块：
+`KDJ.K` 系列通过 `markArea` 添加基于**数据索引区间**的背景色区块，仅当 J 值在该时间段内满足条件时才渲染：
 
-| 区间 | 含义 | 背景色 |
+| 条件 | 含义 | 背景色 |
 |------|------|--------|
-| y ∈ (-∞, 10] | 超卖区 | `rgba(14,203,129,0.08)`（淡绿） |
-| y ∈ [90, +∞) | 超买区 | `rgba(246,70,93,0.08)`（淡红） |
+| `J < 10` | 超卖区 | `rgba(14,203,129,0.15)`（绿） |
+| `J > 90` | 超买区 | `rgba(246,70,93,0.15)`（红） |
 
 实现要点：
-- `markArea.data` 中两个区块各用 `[{ yAxis: -Infinity }, { yAxis: 10 }]` 和 `[{ yAxis: 90 }, { yAxis: Infinity }]` 表示
+- 遍历所有 bar 数据，根据每根 bar 的 `KDJ.J` 值判断：
+  - 若 `J < 10`，将该 bar 的索引纳入绿色区间集合
+  - 若 `J > 90`，将该 bar 的索引纳入红色区间集合
+- 将连续的索引合并为区间段，每个区间段生成一个 markArea 区块
+- markArea 区块格式：`[{ xAxis: startIndex }, { xAxis: endIndex }]`，覆盖该时间段内 pane 的整个纵向区域
 - `itemStyle.color` 填入对应 rgba；`label.show: false`；`silent: true`
 - markArea 挂在 `KDJ.K` 系列（xAxisIndex 1），不单独占用系列槽位
+- J 值在 10~90 之间时，该时间段不渲染任何背景色
 
 ## 图例
 

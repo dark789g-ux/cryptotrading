@@ -24,6 +24,47 @@ interface BuildKlineChartOptionsParams {
 
 type BrickRangeDatum = [number, number, number]
 
+function buildKdjMarkArea(data: KlineChartBar[]) {
+  const greenZones: [number, number][] = []
+  const redZones: [number, number][] = []
+  let greenStart: number | null = null
+  let redStart: number | null = null
+
+  data.forEach((row, idx) => {
+    const j = row['KDJ.J']
+    if (j != null && j < 10) {
+      if (greenStart === null) greenStart = idx
+    } else {
+      if (greenStart !== null) {
+        greenZones.push([greenStart, idx - 1])
+        greenStart = null
+      }
+    }
+    if (j != null && j > 90) {
+      if (redStart === null) redStart = idx
+    } else {
+      if (redStart !== null) {
+        redZones.push([redStart, idx - 1])
+        redStart = null
+      }
+    }
+  })
+
+  if (greenStart !== null) greenZones.push([greenStart, data.length - 1])
+  if (redStart !== null) redZones.push([redStart, data.length - 1])
+
+  return [
+    ...greenZones.map(([start, end]) => [
+      { xAxis: start, itemStyle: { color: colors.chartBg.green } },
+      { xAxis: end },
+    ]),
+    ...redZones.map(([start, end]) => [
+      { xAxis: start, itemStyle: { color: colors.chartBg.red } },
+      { xAxis: end },
+    ]),
+  ] as [any, any][]
+}
+
 export function buildKlineChartOption({
   data,
   echartsTheme,
@@ -42,12 +83,29 @@ export function buildKlineChartOption({
 
   const difValues = data.map((row) => row.DIF)
   const deaValues = data.map((row) => row.DEA)
-  const macdRisingData = data.map((row, i) =>
-    row.MACD != null && i > 0 && row.MACD > (data[i - 1].MACD ?? 0) ? row.MACD : null,
-  )
-  const macdFallingData = data.map((row, i) =>
-    row.MACD != null && (i === 0 || row.MACD <= (data[i - 1].MACD ?? 0)) ? row.MACD : null,
-  )
+  const macdPositiveData = data.map((row, i) => {
+    if (row.MACD == null || row.MACD <= 0) return null
+    const prev = i > 0 ? data[i - 1].MACD : null
+    const isRising = prev == null || row.MACD > prev
+    return {
+      value: row.MACD,
+      itemStyle: isRising
+        ? { color: MACD_COLORS.macdUp }
+        : { color: 'transparent', borderColor: MACD_COLORS.macdUp, borderWidth: 1 },
+    }
+  })
+
+  const macdNegativeData = data.map((row, i) => {
+    if (row.MACD == null || row.MACD >= 0) return null
+    const prev = i > 0 ? data[i - 1].MACD : null
+    const isRising = prev == null || row.MACD > prev
+    return {
+      value: row.MACD,
+      itemStyle: isRising
+        ? { color: MACD_COLORS.macdDown }
+        : { color: 'transparent', borderColor: MACD_COLORS.macdDown, borderWidth: 1 },
+    }
+  })
 
   const candleSeries: CandlestickSeriesOption = {
     name: 'K',
@@ -102,16 +160,7 @@ export function buildKlineChartOption({
           markArea: {
             silent: true,
             label: { show: false },
-            data: [
-              [
-                { yAxis: Number.NEGATIVE_INFINITY, itemStyle: { color: 'rgba(14,203,129,0.08)' } },
-                { yAxis: 10 },
-              ],
-              [
-                { yAxis: 90, itemStyle: { color: 'rgba(246,70,93,0.08)' } },
-                { yAxis: Number.POSITIVE_INFINITY },
-              ],
-            ],
+            data: buildKdjMarkArea(data),
           },
         }
       : {}),
@@ -178,25 +227,20 @@ export function buildKlineChartOption({
     markLine: { silent: true, symbol: 'none', data: [], label: { show: false } },
   }
 
-  const macdRisingSeries: BarSeriesOption = {
+  const macdPositiveSeries: BarSeriesOption = {
     name: 'MACD',
     type: 'bar',
     xAxisIndex: 2,
     yAxisIndex: 2,
-    data: macdRisingData,
-    itemStyle: { color: MACD_COLORS.macdUp, borderColor: MACD_COLORS.macdUp },
+    data: macdPositiveData,
   }
 
-  const macdFallingSeries: BarSeriesOption = {
+  const macdNegativeSeries: BarSeriesOption = {
     name: 'MACD',
     type: 'bar',
     xAxisIndex: 2,
     yAxisIndex: 2,
-    data: macdFallingData,
-    itemStyle: {
-      color: 'transparent',
-      borderColor: MACD_COLORS.macdDown,
-    },
+    data: macdNegativeData,
   }
 
   const series: SeriesOption[] = [
@@ -205,8 +249,8 @@ export function buildKlineChartOption({
     ...kdjSeries,
     difSeries,
     deaSeries,
-    macdRisingSeries,
-    macdFallingSeries,
+    macdPositiveSeries,
+    macdNegativeSeries,
     brickSeries,
   ]
 

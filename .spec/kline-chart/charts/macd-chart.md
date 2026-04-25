@@ -10,12 +10,13 @@ MACD 副图包含 4 个 series（xAxisIndex 2，yAxisIndex 2）：
 |-----------|------|------|------|
 | `DIF` | line | `#FFFFFF` | EMA12 - EMA26，快线 |
 | `DEA` | line | `#F0B90B` | EMA9 of DIF，信号线 |
-| `MACD`（上涨） | bar | `#0ECB81`（实心） | 当前值 > 前一根时 |
-| `MACD`（下跌） | bar | 透明填充 + `#F6465D` 边框（空心） | 当前值 ≤ 前一根时 |
+| `MACD`（正） | bar | `#0ECB81` | `MACD > 0`；增长时实心，下降时空心（透明填充 + 绿边框） |
+| `MACD`（负） | bar | `#F6465D` | `MACD < 0`；增长时实心，下降时空心（透明填充 + 红边框） |
 
-> MACD 用两个 bar series 实现实心/空心效果，两者 `name` 均为 `'MACD'`，图例只显示一条。  
-> 上涨柱数据：`row.MACD`（条件：`MACD != null && MACD > data[i-1].MACD`），其余为 `null`。  
-> 下跌柱数据：`row.MACD`（条件：`MACD != null && (i===0 || MACD <= data[i-1].MACD)`），其余为 `null`。
+> MACD 用两个 bar series 按正负分色，两者 `name` 均为 `'MACD'`，图例只显示一条。  
+> 正柱数据：对象为 `{ value, itemStyle }`，条件 `MACD != null && MACD > 0`，`itemStyle` 根据 `MACD > data[i-1].MACD` 决定实心（`color: '#0ECB81'`）或空心（`color: 'transparent', borderColor: '#0ECB81', borderWidth: 1`），其余为 `null`。  
+> 负柱数据：同理，条件 `MACD != null && MACD < 0`，实心/空心颜色换为 `#F6465D`。  
+> `MACD === 0` 时不渲染柱子。
 
 ## 零轴参考线
 

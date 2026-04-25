@@ -146,7 +146,7 @@ Tooltip 由 `trigger: 'axis'` 触发，优先取蜡烛图系列的 dataIndex 定
 2. 接口字段与 @apps/web/src/composables/useApi.ts、@apps/server/src/backtest/kline-chart.controller.ts 一致
 3. 文档明确区分行情页与回测弹窗两条接口，并说明 `deltaMin` 来源差异
 4. Brick 副图只出现 `BRICK` 一个绘图系列；`DELTA` 仅在左上角面板显示数值，不绘制折线；`XG` 仅在左上角面板以 `1`/`0` 文本显示，不在图中绘制散点；图例只显示 `BRICK`；不出现阈值线、`AA1 / BB1 / CC1`
-5. MACD 副图包含 `DIF / DEA / MACD` 三个系列，上涨柱实心绿、下跌柱空心红（透明填充 + 红边框），零轴虚线
-6. KDJ 副图显示 y=0、y=10、y=90 三条水平参考虚线；J < 10 区间背景 `rgba(14,203,129,0.08)`，J > 90 区间背景 `rgba(246,70,93,0.08)`，通过 markArea 实现
+5. MACD 副图包含 `DIF / DEA / MACD` 三个系列；MACD 柱按正负分色，`> 0` 实心绿、`< 0` 实心红，零轴虚线
+6. KDJ 副图显示 y=0、y=10、y=90 三条水平参考虚线；J < 10 的时间段背景 `rgba(14,203,129,0.15)`，J > 90 的时间段背景 `rgba(246,70,93,0.15)`；markArea 按数据索引区间动态计算，仅覆盖 J 值满足条件的连续 bar 段
 7. 所有 pane 关闭 yAxis 默认水平网格线（`splitLine: { show: false }`），仅通过 markLine 添加有意义的参考线
 8. 适用路径与当前仓库真实路径一致

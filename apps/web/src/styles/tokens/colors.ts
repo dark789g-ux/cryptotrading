@@ -61,6 +61,12 @@ export const colors = {
     DEFAULT: '#3A3F48',
   },
 
+  /** 图表背景高亮（副图区间背景） */
+  chartBg: {
+    green: 'rgba(14,203,129,0.15)',
+    red: 'rgba(246,70,93,0.15)',
+  },
+
   /** 其他辅助色 */
   black: '#000000',
   ink: '#1E2026',
