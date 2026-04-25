@@ -28,5 +28,11 @@ export function createTradeRecord(
     holdCandles,
     isHalf,
     entryReason: pos.entryReason,
+    isSimulation: false,
+    overallReturnPct: 0,
+    cumulativeWinRate: 0,
+    cumulativeOdds: 0,
+    windowWinRate: 0,
+    windowOdds: 0,
   };
 }

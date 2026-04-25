@@ -71,7 +71,7 @@ export function filterSortPaginatePositions(
       matchesTimeRange(row.closeTime, opts.closeStart, opts.closeEnd),
   );
 
-  const ALLOWED = ['entryTime', 'entryPrice', 'closeTime', 'sellPrice', 'pnl', 'returnPct', 'holdCandles'];
+  const ALLOWED = ['entryTime', 'entryPrice', 'closeTime', 'sellPrice', 'pnl', 'returnPct', 'holdCandles', 'overallReturnPct', 'cumulativeWinRate', 'cumulativeOdds', 'windowWinRate', 'windowOdds'];
   const sortBy = ALLOWED.includes(opts.sortBy ?? '') ? opts.sortBy! : 'entryTime';
   sortReportRows(rows, sortBy, opts.sortOrder);
 

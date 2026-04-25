@@ -80,7 +80,7 @@ export async function executeBacktestPipeline(
       percent: 5,
     });
 
-    const { trades, portfolioLog, posSnapshots, candleLog } = await runBacktest(
+    const { trades, simTrades, portfolioLog, simPortfolioLog, posSnapshots, candleLog } = await runBacktest(
       data,
       backtestStart,
       config,
@@ -98,7 +98,8 @@ export async function executeBacktestPipeline(
 
     ctx.updateProgress(strategyId, { phase: '计算统计指标', percent: 92 });
     const stats = calcStats(trades, portfolioLog, config.initialCapital, config.timeframe);
-    const reportData = prepareReportData(trades, portfolioLog, stats, config.maxPositions, posSnapshots);
+    const effectiveMaxPos = config.enableKellySizing ? 1 : config.maxPositions;
+    const reportData = prepareReportData([...simTrades, ...trades], portfolioLog, stats, effectiveMaxPos, posSnapshots);
 
     ctx.updateProgress(strategyId, { phase: '保存结果', percent: 96 });
 
@@ -113,8 +114,9 @@ export async function executeBacktestPipeline(
     });
     const savedRun = await ctx.runRepo.save(run);
 
-    if (trades.length) {
-      const tradeEntities: Partial<BacktestTradeEntity>[] = trades.map((t) => ({
+    const allTradesForDb = [...simTrades, ...trades];
+    if (allTradesForDb.length) {
+      const tradeEntities: Partial<BacktestTradeEntity>[] = allTradesForDb.map((t) => ({
         runId: savedRun.id,
         symbol: t.symbol,
         entryTime: new Date(t.entryTime.replace(' ', 'T') + 'Z'),
@@ -139,7 +141,7 @@ export async function executeBacktestPipeline(
           openEquity: String(entry.openEquity),
           closeEquity: String(entry.closeEquity),
           posCount: entry.posCount,
-          maxPositions: config.maxPositions,
+          maxPositions: effectiveMaxPos,
           entriesJson: entry.entries,
           exitsJson: entry.exits,
           openSymbolsJson: entry.openSymbols ?? [],

@@ -61,6 +61,13 @@ export interface StrategyParams {
   cooldownReduceOnProfit: number
   entrySortMode: 'single' | 'composite'
   entrySortFactors: SortFactor[]
+  // 凯利公式
+  enableKellySizing: boolean
+  kellySimTrades: number
+  kellyWindowTrades: number
+  kellyStepTrades: number
+  kellyMaxPositionRatio: number
+  kellyFraction: number
 }
 
 export interface StrategyFormData {
@@ -122,9 +129,16 @@ const defaultParams = (): StrategyParams => ({
     { factor: 'risk_reward', weight: 1, direction: 'desc', enabled: true },
     { factor: 'momentum', weight: 0, direction: 'desc', enabled: false, params: { maPeriod: 5 } },
     { factor: 'freshness', weight: 0, direction: 'desc', enabled: false },
-    { factor: 'liquidity', weight: 0, direction: 'desc', enabled: false },
+    { factor: 'liquidity', weight: 0, direction: 'desc', enabled: false, params: { window: 5 } },
     { factor: 'volatility', weight: 0, direction: 'desc', enabled: false },
   ],
+  // 凯利公式
+  enableKellySizing: false,
+  kellySimTrades: 50,
+  kellyWindowTrades: 50,
+  kellyStepTrades: 1,
+  kellyMaxPositionRatio: 0.50,
+  kellyFraction: 0.50,
 })
 
 const normalizeDate = (v: unknown, tf: string): string | null => {

@@ -22,6 +22,7 @@ export function processPositions(
   cooldownState: CooldownState,
   barIdx: number,
   config: BacktestConfig,
+  skipCooldown = false,
 ): [Position[], number, CandleExitEvent[]] {
   const surviving: Position[] = [];
   const exitEvents: CandleExitEvent[] = [];
@@ -52,13 +53,14 @@ export function processPositions(
           pnl: rec.pnl,
           reason: rec.exitReason,
           isHalf: rec.isHalf,
+          isSimulation: false,
         });
       }
 
       if (exited) {
         // 只对非半仓的完整平仓登记冷却
         const last = tradeRecs[tradeRecs.length - 1];
-        if (last && !last.isHalf && config.enableCooldown) {
+        if (last && !last.isHalf && config.enableCooldown && !skipCooldown) {
           registerExit(
             cooldownState,
             last.pnl > 0,
@@ -77,7 +79,7 @@ export function processPositions(
       if (curIdx === df.length - 1) {
         cash = forceCloseOnDataGap(
           pos, df, curIdx, ts, cash, allTrades, exitEvents,
-          cooldownState, barIdx, config,
+          cooldownState, barIdx, config, skipCooldown,
         );
         continue;
       }
@@ -101,13 +103,14 @@ export function processPositions(
         pnl: rec.pnl,
         reason: rec.exitReason,
         isHalf: rec.isHalf,
+        isSimulation: false,
       });
     }
 
     if (action === 'exit_full') {
       // 只对非半仓的完整平仓登记冷却
       const last = tradeRecs[tradeRecs.length - 1];
-      if (last && !last.isHalf && config.enableCooldown) {
+      if (last && !last.isHalf && config.enableCooldown && !skipCooldown) {
         registerExit(
           cooldownState,
           last.pnl > 0,
@@ -152,6 +155,7 @@ function forceCloseOnDataGap(
   cooldownState: CooldownState,
   barIdx: number,
   config: BacktestConfig,
+  skipCooldown = false,
 ): number {
   const closePrice = df[curIdx].close;
   const proceeds = pos.shares * closePrice;
@@ -170,9 +174,10 @@ function forceCloseOnDataGap(
     pnl,
     reason: DATA_GAP_REASON,
     isHalf: false,
+    isSimulation: false,
   });
 
-  if (config.enableCooldown) {
+  if (config.enableCooldown && !skipCooldown) {
     registerExit(
       cooldownState,
       pnl > 0,

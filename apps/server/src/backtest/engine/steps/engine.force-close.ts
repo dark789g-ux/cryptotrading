@@ -13,6 +13,7 @@ export function forceClosePositions(
   cooldownState: CooldownState,
   lastBarIdx: number,
   config: BacktestConfig,
+  skipCooldown = false,
 ): number {
   if (!positions.length || !timestamps.length) return cash;
 
@@ -46,7 +47,7 @@ export function forceClosePositions(
     allTrades.push(tradeRecord);
 
     // 强制平仓也登记冷却（isHalf=false）
-    if (config.enableCooldown) {
+    if (config.enableCooldown && !skipCooldown) {
       registerExit(
         cooldownState,
         pnl > 0,

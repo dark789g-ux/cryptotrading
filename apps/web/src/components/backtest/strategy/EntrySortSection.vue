@@ -15,56 +15,90 @@
       v-for="(item, idx) in params.entrySortFactors"
       :key="item.factor"
       class="factor-row"
-      :class="{ disabled: !canEnable(item.factor) }"
     >
       <div class="factor-main">
         <n-switch
           v-model:value="item.enabled"
           @update:value="(v: boolean) => handleEnableChange(idx, v)"
         />
-        <span class="factor-name">{{ FACTOR_LABELS[item.factor] }}</span>
+        <LabelWithTip :label="FACTOR_LABELS[item.factor]" :max-width="320">
+          {{ FACTOR_TIPS[item.factor] }}
+        </LabelWithTip>
       </div>
 
       <div class="factor-config">
-        <n-form-item label="方向" :show-feedback="false" size="small">
-          <n-select
-            v-model:value="item.direction"
-            :options="directionOptions"
-            size="small"
-            style="width:90px"
-          />
-        </n-form-item>
+        <div class="factor-config-left">
+          <n-form-item label="方向" :show-feedback="false" size="small">
+            <n-select
+              v-model:value="item.direction"
+              :options="directionOptions"
+              size="small"
+              style="width:90px"
+            />
+          </n-form-item>
 
-        <n-form-item
+          <n-form-item
+            v-if="item.factor === 'momentum'"
+            label="MA周期"
+            :show-feedback="false"
+            size="small"
+          >
+            <n-select
+              :value="(item.params?.maPeriod as number) ?? 5"
+              :options="maPeriodOptions"
+              size="small"
+              style="width:90px"
+              @update:value="(v: number) => { item.params = { ...(item.params ?? {}), maPeriod: v } }"
+            />
+          </n-form-item>
+
+          <n-form-item
+            v-if="item.factor === 'liquidity'"
+            label="均值根数"
+            :show-feedback="false"
+            size="small"
+          >
+            <n-input-number
+              :value="(item.params?.window as number) ?? 5"
+              :min="1"
+              :max="50"
+              size="small"
+              style="width:90px"
+              @update:value="(v: number) => { item.params = { ...(item.params ?? {}), window: v } }"
+            />
+          </n-form-item>
+        </div>
+
+        <div
           v-if="params.entrySortMode === 'composite'"
-          label="权重"
-          :show-feedback="false"
-          size="small"
+          class="factor-config-right"
         >
-          <n-slider v-model:value="item.weight" :min="0" :max="1" :step="0.01" style="width:120px" />
-          <span class="weight-value">{{ item.weight.toFixed(2) }}</span>
-        </n-form-item>
-
-        <n-form-item
-          v-if="item.factor === 'momentum'"
-          label="MA周期"
-          :show-feedback="false"
-          size="small"
-        >
-          <n-select
-            :value="(item.params?.maPeriod as number) ?? 5"
-            :options="maPeriodOptions"
-            size="small"
-            style="width:90px"
-            @update:value="(v: number) => { item.params = { ...(item.params ?? {}), maPeriod: v } }"
-          />
-        </n-form-item>
+          <n-form-item label="权重" :show-feedback="false" size="small">
+            <div class="weight-input">
+              <n-slider
+                v-model:value="item.weight"
+                :min="0"
+                :max="1"
+                :step="0.01"
+                style="width:100px"
+              />
+              <n-input-number
+                v-model:value="item.weight"
+                :min="0"
+                :max="1"
+                :step="0.01"
+                size="small"
+                style="width:70px"
+              />
+            </div>
+          </n-form-item>
+        </div>
       </div>
     </div>
   </div>
 
   <n-alert v-if="params.entrySortMode === 'composite'" type="info" :show-icon="false" style="margin-top:12px">
-    多因子加权模式下，各因子按权重计算综合得分后排序。当前仅「盈亏比」因子已实现，其余因子为预留扩展。
+    多因子加权模式下，各因子按权重计算综合得分后排序。
   </n-alert>
 </template>
 
@@ -77,10 +111,11 @@ import {
   NSwitch,
   NSelect,
   NSlider,
-  NTag,
+  NInputNumber,
   NAlert,
   NDivider,
 } from 'naive-ui'
+import LabelWithTip from './LabelWithTip.vue'
 import type { StrategyParams, SortFactorType } from '../../../composables/backtest/useStrategyForm'
 
 const props = defineProps<{ params: StrategyParams }>()
@@ -91,6 +126,14 @@ const FACTOR_LABELS: Record<SortFactorType, string> = {
   freshness: '信号新鲜度',
   liquidity: '流动性',
   volatility: '波动率适配',
+}
+
+const FACTOR_TIPS: Record<SortFactorType, string> = {
+  risk_reward: '(高点 - 收盘价) / (收盘价 - 低点)，衡量潜在收益与风险的比例',
+  momentum: '(收盘价 - MA周期) / ATR14，衡量短期趋势强度相对于波动率',
+  freshness: 'J 值进入超卖区以来的 K 线根数倒数，越新鲜得分越高',
+  liquidity: '最近 window 根 K 线计价币成交额的均值，衡量标的成交活跃程度',
+  volatility: '收盘价 / ATR14，波动率相对越低，信号越稳健',
 }
 
 const directionOptions = [
@@ -106,13 +149,8 @@ const maPeriodOptions = [
   { label: 'MA240', value: 240 },
 ]
 
-function canEnable(_factor: SortFactorType): boolean {
-  return true
-}
-
 function handleEnableChange(idx: number, val: boolean): void {
   if (!val) return
-  // single 模式下，启用新因子时自动禁用其他因子
   if (props.params.entrySortMode === 'single') {
     props.params.entrySortFactors.forEach((f, i) => {
       if (i !== idx) f.enabled = false
@@ -137,11 +175,6 @@ function handleEnableChange(idx: number, val: boolean): void {
   border-radius: 6px;
 }
 
-.factor-row.disabled {
-  opacity: 0.6;
-  background: var(--n-action-color);
-}
-
 .factor-main {
   display: flex;
   align-items: center;
@@ -155,14 +188,24 @@ function handleEnableChange(idx: number, val: boolean): void {
 
 .factor-config {
   display: flex;
-  gap: 16px;
+  justify-content: space-between;
+  align-items: center;
   padding-left: 50px;
 }
 
-.weight-value {
-  min-width: 36px;
-  text-align: right;
-  font-size: 12px;
-  color: var(--n-text-color-3);
+.factor-config-left {
+  display: flex;
+  gap: 16px;
+}
+
+.factor-config-right {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.weight-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 </style>

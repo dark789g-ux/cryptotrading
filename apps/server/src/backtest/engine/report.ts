@@ -121,6 +121,7 @@ function buildPositions(allTrades: TradeRecord[]): object[] {
     const sortedTrades = [...trades].sort((a, b) => a.exitTime.localeCompare(b.exitTime));
     const stopTypes = [...new Set(sortedTrades.map((t) => t.exitReason))];
 
+    const lastFullTrade = [...trades].reverse().find((t) => !t.isHalf);
     posList.push({
       symbol: trades[0].symbol,
       entryTime: trades[0].entryTime,
@@ -135,6 +136,12 @@ function buildPositions(allTrades: TradeRecord[]): object[] {
       holdCandles,
       tradeCount: trades.length,
       stopTypes,
+      isSimulation: trades[0].isSimulation ?? false,
+      overallReturnPct: lastFullTrade ? (lastFullTrade.overallReturnPct ?? 0) : 0,
+      cumulativeWinRate: lastFullTrade ? (lastFullTrade.cumulativeWinRate ?? 0) : 0,
+      cumulativeOdds: lastFullTrade ? (lastFullTrade.cumulativeOdds ?? 0) : 0,
+      windowWinRate: lastFullTrade ? (lastFullTrade.windowWinRate ?? 0) : 0,
+      windowOdds: lastFullTrade ? (lastFullTrade.windowOdds ?? 0) : 0,
     });
   }
 

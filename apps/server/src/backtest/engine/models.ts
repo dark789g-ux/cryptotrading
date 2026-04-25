@@ -101,6 +101,12 @@ export interface TradeRecord {
   holdCandles: number;
   isHalf: boolean;
   entryReason: string;
+  isSimulation: boolean;
+  overallReturnPct: number;
+  cumulativeWinRate: number;
+  cumulativeOdds: number;
+  windowWinRate: number;
+  windowOdds: number;
 }
 
 /** K 线行（供回测引擎内部使用） */
@@ -189,6 +195,13 @@ export interface BacktestConfig {
   // 入场信号排序
   entrySortMode: 'single' | 'composite';
   entrySortFactors: SortFactor[];
+  // 凯利公式
+  enableKellySizing: boolean;
+  kellySimTrades: number;
+  kellyWindowTrades: number;
+  kellyStepTrades: number;
+  kellyMaxPositionRatio: number;
+  kellyFraction: number;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -202,6 +215,7 @@ export interface CandleEntryEvent {
   shares: number;
   amount: number;
   reason: string;
+  isSimulation: boolean;
 }
 
 /** 当根 K 线发生的出场事件 */
@@ -213,6 +227,7 @@ export interface CandleExitEvent {
   pnl: number;
   reason: string;
   isHalf: boolean;
+  isSimulation: boolean;
 }
 
 /** 每根 K 线的快照日志 */
@@ -308,12 +323,33 @@ export function validateConfig(config: BacktestConfig): void {
     if (!(f.weight >= 0 && f.weight <= 1)) errs.push(`排序因子 ${f.factor} 的 weight 必须在 [0, 1]`);
     if (!['asc', 'desc'].includes(f.direction))
       errs.push(`排序因子 ${f.factor} 的 direction 必须是 asc 或 desc`);
+    if (f.factor === 'liquidity') {
+      const window = f.params?.window as number | undefined;
+      if (window === undefined || !(Number.isInteger(window) && window >= 1 && window <= 50))
+        errs.push(`排序因子 liquidity 的 window 必须为 1~50 的整数`);
+    }
     // 所有预留因子均已实现，不再拦截
   }
   for (const t of config.takeProfitTargets) {
     if (!(t.rrRatio > 0)) errs.push('takeProfitTargets 每档 rrRatio 必须 > 0');
     if (!(t.sellRatio > 0 && t.sellRatio <= 1)) errs.push('takeProfitTargets 每档 sellRatio 必须在 (0, 1]');
   }
+  // 凯利参数校验（仅启用时）
+  if (config.enableKellySizing) {
+    if (!Number.isInteger(config.kellySimTrades) || config.kellySimTrades < 0 || config.kellySimTrades > 500)
+      errs.push('kellySimTrades 必须为 0~500 的整数');
+    if (!Number.isInteger(config.kellyWindowTrades) || config.kellyWindowTrades < 1 || config.kellyWindowTrades > 500)
+      errs.push('kellyWindowTrades 必须为 1~500 的整数');
+    if (!Number.isInteger(config.kellyStepTrades) || config.kellyStepTrades < 1 || config.kellyStepTrades > 100)
+      errs.push('kellyStepTrades 必须为 1~100 的整数');
+    if (config.kellyStepTrades > config.kellyWindowTrades)
+      errs.push('kellyStepTrades 不得大于 kellyWindowTrades');
+    if (!(config.kellyMaxPositionRatio > 0 && config.kellyMaxPositionRatio <= 1))
+      errs.push('kellyMaxPositionRatio 必须在 (0, 1]');
+    if (!(config.kellyFraction > 0 && config.kellyFraction <= 1))
+      errs.push('kellyFraction 必须在 (0, 1]');
+  }
+
   if (errs.length) throw new Error(`策略参数非法: ${errs.join('; ')}`);
 }
 
@@ -380,7 +416,14 @@ export const DEFAULT_CONFIG: BacktestConfig = {
     { factor: 'risk_reward', weight: 1, direction: 'desc', enabled: true },
     { factor: 'momentum', weight: 0, direction: 'desc', enabled: false },
     { factor: 'freshness', weight: 0, direction: 'desc', enabled: false },
-    { factor: 'liquidity', weight: 0, direction: 'desc', enabled: false },
+    { factor: 'liquidity', weight: 0, direction: 'desc', enabled: false, params: { window: 5 } },
     { factor: 'volatility', weight: 0, direction: 'desc', enabled: false },
   ],
+  // 凯利公式
+  enableKellySizing: false,
+  kellySimTrades: 50,
+  kellyWindowTrades: 50,
+  kellyStepTrades: 1,
+  kellyMaxPositionRatio: 0.50,
+  kellyFraction: 0.50,
 };

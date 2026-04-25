@@ -44,8 +44,14 @@ function calcFreshness(df: KlineBarRow[], idx: number, config: BacktestConfig): 
   return 1 / (1 + bars);
 }
 
-function calcLiquidity(row: KlineBarRow): number {
-  return (row['quote_volume'] as number) ?? 0;
+function calcLiquidity(factor: SortFactor, df: KlineBarRow[], idx: number): number {
+  const window = (factor.params?.window as number) ?? 5;
+  const count = Math.min(window, idx + 1);
+  let sum = 0;
+  for (let i = 0; i < count; i++) {
+    sum += (df[idx - i]['quote_volume'] as number) ?? 0;
+  }
+  return count > 0 ? sum / count : 0;
 }
 
 function calcVolatility(row: KlineBarRow): number {
@@ -66,7 +72,7 @@ function calcFactorValue(
     case 'risk_reward': return rrRatio;
     case 'momentum': return calcMomentum(row, factor);
     case 'freshness': return calcFreshness(df, idx, config);
-    case 'liquidity': return calcLiquidity(row);
+    case 'liquidity': return calcLiquidity(factor, df, idx);
     case 'volatility': return calcVolatility(row);
     default: return 0;
   }

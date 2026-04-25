@@ -43,6 +43,25 @@
 | `maxPositions` | `number` | `2` | `1 ~ 20` | 最大同时持仓数 |
 | `requireAllPositionsProfitable` | `boolean` | `false` | `true` / `false` | 仅当所有持仓止损已上移至成本之上才开新仓 |
 
+#### 3.2.1 凯利公式参数
+
+| 参数名 | 类型 | 默认值 | 取值范围 | 业务含义 |
+|--------|------|--------|---------|----------|
+| `enableKellySizing` | `boolean` | `false` | `true` / `false` | 启用凯利公式动态仓位管理 |
+| `kellySimTrades` | `number` | `50` | `0 ~ 500` | 模拟期笔数：完成多少笔完整交易后进入实盘期 |
+| `kellyWindowTrades` | `number` | `50` | `1 ~ 500` | 滑动窗口大小：计算胜率与赔率时考察的最近 N 笔交易 |
+| `kellyStepTrades` | `number` | `1` | `1 ~ 100` | 统计更新步长：每完成 N 笔交易更新一次窗口统计 |
+| `kellyFraction` | `number` | `0.50` | `0.10 ~ 1`（步进 `0.01`） | 凯利分数缩放：对原始凯利系数乘以该值进行保守修正 |
+| `kellyMaxPositionRatio` | `number` | `0.50` | `0.01 ~ 1`（步进 `0.0001`） | 凯利仓位硬上限：即使凯利系数很高，单仓占比也不得超过该值 |
+
+> **运行时行为**：`enableKellySizing = true` 时，`effectiveMaxPos` 强制为 `1`，与 `maxPositions` 无关。
+
+#### 3.2.2 探针模式（Probe）参数
+
+| 参数名 | 类型 | 默认值 | 取值范围 | 业务含义 |
+|--------|------|--------|---------|----------|
+| `enableKellyProbe` | `boolean` | `true` | `true` / `false` | 凯利系数 ≤ 0 且空仓时，是否启用虚拟探针交易以推动窗口更新 |
+
 ### 3.3 基础配置（config）
 
 | 参数名 | 类型 | 默认值 | 取值范围 | 业务含义 |
@@ -135,6 +154,8 @@ interface SortFactor {
   direction: 'asc' | 'desc'
   /** 是否启用 */
   enabled: boolean
+  /** 因子专属参数（如 momentum 的 maPeriod、liquidity 的 window） */
+  params?: Record<string, number>
 }
 ```
 
@@ -150,9 +171,9 @@ interface SortFactor {
 | 因子 | 当前状态 | 含义 |
 |------|---------|------|
 | `risk_reward` | **已实现** | 盈亏比 `(recentHigh - close) / (close - recentLow)` |
-| `momentum` | **已实现** | 短期动量得分 `(close - MA<maPeriod>) / ATR14`；MA 周期由 `factor.params.maPeriod` 指定（默认 5，可选 5/30/60/120/240） |
+| `momentum` | **已实现** | 短期动量得分 `(close - MA<maPeriod>) / ATR14`；MA 周期由 `params.maPeriod` 指定（默认 5，可选 5/30/60/120/240） |
 | `freshness` | **已实现** | 信号新鲜度 `1 / (1 + barsSinceOversold)`；barsSinceOversold = 从当前 K 线向前扫描，J 值连续低于 `kdjJOversold` 的根数 |
-| `liquidity` | **已实现** | 流动性得分，取当前 K 线 `quote_volume`（计价币成交额） |
+| `liquidity` | **已实现** | 流动性得分，取最近 `params.window` 根 K 线 `quote_volume` 的均值；`window` 默认 `5`，范围 `1 ~ 50` |
 | `volatility` | **已实现** | 波动率适配 `close / ATR14`，值越高表示波动率相对越低 |
 
 > **当前阶段行为**：`entrySortMode = 'single'` 且仅启用 `risk_reward` 时，与后端现有硬编码逻辑完全等价——按盈亏比降序排列，每根 K 线取 Top 1。

@@ -3,14 +3,17 @@
  * 重构点：
  *   1. 冷却机制从 per-symbol setCooldown + LossTracker 改为账户级 CooldownState
  *   2. 主循环新增 candleLog 逐根事件收集
+ *   3. 新增凯利公式动态仓位与模拟期逻辑
  */
 
 import { precomputeAllKdj, precomputeBrickChartAll } from './bt-indicators';
 import { initCooldown, isInCooldown } from './cooldown';
+import { createPosition, type TradeRecord } from './models';
+import { createTradeRecord } from './trade-helper';
 import { yieldToEventLoop } from './steps/engine.async';
 import type { BacktestResult } from './steps/engine.types';
 import { forceClosePositions } from './steps/engine.force-close';
-import { executePendingBuys } from './steps/engine.pending-execution';
+import { executePendingBuys, type KellyContext } from './steps/engine.pending-execution';
 import { calculateOpenEquity, calculatePortfolioValue } from './steps/engine.portfolio-marks';
 import { processPositions } from './steps/engine.position-processing';
 import { buildGlobalTimeline } from './steps/engine.timeline';
@@ -21,12 +24,88 @@ import type {
   CandleLogEntry,
   KlineBarRow,
   Position,
-  TradeRecord,
 } from './models';
 import { scanSignals } from './signal-scanner';
 
 export type { BacktestResult } from './steps/engine.types';
 export { buildGlobalTimeline } from './steps/engine.timeline';
+
+function updateKellyStats(
+  simTrades: TradeRecord[],
+  allTrades: TradeRecord[],
+  windowSize: number,
+): { p: number; b: number; cumP: number; cumB: number } {
+  const allCompleted = [...simTrades, ...allTrades].filter((t) => !t.isHalf);
+  const windowSamples = allCompleted.slice(-windowSize);
+
+  function calcStats(samples: TradeRecord[]) {
+    const wins = samples.filter((t) => t.pnl > 0);
+    const losses = samples.filter((t) => t.pnl <= 0);
+    const p = samples.length ? wins.length / samples.length : 0;
+
+    let b = 0;
+    if (losses.length === 0) {
+      if (wins.length > 0) b = 999;
+    } else if (wins.length === 0) {
+      b = 0;
+    } else {
+      const avgWin = wins.reduce((s, t) => s + (t.overallReturnPct ?? 0), 0) / wins.length;
+      const avgLoss = Math.abs(losses.reduce((s, t) => s + (t.overallReturnPct ?? 0), 0) / losses.length);
+      b = avgLoss > 0 ? avgWin / avgLoss : 0;
+    }
+    return { p, b };
+  }
+
+  const cum = calcStats(allCompleted);
+  const win = calcStats(windowSamples);
+  return { p: win.p, b: win.b, cumP: cum.p, cumB: cum.b };
+}
+
+function forceCloseSimPositions(
+  simPositions: Position[],
+  ts: string,
+  data: Map<string, KlineBarRow[]>,
+  tsToIdx: Map<string, Map<string, number>>,
+  simTrades: TradeRecord[],
+  exitEvents: CandleExitEvent[],
+  posMeta: Map<string, { allocated: number; pnlSum: number }>,
+): void {
+  for (const pos of simPositions) {
+    const df = data.get(pos.symbol);
+    if (!df) continue;
+    const idxMap = tsToIdx.get(pos.symbol);
+    if (!idxMap) continue;
+    const curIdx = idxMap.get(ts);
+    if (curIdx === undefined) continue;
+
+    const closePrice = df[curIdx].close;
+    const proceeds = pos.shares * closePrice;
+    const pnl = proceeds - pos.shares * pos.entryPrice;
+    const holdCandles = Math.max(1, curIdx - pos.entryIdx + 1);
+    const rec = createTradeRecord(pos, ts, closePrice, pos.shares, pnl, '模拟期结束强平', holdCandles, false);
+    rec.isSimulation = true;
+
+    const key = pos.symbol + '|' + pos.entryTime;
+    const meta = posMeta.get(key);
+    if (meta) {
+      meta.pnlSum += pnl;
+      rec.overallReturnPct = (meta.pnlSum / meta.allocated) * 100;
+      posMeta.delete(key);
+    }
+
+    simTrades.push(rec);
+    exitEvents.push({
+      symbol: rec.symbol,
+      price: closePrice,
+      shares: pos.shares,
+      amount: proceeds,
+      pnl,
+      reason: '模拟期结束强平',
+      isHalf: false,
+      isSimulation: true,
+    });
+  }
+}
 
 export async function runBacktest(
   data: Map<string, KlineBarRow[]>,
@@ -61,64 +140,148 @@ export async function runBacktest(
   const posSnapshots: Array<Array<{ symbol: string; entryTime: string; holdH: number; pnlPct: number }>> = [];
   const candleLog: CandleLogEntry[] = [];
 
+  // 凯利公式模拟期状态
+  let simPositions: Position[] = [];
+  let simTrades: TradeRecord[] = [];
+  let simPortfolioLog: [string, number][] = [];
+  let simCash = config.initialCapital;
+  let completedTradeCount = 0;
+  let currentWindowWinRate = 0;
+  let currentWindowOdds = 0;
+  const posMeta = new Map<string, { allocated: number; pnlSum: number }>();
+
   // 账户级冷却状态（替换旧的 per-symbol cooldownUntil + LossTracker）
   const cooldownState = initCooldown(config.enableCooldown ? config.baseCooldownCandles : 0);
 
   const totalBars = timestamps.length;
   const REPORT_EVERY = 100;
 
+  const makeKellyCtx = (): KellyContext | undefined => {
+    if (!config.enableKellySizing) return undefined;
+    return { completedTradeCount, currentWindowWinRate, currentWindowOdds };
+  };
+
+  const handleNewTrades = (newTrades: TradeRecord[], sim: boolean) => {
+    const fullExitTrades: TradeRecord[] = [];
+    for (const t of newTrades) {
+      const key = t.symbol + '|' + t.entryTime;
+      const meta = posMeta.get(key);
+      if (!meta) continue;
+      meta.pnlSum += t.pnl;
+      t.isSimulation = sim;
+      if (!t.isHalf) {
+        t.overallReturnPct = (meta.pnlSum / meta.allocated) * 100;
+        posMeta.delete(key);
+        fullExitTrades.push(t);
+      }
+    }
+
+    for (const t of fullExitTrades) {
+      completedTradeCount++;
+      const stats = updateKellyStats(simTrades, allTrades, config.kellyWindowTrades);
+      t.cumulativeWinRate = stats.cumP;
+      t.cumulativeOdds = stats.cumB;
+      if (completedTradeCount % config.kellyStepTrades === 0) {
+        currentWindowWinRate = stats.p;
+        currentWindowOdds = stats.b;
+      }
+      t.windowWinRate = currentWindowWinRate;
+      t.windowOdds = currentWindowOdds;
+    }
+  };
+
   for (let barIdx = 0; barIdx < timestamps.length; barIdx++) {
     const ts = timestamps[barIdx];
+    const isSimPhase = config.enableKellySizing && completedTradeCount < config.kellySimTrades;
 
     // ── 0. 记录 openEquity（在 executePendingBuys 之前，取 open 价格计算） ──
     const openEquity = calculateOpenEquity(positions, ts, data, tsToIdx, cash);
 
     // ── 1. 执行上一时间步挂单的买入 ──
-    let entryEvents: CandleEntryEvent[];
-    [pendingBuys, cash, entryEvents] = executePendingBuys(
-      pendingBuys, ts, data, tsToIdx, cash, portfolioLog, positions, config,
-    );
+    let entryEvents: CandleEntryEvent[] = [];
+    if (isSimPhase) {
+      const prevLen = simPositions.length;
+      [, simCash, entryEvents] = executePendingBuys(
+        pendingBuys, ts, data, tsToIdx, simCash, simPortfolioLog, simPositions, config, makeKellyCtx(),
+      );
+      for (let i = prevLen; i < simPositions.length; i++) {
+        const pos = simPositions[i];
+        posMeta.set(pos.symbol + '|' + pos.entryTime, { allocated: pos.allocated, pnlSum: 0 });
+      }
+      for (const e of entryEvents) e.isSimulation = true;
+    } else {
+      const prevLen = positions.length;
+      [, cash, entryEvents] = executePendingBuys(
+        pendingBuys, ts, data, tsToIdx, cash, portfolioLog, positions, config, makeKellyCtx(),
+      );
+      for (let i = prevLen; i < positions.length; i++) {
+        const pos = positions[i];
+        posMeta.set(pos.symbol + '|' + pos.entryTime, { allocated: pos.allocated, pnlSum: 0 });
+      }
+      for (const e of entryEvents) e.isSimulation = false;
+    }
 
     // ── 2. 处理每个持仓 ──
-    let exitEvents: CandleExitEvent[];
-    [positions, cash, exitEvents] = processPositions(
-      positions, ts, data, tsToIdx, cash, allTrades,
-      cooldownState, barIdx, config,
-    );
+    let exitEvents: CandleExitEvent[] = [];
+    if (isSimPhase) {
+      const prevLen = simTrades.length;
+      [simPositions, simCash, exitEvents] = processPositions(
+        simPositions, ts, data, tsToIdx, simCash, simTrades,
+        cooldownState, barIdx, config, true,
+      );
+      for (const e of exitEvents) e.isSimulation = true;
+      handleNewTrades(simTrades.slice(prevLen), true);
+    } else {
+      const prevLen = allTrades.length;
+      [positions, cash, exitEvents] = processPositions(
+        positions, ts, data, tsToIdx, cash, allTrades,
+        cooldownState, barIdx, config, false,
+      );
+      for (const e of exitEvents) e.isSimulation = false;
+      handleNewTrades(allTrades.slice(prevLen), false);
+    }
+
+    // 临界点：模拟期结束，强制平掉剩余虚拟持仓
+    if (config.enableKellySizing && isSimPhase && completedTradeCount >= config.kellySimTrades) {
+      forceCloseSimPositions(simPositions, ts, data, tsToIdx, simTrades, exitEvents, posMeta);
+      simPositions = [];
+    }
 
     // ── 3. 计算当前持仓市值，同步记录持仓快照 ──
+    if (isSimPhase) {
+      const [simVal] = calculatePortfolioValue(simPositions, ts, data, tsToIdx, simCash);
+      simPortfolioLog.push([ts, simVal]);
+    }
     const [portfolioVal, snapshot] = calculatePortfolioValue(positions, ts, data, tsToIdx, cash);
     portfolioLog.push([ts, portfolioVal]);
     posSnapshots.push(snapshot);
 
     // ── 4. 判断是否允许开新仓，再按需扫描入场信号 ──
-    const nPos = positions.length;
-    const allHalf = nPos === config.maxPositions && positions.every((p) => p.halfSold);
-    const allowNew = nPos < config.maxPositions || allHalf;
+    const activePositions = isSimPhase ? simPositions : positions;
+    const nPos = activePositions.length;
+    const effectiveMaxPos = config.enableKellySizing ? 1 : config.maxPositions;
+    const allowNew = nPos < effectiveMaxPos;
 
     // 门禁：开启 requireAllPositionsProfitable 时，仅当全部现存持仓满足
     // stopPrice > entryPrice（保本止损已上移至成本之上）方可开新仓；空仓不受限。
     const profitGate =
       !config.requireAllPositionsProfitable ||
       nPos === 0 ||
-      positions.every((p) => p.stopPrice > p.entryPrice);
+      activePositions.every((p) => p.stopPrice > p.entryPrice);
 
-    // 账户级冷却门禁（替换旧 lossTracker.isInCooldown）
-    const inCooldownNow = config.enableCooldown ? isInCooldown(cooldownState, barIdx) : false;
+    // 账户级冷却门禁（模拟期不走冷却逻辑）
+    const inCooldownNow =
+      config.enableCooldown && !isSimPhase && isInCooldown(cooldownState, barIdx);
 
     if (allowNew && profitGate && cash >= config.minOpenCash && !inCooldownNow) {
-      const slotsToFill = allHalf ? config.maxPositions + 1 - nPos : config.maxPositions - nPos;
-
-      if (slotsToFill > 0) {
-        const heldSymbols = new Set<string>(positions.map((p) => p.symbol));
-        for (const [sym] of pendingBuys) heldSymbols.add(sym);
-        // scanSignals 不再接收 cooldownUntil 参数
-        const candidates = scanSignals(data, ts, tsToIdx, heldSymbols, config, precomputedKdj, brickMap);
-        // 有意设计：即使 slotsToFill > 1，也每根只挂 1 单。
-        if (candidates.length) {
-          const [sym, rr] = candidates[0];
-          pendingBuys.push([sym, ts, rr, 0]);
-        }
+      const heldSymbols = new Set<string>(activePositions.map((p) => p.symbol));
+      for (const [sym] of pendingBuys) heldSymbols.add(sym);
+      // scanSignals 不再接收 cooldownUntil 参数
+      const candidates = scanSignals(data, ts, tsToIdx, heldSymbols, config, precomputedKdj, brickMap);
+      // 有意设计：即使 slotsToFill > 1，也每根只挂 1 单。
+      if (candidates.length) {
+        const [sym, rr] = candidates[0];
+        pendingBuys.push([sym, ts, rr, 0]);
       }
     }
 
@@ -130,7 +293,7 @@ export async function runBacktest(
       openEquity,
       closeEquity: portfolioVal,
       posCount: positions.length,
-      maxPositions: config.maxPositions,
+      maxPositions: config.enableKellySizing ? 1 : config.maxPositions,
       entries: entryEvents,
       exits: exitEvents,
       openSymbols: positions.map((p) => p.symbol),
@@ -152,11 +315,25 @@ export async function runBacktest(
   }
 
   // ── 6. 回测结束：强制平仓所有剩余持仓 ──
+  // 先处理模拟持仓（若还有剩余）
+  if (simPositions.length > 0) {
+    const lastTs = timestamps[timestamps.length - 1];
+    forceCloseSimPositions(simPositions, lastTs, data, tsToIdx, simTrades, [], posMeta);
+    simPositions = [];
+  }
+
   // forceClosePositions 产生的 trade 也走 registerExit，但不 push candleLog（主循环已结束）
   cash = forceClosePositions(
     positions, timestamps, data, tsToIdx, cash, allTrades,
     cooldownState, timestamps.length - 1, config,
   );
 
-  return { trades: allTrades, portfolioLog, posSnapshots, candleLog };
+  return {
+    trades: allTrades,
+    simTrades,
+    portfolioLog,
+    simPortfolioLog,
+    posSnapshots,
+    candleLog,
+  };
 }

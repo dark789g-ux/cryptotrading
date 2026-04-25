@@ -57,6 +57,7 @@ export interface CandleLogEntry {
   shares: number
   amount: number
   reason: string
+  isSimulation: boolean
 }
 
 export interface CandleLogExit {
@@ -67,6 +68,7 @@ export interface CandleLogExit {
   pnl: number
   reason: string
   isHalf: boolean
+  isSimulation: boolean
 }
 
 export interface CandleLogRow {

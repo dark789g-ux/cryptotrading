@@ -15,6 +15,12 @@ const MAX_PENDING_AGE = 3;
  *   - 更新后的 cash
  *   - 本次实际入场事件列表（CandleEntryEvent[]）
  */
+export interface KellyContext {
+  completedTradeCount: number;
+  currentWindowWinRate: number;
+  currentWindowOdds: number;
+}
+
 export function executePendingBuys(
   pendingBuys: [string, string, number, number][],
   ts: string,
@@ -24,6 +30,7 @@ export function executePendingBuys(
   portfolioLog: [string, number][],
   positions: Position[],
   config: BacktestConfig,
+  kellyCtx?: KellyContext,
 ): [[string, string, number, number][], number, CandleEntryEvent[]] {
   const newPending: [string, string, number, number][] = [];
   const entryEvents: CandleEntryEvent[] = [];
@@ -44,7 +51,27 @@ export function executePendingBuys(
 
     const openPrice = df[curIdx].open;
     const lastNav = portfolioLog.length ? portfolioLog[portfolioLog.length - 1][1] : config.initialCapital;
-    const positionSize = lastNav * config.positionRatio;
+
+    let positionRatio = config.positionRatio;
+    if (
+      kellyCtx &&
+      config.enableKellySizing &&
+      kellyCtx.completedTradeCount >= config.kellySimTrades
+    ) {
+      const b = kellyCtx.currentWindowOdds;
+      const p = kellyCtx.currentWindowWinRate;
+      const q = 1 - p;
+      let kellyRaw = 0;
+      if (b > 0 && p > 0) {
+        kellyRaw = (b * p - q) / b;
+      }
+      const kellyAdjusted = Math.max(0, kellyRaw * config.kellyFraction);
+      positionRatio = Math.min(kellyAdjusted, config.kellyMaxPositionRatio, config.positionRatio);
+    }
+
+    if (positionRatio <= 0) continue;
+
+    const positionSize = lastNav * positionRatio;
     const alloc = Math.min(positionSize, cash);
     if (alloc < config.minOpenCash || alloc <= 0) continue;
 
@@ -104,6 +131,7 @@ export function executePendingBuys(
       shares,
       amount: alloc,
       reason: entryReason,
+      isSimulation: false,
     });
   }
 
