@@ -219,6 +219,11 @@ export interface CandleEntryEvent {
   reason: string;
   isSimulation: boolean;
   tradePhase: 'simulation' | 'probe' | 'live';
+  kellyRaw?: number;
+  kellyAdjusted?: number;
+  positionRatio?: number;
+  windowWinRate?: number;
+  windowOdds?: number;
 }
 
 /** 当根 K 线发生的出场事件 */

@@ -58,6 +58,11 @@ export interface CandleLogEntry {
   amount: number
   reason: string
   isSimulation: boolean
+  kellyRaw?: number
+  kellyAdjusted?: number
+  positionRatio?: number
+  windowWinRate?: number
+  windowOdds?: number
 }
 
 export interface CandleLogExit {
@@ -105,6 +110,11 @@ export interface TradeOnBar {
   reason: string
   pnl?: number
   isHalf?: boolean
+  kellyRaw?: number
+  kellyAdjusted?: number
+  positionRatio?: number
+  windowWinRate?: number
+  windowOdds?: number
 }
 
 export interface BrickChartPoint {

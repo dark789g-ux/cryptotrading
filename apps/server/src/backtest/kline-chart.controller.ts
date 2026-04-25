@@ -22,6 +22,11 @@ export interface TradeOnBar {
   reason: string;
   pnl?: number;
   isHalf?: boolean;
+  kellyRaw?: number;
+  kellyAdjusted?: number;
+  positionRatio?: number;
+  windowWinRate?: number;
+  windowOdds?: number;
 }
 
 export interface KlineChartBar {
@@ -75,6 +80,11 @@ interface RawEntry {
   price: number;
   shares: number;
   reason: string;
+  kellyRaw?: number;
+  kellyAdjusted?: number;
+  positionRatio?: number;
+  windowWinRate?: number;
+  windowOdds?: number;
 }
 
 interface RawExit {
@@ -179,6 +189,11 @@ export class KlineChartController {
               price: entry.price,
               shares: entry.shares,
               reason: entry.reason,
+              kellyRaw: entry.kellyRaw,
+              kellyAdjusted: entry.kellyAdjusted,
+              positionRatio: entry.positionRatio,
+              windowWinRate: entry.windowWinRate,
+              windowOdds: entry.windowOdds,
             });
           }
         }

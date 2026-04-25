@@ -22,6 +22,29 @@ const reasonLinesToHtml = (reason: string, lineStyle: string) =>
     .map((line) => `<div style="${lineStyle}">${escapeHtml(line)}</div>`)
     .join('')
 
+const finiteNumber = (value: unknown): number | null => {
+  const num = Number(value)
+  return Number.isFinite(num) ? num : null
+}
+
+const buildKellyHtml = (trade: TradeOnBar, detailStyle: string): string => {
+  const rows: string[] = []
+  const percent = (value: number) => `${(value * 100).toFixed(2)}%`
+  const pushPercent = (label: string, value: unknown) => {
+    const num = finiteNumber(value)
+    if (num !== null) rows.push(`<div style="${detailStyle}">${label}: ${percent(num)}</div>`)
+  }
+  const windowOdds = finiteNumber(trade.windowOdds)
+
+  pushPercent('Kelly Raw', trade.kellyRaw)
+  pushPercent('Kelly Adjusted', trade.kellyAdjusted)
+  pushPercent('Position Ratio', trade.positionRatio)
+  pushPercent('Window Win Rate', trade.windowWinRate)
+  if (windowOdds !== null) rows.push(`<div style="${detailStyle}">Window Odds: ${windowOdds.toFixed(2)}</div>`)
+
+  return rows.length ? rows.join('') : ''
+}
+
 const buildTradesHtml = (trades: TradeOnBar[]): string => {
   if (!trades.length) return ''
   const detailStyle = 'padding-left:12px;margin-top:2px'
@@ -29,11 +52,13 @@ const buildTradesHtml = (trades: TradeOnBar[]): string => {
   const fmtPnl = (value: number) => (value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2))
   const lines = trades.map((trade) => {
     if (trade.type === 'entry') {
+      const kellyHtml = buildKellyHtml(trade, detailStyle)
       return `<div style="color:${TRADE_COLORS.entry};margin-top:4px">
         <div>Entry</div>
         ${reasonLinesToHtml(trade.reason, reasonLineStyle)}
         <div style="${detailStyle}">Price: ${fmt(trade.price, 4)}</div>
         <div style="${detailStyle}">Shares: ${trade.shares}</div>
+        ${kellyHtml}
       </div>`
     }
     const rawPnl = Number(trade.pnl)

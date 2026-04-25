@@ -53,20 +53,26 @@ export function executePendingBuys(
     const lastNav = portfolioLog.length ? portfolioLog[portfolioLog.length - 1][1] : config.initialCapital;
 
     let positionRatio = config.positionRatio;
-    if (
+    let kellyRaw: number | undefined;
+    let kellyAdjusted: number | undefined;
+    let windowWinRate: number | undefined;
+    let windowOdds: number | undefined;
+    const hasKellySnapshot =
       kellyCtx &&
       config.enableKellySizing &&
-      kellyCtx.completedTradeCount >= config.kellySimTrades
-    ) {
+      kellyCtx.completedTradeCount >= config.kellySimTrades;
+    if (hasKellySnapshot) {
       const b = kellyCtx.currentWindowOdds;
       const p = kellyCtx.currentWindowWinRate;
       const q = 1 - p;
-      let kellyRaw = 0;
+      kellyRaw = 0;
       if (b > 0 && p > 0) {
         kellyRaw = (b * p - q) / b;
       }
-      const kellyAdjusted = Math.max(0, kellyRaw * config.kellyFraction);
+      kellyAdjusted = Math.max(0, kellyRaw * config.kellyFraction);
       positionRatio = Math.min(kellyAdjusted, config.kellyMaxPositionRatio, config.positionRatio);
+      windowWinRate = p;
+      windowOdds = b;
     }
 
     if (positionRatio <= 0) continue;
@@ -133,6 +139,15 @@ export function executePendingBuys(
       reason: entryReason,
       isSimulation: false,
       tradePhase: 'live',
+      ...(hasKellySnapshot
+        ? {
+            kellyRaw,
+            kellyAdjusted,
+            positionRatio,
+            windowWinRate,
+            windowOdds,
+          }
+        : {}),
     });
   }
 
