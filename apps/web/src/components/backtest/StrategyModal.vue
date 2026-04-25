@@ -87,6 +87,13 @@
           </div>
         </n-tab-pane>
 
+        <n-tab-pane name="entrySorting" tab="入场排序">
+          <div class="section-card">
+            <div class="section-title">入场信号排序</div>
+            <EntrySortSection v-model:params="formData.params" />
+          </div>
+        </n-tab-pane>
+
         <n-tab-pane name="stopExit" tab="止损与出场">
           <StrategyStopExitSection v-model:params="formData.params" />
         </n-tab-pane>
@@ -144,6 +151,7 @@ import { useDateRange } from '../../composables/useDateRange'
 import './strategy/strategy-section.css'
 import SymbolPresetPicker from './strategy/SymbolPresetPicker.vue'
 import EntrySignalSection from './strategy/EntrySignalSection.vue'
+import EntrySortSection from './strategy/EntrySortSection.vue'
 import StrategyCapitalSection from './strategy/StrategyCapitalSection.vue'
 import StrategyConfigSection from './strategy/StrategyConfigSection.vue'
 import StrategyStopExitSection from './strategy/StrategyStopExitSection.vue'

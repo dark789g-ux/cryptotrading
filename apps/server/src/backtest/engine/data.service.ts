@@ -119,6 +119,7 @@ function entityToRow(e: KlineEntity): KlineBarRow {
     low: Number(e.low),
     close: Number(e.close),
     volume: Number(e.volume),
+    quote_volume: Number(e.quoteVolume) || 0,
     DIF: e.dif ?? 0,
     DEA: e.dea ?? 0,
     MACD: e.macd ?? 0,

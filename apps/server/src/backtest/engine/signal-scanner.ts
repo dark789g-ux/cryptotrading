@@ -2,7 +2,7 @@
  * 信号扫描器 — 精确翻译自 backtest/signal_scanner.py
  */
 
-import { KlineBarRow, BacktestConfig, MaOperand, MaOperator } from './models';
+import { KlineBarRow, BacktestConfig, MaOperand, MaOperator, SortFactor } from './models';
 import { calcRecentLow, calcRecentHigh, BrickBar } from './bt-indicators';
 
 function getMaOperandValue(row: KlineBarRow, key: MaOperand): number {
@@ -20,6 +20,96 @@ function evalMaOp(left: number, op: MaOperator, right: number): boolean {
     case '=':  return left === right;
     case '!=': return left !== right;
   }
+}
+
+// ── 排序因子计算 ──
+
+function calcMomentum(row: KlineBarRow, factor: SortFactor): number {
+  const maPeriod = (factor.params?.maPeriod as number) ?? 5;
+  const maKey = `MA${maPeriod}`;
+  const ma = (row[maKey] as number) ?? 0;
+  const atr = (row['atr_14'] as number) ?? 0;
+  if (atr <= 0) return 0;
+  return (row.close - ma) / atr;
+}
+
+function calcFreshness(df: KlineBarRow[], idx: number, config: BacktestConfig): number {
+  const threshold = config.kdjJOversold;
+  let bars = 0;
+  for (let i = idx; i >= 0; i--) {
+    const j = df[i]['KDJ.J'] as number;
+    if (j >= threshold) break;
+    bars++;
+  }
+  return 1 / (1 + bars);
+}
+
+function calcLiquidity(row: KlineBarRow): number {
+  return (row['quote_volume'] as number) ?? 0;
+}
+
+function calcVolatility(row: KlineBarRow): number {
+  const atr = (row['atr_14'] as number) ?? 0;
+  if (atr <= 0) return 0;
+  return row.close / atr;
+}
+
+function calcFactorValue(
+  factor: SortFactor,
+  row: KlineBarRow,
+  df: KlineBarRow[],
+  idx: number,
+  config: BacktestConfig,
+  rrRatio: number,
+): number {
+  switch (factor.factor) {
+    case 'risk_reward': return rrRatio;
+    case 'momentum': return calcMomentum(row, factor);
+    case 'freshness': return calcFreshness(df, idx, config);
+    case 'liquidity': return calcLiquidity(row);
+    case 'volatility': return calcVolatility(row);
+    default: return 0;
+  }
+}
+
+interface CandidateData {
+  symbol: string;
+  rrRatio: number;
+  values: Record<string, number>;
+}
+
+function sortByRankingScore(
+  candidates: CandidateData[],
+  factors: SortFactor[],
+): CandidateData[] {
+  const n = candidates.length;
+  if (n <= 1) return candidates;
+
+  const totalWeight = factors.reduce((sum, f) => sum + f.weight, 0);
+  if (totalWeight <= 0) return candidates;
+
+  const scores = new Map<string, number>();
+
+  for (const factor of factors) {
+    const sorted = [...candidates].sort((a, b) => {
+      const va = a.values[factor.factor] ?? 0;
+      const vb = b.values[factor.factor] ?? 0;
+      if (va === vb) return 0;
+      return factor.direction === 'desc' ? vb - va : va - vb;
+    });
+
+    sorted.forEach((c, rank) => {
+      const score = n - rank;
+      const current = scores.get(c.symbol) ?? 0;
+      scores.set(c.symbol, current + score * factor.weight);
+    });
+  }
+
+  return [...candidates].sort((a, b) => {
+    const sa = (scores.get(a.symbol) ?? 0) / totalWeight;
+    const sb = (scores.get(b.symbol) ?? 0) / totalWeight;
+    return sb - sa;
+  });
 }
 
 /**
@@ -44,7 +134,7 @@ export function scanSignals(
   precomputedKdj?: Map<string, Array<{ k: number; d: number; j: number }>>,
   brickMap?: Map<string, BrickBar[]>,
 ): [string, number][] {
-  const candidates: [string, number][] = [];
+  const candidates: CandidateData[] = [];
   const minWindow = Math.max(config.recentLowWindow, config.recentHighWindow);
 
   for (const [symbol, df] of data) {
@@ -130,9 +220,20 @@ export function scanSignals(
       if (config.brickDeltaMin > 0 && bars[idx].delta < config.brickDeltaMin) continue;
     }
 
-    candidates.push([symbol, rrRatio]);
+    const values: Record<string, number> = {};
+    for (const f of config.entrySortFactors) {
+      if (!f.enabled) continue;
+      values[f.factor] = calcFactorValue(f, row, df, idx, config, rrRatio);
+    }
+    candidates.push({ symbol, rrRatio, values });
   }
 
-  candidates.sort((a, b) => b[1] - a[1]);
-  return candidates;
+  // ── 按配置排序 ──
+  const activeFactors = config.entrySortFactors.filter((f) => f.enabled);
+  if (activeFactors.length === 0) {
+    return candidates.map((c) => [c.symbol, c.rrRatio] as [string, number]);
+  }
+
+  const sorted = sortByRankingScore(candidates, activeFactors);
+  return sorted.map((c) => [c.symbol, c.rrRatio] as [string, number]);
 }

@@ -12,6 +12,15 @@ export interface MaCondition {
   right: MaOperand;
 }
 
+export interface SortFactor {
+  factor: 'risk_reward' | 'momentum' | 'freshness' | 'liquidity' | 'volatility';
+  weight: number;
+  direction: 'asc' | 'desc';
+  enabled: boolean;
+  /** 因子级扩展参数，当前仅 momentum 使用（maPeriod） */
+  params?: Record<string, unknown>;
+}
+
 /** 持仓数据 */
 export interface Position {
   symbol: string;
@@ -177,6 +186,9 @@ export interface BacktestConfig {
   maxBacktestBars: number;
   minOpenCash: number;
   requireAllPositionsProfitable: boolean;
+  // 入场信号排序
+  entrySortMode: 'single' | 'composite';
+  entrySortFactors: SortFactor[];
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -283,6 +295,21 @@ export function validateConfig(config: BacktestConfig): void {
   if (config.breakevenTriggerR <= 0) errs.push('breakevenTriggerR 必须 > 0');
   if (config.trailingProfitTriggerR <= 0) errs.push('trailingProfitTriggerR 必须 > 0');
   if (config.trailingProfitDrawdownPct <= 0) errs.push('trailingProfitDrawdownPct 必须 > 0');
+  // 排序参数校验
+  if (!['single', 'composite'].includes(config.entrySortMode))
+    errs.push('entrySortMode 必须是 single 或 composite');
+  if (!Array.isArray(config.entrySortFactors) || config.entrySortFactors.length === 0)
+    errs.push('entrySortFactors 必须为非空数组');
+  const enabledFactors = config.entrySortFactors.filter((f) => f.enabled);
+  if (enabledFactors.length === 0) errs.push('entrySortFactors 至少需要一个启用的因子');
+  for (const f of enabledFactors) {
+    if (!['risk_reward', 'momentum', 'freshness', 'liquidity', 'volatility'].includes(f.factor))
+      errs.push(`排序因子 ${f.factor} 不合法`);
+    if (!(f.weight >= 0 && f.weight <= 1)) errs.push(`排序因子 ${f.factor} 的 weight 必须在 [0, 1]`);
+    if (!['asc', 'desc'].includes(f.direction))
+      errs.push(`排序因子 ${f.factor} 的 direction 必须是 asc 或 desc`);
+    // 所有预留因子均已实现，不再拦截
+  }
   for (const t of config.takeProfitTargets) {
     if (!(t.rrRatio > 0)) errs.push('takeProfitTargets 每档 rrRatio 必须 > 0');
     if (!(t.sellRatio > 0 && t.sellRatio <= 1)) errs.push('takeProfitTargets 每档 sellRatio 必须在 (0, 1]');
@@ -347,4 +374,13 @@ export const DEFAULT_CONFIG: BacktestConfig = {
   maxBacktestBars: 10000,
   minOpenCash: 100,
   requireAllPositionsProfitable: false,
+  // 入场信号排序
+  entrySortMode: 'single',
+  entrySortFactors: [
+    { factor: 'risk_reward', weight: 1, direction: 'desc', enabled: true },
+    { factor: 'momentum', weight: 0, direction: 'desc', enabled: false },
+    { factor: 'freshness', weight: 0, direction: 'desc', enabled: false },
+    { factor: 'liquidity', weight: 0, direction: 'desc', enabled: false },
+    { factor: 'volatility', weight: 0, direction: 'desc', enabled: false },
+  ],
 };

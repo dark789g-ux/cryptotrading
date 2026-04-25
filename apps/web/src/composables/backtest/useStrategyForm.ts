@@ -1,6 +1,17 @@
 import { ref, watch } from 'vue'
 import type { MaCondition } from '../../components/backtest/strategy/EntrySignalSection.vue'
 
+export type SortFactorType = 'risk_reward' | 'momentum' | 'freshness' | 'liquidity' | 'volatility'
+
+export interface SortFactor {
+  factor: SortFactorType
+  weight: number
+  direction: 'asc' | 'desc'
+  enabled: boolean
+  /** 因子级扩展参数，当前仅 momentum 使用（maPeriod） */
+  params?: Record<string, unknown>
+}
+
 export interface StrategyParams {
   initialCapital: number
   positionRatio: number
@@ -48,6 +59,8 @@ export interface StrategyParams {
   maxCooldownCandles: number
   cooldownExtendOnLoss: number
   cooldownReduceOnProfit: number
+  entrySortMode: 'single' | 'composite'
+  entrySortFactors: SortFactor[]
 }
 
 export interface StrategyFormData {
@@ -104,6 +117,14 @@ const defaultParams = (): StrategyParams => ({
   maxCooldownCandles: 20,
   cooldownExtendOnLoss: 1,
   cooldownReduceOnProfit: 1,
+  entrySortMode: 'single',
+  entrySortFactors: [
+    { factor: 'risk_reward', weight: 1, direction: 'desc', enabled: true },
+    { factor: 'momentum', weight: 0, direction: 'desc', enabled: false, params: { maPeriod: 5 } },
+    { factor: 'freshness', weight: 0, direction: 'desc', enabled: false },
+    { factor: 'liquidity', weight: 0, direction: 'desc', enabled: false },
+    { factor: 'volatility', weight: 0, direction: 'desc', enabled: false },
+  ],
 })
 
 const normalizeDate = (v: unknown, tf: string): string | null => {
