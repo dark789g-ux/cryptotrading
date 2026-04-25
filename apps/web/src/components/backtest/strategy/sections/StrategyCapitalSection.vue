@@ -85,10 +85,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { NCollapse, NCollapseItem, NFormItem, NInputNumber, NSlider, NSwitch } from 'naive-ui'
-import type { StrategyParams } from '../../../composables/backtest/useStrategyForm'
-import { useEditableNumber } from '../../../composables/useEditableNumber'
-import './strategy-section.css'
-import LabelWithTip from './LabelWithTip.vue'
+import type { StrategyParams } from '../../../../composables/backtest/useStrategyForm'
+import { useEditableNumber } from '../../../../composables/useEditableNumber'
+import '../strategy-section.css'
+import LabelWithTip from '../LabelWithTip.vue'
 
 const params = defineModel<StrategyParams>('params', { required: true })
 

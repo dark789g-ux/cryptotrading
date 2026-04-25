@@ -40,7 +40,7 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { NButton, NEmpty, NIcon, NModal, NSpin, useMessage } from 'naive-ui'
 import { ContractOutline, ExpandOutline } from '@vicons/ionicons5'
-import { buildKlineChartGraphics, buildKlineChartOption } from '../../composables/klineChartOptions'
+import { buildKlineChartGraphics, buildKlineChartOption } from '../../composables/kline/klineChartOptions'
 import { backtestApi, type KlineChartBar } from '../../composables/useApi'
 import { useTheme } from '../../composables/useTheme'
 

@@ -9,11 +9,11 @@ import type {
   LineSeriesOption,
   SeriesOption,
 } from 'echarts'
-import { colors } from '../styles/tokens'
+import { colors } from '../../styles/tokens'
 import { ANCHOR_LINE_COLOR, BRICK_COLORS, CANDLE_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS } from './chartColors'
 import { buildGraphics } from './klineChartOverlay'
 import { buildMarkPoints, buildTooltip } from './klineChartTooltip'
-import type { KlineChartBar } from './useApi'
+import type { KlineChartBar } from '../useApi'
 
 interface BuildKlineChartOptionsParams {
   data: KlineChartBar[]

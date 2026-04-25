@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue'
-import type { MaCondition } from '../../components/backtest/strategy/EntrySignalSection.vue'
+import type { MaCondition } from '../../components/backtest/strategy/sections/EntrySignalSection.vue'
 
 export type SortFactorType = 'risk_reward' | 'momentum' | 'freshness' | 'liquidity' | 'volatility'
 

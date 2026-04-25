@@ -128,7 +128,7 @@ import {
   useMessage,
 } from 'naive-ui'
 import { CloseOutline, FilterOutline, RefreshOutline, SearchOutline, TrendingUpOutline } from '@vicons/ionicons5'
-import { buildKlineChartGraphics, buildKlineChartOption } from '../composables/klineChartOptions'
+import { buildKlineChartGraphics, buildKlineChartOption } from '../composables/kline/klineChartOptions'
 import { klinesApi, symbolApi, type KlineChartBar } from '../composables/useApi'
 import { useTheme } from '../composables/useTheme'
 

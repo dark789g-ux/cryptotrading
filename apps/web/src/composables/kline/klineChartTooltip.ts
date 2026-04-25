@@ -1,8 +1,8 @@
 import type { MarkPointComponentOption } from 'echarts'
-import { colors } from '../styles/tokens'
+import { colors } from '../../styles/tokens'
 import { CANDLE_COLORS, TOOLTIP_STYLE, TRADE_COLORS } from './chartColors'
 import { fmt } from './klineChartUtils'
-import type { KlineChartBar, TradeOnBar } from './useApi'
+import type { KlineChartBar, TradeOnBar } from '../useApi'
 
 const MARK_BASE_GAP = 0.008
 const MARK_STACK_PX = 14

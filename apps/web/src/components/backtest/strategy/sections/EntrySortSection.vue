@@ -115,8 +115,8 @@ import {
   NAlert,
   NDivider,
 } from 'naive-ui'
-import LabelWithTip from './LabelWithTip.vue'
-import type { StrategyParams, SortFactorType } from '../../../composables/backtest/useStrategyForm'
+import LabelWithTip from '../LabelWithTip.vue'
+import type { StrategyParams, SortFactorType } from '../../../../composables/backtest/useStrategyForm'
 
 const props = defineProps<{ params: StrategyParams }>()
 

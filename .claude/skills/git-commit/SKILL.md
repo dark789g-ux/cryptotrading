@@ -1,6 +1,6 @@
 ---
 name: git-commit
-description: 根据当前代码改动自动生成 Conventional Commits 格式的 commit message，并完成暂存、lint 检查、提交。当用户说"帮我提交"、"commit 一下"、"git commit"、"写 commit"、"提交代码"、"生成 commit message"，或者编码完成后提到想提交时，务必使用此技能。用户不需要精确说出"git commit"这几个字，只要表达了提交代码的意图就应触发。
+description: 仅手动调用（/git-commit），请勿自动触发。
 ---
 
 ## 目标

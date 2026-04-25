@@ -41,9 +41,9 @@
 
 <script setup lang="ts">
 import { NFormItem, NInputNumber } from 'naive-ui'
-import type { StrategyParams } from '../../../composables/backtest/useStrategyForm'
-import './strategy-section.css'
-import LabelWithTip from './LabelWithTip.vue'
+import type { StrategyParams } from '../../../../composables/backtest/useStrategyForm'
+import '../strategy-section.css'
+import LabelWithTip from '../LabelWithTip.vue'
 
 const params = defineModel<StrategyParams>('params', { required: true })
 </script>

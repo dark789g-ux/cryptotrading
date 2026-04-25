@@ -335,8 +335,10 @@ export function useBacktestCandleLog(
         width: 90,
         render: (row: CandleLogRow) => {
           const lastExit = row.exits[row.exits.length - 1] as { isSimulation?: boolean } | undefined
-          if (!lastExit) return '—'
-          return lastExit.isSimulation ? '模拟' : '实盘'
+          if (lastExit) return lastExit.isSimulation ? '模拟' : '实盘'
+          const firstEntry = row.entries[0] as { isSimulation?: boolean } | undefined
+          if (firstEntry) return firstEntry.isSimulation ? '模拟' : '实盘'
+          return '—'
         },
       },
       {

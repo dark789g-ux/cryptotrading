@@ -1,8 +1,8 @@
 import type { GraphicComponentOption } from 'echarts'
-import { colors } from '../styles/tokens'
+import { colors } from '../../styles/tokens'
 import { BRICK_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS } from './chartColors'
 import { ARROW_RICH, arrow, arrowRichTag, fmt, fmtXg } from './klineChartUtils'
-import type { KlineChartBar } from './useApi'
+import type { KlineChartBar } from '../useApi'
 
 const GRAPHIC_BG = {
   fill: colors.text.DEFAULT,
