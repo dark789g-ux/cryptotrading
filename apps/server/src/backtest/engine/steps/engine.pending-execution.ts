@@ -132,6 +132,7 @@ export function executePendingBuys(
       amount: alloc,
       reason: entryReason,
       isSimulation: false,
+      tradePhase: 'live',
     });
   }
 

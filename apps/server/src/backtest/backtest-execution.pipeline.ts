@@ -126,6 +126,7 @@ export async function executeBacktestPipeline(
         pnl: t.pnl,
         pnlPct: t.returnPct,
         holdBars: t.holdCandles,
+        tradePhase: t.tradePhase,
       }));
       await ctx.tradeRepo.save(tradeEntities as BacktestTradeEntity[]);
     }

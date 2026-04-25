@@ -334,7 +334,7 @@ const handlePageSizeChange = (nextPageSize: number) => {
 const handleSort = (sorter: DataTableSortState | DataTableSortState[] | null) => {
   const state = Array.isArray(sorter) ? sorter[0] : sorter
   sortKey.value = typeof state?.columnKey === 'string' ? state.columnKey : null
-  sortOrder.value = state?.order ?? null
+  sortOrder.value = state?.order || null
   void loadData()
 }
 

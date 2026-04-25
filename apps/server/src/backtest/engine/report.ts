@@ -136,6 +136,7 @@ function buildPositions(allTrades: TradeRecord[]): object[] {
       holdCandles,
       tradeCount: trades.length,
       stopTypes,
+      tradePhase: trades[0].tradePhase ?? 'live',
       isSimulation: trades[0].isSimulation ?? false,
       overallReturnPct: lastFullTrade ? (lastFullTrade.overallReturnPct ?? 0) : 0,
       cumulativeWinRate: lastFullTrade ? (lastFullTrade.cumulativeWinRate ?? 0) : 0,

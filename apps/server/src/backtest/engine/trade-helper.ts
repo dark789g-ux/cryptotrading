@@ -29,6 +29,7 @@ export function createTradeRecord(
     isHalf,
     entryReason: pos.entryReason,
     isSimulation: false,
+    tradePhase: 'live',
     overallReturnPct: 0,
     cumulativeWinRate: 0,
     cumulativeOdds: 0,

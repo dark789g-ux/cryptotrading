@@ -68,6 +68,7 @@ export interface StrategyParams {
   kellyStepTrades: number
   kellyMaxPositionRatio: number
   kellyFraction: number
+  enableKellyProbe: boolean
 }
 
 export interface StrategyFormData {
@@ -139,6 +140,7 @@ const defaultParams = (): StrategyParams => ({
   kellyStepTrades: 1,
   kellyMaxPositionRatio: 0.50,
   kellyFraction: 0.50,
+  enableKellyProbe: true,
 })
 
 const normalizeDate = (v: unknown, tf: string): string | null => {

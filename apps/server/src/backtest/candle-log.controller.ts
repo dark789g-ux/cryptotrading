@@ -105,6 +105,7 @@ export class CandleLogController {
     @Query('cooldownDurationMax') cooldownDurationMaxRaw?: string,
     @Query('cooldownRemainingMin') cooldownRemainingMinRaw?: string,
     @Query('cooldownRemainingMax') cooldownRemainingMaxRaw?: string,
+    @Query('isSimulation') isSimulationRaw?: string,
   ): Promise<CandleLogPageResponse> {
     // ── 1. 校验 run 是否存在 ──
     const run = await this.runRepo.findOneBy({ id: runId });
@@ -135,6 +136,10 @@ export class CandleLogController {
     const cooldownDurationMax = cooldownDurationMaxRaw !== undefined && cooldownDurationMaxRaw !== '' ? parseInt(cooldownDurationMaxRaw, 10) : null;
     const cooldownRemainingMin = cooldownRemainingMinRaw !== undefined && cooldownRemainingMinRaw !== '' ? parseInt(cooldownRemainingMinRaw, 10) : null;
     const cooldownRemainingMax = cooldownRemainingMaxRaw !== undefined && cooldownRemainingMaxRaw !== '' ? parseInt(cooldownRemainingMaxRaw, 10) : null;
+    const isSimulation =
+      isSimulationRaw === 'true' ? true
+        : isSimulationRaw === 'false' ? false
+          : null;
 
     // 实体别名为 cl，列名转驼峰映射
     const sortColumnMap: Record<string, string> = {
@@ -232,6 +237,13 @@ export class CandleLogController {
     }
     if (cooldownRemainingMax !== null && !Number.isNaN(cooldownRemainingMax)) {
       qb.andWhere('cl.cooldown_remaining <= :cooldownRemainingMax', { cooldownRemainingMax });
+    }
+
+    if (typeof isSimulation === 'boolean') {
+      qb.andWhere(
+        `cl.exits_json @> :simExit::jsonb`,
+        { simExit: JSON.stringify([{ isSimulation }]) },
+      );
     }
 
     // 分页 + 排序

@@ -10,7 +10,7 @@ const DATA_GAP_REASON = '数据断流';
  * 处理当根 K 线各持仓，返回：
  *   - 存活的持仓列表
  *   - 更新后的 cash
- *   - 本根 K 线产生的出场事件列表（CandleExitEvent[]，含完整和半仓）
+ *   - 本根 K 线产生的交易记录列表（TradeRecord[]，含完整和半仓）
  */
 export function processPositions(
   positions: Position[],
@@ -23,9 +23,9 @@ export function processPositions(
   barIdx: number,
   config: BacktestConfig,
   skipCooldown = false,
-): [Position[], number, CandleExitEvent[]] {
+): [Position[], number, TradeRecord[]] {
   const surviving: Position[] = [];
-  const exitEvents: CandleExitEvent[] = [];
+  const tradeRecs: TradeRecord[] = [];
 
   for (const pos of positions) {
     const df = data.get(pos.symbol);
@@ -37,29 +37,18 @@ export function processPositions(
 
     if (ts === pos.entryTime) {
       // 买入当根特殊处理
-      const [newCash, tradeRecs, exited] = processEntryCandle(
+      const [newCash, entryTradeRecs, exited] = processEntryCandle(
         pos, df, curIdx, ts, cash, config,
       );
       cash = newCash;
-      allTrades.push(...tradeRecs);
+      allTrades.push(...entryTradeRecs);
 
-      // 收集出场事件
-      for (const rec of tradeRecs) {
-        exitEvents.push({
-          symbol: rec.symbol,
-          price: rec.exitPrice,
-          shares: rec.shares,
-          amount: rec.shares * rec.exitPrice,
-          pnl: rec.pnl,
-          reason: rec.exitReason,
-          isHalf: rec.isHalf,
-          isSimulation: false,
-        });
-      }
+      // 收集交易记录
+      tradeRecs.push(...entryTradeRecs);
 
       if (exited) {
         // 只对非半仓的完整平仓登记冷却
-        const last = tradeRecs[tradeRecs.length - 1];
+        const last = entryTradeRecs[entryTradeRecs.length - 1];
         if (last && !last.isHalf && config.enableCooldown && !skipCooldown) {
           registerExit(
             cooldownState,
@@ -77,10 +66,12 @@ export function processPositions(
 
       // 入场当根未退出：若该 symbol 已无下一根 K 线，按 close 强平（数据断流）
       if (curIdx === df.length - 1) {
-        cash = forceCloseOnDataGap(
-          pos, df, curIdx, ts, cash, allTrades, exitEvents,
+        const [newCash, rec] = forceCloseOnDataGap(
+          pos, df, curIdx, ts, cash, allTrades,
           cooldownState, barIdx, config, skipCooldown,
         );
+        cash = newCash;
+        tradeRecs.push(rec);
         continue;
       }
 
@@ -89,23 +80,12 @@ export function processPositions(
     }
 
     // 常规 K 线处理
-    const [action, cashDelta, tradeRecs] = processCandle(pos, df, curIdx, config);
+    const [action, cashDelta, posTradeRecs] = processCandle(pos, df, curIdx, config);
     cash += cashDelta;
-    allTrades.push(...tradeRecs);
+    allTrades.push(...posTradeRecs);
 
-    // 收集出场事件
-    for (const rec of tradeRecs) {
-      exitEvents.push({
-        symbol: rec.symbol,
-        price: rec.exitPrice,
-        shares: rec.shares,
-        amount: rec.shares * rec.exitPrice,
-        pnl: rec.pnl,
-        reason: rec.exitReason,
-        isHalf: rec.isHalf,
-        isSimulation: false,
-      });
-    }
+    // 收集交易记录
+    tradeRecs.push(...posTradeRecs);
 
     if (action === 'exit_full') {
       // 只对非半仓的完整平仓登记冷却
@@ -127,22 +107,24 @@ export function processPositions(
 
     // 常规根未完整出场：若该 symbol 已无下一根 K 线，按 close 强平（数据断流）
     if (curIdx === df.length - 1) {
-      cash = forceCloseOnDataGap(
-        pos, df, curIdx, ts, cash, allTrades, exitEvents,
+      const [newCash, rec] = forceCloseOnDataGap(
+        pos, df, curIdx, ts, cash, allTrades,
         cooldownState, barIdx, config,
       );
+      cash = newCash;
+      tradeRecs.push(rec);
       continue;
     }
 
     surviving.push(pos);
   }
 
-  return [surviving, cash, exitEvents];
+  return [surviving, cash, tradeRecs];
 }
 
 /**
  * 数据断流强平：在该 symbol 最后一根可用 K 线收盘价上平掉剩余仓位。
- * 现金回流，生成 trade 与 exit 事件，登记冷却（如启用）。
+ * 现金回流，生成 trade 记录，登记冷却（如启用）。
  */
 function forceCloseOnDataGap(
   pos: Position,
@@ -151,12 +133,11 @@ function forceCloseOnDataGap(
   ts: string,
   cash: number,
   allTrades: TradeRecord[],
-  exitEvents: CandleExitEvent[],
   cooldownState: CooldownState,
   barIdx: number,
   config: BacktestConfig,
   skipCooldown = false,
-): number {
+): [number, TradeRecord] {
   const closePrice = df[curIdx].close;
   const proceeds = pos.shares * closePrice;
   const pnl = proceeds - pos.shares * pos.entryPrice;
@@ -165,17 +146,6 @@ function forceCloseOnDataGap(
   const holdCandles = Math.max(1, curIdx - pos.entryIdx + 1);
   const rec = createTradeRecord(pos, ts, closePrice, pos.shares, pnl, DATA_GAP_REASON, holdCandles, false);
   allTrades.push(rec);
-
-  exitEvents.push({
-    symbol: rec.symbol,
-    price: closePrice,
-    shares: pos.shares,
-    amount: proceeds,
-    pnl,
-    reason: DATA_GAP_REASON,
-    isHalf: false,
-    isSimulation: false,
-  });
 
   if (config.enableCooldown && !skipCooldown) {
     registerExit(
@@ -190,5 +160,5 @@ function forceCloseOnDataGap(
     );
   }
 
-  return newCash;
+  return [newCash, rec];
 }

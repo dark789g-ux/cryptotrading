@@ -102,6 +102,7 @@ export interface TradeRecord {
   isHalf: boolean;
   entryReason: string;
   isSimulation: boolean;
+  tradePhase: 'simulation' | 'probe' | 'live';
   overallReturnPct: number;
   cumulativeWinRate: number;
   cumulativeOdds: number;
@@ -202,6 +203,7 @@ export interface BacktestConfig {
   kellyStepTrades: number;
   kellyMaxPositionRatio: number;
   kellyFraction: number;
+  enableKellyProbe: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -216,6 +218,7 @@ export interface CandleEntryEvent {
   amount: number;
   reason: string;
   isSimulation: boolean;
+  tradePhase: 'simulation' | 'probe' | 'live';
 }
 
 /** 当根 K 线发生的出场事件 */
@@ -228,6 +231,12 @@ export interface CandleExitEvent {
   reason: string;
   isHalf: boolean;
   isSimulation: boolean;
+  tradePhase: 'simulation' | 'probe' | 'live';
+  overallReturnPct?: number;
+  cumulativeWinRate?: number;
+  cumulativeOdds?: number;
+  windowWinRate?: number;
+  windowOdds?: number;
 }
 
 /** 每根 K 线的快照日志 */
@@ -348,6 +357,8 @@ export function validateConfig(config: BacktestConfig): void {
       errs.push('kellyMaxPositionRatio 必须在 (0, 1]');
     if (!(config.kellyFraction > 0 && config.kellyFraction <= 1))
       errs.push('kellyFraction 必须在 (0, 1]');
+    if (typeof config.enableKellyProbe !== 'boolean')
+      errs.push('enableKellyProbe 必须为布尔值');
   }
 
   if (errs.length) throw new Error(`策略参数非法: ${errs.join('; ')}`);
@@ -426,4 +437,5 @@ export const DEFAULT_CONFIG: BacktestConfig = {
   kellyStepTrades: 1,
   kellyMaxPositionRatio: 0.50,
   kellyFraction: 0.50,
+  enableKellyProbe: true,
 };

@@ -68,6 +68,15 @@
             <span class="param-suffix">%</span>
           </div>
         </n-form-item>
+
+        <n-form-item>
+          <template #label>
+            <LabelWithTip label="凯利系数 ≤ 0 且空仓时启用探针交易">
+              探针模式：当凯利系数非正且实盘空仓时，自动启用虚拟交易持续采样，以推动滑动窗口更新、打破死锁
+            </LabelWithTip>
+          </template>
+          <n-switch v-model:value="params.enableKellyProbe" />
+        </n-form-item>
       </n-collapse-item>
     </n-collapse>
   </div>

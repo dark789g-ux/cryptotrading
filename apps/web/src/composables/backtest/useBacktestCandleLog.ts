@@ -7,9 +7,10 @@ import {
   type BacktestCandleLogTradeState,
 } from '../useApi'
 
-type CandleLogFilterState = Omit<BacktestCandleLogFilters, 'tradeStates' | 'inCooldown'> & {
+type CandleLogFilterState = Omit<BacktestCandleLogFilters, 'tradeStates' | 'inCooldown' | 'isSimulation'> & {
   tradeStates: BacktestCandleLogTradeState[]
   inCooldown: 'true' | 'false' | null
+  isSimulation: 'true' | 'false' | null
 }
 type CandleLogSortBy = 'bar_idx' | 'ts' | 'open_equity' | 'close_equity' | 'pos_count' | 'equity_change' | 'equity_change_pct' | 'cooldown_duration' | 'cooldown_remaining'
 
@@ -35,6 +36,7 @@ function createEmptyFilters(): CandleLogFilterState {
     tradeStates: [...DEFAULT_TRADE_STATES],
     symbol: '',
     inCooldown: null,
+    isSimulation: null,
     startTs: null,
     endTs: null,
     equityChangeMin: null,
@@ -60,6 +62,7 @@ function cloneFilters(filters: CandleLogFilterState): CandleLogFilterState {
     tradeStates: cloneTradeStates(filters.tradeStates as unknown),
     symbol: filters.symbol ?? '',
     inCooldown: filters.inCooldown ?? null,
+    isSimulation: filters.isSimulation ?? null,
     startTs: filters.startTs ?? null,
     endTs: filters.endTs ?? null,
     equityChangeMin: filters.equityChangeMin ?? null,
@@ -110,6 +113,7 @@ export function useBacktestCandleLog(
       filtersApplied.value.startTs ||
       filtersApplied.value.endTs ||
       filtersApplied.value.inCooldown !== null ||
+      filtersApplied.value.isSimulation !== null ||
       filtersApplied.value.equityChangeMin != null ||
       filtersApplied.value.equityChangeMax != null ||
       filtersApplied.value.equityChangePctMin != null ||
@@ -185,12 +189,13 @@ export function useBacktestCandleLog(
     if (!selectedRunId.value) return
     candleLogLoading.value = true
     try {
-      const { inCooldown: inCooldownStr, ...restFilters } = filtersApplied.value
+      const { inCooldown: inCooldownStr, isSimulation: isSimulationStr, ...restFilters } = filtersApplied.value
       const res = await backtestApi.getCandleLog(selectedRunId.value, {
         page: candleLogPage.value,
         pageSize: candleLogPageSize.value,
         ...restFilters,
         inCooldown: inCooldownStr === null ? null : inCooldownStr === 'true',
+        isSimulation: isSimulationStr === null ? null : isSimulationStr === 'true',
         sortBy: candleLogSortBy.value,
         sortOrder: candleLogSortOrder.value,
       })
@@ -207,12 +212,13 @@ export function useBacktestCandleLog(
   const loadCandleLogTotalOnly = async () => {
     if (!selectedRunId.value) return
     try {
-      const { inCooldown: inCooldownStr2, ...restFilters2 } = filtersApplied.value
+      const { inCooldown: inCooldownStr2, isSimulation: isSimulationStr2, ...restFilters2 } = filtersApplied.value
       const res = await backtestApi.getCandleLog(selectedRunId.value, {
         page: 1,
         pageSize: 1,
         ...restFilters2,
         inCooldown: inCooldownStr2 === null ? null : inCooldownStr2 === 'true',
+        isSimulation: isSimulationStr2 === null ? null : isSimulationStr2 === 'true',
         sortBy: candleLogSortBy.value,
         sortOrder: candleLogSortOrder.value,
       })
@@ -322,6 +328,66 @@ export function useBacktestCandleLog(
         key: 'exits',
         width: 90,
         render: (row: CandleLogRow) => row.exits.length === 0 ? '—' : `${row.exits.length} 条`,
+      },
+      {
+        title: '模拟/实盘',
+        key: 'isSimulation',
+        width: 90,
+        render: (row: CandleLogRow) => {
+          const lastExit = row.exits[row.exits.length - 1] as { isSimulation?: boolean } | undefined
+          if (!lastExit) return '—'
+          return lastExit.isSimulation ? '模拟' : '实盘'
+        },
+      },
+      {
+        title: '整体收益率',
+        key: 'overallReturnPct',
+        width: 100,
+        render: (row: CandleLogRow) => {
+          const lastExit = row.exits[row.exits.length - 1] as { overallReturnPct?: number } | undefined
+          if (lastExit?.overallReturnPct == null) return '—'
+          return `${lastExit.overallReturnPct.toFixed(2)}%`
+        },
+      },
+      {
+        title: '累计胜率',
+        key: 'cumulativeWinRate',
+        width: 90,
+        render: (row: CandleLogRow) => {
+          const lastExit = row.exits[row.exits.length - 1] as { cumulativeWinRate?: number } | undefined
+          if (lastExit?.cumulativeWinRate == null) return '—'
+          return `${((lastExit.cumulativeWinRate ?? 0) * 100).toFixed(1)}%`
+        },
+      },
+      {
+        title: '累计赔率',
+        key: 'cumulativeOdds',
+        width: 90,
+        render: (row: CandleLogRow) => {
+          const lastExit = row.exits[row.exits.length - 1] as { cumulativeOdds?: number } | undefined
+          if (lastExit?.cumulativeOdds == null) return '—'
+          return (lastExit.cumulativeOdds ?? 0).toFixed(2)
+        },
+      },
+      {
+        title: '窗口胜率',
+        key: 'windowWinRate',
+        width: 90,
+        render: (row: CandleLogRow) => {
+          const lastExit = row.exits[row.exits.length - 1] as { windowWinRate?: number } | undefined
+          if (lastExit?.windowWinRate == null) return '—'
+          return `${((lastExit.windowWinRate ?? 0) * 100).toFixed(1)}%`
+        },
+      },
+      {
+        title: '窗口赔率',
+        key: 'windowOdds',
+        width: 90,
+        render: (row: CandleLogRow) => {
+          const lastExit = row.exits[row.exits.length - 1] as { windowOdds?: number } | undefined
+          if (lastExit?.windowOdds == null) return '—'
+          return (lastExit.windowOdds ?? 0).toFixed(2)
+        },
       },
       {
         title: '冷却中',

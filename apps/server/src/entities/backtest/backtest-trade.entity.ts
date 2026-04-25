@@ -39,4 +39,7 @@ export class BacktestTradeEntity {
 
   @Column({ name: 'hold_bars', type: 'integer', nullable: true })
   holdBars: number;
+
+  @Column({ name: 'trade_phase', type: 'varchar', length: 20, nullable: true })
+  tradePhase: string;
 }

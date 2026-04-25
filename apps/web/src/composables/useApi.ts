@@ -69,6 +69,11 @@ export interface CandleLogExit {
   reason: string
   isHalf: boolean
   isSimulation: boolean
+  overallReturnPct?: number
+  cumulativeWinRate?: number
+  cumulativeOdds?: number
+  windowWinRate?: number
+  windowOdds?: number
 }
 
 export interface CandleLogRow {
@@ -183,6 +188,7 @@ export interface BacktestCandleLogFilters {
   tradeStates?: readonly BacktestCandleLogTradeState[]
   symbol?: string
   inCooldown?: boolean | null
+  isSimulation?: boolean | null
   startTs?: string | null
   endTs?: string | null
   equityChangeMin?: number | null
@@ -298,6 +304,7 @@ export const backtestApi = {
     appendQueryParam(qs, 'cooldownDurationMax', params.cooldownDurationMax)
     appendQueryParam(qs, 'cooldownRemainingMin', params.cooldownRemainingMin)
     appendQueryParam(qs, 'cooldownRemainingMax', params.cooldownRemainingMax)
+    if (typeof params.isSimulation === 'boolean') qs.set('isSimulation', String(params.isSimulation))
     appendQueryParam(qs, 'sortBy', params.sortBy)
     appendQueryParam(qs, 'sortOrder', params.sortOrder)
     return request<CandleLogPage>(`${API_BASE}/backtest/runs/${runId}/candle-log?${qs.toString()}`)

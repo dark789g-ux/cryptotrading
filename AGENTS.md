@@ -20,6 +20,7 @@ crtptotrading:加密量化策略
 - 数据库连接字符串使用 utf8mb4
 - 对象键名使用英文（避免 Windows GBK 终端下中文裸键名解析错误）
 - 不要自己测试，用户来测试
+- 涉及数据库调整时，应附带 docker exec 格式的可执行脚本。
 
 ## 技术栈
 - **前端**：Vue 3 + TypeScript + Vite + Naive UI + Vue Router（apps/web）
