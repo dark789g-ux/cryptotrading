@@ -33,7 +33,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { NMenu, NButton, NIcon } from 'naive-ui'
 import {
   ChevronBack, ChevronForward,
-  TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline,
+  TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline, CalculatorOutline,
 } from '@vicons/ionicons5'
 import { useSidebarCollapsed } from '../../composables/useSidebarCollapsed'
 import logoUrl from '@/assets/favicon.svg?url'
@@ -52,6 +52,7 @@ const menuOptions = [
   { label: '标的筛选', key: 'symbols', icon: renderIcon(ListOutline) },
   { label: '数据同步', key: 'sync', icon: renderIcon(SyncOutline) },
   { label: '自选列表', key: 'watchlists', icon: renderIcon(BookmarkOutline) },
+  { label: '工具', key: 'tools', icon: renderIcon(CalculatorOutline) },
   { label: '系统设置', key: 'settings', icon: renderIcon(SettingsOutline) },
 ]
 

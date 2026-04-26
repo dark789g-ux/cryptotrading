@@ -27,6 +27,12 @@ const routes: any[] = [
     meta: { title: '自选列表' },
   },
   {
+    path: '/tools',
+    name: 'tools',
+    component: () => import('../views/ToolsView.vue'),
+    meta: { title: '工具' },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('../views/SettingsView.vue'),
