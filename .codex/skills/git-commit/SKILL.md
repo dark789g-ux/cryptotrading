@@ -1,6 +1,6 @@
 ---
 name: git-commit
-description: 仅手动调用（/git-commit），请勿自动触发。
+description: 用户输入"提交代码"时触发，Claude 根据当前 git 改动分析生成符合 Conventional Commits 规范的 message，经用户确认后完成提交。
 ---
 
 ## 目标
@@ -96,4 +96,4 @@ EOF
 - 不要自动 push
 - 不要跳过用户确认直接提交
 - scope 根据实际改动判断，不确定时省略
-- description 用英文（符合 Conventional Commits 惯例）
+- description 用中文

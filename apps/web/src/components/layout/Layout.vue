@@ -43,7 +43,9 @@ const { isCollapsed } = useSidebarCollapsed()
 }
 
 .main-content {
-  min-height: calc(100vh - 36px);
-  overflow: hidden;
+  height: calc(100vh - 36px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 </style>

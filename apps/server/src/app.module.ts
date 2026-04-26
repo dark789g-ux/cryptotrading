@@ -10,8 +10,12 @@ import { BacktestModule } from './backtest/backtest.module';
 import { WatchlistsModule } from './catalog/watchlists/watchlists.module';
 import { SymbolPresetsModule } from './catalog/symbol-presets/symbol-presets.module';
 import { SettingsModule } from './settings/settings.module';
+import { ASharesModule } from './market-data/a-shares/a-shares.module';
 import { SymbolEntity } from './entities/symbol/symbol.entity';
 import { KlineEntity } from './entities/kline.entity';
+import { AShareSymbolEntity } from './entities/a-share/a-share-symbol.entity';
+import { AShareDailyQuoteEntity } from './entities/a-share/a-share-daily-quote.entity';
+import { AShareDailyMetricEntity } from './entities/a-share/a-share-daily-metric.entity';
 import { StrategyTypeEntity } from './entities/strategy/strategy-type.entity';
 import { StrategyEntity } from './entities/strategy/strategy.entity';
 import { BacktestRunEntity } from './entities/backtest/backtest-run.entity';
@@ -39,6 +43,9 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
         entities: [
           SymbolEntity,
           KlineEntity,
+          AShareSymbolEntity,
+          AShareDailyQuoteEntity,
+          AShareDailyMetricEntity,
           StrategyTypeEntity,
           StrategyEntity,
           BacktestRunEntity,
@@ -63,6 +70,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     WatchlistsModule,
     SymbolPresetsModule,
     SettingsModule,
+    ASharesModule,
   ],
 })
 export class AppModule implements OnModuleInit {

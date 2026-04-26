@@ -368,6 +368,72 @@ export const symbolApi = {
     }),
 }
 
+// A 股
+export interface AShareSummary {
+  totalSymbols: string
+  latestTradeDate: string | null
+  upCount: string
+  downCount: string
+  quotedCount: string
+}
+
+export interface AShareRow {
+  tsCode: string
+  symbol: string
+  name: string
+  market: string | null
+  industry: string | null
+  close: string | null
+  pctChg: string | null
+  amount: string | null
+  turnoverRate: string | null
+  volumeRatio: string | null
+  pe: string | null
+  pb: string | null
+  tradeDate: string | null
+}
+
+export interface AShareFilterOptions {
+  markets: Array<{ value: string }>
+  industries: Array<{ value: string }>
+}
+
+export interface AShareQueryBody {
+  page: number
+  pageSize: number
+  q?: string
+  market?: string | null
+  industry?: string | null
+  sort?: { field?: string; order?: 'ascend' | 'descend' | null; asc?: boolean }
+  conditions?: Array<{ field: string; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; value: number }>
+}
+
+export interface AShareSyncResult {
+  ok: boolean
+  symbols: number
+  quotes: number
+  metrics: number
+  startDate: string
+  endDate: string
+}
+
+export const aSharesApi = {
+  getSummary: () => request<AShareSummary>(`${API_BASE}/a-shares/summary`),
+  getFilterOptions: () => request<AShareFilterOptions>(`${API_BASE}/a-shares/filter-options`),
+  query: (body: AShareQueryBody) =>
+    post<{ rows: AShareRow[]; total: number; page: number; pageSize: number }>(`${API_BASE}/a-shares/query`, body),
+  sync: (body: { tradeDate?: string; startDate?: string; endDate?: string } = {}) =>
+    post<AShareSyncResult>(`${API_BASE}/a-shares/sync`, body),
+  syncRunUrl: (body: { tradeDate?: string; startDate?: string; endDate?: string } = {}) => {
+    const qs = new URLSearchParams()
+    appendQueryParam(qs, 'tradeDate', body.tradeDate)
+    appendQueryParam(qs, 'startDate', body.startDate)
+    appendQueryParam(qs, 'endDate', body.endDate)
+    const query = qs.toString()
+    return `${API_BASE}/a-shares/sync/run${query ? `?${query}` : ''}`
+  },
+}
+
 // ── K 线 ────────────────────────────────────────────────────
 export const klinesApi = {
   getKlines: (symbol: string, interval = '1d') =>

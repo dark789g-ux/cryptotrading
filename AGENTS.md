@@ -39,6 +39,7 @@ crtptotrading:加密量化策略
 - TypeORM：`andWhere` 等字符串里禁 `'[]'::jsonb`（误绑 `:jsonb`），用 `CAST('[]' AS jsonb)`
 - 禁同表 `leftJoin` 再 `getManyAndCount`+`orderBy`（0.3 空 metadata）
 - 不要设计导出CSV的功能。
+- 不要启动VITE预览。
 
 ## DO
 - 优先用 `Naive UI` 组件，禁止自建
