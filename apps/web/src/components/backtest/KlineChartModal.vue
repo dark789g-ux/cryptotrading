@@ -30,19 +30,17 @@
         description="No kline data"
         style="padding: 40px 0"
       />
-      <div v-else ref="chartRef" class="kline-chart" :style="chartStyle" />
+      <kline-chart v-else :data="klineData" :height="chartHeight" :current-ts="ts" :slider-start="0" />
     </template>
   </n-modal>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
-import * as echarts from 'echarts'
+import { computed, ref, watch } from 'vue'
 import { NButton, NEmpty, NIcon, NModal, NSpin, useMessage } from 'naive-ui'
 import { ContractOutline, ExpandOutline } from '@vicons/ionicons5'
-import { buildKlineChartGraphics, buildKlineChartOption } from '../../composables/kline/klineChartOptions'
+import KlineChart from '../kline/KlineChart.vue'
 import { backtestApi, type KlineChartBar } from '../../composables/useApi'
-import { useTheme } from '../../composables/useTheme'
 
 const props = defineProps<{
   show: boolean
@@ -54,13 +52,10 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'update:show', v: boolean): void }>()
 
 const message = useMessage()
-const { echartsTheme } = useTheme()
 
 const loading = ref(false)
 const klineData = ref<KlineChartBar[]>([])
-const chartRef = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
-let chartInstance: echarts.ECharts | null = null
 
 const modalTitle = computed(() => {
   const symbol = props.symbol?.trim() ?? ''
@@ -74,44 +69,10 @@ const modalStyle = computed(() =>
     : 'width: 1150px; max-width: 95vw',
 )
 
-const chartStyle = computed(() => ({
-  height: isFullscreen.value ? 'calc(100vh - 60px)' : '600px',
-  width: '100%',
-}))
+const chartHeight = computed(() => (isFullscreen.value ? 'calc(100vh - 60px)' : '600px'))
 
 const toggleFullscreen = () => {
   isFullscreen.value = !isFullscreen.value
-}
-
-const handleResize = () => chartInstance?.resize()
-
-const renderChart = () => {
-  const el = chartRef.value
-  const data = klineData.value
-  if (!el || !data.length) return
-
-  chartInstance?.dispose()
-  chartInstance = echarts.init(el)
-  chartInstance.setOption(
-    buildKlineChartOption({
-      data,
-      echartsTheme: echartsTheme.value,
-      currentTs: props.ts ?? '',
-      sliderStart: 0,
-    }),
-  )
-
-  const lastIdx = data.length - 1
-  chartInstance.on('updateAxisPointer', (ev: unknown) => {
-    const event = ev as { axesInfo?: { axisDim: string; value: number }[] }
-    const info = event.axesInfo?.find((item) => item.axisDim === 'x')
-    const idx = typeof info?.value === 'number' ? info.value : lastIdx
-    const safeIdx = idx >= 0 && idx < data.length ? idx : lastIdx
-    chartInstance?.setOption({ graphic: buildKlineChartGraphics(safeIdx, data) })
-  })
-
-  window.removeEventListener('resize', handleResize)
-  window.addEventListener('resize', handleResize)
 }
 
 const loadKline = async () => {
@@ -120,8 +81,6 @@ const loadKline = async () => {
   const symbol = props.symbol?.trim() ?? ''
   if (!runId || !ts || !symbol) return
 
-  chartInstance?.dispose()
-  chartInstance = null
   loading.value = true
   klineData.value = []
   try {
@@ -137,18 +96,12 @@ const loadKline = async () => {
     loading.value = false
   }
 
-  if (!klineData.value.length) return
-  await nextTick()
-  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-  renderChart()
 }
 
 watch(
   () => [props.show, props.runId, props.ts, props.symbol] as const,
   async ([show, runId, ts, symbol]) => {
     if (!show) {
-      chartInstance?.dispose()
-      chartInstance = null
       klineData.value = []
       isFullscreen.value = false
       return
@@ -157,23 +110,9 @@ watch(
     await loadKline()
   },
 )
-
-watch(isFullscreen, async () => {
-  await nextTick()
-  chartInstance?.resize()
-})
-
-onUnmounted(() => {
-  chartInstance?.dispose()
-  window.removeEventListener('resize', handleResize)
-})
 </script>
 
 <style scoped>
-.kline-chart {
-  width: 100%;
-}
-
 .chart-center {
   display: flex;
   justify-content: center;

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Post, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { ASharesService, QueryASharesDto, SyncASharesDto } from './a-shares.service';
 
@@ -14,6 +14,11 @@ export class ASharesController {
   @Get('filter-options')
   getFilterOptions() {
     return this.aSharesService.getFilterOptions();
+  }
+
+  @Get(':tsCode/klines')
+  getKlines(@Param('tsCode') tsCode: string, @Query('limit') limit: string | undefined) {
+    return this.aSharesService.getKlines(tsCode, Number(limit));
   }
 
   @Post('query')

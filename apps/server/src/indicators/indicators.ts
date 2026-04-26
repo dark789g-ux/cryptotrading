@@ -25,11 +25,11 @@ export interface KlineRowWithIndicators extends KlineRow {
   'KDJ.D': number;
   'KDJ.J': number;
   BBI: number;
-  MA5: number;
-  MA30: number;
-  MA60: number;
-  MA120: number;
-  MA240: number;
+  MA5: number | null;
+  MA30: number | null;
+  MA60: number | null;
+  MA120: number | null;
+  MA240: number | null;
   '10_quote_volume': number;
   atr_14: number;
   loss_atr_14: number;
@@ -60,12 +60,29 @@ function calcSma(values: number[], period: number): number[] {
   return result;
 }
 
+function calcStrictSma(values: number[], period: number): Array<number | null> {
+  const result: Array<number | null> = [];
+  for (let i = 0; i < values.length; i++) {
+    if (i < period - 1) {
+      result.push(null);
+      continue;
+    }
+    const window = values.slice(i - period + 1, i + 1);
+    result.push(window.reduce((a, b) => a + b, 0) / window.length);
+  }
+  return result;
+}
+
 /** 按有效数字位数四舍五入（Python: _round_sig） */
 function roundSig(x: number, sig = 8): number {
   if (x === 0 || !isFinite(x)) return x;
   const magnitude = Math.floor(Math.log10(Math.abs(x)));
   const factor = Math.pow(10, Math.max(sig - 1 - magnitude, 0));
   return Math.round(x * factor) / factor;
+}
+
+function roundNullableSig(x: number | null, sig = 8): number | null {
+  return x == null ? null : roundSig(x, sig);
 }
 
 /** Wilder's ATR — Python: _calc_atr */
@@ -139,11 +156,11 @@ export function calcIndicators(rows: KlineRow[]): KlineRowWithIndicators[] {
   const sma24 = calcSma(closes, 24);
   const bbi = sma3.map((v, i) => (v + sma6[i] + sma12[i] + sma24[i]) / 4);
 
-  const ma5 = calcSma(closes, 5);
-  const ma30 = calcSma(closes, 30);
-  const ma60 = calcSma(closes, 60);
-  const ma120 = calcSma(closes, 120);
-  const ma240 = calcSma(closes, 240);
+  const ma5 = calcStrictSma(closes, 5);
+  const ma30 = calcStrictSma(closes, 30);
+  const ma60 = calcStrictSma(closes, 60);
+  const ma120 = calcStrictSma(closes, 120);
+  const ma240 = calcStrictSma(closes, 240);
 
   const qvols = rows.map((r) => parseFloat(String(r.quote_volume || 0)));
   const qvol10 = calcSma(qvols, 10);
@@ -174,11 +191,11 @@ export function calcIndicators(rows: KlineRow[]): KlineRowWithIndicators[] {
     'KDJ.D': parseFloat(dVals[i].toFixed(4)),
     'KDJ.J': parseFloat(jVals[i].toFixed(4)),
     BBI: roundSig(bbi[i], 8),
-    MA5: roundSig(ma5[i], 8),
-    MA30: roundSig(ma30[i], 8),
-    MA60: roundSig(ma60[i], 8),
-    MA120: roundSig(ma120[i], 8),
-    MA240: roundSig(ma240[i], 8),
+    MA5: roundNullableSig(ma5[i], 8),
+    MA30: roundNullableSig(ma30[i], 8),
+    MA60: roundNullableSig(ma60[i], 8),
+    MA120: roundNullableSig(ma120[i], 8),
+    MA240: roundNullableSig(ma240[i], 8),
     '10_quote_volume': parseFloat(qvol10[i].toFixed(2)),
     atr_14: roundSig(atr14[i], 8),
     loss_atr_14: roundSig(closes[i] - atr14[i], 8),

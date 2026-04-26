@@ -390,7 +390,26 @@ export interface AShareRow {
   volumeRatio: string | null
   pe: string | null
   pb: string | null
+  totalMv?: string | null
+  circMv?: string | null
   tradeDate: string | null
+}
+
+export interface AShareKlineBar extends KlineChartBar {
+  quote_volume: number
+  '10_quote_volume': number | null
+  atr_14: number | null
+  loss_atr_14: number | null
+  low_9: number | null
+  high_9: number | null
+  stop_loss_pct: number | null
+  risk_reward_ratio: number | null
+  turnoverRate: number | null
+  volumeRatio: number | null
+  pe: number | null
+  pb: number | null
+  totalMv: number | null
+  circMv: number | null
 }
 
 export interface AShareFilterOptions {
@@ -413,6 +432,7 @@ export interface AShareSyncResult {
   symbols: number
   quotes: number
   metrics: number
+  indicators: number
   startDate: string
   endDate: string
 }
@@ -422,6 +442,8 @@ export const aSharesApi = {
   getFilterOptions: () => request<AShareFilterOptions>(`${API_BASE}/a-shares/filter-options`),
   query: (body: AShareQueryBody) =>
     post<{ rows: AShareRow[]; total: number; page: number; pageSize: number }>(`${API_BASE}/a-shares/query`, body),
+  getKlines: (tsCode: string, limit = 300) =>
+    request<AShareKlineBar[]>(`${API_BASE}/a-shares/${encodeURIComponent(tsCode)}/klines?limit=${limit}`),
   sync: (body: { tradeDate?: string; startDate?: string; endDate?: string } = {}) =>
     post<AShareSyncResult>(`${API_BASE}/a-shares/sync`, body),
   syncRunUrl: (body: { tradeDate?: string; startDate?: string; endDate?: string } = {}) => {

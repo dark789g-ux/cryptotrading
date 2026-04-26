@@ -6,7 +6,8 @@
     "dev": "nest start",
     "build": "nest build",
     "start": "node dist/main",
-    "migration:csv": "ts-node -r tsconfig-paths/register src/migration/csv-import.ts"
+    "migration:csv": "ts-node -r tsconfig-paths/register src/migration/csv-import.ts",
+    "migration:a-share-brick": "ts-node -r tsconfig-paths/register src/migration/a-share-brick-backfill.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

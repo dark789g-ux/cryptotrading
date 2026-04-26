@@ -16,6 +16,7 @@ import { KlineEntity } from './entities/kline.entity';
 import { AShareSymbolEntity } from './entities/a-share/a-share-symbol.entity';
 import { AShareDailyQuoteEntity } from './entities/a-share/a-share-daily-quote.entity';
 import { AShareDailyMetricEntity } from './entities/a-share/a-share-daily-metric.entity';
+import { AShareDailyIndicatorEntity } from './entities/a-share/a-share-daily-indicator.entity';
 import { StrategyTypeEntity } from './entities/strategy/strategy-type.entity';
 import { StrategyEntity } from './entities/strategy/strategy.entity';
 import { BacktestRunEntity } from './entities/backtest/backtest-run.entity';
@@ -46,6 +47,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           AShareSymbolEntity,
           AShareDailyQuoteEntity,
           AShareDailyMetricEntity,
+          AShareDailyIndicatorEntity,
           StrategyTypeEntity,
           StrategyEntity,
           BacktestRunEntity,

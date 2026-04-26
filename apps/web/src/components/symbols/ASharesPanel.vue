@@ -59,15 +59,22 @@
       :sync-message="syncMessage"
       @confirm="syncAShares"
     />
+
+    <a-share-detail-drawer
+      v-model:show="showDetailDrawer"
+      :row="selectedDetailRow"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 defineOptions({ name: 'ASharesPanel' })
 
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { NButton, NCard, NDataTable, NIcon, NSpace, useMessage } from 'naive-ui'
 import { CloudDownloadOutline, RefreshOutline } from '@vicons/ionicons5'
+import type { AShareRow } from '../../composables/useApi'
+import AShareDetailDrawer from './a-shares/AShareDetailDrawer.vue'
 import ASharesFilters from './a-shares/ASharesFilters.vue'
 import ASharesSummaryCards from './a-shares/ASharesSummaryCards.vue'
 import ASharesSyncModal from './a-shares/ASharesSyncModal.vue'
@@ -113,7 +120,15 @@ const {
   syncAShares,
 } = useASharesSync(message, reload)
 
-const columns = computed(() => createASharesColumns())
+const showDetailDrawer = ref(false)
+const selectedDetailRow = ref<AShareRow | null>(null)
+
+function handleViewDetail(row: AShareRow) {
+  selectedDetailRow.value = row
+  showDetailDrawer.value = true
+}
+
+const columns = computed(() => createASharesColumns({ onViewDetail: handleViewDetail }))
 
 onMounted(() => {
   void reload()

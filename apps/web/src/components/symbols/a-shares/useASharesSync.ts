@@ -71,7 +71,7 @@ export function useASharesSync(
   async function finishSyncAShares(data: unknown) {
     const res = parseSyncResult(data)
     if (res) {
-      message.success(`同步完成：标的 ${res.symbols}，日线 ${res.quotes}，指标 ${res.metrics}`)
+      message.success(`同步完成：标的 ${res.symbols}，日线 ${res.quotes}，每日指标 ${res.metrics}，技术指标 ${res.indicators}`)
     } else {
       message.success('同步完成')
     }
@@ -110,6 +110,7 @@ function parseSyncResult(data: unknown): AShareSyncResult | null {
     typeof value.symbols !== 'number' ||
     typeof value.quotes !== 'number' ||
     typeof value.metrics !== 'number' ||
+    typeof value.indicators !== 'number' ||
     typeof value.startDate !== 'string' ||
     typeof value.endDate !== 'string'
   ) {
@@ -120,6 +121,7 @@ function parseSyncResult(data: unknown): AShareSyncResult | null {
     symbols: value.symbols,
     quotes: value.quotes,
     metrics: value.metrics,
+    indicators: value.indicators,
     startDate: value.startDate,
     endDate: value.endDate,
   }

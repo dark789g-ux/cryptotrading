@@ -4,7 +4,11 @@ import { OpenOutline } from '@vicons/ionicons5'
 import type { AShareRow } from '../../../composables/useApi'
 import { formatAmount, formatNumber, formatPercent, formatTradeDate, trendClass } from './aSharesFormatters'
 
-export function createASharesColumns(): DataTableColumns<AShareRow> {
+interface ASharesColumnsOptions {
+  onViewDetail: (row: AShareRow) => void
+}
+
+export function createASharesColumns(options: ASharesColumnsOptions): DataTableColumns<AShareRow> {
   return [
     { title: '代码', key: 'tsCode', width: 110, fixed: 'left', sorter: true },
     { title: '名称', key: 'name', width: 120, fixed: 'left', sorter: true },
@@ -28,15 +32,15 @@ export function createASharesColumns(): DataTableColumns<AShareRow> {
       key: 'actions',
       width: 70,
       fixed: 'right',
-      render: () =>
+      render: (row) =>
         h(NTooltip, null, {
           trigger: () =>
             h(
               NButton,
-              { size: 'small', disabled: true },
+              { size: 'small', onClick: () => options.onViewDetail(row) },
               { icon: () => h(NIcon, null, () => h(OpenOutline)) },
             ),
-          default: () => '详情入口待接入',
+          default: () => '查看K线详情',
         }),
     },
   ]

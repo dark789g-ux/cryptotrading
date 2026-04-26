@@ -93,10 +93,10 @@
       placement="right"
       :width="1000"
       class="glass-drawer"
-      @after-enter="renderChart"
     >
       <n-drawer-content :title="`${selectedSymbol} · ${selectedInterval.toUpperCase()}`" closable>
-        <div ref="chartRef" class="kline-chart" />
+        <kline-chart v-if="klineData.length" :data="klineData" height="700px" :slider-start="70" />
+        <n-empty v-else description="No kline data" style="padding: 40px 0" />
       </n-drawer-content>
     </n-drawer>
   </div>
@@ -105,8 +105,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'CryptoSymbolsPanel' })
 
-import { computed, h, onMounted, onUnmounted, ref } from 'vue'
-import * as echarts from 'echarts'
+import { computed, h, onMounted, ref } from 'vue'
 import {
   NBadge,
   NButton,
@@ -128,9 +127,8 @@ import {
   useMessage,
 } from 'naive-ui'
 import { CloseOutline, FilterOutline, RefreshOutline, SearchOutline, TrendingUpOutline } from '@vicons/ionicons5'
-import { buildKlineChartGraphics, buildKlineChartOption } from '../../composables/kline/klineChartOptions'
+import KlineChart from '../kline/KlineChart.vue'
 import { klinesApi, symbolApi, type KlineChartBar } from '../../composables/useApi'
-import { useTheme } from '../../composables/useTheme'
 
 interface FilterCondition {
   field: string
@@ -156,7 +154,6 @@ interface SymbolRow {
 }
 
 const message = useMessage()
-const { echartsTheme } = useTheme()
 
 const selectedInterval = ref('1h')
 const intervalOptions = [
@@ -172,7 +169,7 @@ const searchQuery = ref('')
 const showFilterDrawer = ref(false)
 const showChartDrawer = ref(false)
 const selectedSymbol = ref('')
-const chartRef = ref<HTMLElement | null>(null)
+const klineData = ref<KlineChartBar[]>([])
 const conditions = ref<FilterCondition[]>([])
 const newCondition = ref<FilterCondition>({ field: '', op: 'gt', value: 0 })
 const fieldOptions = ref<FieldOption[]>([])
@@ -180,9 +177,6 @@ const sortKey = ref<string | null>(null)
 const sortOrder = ref<'ascend' | 'descend' | null>(null)
 const page = ref(1)
 const pageSize = ref(20)
-
-let chart: echarts.ECharts | null = null
-let klineData: KlineChartBar[] = []
 
 const opOptions = [
   { label: '>', value: 'gt' },
@@ -273,8 +267,6 @@ const buildQuery = () => ({
   page_size: pageSize.value,
 })
 
-const handleResize = () => chart?.resize()
-
 const loadData = async () => {
   loading.value = true
   try {
@@ -338,34 +330,12 @@ const handleSort = (sorter: DataTableSortState | DataTableSortState[] | null) =>
   void loadData()
 }
 
-const renderChart = () => {
-  if (!chartRef.value || !klineData.length) return
-  chart?.dispose()
-  chart = echarts.init(chartRef.value)
-  chart.setOption(
-    buildKlineChartOption({
-      data: klineData,
-      echartsTheme: echartsTheme.value,
-      sliderStart: 70,
-    }),
-  )
-
-  const lastIdx = klineData.length - 1
-  chart.on('updateAxisPointer', (ev: unknown) => {
-    const event = ev as { axesInfo?: { axisDim: string; value: number }[] }
-    const info = event.axesInfo?.find((item) => item.axisDim === 'x')
-    const idx = typeof info?.value === 'number' ? info.value : lastIdx
-    const safeIdx = idx >= 0 && idx < klineData.length ? idx : lastIdx
-    chart?.setOption({ graphic: buildKlineChartGraphics(safeIdx, klineData) })
-  })
-}
-
 const openChart = async (symbol: string) => {
   selectedSymbol.value = symbol
   showChartDrawer.value = true
+  klineData.value = []
   try {
-    klineData = await klinesApi.getKlines(symbol, selectedInterval.value)
-    renderChart()
+    klineData.value = await klinesApi.getKlines(symbol, selectedInterval.value)
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
   }
@@ -374,12 +344,6 @@ const openChart = async (symbol: string) => {
 onMounted(() => {
   void loadFields()
   void loadData()
-  window.addEventListener('resize', handleResize)
-})
-
-onUnmounted(() => {
-  chart?.dispose()
-  window.removeEventListener('resize', handleResize)
 })
 </script>
 
@@ -391,5 +355,4 @@ onUnmounted(() => {
 .filter-form h4 { margin: 16px 0 8px; font-size: 14px; font-weight: 600; color: var(--ember-text-secondary); }
 .condition-list { display: flex; flex-direction: column; gap: 8px; }
 .condition-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--ember-surface-hover); border-radius: 8px; }
-.kline-chart { height: 700px; width: 100%; }
 </style>
