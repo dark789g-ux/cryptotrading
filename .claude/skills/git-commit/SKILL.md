@@ -96,4 +96,4 @@ EOF
 - 不要自动 push
 - 不要跳过用户确认直接提交
 - scope 根据实际改动判断，不确定时省略
-- description 用英文（符合 Conventional Commits 惯例）
+- description 用中文

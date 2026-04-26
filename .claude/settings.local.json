@@ -6,7 +6,9 @@
       "Bash(mv \"c:/codes/cryptotrading/.spec/kline-chart/kdj-chart.md\" \"c:/codes/cryptotrading/.spec/kline-chart/charts/\")",
       "Bash(mv \"c:/codes/cryptotrading/.spec/kline-chart/macd-chart.md\" \"c:/codes/cryptotrading/.spec/kline-chart/charts/\")",
       "Bash(mv \"c:/codes/cryptotrading/.spec/kline-chart/brick-chart.md\" \"c:/codes/cryptotrading/.spec/kline-chart/charts/\")",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(c:/codes/cryptotrading/.claude/skills/brainstorming/scripts/start-server.sh --project-dir c:/codes/cryptotrading)",
+      "Bash(git commit *)"
     ]
   }
 }

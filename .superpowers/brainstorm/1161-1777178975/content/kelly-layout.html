@@ -1,0 +1,89 @@
+<h2>凯利公式计算器 — 布局方案</h2>
+<p class="subtitle">为"工具"页面选择一种布局风格</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#0f1117;border-radius:8px;padding:16px;font-size:12px;color:#aaa;min-height:200px">
+        <div style="color:#F0B90B;font-weight:700;margin-bottom:12px;font-size:13px">凯利公式计算器</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+          <div style="background:#1a1d24;border-radius:6px;padding:8px">
+            <div style="color:#666;font-size:10px;margin-bottom:4px">胜率 (%)</div>
+            <div style="background:#222;border-radius:4px;height:24px;border:1px solid #333"></div>
+          </div>
+          <div style="background:#1a1d24;border-radius:6px;padding:8px">
+            <div style="color:#666;font-size:10px;margin-bottom:4px">盈亏比</div>
+            <div style="background:#222;border-radius:4px;height:24px;border:1px solid #333"></div>
+          </div>
+          <div style="background:#1a1d24;border-radius:6px;padding:8px">
+            <div style="color:#666;font-size:10px;margin-bottom:4px">凯利乘数</div>
+            <div style="background:#222;border-radius:4px;height:24px;border:1px solid #333"></div>
+          </div>
+          <div style="background:#1a1d24;border-radius:6px;padding:8px">
+            <div style="color:#666;font-size:10px;margin-bottom:4px">账户资金</div>
+            <div style="background:#222;border-radius:4px;height:24px;border:1px solid #333"></div>
+          </div>
+        </div>
+        <div style="background:#F0B90B;color:#1a1d24;border-radius:6px;text-align:center;padding:6px;font-weight:700;font-size:11px;margin-bottom:12px">计算</div>
+        <div style="background:#1a1d24;border-radius:6px;padding:10px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center">
+          <div><div style="color:#0ECB81;font-size:14px;font-weight:700">23.5%</div><div style="color:#555;font-size:9px">完整凯利</div></div>
+          <div><div style="color:#F0B90B;font-size:14px;font-weight:700">11.75%</div><div style="color:#555;font-size:9px">半凯利</div></div>
+          <div><div style="color:#aaa;font-size:14px;font-weight:700">$2,350</div><div style="color:#555;font-size:9px">建议仓位</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A · 紧凑卡片式</h3>
+      <p>输入区与结果区并排在单个卡片中，适合信息密度高的风格。结果即时显示在输入区下方。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#0f1117;border-radius:8px;padding:16px;font-size:12px;color:#aaa;min-height:200px;display:flex;gap:12px">
+        <div style="flex:1;background:#1a1d24;border-radius:8px;padding:12px">
+          <div style="color:#F0B90B;font-weight:700;margin-bottom:10px;font-size:12px">参数输入</div>
+          <div style="margin-bottom:8px">
+            <div style="color:#666;font-size:10px;margin-bottom:3px">胜率 (%)</div>
+            <div style="background:#222;border-radius:4px;height:22px;border:1px solid #333"></div>
+          </div>
+          <div style="margin-bottom:8px">
+            <div style="color:#666;font-size:10px;margin-bottom:3px">盈亏比 (R)</div>
+            <div style="background:#222;border-radius:4px;height:22px;border:1px solid #333"></div>
+          </div>
+          <div style="margin-bottom:8px">
+            <div style="color:#666;font-size:10px;margin-bottom:3px">账户资金 ($)</div>
+            <div style="background:#222;border-radius:4px;height:22px;border:1px solid #333"></div>
+          </div>
+          <div style="margin-bottom:8px">
+            <div style="color:#666;font-size:10px;margin-bottom:3px">凯利乘数</div>
+            <div style="background:#222;border-radius:4px;height:22px;border:1px solid #333"></div>
+          </div>
+          <div style="background:#F0B90B;color:#1a1d24;border-radius:5px;text-align:center;padding:5px;font-weight:700;font-size:10px">计算</div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+          <div style="background:#1a1d24;border-radius:8px;padding:12px;flex:1">
+            <div style="color:#666;font-size:10px;margin-bottom:6px">凯利建议仓位</div>
+            <div style="color:#0ECB81;font-size:22px;font-weight:700">23.5%</div>
+            <div style="color:#555;font-size:9px">完整凯利</div>
+          </div>
+          <div style="background:#1a1d24;border-radius:8px;padding:12px;flex:1">
+            <div style="color:#666;font-size:10px;margin-bottom:6px">保守仓位 (半凯利)</div>
+            <div style="color:#F0B90B;font-size:22px;font-weight:700">11.75%</div>
+            <div style="color:#555;font-size:9px">≈ $2,350</div>
+          </div>
+          <div style="background:#1a1d24;border-radius:8px;padding:12px">
+            <div style="color:#666;font-size:10px;margin-bottom:4px">公式说明</div>
+            <div style="color:#555;font-size:9px;line-height:1.5">f* = W/L - (1−W)/R<br>W=胜率 R=盈亏比</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B · 左右分栏式</h3>
+      <p>左侧输入参数，右侧实时显示多项结果指标。结果卡片更突出，适合重点展示计算值。</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:16px">点击选择你偏好的布局，或在终端直接告诉我</p>
