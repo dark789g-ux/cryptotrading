@@ -369,6 +369,8 @@ export const symbolApi = {
 }
 
 // A 股
+export type ASharePriceMode = 'qfq' | 'raw'
+
 export interface AShareSummary {
   totalSymbols: string
   latestTradeDate: string | null
@@ -384,6 +386,7 @@ export interface AShareRow {
   market: string | null
   industry: string | null
   close: string | null
+  change: string | null
   pctChg: string | null
   amount: string | null
   turnoverRate: string | null
@@ -396,6 +399,7 @@ export interface AShareRow {
 }
 
 export interface AShareKlineBar extends KlineChartBar {
+  pctChg: number | null
   quote_volume: number
   '10_quote_volume': number | null
   atr_14: number | null
@@ -417,22 +421,32 @@ export interface AShareFilterOptions {
   industries: Array<{ value: string }>
 }
 
+export interface AShareDateRange {
+  min: string | null
+  max: string | null
+}
+
 export interface AShareQueryBody {
   page: number
   pageSize: number
   q?: string
   market?: string | null
   industry?: string | null
+  priceMode?: ASharePriceMode
   sort?: { field?: string; order?: 'ascend' | 'descend' | null; asc?: boolean }
   conditions?: Array<{ field: string; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; value: number }>
 }
 
 export interface AShareSyncResult {
   ok: boolean
+  status: 'done' | 'partial' | 'error'
   symbols: number
   quotes: number
   metrics: number
+  adjFactors: number
   indicators: number
+  failedCount: number
+  failedItems: Array<{ tradeDate?: string; apiName: string; message: string }>
   startDate: string
   endDate: string
 }
@@ -440,10 +454,15 @@ export interface AShareSyncResult {
 export const aSharesApi = {
   getSummary: () => request<AShareSummary>(`${API_BASE}/a-shares/summary`),
   getFilterOptions: () => request<AShareFilterOptions>(`${API_BASE}/a-shares/filter-options`),
+  getDateRange: () => request<AShareDateRange>(`${API_BASE}/a-shares/date-range`),
   query: (body: AShareQueryBody) =>
     post<{ rows: AShareRow[]; total: number; page: number; pageSize: number }>(`${API_BASE}/a-shares/query`, body),
-  getKlines: (tsCode: string, limit = 300) =>
-    request<AShareKlineBar[]>(`${API_BASE}/a-shares/${encodeURIComponent(tsCode)}/klines?limit=${limit}`),
+  getKlines: (tsCode: string, limit = 300, priceMode: ASharePriceMode = 'qfq') => {
+    const qs = new URLSearchParams()
+    qs.set('limit', String(limit))
+    qs.set('priceMode', priceMode)
+    return request<AShareKlineBar[]>(`${API_BASE}/a-shares/${encodeURIComponent(tsCode)}/klines?${qs.toString()}`)
+  },
   sync: (body: { tradeDate?: string; startDate?: string; endDate?: string } = {}) =>
     post<AShareSyncResult>(`${API_BASE}/a-shares/sync`, body),
   syncRunUrl: (body: { tradeDate?: string; startDate?: string; endDate?: string } = {}) => {

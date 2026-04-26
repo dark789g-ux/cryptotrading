@@ -41,6 +41,27 @@ export class AShareDailyQuoteEntity {
   @Column({ type: 'numeric', precision: 30, scale: 10, nullable: true })
   amount: string;
 
+  @Column({ name: 'qfq_open', type: 'numeric', precision: 30, scale: 10, nullable: true })
+  qfqOpen: string;
+
+  @Column({ name: 'qfq_high', type: 'numeric', precision: 30, scale: 10, nullable: true })
+  qfqHigh: string;
+
+  @Column({ name: 'qfq_low', type: 'numeric', precision: 30, scale: 10, nullable: true })
+  qfqLow: string;
+
+  @Column({ name: 'qfq_close', type: 'numeric', precision: 30, scale: 10, nullable: true })
+  qfqClose: string;
+
+  @Column({ name: 'qfq_pre_close', type: 'numeric', precision: 30, scale: 10, nullable: true })
+  qfqPreClose: string;
+
+  @Column({ name: 'qfq_change', type: 'numeric', precision: 30, scale: 10, nullable: true })
+  qfqChange: string;
+
+  @Column({ name: 'qfq_pct_chg', type: 'numeric', precision: 30, scale: 10, nullable: true })
+  qfqPctChg: string;
+
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }

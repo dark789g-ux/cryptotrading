@@ -36,3 +36,9 @@ export const DAILY_BASIC_FIELDS = [
   'total_mv',
   'circ_mv',
 ].join(',');
+
+export const ADJ_FACTOR_FIELDS = [
+  'ts_code',
+  'trade_date',
+  'adj_factor',
+].join(',');

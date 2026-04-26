@@ -16,9 +16,18 @@ export class ASharesController {
     return this.aSharesService.getFilterOptions();
   }
 
+  @Get('date-range')
+  getDateRange() {
+    return this.aSharesService.getDateRange();
+  }
+
   @Get(':tsCode/klines')
-  getKlines(@Param('tsCode') tsCode: string, @Query('limit') limit: string | undefined) {
-    return this.aSharesService.getKlines(tsCode, Number(limit));
+  getKlines(
+    @Param('tsCode') tsCode: string,
+    @Query('limit') limit: string | undefined,
+    @Query('priceMode') priceMode: 'qfq' | 'raw' | undefined,
+  ) {
+    return this.aSharesService.getKlines(tsCode, Number(limit), priceMode === 'raw' ? 'raw' : 'qfq');
   }
 
   @Post('query')

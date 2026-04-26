@@ -7,8 +7,8 @@ export interface SelectOption {
 }
 
 export interface Condition {
-  field: 'pctChg' | 'turnoverRate'
-  op: 'gte'
+  field: string
+  op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'
   value: number
 }
 

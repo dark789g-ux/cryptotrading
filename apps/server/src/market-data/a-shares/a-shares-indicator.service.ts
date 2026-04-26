@@ -29,40 +29,48 @@ export class ASharesIndicatorService {
     return count;
   }
 
+  async recalculateIndicatorsForSymbols(tsCodes: string[]): Promise<number> {
+    let count = 0;
+    for (const tsCode of [...new Set(tsCodes)].filter((value) => value.length > 0).sort()) {
+      count += await this.recalculateIndicatorsForSymbol(tsCode);
+    }
+    return count;
+  }
+
   private async recalculateIndicatorsForSymbol(tsCode: string): Promise<number> {
     const rows = await this.dataSource.query<AShareQuoteForIndicator[]>(`
       SELECT
         ts_code AS "tsCode",
         trade_date AS "tradeDate",
-        open,
-        high,
-        low,
-        close,
+        qfq_open AS "qfqOpen",
+        qfq_high AS "qfqHigh",
+        qfq_low AS "qfqLow",
+        qfq_close AS "qfqClose",
         vol,
         amount
       FROM a_share_daily_quotes
       WHERE ts_code = $1
-        AND open IS NOT NULL
-        AND high IS NOT NULL
-        AND low IS NOT NULL
-        AND close IS NOT NULL
+        AND qfq_open IS NOT NULL
+        AND qfq_high IS NOT NULL
+        AND qfq_low IS NOT NULL
+        AND qfq_close IS NOT NULL
       ORDER BY trade_date ASC
     `, [tsCode]);
     if (!rows.length) return 0;
 
     const withIndicators = calcIndicators(rows.map((row): KlineRow => ({
       open_time: row.tradeDate,
-      open: row.open ?? 0,
-      high: row.high ?? 0,
-      low: row.low ?? 0,
-      close: row.close ?? 0,
+      open: row.qfqOpen ?? 0,
+      high: row.qfqHigh ?? 0,
+      low: row.qfqLow ?? 0,
+      close: row.qfqClose ?? 0,
       volume: row.vol ?? 0,
       quote_volume: row.amount ?? 0,
     })));
     const brickChart = calcBrickChartPoints(rows.map((row) => ({
-      high: Number(row.high ?? 0),
-      low: Number(row.low ?? 0),
-      close: Number(row.close ?? 0),
+      high: Number(row.qfqHigh ?? 0),
+      low: Number(row.qfqLow ?? 0),
+      close: Number(row.qfqClose ?? 0),
     })));
 
     const entities = withIndicators.map((row, index) =>

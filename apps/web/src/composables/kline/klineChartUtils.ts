@@ -9,6 +9,15 @@ export const ARROW_RICH = {
 export const fmt = (value: unknown, digits = 4) =>
   value === null || value === undefined || Number.isNaN(Number(value)) ? '-' : Number(value).toFixed(digits)
 
+export const fmtCompact = (value: unknown, digits = 2) => {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '-'
+  const abs = Math.abs(num)
+  if (abs >= 100_000_000) return `${(num / 100_000_000).toFixed(digits)}亿`
+  if (abs >= 10_000) return `${(num / 10_000).toFixed(digits)}万`
+  return num.toFixed(digits)
+}
+
 export const fmtXg = (value: boolean | undefined) => (value ? '1' : '0')
 
 export const arrowRichTag = (key: 'up' | 'down' | 'eq'): string => {

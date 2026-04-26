@@ -27,11 +27,14 @@
         >
           <template #prefix><n-icon><search-outline /></n-icon></template>
         </n-input>
-        <n-button @click="showFilterDrawer = true">
-          <template #icon><n-icon><filter-outline /></n-icon></template>
-          Filters
-          <n-badge v-if="conditions.length" :value="conditions.length" />
-        </n-button>
+        <numeric-condition-filter
+          v-model:conditions="conditions"
+          title="Filters"
+          button-label="Filters"
+          description="Use latest kline indicators to filter symbols."
+          :field-options="fieldOptions"
+          empty-description="No conditions"
+        />
         <n-button @click="resetFilters">Reset</n-button>
         <n-button type="primary" @click="applyFilters">Apply</n-button>
       </div>
@@ -55,39 +58,6 @@
       />
     </n-card>
 
-    <n-drawer v-model:show="showFilterDrawer" placement="right" :width="400" class="glass-drawer">
-      <n-drawer-content title="Filters" closable>
-        <div class="filter-form">
-          <h4>Field</h4>
-          <n-select v-model:value="newCondition.field" :options="fieldOptions" placeholder="Select field" />
-          <h4>Operator</h4>
-          <n-select v-model:value="newCondition.op" :options="opOptions" placeholder="Select operator" />
-          <h4>Value</h4>
-          <n-input-number v-model:value="newCondition.value" style="width: 100%" />
-          <n-button
-            type="primary"
-            block
-            style="margin-top: 12px"
-            :disabled="!canAddCondition"
-            @click="addCondition"
-          >
-            Add condition
-          </n-button>
-          <n-divider />
-          <h4>Current conditions</h4>
-          <n-empty v-if="!conditions.length" description="No conditions" />
-          <div v-else class="condition-list">
-            <div v-for="(cond, index) in conditions" :key="index" class="condition-item">
-              <span>{{ cond.field }} {{ opLabels[cond.op] }} {{ cond.value }}</span>
-              <n-button quaternary circle size="small" @click="removeCondition(index)">
-                <template #icon><n-icon><close-outline /></n-icon></template>
-              </n-button>
-            </div>
-          </div>
-        </div>
-      </n-drawer-content>
-    </n-drawer>
-
     <n-drawer
       v-model:show="showChartDrawer"
       placement="right"
@@ -107,17 +77,13 @@ defineOptions({ name: 'CryptoSymbolsPanel' })
 
 import { computed, h, onMounted, ref } from 'vue'
 import {
-  NBadge,
   NButton,
   NCard,
   NDataTable,
-  NDivider,
   NDrawer,
   NDrawerContent,
-  NEmpty,
   NIcon,
   NInput,
-  NInputNumber,
   NSelect,
   NSpace,
   NTag,
@@ -126,20 +92,11 @@ import {
   type DataTableSortState,
   useMessage,
 } from 'naive-ui'
-import { CloseOutline, FilterOutline, RefreshOutline, SearchOutline, TrendingUpOutline } from '@vicons/ionicons5'
+import { RefreshOutline, SearchOutline, TrendingUpOutline } from '@vicons/ionicons5'
 import KlineChart from '../kline/KlineChart.vue'
+import NumericConditionFilter from '../common/NumericConditionFilter.vue'
+import type { NumericCondition, NumericConditionFieldOption } from '../common/numericConditionFilterTypes'
 import { klinesApi, symbolApi, type KlineChartBar } from '../../composables/useApi'
-
-interface FilterCondition {
-  field: string
-  op: 'gt' | 'lt' | 'gte' | 'lte'
-  value: number
-}
-
-interface FieldOption {
-  label: string
-  value: string
-}
 
 interface SymbolRow {
   symbol: string
@@ -166,33 +123,24 @@ const loading = ref(false)
 const symbols = ref<SymbolRow[]>([])
 const total = ref(0)
 const searchQuery = ref('')
-const showFilterDrawer = ref(false)
 const showChartDrawer = ref(false)
 const selectedSymbol = ref('')
 const klineData = ref<KlineChartBar[]>([])
-const conditions = ref<FilterCondition[]>([])
-const newCondition = ref<FilterCondition>({ field: '', op: 'gt', value: 0 })
-const fieldOptions = ref<FieldOption[]>([])
+const conditions = ref<NumericCondition[]>([])
+const fieldOptions = ref<NumericConditionFieldOption[]>([])
 const sortKey = ref<string | null>(null)
 const sortOrder = ref<'ascend' | 'descend' | null>(null)
 const page = ref(1)
 const pageSize = ref(20)
 
-const opOptions = [
-  { label: '>', value: 'gt' },
-  { label: '<', value: 'lt' },
-  { label: '>=', value: 'gte' },
-  { label: '<=', value: 'lte' },
-] satisfies Array<{ label: string; value: FilterCondition['op'] }>
-
-const opLabels: Record<FilterCondition['op'], string> = {
+const opLabels: Record<NumericCondition['op'], string> = {
   gt: '>',
-  lt: '<',
   gte: '>=',
+  lt: '<',
   lte: '<=',
+  eq: '=',
+  neq: '!=',
 }
-
-const canAddCondition = computed(() => Boolean(newCondition.value.field))
 
 const paginationState = computed(() => ({
   page: page.value,
@@ -301,12 +249,6 @@ const resetFilters = () => {
   void loadData()
 }
 
-const addCondition = () => {
-  if (!canAddCondition.value) return
-  conditions.value.push({ ...newCondition.value })
-  newCondition.value = { field: '', op: 'gt', value: 0 }
-}
-
 const removeCondition = (index: number) => {
   conditions.value.splice(index, 1)
   applyFilters()
@@ -352,7 +294,4 @@ onMounted(() => {
 .panel-title { margin: 0; font-size: 22px; line-height: 1.2; }
 .filter-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .filter-tags { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
-.filter-form h4 { margin: 16px 0 8px; font-size: 14px; font-weight: 600; color: var(--ember-text-secondary); }
-.condition-list { display: flex; flex-direction: column; gap: 8px; }
-.condition-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--ember-surface-hover); border-radius: 8px; }
 </style>

@@ -6,19 +6,21 @@ import { formatAmount, formatNumber, formatPercent, formatTradeDate, trendClass 
 
 interface ASharesColumnsOptions {
   onViewDetail: (row: AShareRow) => void
+  priceMode: 'qfq' | 'raw'
 }
 
 export function createASharesColumns(options: ASharesColumnsOptions): DataTableColumns<AShareRow> {
+  const priceSuffix = options.priceMode === 'raw' ? '原始' : '前复权'
   return [
     { title: '代码', key: 'tsCode', width: 110, fixed: 'left', sorter: true },
     { title: '名称', key: 'name', width: 120, fixed: 'left', sorter: true },
     { title: '市场', key: 'market', width: 100, sorter: true, render: (row) => row.market ?? '-' },
     { title: '行业', key: 'industry', width: 120, sorter: true, render: (row) => row.industry ?? '-' },
-    { title: '最新价', key: 'close', width: 110, sorter: true, render: (row) => formatNumber(row.close, 2) },
+    { title: `最新价(${priceSuffix})`, key: 'close', width: 130, sorter: true, render: (row) => formatNumber(row.close, 2) },
     {
-      title: '涨跌幅',
+      title: `涨跌幅(${priceSuffix})`,
       key: 'pctChg',
-      width: 110,
+      width: 130,
       sorter: true,
       render: (row) => h('span', { class: trendClass(row.pctChg) }, formatPercent(row.pctChg)),
     },

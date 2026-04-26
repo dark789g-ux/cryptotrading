@@ -83,6 +83,12 @@ export function buildKlineChartOption({
 
   const difValues = data.map((row) => row.DIF)
   const deaValues = data.map((row) => row.DEA)
+  const volumeData: BarSeriesOption['data'] = data.map((row) => ({
+    value: row.volume,
+    itemStyle: {
+      color: row.close >= row.open ? CANDLE_COLORS.up : CANDLE_COLORS.down,
+    },
+  }))
   const macdPositiveData = data.map((row, i) => {
     if (row.MACD == null || row.MACD <= 0) return null
     const prev = i > 0 ? data[i - 1].MACD : null
@@ -142,8 +148,8 @@ export function buildKlineChartOption({
   const kdjSeries: LineSeriesOption[] = (['KDJ.K', 'KDJ.D', 'KDJ.J'] as const).map((key, idx) => ({
     name: key,
     type: 'line',
-    xAxisIndex: 1,
-    yAxisIndex: 1,
+    xAxisIndex: 2,
+    yAxisIndex: 2,
     data: data.map((row) => row[key]),
     showSymbol: false,
     lineStyle: { width: 1, color: KDJ_COLORS[key] },
@@ -169,8 +175,8 @@ export function buildKlineChartOption({
   const brickSeries: CustomSeriesOption = {
     name: 'BRICK',
     type: 'custom',
-    xAxisIndex: 3,
-    yAxisIndex: 3,
+    xAxisIndex: 4,
+    yAxisIndex: 4,
     clip: true,
     encode: { x: 0, y: [1, 2] },
     data: brickRangeValues,
@@ -200,8 +206,8 @@ export function buildKlineChartOption({
   const difSeries: LineSeriesOption = {
     name: 'DIF',
     type: 'line',
-    xAxisIndex: 2,
-    yAxisIndex: 2,
+    xAxisIndex: 3,
+    yAxisIndex: 3,
     data: difValues,
     showSymbol: false,
     lineStyle: { width: 1, color: MACD_COLORS.DIF },
@@ -218,8 +224,8 @@ export function buildKlineChartOption({
   const deaSeries: LineSeriesOption = {
     name: 'DEA',
     type: 'line',
-    xAxisIndex: 2,
-    yAxisIndex: 2,
+    xAxisIndex: 3,
+    yAxisIndex: 3,
     data: deaValues,
     showSymbol: false,
     lineStyle: { width: 1, color: MACD_COLORS.DEA },
@@ -230,22 +236,32 @@ export function buildKlineChartOption({
   const macdPositiveSeries: BarSeriesOption = {
     name: 'MACD',
     type: 'bar',
-    xAxisIndex: 2,
-    yAxisIndex: 2,
+    xAxisIndex: 3,
+    yAxisIndex: 3,
     data: macdPositiveData,
   }
 
   const macdNegativeSeries: BarSeriesOption = {
     name: 'MACD',
     type: 'bar',
-    xAxisIndex: 2,
-    yAxisIndex: 2,
+    xAxisIndex: 3,
+    yAxisIndex: 3,
     data: macdNegativeData,
+  }
+
+  const volumeSeries: BarSeriesOption = {
+    name: 'VOL',
+    type: 'bar',
+    xAxisIndex: 1,
+    yAxisIndex: 1,
+    data: volumeData,
+    barMaxWidth: 12,
   }
 
   const series: SeriesOption[] = [
     candleSeries,
     ...maSeries,
+    volumeSeries,
     ...kdjSeries,
     difSeries,
     deaSeries,
@@ -285,7 +301,16 @@ export function buildKlineChartOption({
       {
         orient: 'vertical',
         right: 12,
-        top: '52%',
+        top: '48%',
+        data: ['VOL'],
+        textStyle: { fontSize: 12, color: colors.text.DEFAULT },
+        itemWidth: 14,
+        itemHeight: 8,
+      },
+      {
+        orient: 'vertical',
+        right: 12,
+        top: '60%',
         data: ['KDJ.K', 'KDJ.D', 'KDJ.J'],
         textStyle: { fontSize: 12, color: colors.text.DEFAULT },
         itemWidth: 14,
@@ -294,7 +319,7 @@ export function buildKlineChartOption({
       {
         orient: 'vertical',
         right: 12,
-        top: '68%',
+        top: '73%',
         data: ['DIF', 'DEA', 'MACD'],
         textStyle: { fontSize: 12, color: colors.text.DEFAULT },
         itemWidth: 14,
@@ -303,7 +328,7 @@ export function buildKlineChartOption({
       {
         orient: 'vertical',
         right: 12,
-        top: '84%',
+        top: '86%',
         data: ['BRICK'],
         textStyle: { fontSize: 12, color: colors.text.DEFAULT },
         itemWidth: 14,
@@ -311,26 +336,29 @@ export function buildKlineChartOption({
       },
     ],
     grid: [
-      { left: '8%', right: '8%', top: '10%', height: '36%' },
-      { left: '8%', right: '8%', top: '52%', height: '11%' },
-      { left: '8%', right: '8%', top: '68%', height: '11%' },
-      { left: '8%', right: '8%', top: '84%', height: '8%' },
+      { left: '8%', right: '8%', top: '10%', height: '33%' },
+      { left: '8%', right: '8%', top: '48%', height: '8%' },
+      { left: '8%', right: '8%', top: '60%', height: '9%' },
+      { left: '8%', right: '8%', top: '73%', height: '9%' },
+      { left: '8%', right: '8%', top: '86%', height: '6%' },
     ],
     xAxis: [
       { type: 'category', data: times, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
       { type: 'category', data: times, gridIndex: 1, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
       { type: 'category', data: times, gridIndex: 2, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
-      { type: 'category', data: times, gridIndex: 3, axisLabel: { show: false }, axisPointer: { label: { show: true } } },
+      { type: 'category', data: times, gridIndex: 3, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
+      { type: 'category', data: times, gridIndex: 4, axisLabel: { show: false }, axisPointer: { label: { show: true } } },
     ],
     yAxis: [
       { scale: true, splitLine: { show: false }, axisPointer: { label: { show: false } } },
       { scale: true, splitLine: { show: false }, gridIndex: 1, axisPointer: { label: { show: false } } },
       { scale: true, splitLine: { show: false }, gridIndex: 2, axisPointer: { label: { show: false } } },
       { scale: true, splitLine: { show: false }, gridIndex: 3, axisPointer: { label: { show: false } } },
+      { scale: true, splitLine: { show: false }, gridIndex: 4, axisPointer: { label: { show: false } } },
     ],
     dataZoom: [
-      { type: 'inside', xAxisIndex: [0, 1, 2, 3], start: sliderStart, end: 100 },
-      { type: 'slider', xAxisIndex: [0, 1, 2, 3], start: sliderStart, end: 100, bottom: 20, height: 22 },
+      { type: 'inside', xAxisIndex: [0, 1, 2, 3, 4], start: sliderStart, end: 100 },
+      { type: 'slider', xAxisIndex: [0, 1, 2, 3, 4], start: sliderStart, end: 100, bottom: 20, height: 22 },
     ],
     graphic: buildGraphics(lastIdx, data),
     series,

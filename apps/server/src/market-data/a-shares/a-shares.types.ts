@@ -14,6 +14,7 @@ export interface QueryASharesDto {
   q?: string;
   market?: string | null;
   industry?: string | null;
+  priceMode?: 'qfq' | 'raw';
   sort?: { field?: string; order?: SortOrder; asc?: boolean };
   conditions?: QueryCondition[];
 }
@@ -24,12 +25,24 @@ export interface SyncASharesDto {
   endDate?: string;
 }
 
+export type ASharesSyncStatus = 'done' | 'partial' | 'error';
+
+export interface ASharesSyncFailedItem {
+  tradeDate?: string;
+  apiName: string;
+  message: string;
+}
+
 export interface ASharesSyncResult {
-  ok: true;
+  ok: boolean;
+  status: ASharesSyncStatus;
   symbols: number;
   quotes: number;
   metrics: number;
+  adjFactors: number;
   indicators: number;
+  failedCount: number;
+  failedItems: ASharesSyncFailedItem[];
   startDate: string;
   endDate: string;
 }
@@ -50,6 +63,10 @@ export interface AShareQuoteForIndicator {
   high: string | null;
   low: string | null;
   close: string | null;
+  qfqOpen: string | null;
+  qfqHigh: string | null;
+  qfqLow: string | null;
+  qfqClose: string | null;
   vol: string | null;
   amount: string | null;
 }
@@ -60,6 +77,7 @@ export interface AShareKlineRow {
   high: number;
   low: number;
   close: number;
+  pctChg: number | null;
   volume: number;
   quote_volume: number;
   DIF: number | null;

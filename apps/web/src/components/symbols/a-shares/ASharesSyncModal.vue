@@ -16,11 +16,21 @@
         </div>
         <div>
           <h3>同步 A 股数据</h3>
-          <p>从 TuShare 拉取日线行情与每日指标</p>
+          <p>从 TuShare 拉取日线行情、每日指标与复权因子</p>
         </div>
       </div>
     </template>
     <div class="sync-form">
+      <div class="sync-data-range">
+        <div class="sync-field-label">
+          <n-icon><calendar-outline /></n-icon>
+          <span>当前库存范围</span>
+        </div>
+        <div class="sync-data-range-value">
+          <span>{{ dataDateRangeLabel }}</span>
+          <n-spin v-if="dataDateRangeLoading" :size="14" />
+        </div>
+      </div>
       <div class="sync-range-panel">
         <div class="sync-field-label">
           <n-icon><calendar-outline /></n-icon>
@@ -42,7 +52,7 @@
       </div>
       <div class="sync-note">
         <n-icon><information-circle-outline /></n-icon>
-        <span>重复同步同一日期范围会覆盖更新本地数据，不会产生重复记录。</span>
+        <span>重复同步同一日期范围会覆盖更新本地数据，并重算相关股票的前复权行情与技术指标。</span>
       </div>
       <div v-if="syncProgressVisible" class="sync-progress-panel">
         <div class="sync-progress-head">
@@ -73,7 +83,7 @@
 </template>
 
 <script setup lang="ts">
-import { NButton, NDatePicker, NIcon, NModal, NProgress } from 'naive-ui'
+import { NButton, NDatePicker, NIcon, NModal, NProgress, NSpin } from 'naive-ui'
 import {
   CalendarOutline,
   CloudDownloadOutline,
@@ -94,6 +104,8 @@ defineProps<{
   syncPercent: number
   syncStatus: string
   syncMessage: string
+  dataDateRangeLabel: string
+  dataDateRangeLoading: boolean
 }>()
 
 const emit = defineEmits<{
@@ -109,6 +121,8 @@ const emit = defineEmits<{
 .sync-modal-header h3 { margin: 0; font-size: 18px; line-height: 1.2; }
 .sync-modal-header p { margin: 5px 0 0; color: var(--color-text-secondary); font-size: 13px; }
 .sync-form { display: flex; flex-direction: column; gap: 14px; }
+.sync-data-range { padding: 12px 14px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); }
+.sync-data-range-value { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--color-text); font-size: 14px; font-weight: 700; }
 .sync-range-panel { padding: 14px; border: 1px solid var(--color-border); border-radius: 8px; background: color-mix(in srgb, var(--color-surface-elevated) 60%, var(--color-surface)); }
 .sync-field-label { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; color: var(--color-text); font-size: 13px; font-weight: 700; }
 .sync-date-picker { width: 100%; }

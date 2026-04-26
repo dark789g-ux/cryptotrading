@@ -26,6 +26,7 @@ const props = withDefaults(
 const { echartsTheme } = useTheme()
 const chartRef = ref<HTMLElement | null>(null)
 let chartInstance: echarts.ECharts | null = null
+let resizeObserver: ResizeObserver | null = null
 
 const chartStyle = computed(() => ({
   width: '100%',
@@ -41,6 +42,20 @@ function handleResize() {
   chartInstance?.resize()
 }
 
+function disconnectResizeObserver() {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+}
+
+function observeChartResize(el: HTMLElement) {
+  if (!window.ResizeObserver) return
+  if (resizeObserver) return
+  resizeObserver = new ResizeObserver(() => {
+    handleResize()
+  })
+  resizeObserver.observe(el)
+}
+
 async function renderChart() {
   const data = props.data
   if (!data.length) {
@@ -53,6 +68,7 @@ async function renderChart() {
 
   const el = chartRef.value
   if (!el) return
+  observeChartResize(el)
 
   disposeChart()
   chartInstance = echarts.init(el)
@@ -94,6 +110,7 @@ watch(
 window.addEventListener('resize', handleResize)
 
 onUnmounted(() => {
+  disconnectResizeObserver()
   disposeChart()
   window.removeEventListener('resize', handleResize)
 })

@@ -10,6 +10,8 @@ export default defineConfig({
     },
   },
   server: {
+    host: '127.0.0.1',
+    allowedHosts: ['mytrading.s7.tunnelfrp.com'],
     port: 5173,
     open: true,
     proxy: {

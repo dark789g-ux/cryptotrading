@@ -55,7 +55,12 @@ export class ASharesService {
     setTimeout(() => {
       this.syncService.syncWithProgress(dto, (event) => subject.next(event))
         .then((result) => {
-          subject.next({ type: 'done', message: 'A 股数据同步完成', ...result });
+          const message = result.status === 'partial'
+            ? `A 股数据部分完成，失败 ${result.failedCount} 项`
+            : result.status === 'error'
+              ? `A 股数据同步未完成，失败 ${result.failedCount} 项`
+              : 'A 股数据同步完成';
+          subject.next({ type: 'done', message, ...result });
           subject.complete();
         })
         .catch((err: unknown) => {
@@ -77,8 +82,8 @@ export class ASharesService {
       SELECT
         (SELECT COUNT(*) FROM a_share_symbols WHERE list_status = 'L') AS "totalSymbols",
         latest.trade_date AS "latestTradeDate",
-        COUNT(q.ts_code) FILTER (WHERE q.pct_chg::numeric > 0) AS "upCount",
-        COUNT(q.ts_code) FILTER (WHERE q.pct_chg::numeric < 0) AS "downCount",
+        COUNT(q.ts_code) FILTER (WHERE COALESCE(q.qfq_pct_chg, q.pct_chg)::numeric > 0) AS "upCount",
+        COUNT(q.ts_code) FILTER (WHERE COALESCE(q.qfq_pct_chg, q.pct_chg)::numeric < 0) AS "downCount",
         COUNT(q.ts_code) AS "quotedCount"
       FROM latest
       LEFT JOIN a_share_daily_quotes q ON q.trade_date = latest.trade_date
@@ -131,17 +136,31 @@ export class ASharesService {
     return { markets, industries };
   }
 
-  async getKlines(tsCode: string, limit = 300): Promise<AShareKlineRow[]> {
+  async getDateRange(): Promise<{ min: string | null; max: string | null }> {
+    const rows = await this.dataSource.query<Array<{ min: string | null; max: string | null }>>(`
+      SELECT
+        MIN(trade_date) AS min,
+        MAX(trade_date) AS max
+      FROM a_share_daily_quotes
+    `);
+    return rows[0] ?? { min: null, max: null };
+  }
+
+  async getKlines(tsCode: string, limit = 300, priceMode: 'qfq' | 'raw' = 'qfq'): Promise<AShareKlineRow[]> {
     const safeLimit = Math.min(1000, Math.max(30, Number(limit) || 300));
+    const priceCols = priceMode === 'raw'
+      ? { open: 'q.open', high: 'q.high', low: 'q.low', close: 'q.close', pctChg: 'q.pct_chg' }
+      : { open: 'q.qfq_open', high: 'q.qfq_high', low: 'q.qfq_low', close: 'q.qfq_close', pctChg: 'q.qfq_pct_chg' };
     const rows = await this.dataSource.query<Array<Record<string, string | number | boolean | null>>>(`
       SELECT *
       FROM (
         SELECT
           q.trade_date AS "tradeDate",
-          q.open,
-          q.high,
-          q.low,
-          q.close,
+          ${priceCols.open} AS open,
+          ${priceCols.high} AS high,
+          ${priceCols.low} AS low,
+          ${priceCols.close} AS close,
+          ${priceCols.pctChg} AS "pctChg",
           q.vol,
           q.amount,
           i.dif,
@@ -176,10 +195,10 @@ export class ASharesService {
         LEFT JOIN a_share_daily_indicators i ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
         LEFT JOIN a_share_daily_metrics m ON m.ts_code = q.ts_code AND m.trade_date = q.trade_date
         WHERE q.ts_code = $1
-          AND q.open IS NOT NULL
-          AND q.high IS NOT NULL
-          AND q.low IS NOT NULL
-          AND q.close IS NOT NULL
+          AND ${priceCols.open} IS NOT NULL
+          AND ${priceCols.high} IS NOT NULL
+          AND ${priceCols.low} IS NOT NULL
+          AND ${priceCols.close} IS NOT NULL
         ORDER BY q.trade_date DESC
         LIMIT $2
       ) recent
@@ -195,6 +214,7 @@ export class ASharesService {
         high: asNumber(row.high),
         low: asNumber(row.low),
         close: asNumber(row.close),
+        pctChg: asNullableNumber(row.pctChg),
         volume: asNumber(row.vol),
         quote_volume: asNumber(row.amount),
         DIF: asNullableNumber(row.dif),

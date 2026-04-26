@@ -17,18 +17,19 @@
       </n-space>
     </div>
 
-    <a-shares-summary-cards :items="summaryItems" />
-
     <a-shares-filters
       v-model:search-query="searchQuery"
       v-model:selected-market="selectedMarket"
       v-model:selected-industry="selectedIndustry"
+      v-model:price-mode="priceMode"
       v-model:pct-change-min="pctChangeMin"
       v-model:turnover-rate-min="turnoverRateMin"
+      v-model:advanced-conditions="advancedConditions"
       :market-options="marketOptions"
       :industry-options="industryOptions"
       @apply="applyFilters"
       @reset="resetFilters"
+      @update:price-mode="handlePriceModeChange"
     />
 
     <n-card :bordered="false">
@@ -57,12 +58,15 @@
       :sync-percent="syncPercent"
       :sync-status="syncStatus"
       :sync-message="syncMessage"
+      :data-date-range-label="dataDateRangeLabel"
+      :data-date-range-loading="dataDateRangeLoading"
       @confirm="syncAShares"
     />
 
     <a-share-detail-drawer
       v-model:show="showDetailDrawer"
       :row="selectedDetailRow"
+      :price-mode="priceMode"
     />
   </div>
 </template>
@@ -76,7 +80,6 @@ import { CloudDownloadOutline, RefreshOutline } from '@vicons/ionicons5'
 import type { AShareRow } from '../../composables/useApi'
 import AShareDetailDrawer from './a-shares/AShareDetailDrawer.vue'
 import ASharesFilters from './a-shares/ASharesFilters.vue'
-import ASharesSummaryCards from './a-shares/ASharesSummaryCards.vue'
 import ASharesSyncModal from './a-shares/ASharesSyncModal.vue'
 import { createASharesColumns } from './a-shares/aSharesColumns'
 import { useASharesQuery } from './a-shares/useASharesQuery'
@@ -89,15 +92,17 @@ const {
   searchQuery,
   selectedMarket,
   selectedIndustry,
+  priceMode,
   pctChangeMin,
   turnoverRateMin,
+  advancedConditions,
   marketOptions,
   industryOptions,
   paginationState,
-  summaryItems,
   reload,
   applyFilters,
   resetFilters,
+  handlePriceModeChange,
   handlePageChange,
   handlePageSizeChange,
   handleSort,
@@ -116,6 +121,8 @@ const {
   syncPercent,
   syncStatus,
   syncMessage,
+  dataDateRangeLabel,
+  dataDateRangeLoading,
   openSyncModal,
   syncAShares,
 } = useASharesSync(message, reload)
@@ -128,7 +135,7 @@ function handleViewDetail(row: AShareRow) {
   showDetailDrawer.value = true
 }
 
-const columns = computed(() => createASharesColumns({ onViewDetail: handleViewDetail }))
+const columns = computed(() => createASharesColumns({ onViewDetail: handleViewDetail, priceMode: priceMode.value }))
 
 onMounted(() => {
   void reload()

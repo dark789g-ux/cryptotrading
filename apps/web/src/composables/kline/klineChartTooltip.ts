@@ -1,7 +1,7 @@
 import type { MarkPointComponentOption } from 'echarts'
 import { colors } from '../../styles/tokens'
 import { CANDLE_COLORS, TOOLTIP_STYLE, TRADE_COLORS } from './chartColors'
-import { fmt } from './klineChartUtils'
+import { fmt, fmtCompact } from './klineChartUtils'
 import type { KlineChartBar, TradeOnBar } from '../useApi'
 
 const MARK_BASE_GAP = 0.008
@@ -130,6 +130,7 @@ export function buildTooltip(row: KlineChartBar, idx: number, data: KlineChartBa
     <div>High: ${fmt(high, 4)}</div>
     <div>Low: ${fmt(low, 4)}</div>
     <div>Close: ${fmt(close, 4)}</div>
+    <div>Volume: ${fmtCompact(row.volume)}</div>
     <div style="color:${color}">Change: ${sign}${fmt(diff, 4)} (${sign}${pct.toFixed(2)}%)</div>
     ${tradesHtml}
   </div>`

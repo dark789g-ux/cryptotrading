@@ -9,29 +9,57 @@ const OP_MAP: Record<QueryCondition['op'], string> = {
   neq: '!=',
 };
 
-const CONDITION_COL_MAP: Record<string, string> = {
+const RAW_CONDITION_COL_MAP: Record<string, string> = {
   close: 'q.close',
+  change: 'q.change',
   pctChg: 'q.pct_chg',
   amount: 'q.amount',
   turnoverRate: 'm.turnover_rate',
   volumeRatio: 'm.volume_ratio',
   pe: 'm.pe',
   pb: 'm.pb',
+  DIF: 'i.dif',
+  DEA: 'i.dea',
+  MACD: 'i.macd',
+  'KDJ.K': 'i.kdj_k',
+  'KDJ.D': 'i.kdj_d',
+  'KDJ.J': 'i.kdj_j',
+  BBI: 'i.bbi',
+  MA5: 'i.ma5',
+  MA30: 'i.ma30',
+  MA60: 'i.ma60',
+  MA120: 'i.ma120',
+  MA240: 'i.ma240',
 };
 
-const SORT_COL_MAP: Record<string, string> = {
+const QFQ_CONDITION_COL_MAP: Record<string, string> = {
+  ...RAW_CONDITION_COL_MAP,
+  close: 'q.qfq_close',
+  change: 'q.qfq_change',
+  pctChg: 'q.qfq_pct_chg',
+};
+
+const RAW_SORT_COL_MAP: Record<string, string> = {
   tsCode: 's.ts_code',
   symbol: 's.symbol',
   name: 's.name',
   market: 's.market',
   industry: 's.industry',
   close: 'q.close',
+  change: 'q.change',
   pctChg: 'q.pct_chg',
   amount: 'q.amount',
   turnoverRate: 'm.turnover_rate',
   pe: 'm.pe',
   pb: 'm.pb',
   tradeDate: 'q.trade_date',
+};
+
+const QFQ_SORT_COL_MAP: Record<string, string> = {
+  ...RAW_SORT_COL_MAP,
+  close: 'q.qfq_close',
+  change: 'q.qfq_change',
+  pctChg: 'q.qfq_pct_chg',
 };
 
 export interface ASharesQuerySql {
@@ -43,6 +71,10 @@ export interface ASharesQuerySql {
 export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
   const params: Array<string | number> = [];
   let paramIndex = 1;
+  const priceMode = dto.priceMode === 'raw' ? 'raw' : 'qfq';
+  const priceCols = priceMode === 'raw'
+    ? { close: 'q.close', change: 'q.change', pctChg: 'q.pct_chg' }
+    : { close: 'q.qfq_close', change: 'q.qfq_change', pctChg: 'q.qfq_pct_chg' };
   let sql = `
       WITH latest AS (
         SELECT ts_code, MAX(trade_date) AS trade_date
@@ -55,8 +87,9 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
         s.name,
         s.market,
         s.industry,
-        q.close,
-        q.pct_chg AS "pctChg",
+        ${priceCols.close} AS close,
+        ${priceCols.change} AS change,
+        ${priceCols.pctChg} AS "pctChg",
         q.amount,
         m.turnover_rate AS "turnoverRate",
         m.volume_ratio AS "volumeRatio",
@@ -69,6 +102,7 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
       LEFT JOIN latest l ON l.ts_code = s.ts_code
       LEFT JOIN a_share_daily_quotes q ON q.ts_code = s.ts_code AND q.trade_date = l.trade_date
       LEFT JOIN a_share_daily_metrics m ON m.ts_code = s.ts_code AND m.trade_date = l.trade_date
+      LEFT JOIN a_share_daily_indicators i ON i.ts_code = s.ts_code AND i.trade_date = l.trade_date
       WHERE s.list_status = 'L'
     `;
 
@@ -91,7 +125,7 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
   }
 
   for (const condition of (dto.conditions ?? []).slice(0, 10)) {
-    const column = CONDITION_COL_MAP[condition.field];
+    const column = (priceMode === 'raw' ? RAW_CONDITION_COL_MAP : QFQ_CONDITION_COL_MAP)[condition.field];
     const op = OP_MAP[condition.op];
     if (!column || !op) continue;
     sql += ` AND ${column} ${op} $${paramIndex}`;
@@ -104,7 +138,7 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
 
 export function appendASharesSort(sql: string, dto: QueryASharesDto): string {
   const sortField = dto.sort?.field ?? 'tsCode';
-  const sortCol = SORT_COL_MAP[sortField] ?? 's.ts_code';
+  const sortCol = (dto.priceMode === 'raw' ? RAW_SORT_COL_MAP : QFQ_SORT_COL_MAP)[sortField] ?? 's.ts_code';
   const sortAsc = dto.sort?.order ? dto.sort.order !== 'descend' : dto.sort?.asc !== false;
   return `${sql} ORDER BY ${sortCol} ${sortAsc ? 'ASC' : 'DESC'} NULLS LAST`;
 }

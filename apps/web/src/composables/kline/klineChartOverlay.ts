@@ -1,7 +1,7 @@
 import type { GraphicComponentOption } from 'echarts'
 import { colors } from '../../styles/tokens'
-import { BRICK_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS } from './chartColors'
-import { ARROW_RICH, arrow, arrowRichTag, fmt, fmtXg } from './klineChartUtils'
+import { BRICK_COLORS, CANDLE_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS } from './chartColors'
+import { ARROW_RICH, arrow, arrowRichTag, fmt, fmtCompact, fmtXg } from './klineChartUtils'
 import type { KlineChartBar } from '../useApi'
 
 const GRAPHIC_BG = {
@@ -12,9 +12,10 @@ const GRAPHIC_BG = {
 } as const
 
 const GRAPHIC_MA = { id: 'ma-values', type: 'text' as const, left: '9%', top: '10%', z: 100 }
-const GRAPHIC_KDJ = { id: 'kdj-values', type: 'text' as const, left: '9%', top: '52%', z: 100 }
-const GRAPHIC_BRICK = { id: 'brick-values', type: 'text' as const, left: '9%', top: '84%', z: 100 }
-const GRAPHIC_MACD = { id: 'macd-values', type: 'text' as const, left: '9%', top: '68%', z: 100 }
+const GRAPHIC_VOLUME = { id: 'volume-values', type: 'text' as const, left: '9%', top: '48%', z: 100 }
+const GRAPHIC_KDJ = { id: 'kdj-values', type: 'text' as const, left: '9%', top: '60%', z: 100 }
+const GRAPHIC_MACD = { id: 'macd-values', type: 'text' as const, left: '9%', top: '73%', z: 100 }
+const GRAPHIC_BRICK = { id: 'brick-values', type: 'text' as const, left: '9%', top: '86%', z: 100 }
 
 const buildMaText = (idx: number, data: KlineChartBar[]) => {
   const row = idx >= 0 && idx < data.length ? data[idx] : undefined
@@ -54,6 +55,19 @@ const buildKdjText = (idx: number, data: KlineChartBar[]) => {
   return { text, rich, ...GRAPHIC_BG }
 }
 
+const buildVolumeText = (idx: number, data: KlineChartBar[]) => {
+  const row = idx >= 0 && idx < data.length ? data[idx] : undefined
+  if (!row) return { text: '', rich: {}, ...GRAPHIC_BG }
+  const color = row.close >= row.open ? CANDLE_COLORS.up : CANDLE_COLORS.down
+  return {
+    text: `VOL: {vol|${fmtCompact(row.volume)}}`,
+    rich: {
+      vol: { fill: color, fontSize: 12, fontWeight: 'bold' },
+    },
+    ...GRAPHIC_BG,
+  }
+}
+
 const buildBrickText = (idx: number, data: KlineChartBar[]) => {
   const row = idx >= 0 && idx < data.length ? data[idx] : undefined
   if (!row?.brickChart) return { text: '', rich: {}, ...GRAPHIC_BG }
@@ -86,6 +100,7 @@ const buildMacdText = (idx: number, data: KlineChartBar[]) => {
 export function buildGraphics(idx: number, data: KlineChartBar[]): GraphicComponentOption[] {
   return [
     { ...GRAPHIC_MA, style: buildMaText(idx, data) },
+    { ...GRAPHIC_VOLUME, style: buildVolumeText(idx, data) },
     { ...GRAPHIC_KDJ, style: buildKdjText(idx, data) },
     { ...GRAPHIC_MACD, style: buildMacdText(idx, data) },
     { ...GRAPHIC_BRICK, style: buildBrickText(idx, data) },

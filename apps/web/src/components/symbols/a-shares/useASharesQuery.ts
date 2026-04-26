@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import type { DataTableSortState } from 'naive-ui'
-import { aSharesApi, type AShareRow, type AShareSummary } from '../../../composables/useApi'
+import { aSharesApi, type ASharePriceMode, type AShareRow, type AShareSummary } from '../../../composables/useApi'
 import { formatTradeDate } from './aSharesFormatters'
 import type { Condition, SelectOption, SummaryItem } from './types'
 
@@ -13,8 +13,10 @@ export function useASharesQuery(message: { error: (content: string) => void }) {
   const searchQuery = ref('')
   const selectedMarket = ref<string | null>(null)
   const selectedIndustry = ref<string | null>(null)
+  const priceMode = ref<ASharePriceMode>('qfq')
   const pctChangeMin = ref<number | null>(null)
   const turnoverRateMin = ref<number | null>(null)
+  const advancedConditions = ref<Condition[]>([])
   const sortKey = ref<string | null>(null)
   const sortOrder = ref<'ascend' | 'descend' | null>(null)
   const summary = ref<AShareSummary>({
@@ -47,6 +49,7 @@ export function useASharesQuery(message: { error: (content: string) => void }) {
     const conditions: Condition[] = []
     if (pctChangeMin.value != null) conditions.push({ field: 'pctChg', op: 'gte', value: pctChangeMin.value })
     if (turnoverRateMin.value != null) conditions.push({ field: 'turnoverRate', op: 'gte', value: turnoverRateMin.value })
+    conditions.push(...advancedConditions.value)
     return conditions
   }
 
@@ -59,6 +62,7 @@ export function useASharesQuery(message: { error: (content: string) => void }) {
         q: searchQuery.value,
         market: selectedMarket.value,
         industry: selectedIndustry.value,
+        priceMode: priceMode.value,
         sort: { field: sortKey.value ?? 'tsCode', order: sortOrder.value },
         conditions: buildConditions(),
       })
@@ -105,6 +109,13 @@ export function useASharesQuery(message: { error: (content: string) => void }) {
     selectedIndustry.value = null
     pctChangeMin.value = null
     turnoverRateMin.value = null
+    advancedConditions.value = []
+    priceMode.value = 'qfq'
+    page.value = 1
+    void loadData()
+  }
+
+  function handlePriceModeChange() {
     page.value = 1
     void loadData()
   }
@@ -133,8 +144,10 @@ export function useASharesQuery(message: { error: (content: string) => void }) {
     searchQuery,
     selectedMarket,
     selectedIndustry,
+    priceMode,
     pctChangeMin,
     turnoverRateMin,
+    advancedConditions,
     marketOptions,
     industryOptions,
     paginationState,
@@ -142,6 +155,7 @@ export function useASharesQuery(message: { error: (content: string) => void }) {
     reload,
     applyFilters,
     resetFilters,
+    handlePriceModeChange,
     handlePageChange,
     handlePageSizeChange,
     handleSort,
