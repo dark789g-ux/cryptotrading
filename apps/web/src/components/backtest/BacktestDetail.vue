@@ -92,7 +92,7 @@
             <div class="table-filter-bar">
               <n-select v-model:value="candleFiltersDraft.symbol" :options="symbolOptions" filterable clearable placeholder="标的" class="filter-field" />
               <n-select v-model:value="candleFiltersDraft.inCooldown" :options="cooldownOptions" clearable placeholder="是否冷却中" class="filter-field" />
-              <n-select v-model:value="candleFiltersDraft.isSimulation" :options="simulationOptions" clearable placeholder="模拟/实盘" class="filter-field" />
+              <n-select v-model:value="candleFiltersDraft.tradePhases" :options="tradePhaseOptions" multiple clearable placeholder="状态" class="filter-field" />
               <n-select
                 v-model:value="candleFiltersDraft.tradeStates"
                 :options="candleTradeStateFilterOptions"
@@ -251,9 +251,10 @@ const candleTradeStateFilterOptions: { label: string; value: BacktestCandleLogTr
   { label: '出场', value: 'exit' },
 ]
 
-const simulationOptions = [
-  { label: '模拟', value: 'true' },
-  { label: '实盘', value: 'false' },
+const tradePhaseOptions = [
+  { label: '探针', value: 'probe' },
+  { label: '模拟', value: 'simulation' },
+  { label: '实盘', value: 'live' },
 ]
 
 const {

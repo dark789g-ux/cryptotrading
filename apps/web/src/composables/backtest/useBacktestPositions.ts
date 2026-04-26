@@ -142,12 +142,17 @@ export function useBacktestPositions(
         sorter: true,
       },
       {
-        title: '模拟/实盘',
+        title: '状态',
         key: 'isSimulation',
-        width: 90,
+        width: 80,
         sortOrder: false as const,
         sorter: false,
-        render: (r: any) => (r.isSimulation ? '模拟' : '实盘'),
+        render: (r: any) => {
+          if (r.tradePhase === 'probe') return '探针'
+          if (r.tradePhase === 'simulation') return '模拟'
+          if (r.tradePhase === 'live') return '实盘'
+          return r.isSimulation ? '模拟' : '实盘'
+        },
       },
       {
         title: '整体收益率',

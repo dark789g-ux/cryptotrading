@@ -58,6 +58,7 @@ export interface CandleLogEntry {
   amount: number
   reason: string
   isSimulation: boolean
+  tradePhase?: 'simulation' | 'probe' | 'live'
   kellyRaw?: number
   kellyAdjusted?: number
   positionRatio?: number
@@ -74,6 +75,7 @@ export interface CandleLogExit {
   reason: string
   isHalf: boolean
   isSimulation: boolean
+  tradePhase?: 'simulation' | 'probe' | 'live'
   overallReturnPct?: number
   cumulativeWinRate?: number
   cumulativeOdds?: number
@@ -198,7 +200,7 @@ export interface BacktestCandleLogFilters {
   tradeStates?: readonly BacktestCandleLogTradeState[]
   symbol?: string
   inCooldown?: boolean | null
-  isSimulation?: boolean | null
+  tradePhases?: Array<'simulation' | 'probe' | 'live'>
   startTs?: string | null
   endTs?: string | null
   equityChangeMin?: number | null
@@ -314,7 +316,7 @@ export const backtestApi = {
     appendQueryParam(qs, 'cooldownDurationMax', params.cooldownDurationMax)
     appendQueryParam(qs, 'cooldownRemainingMin', params.cooldownRemainingMin)
     appendQueryParam(qs, 'cooldownRemainingMax', params.cooldownRemainingMax)
-    if (typeof params.isSimulation === 'boolean') qs.set('isSimulation', String(params.isSimulation))
+    if (params.tradePhases && params.tradePhases.length > 0) qs.set('tradePhases', params.tradePhases.join(','))
     appendQueryParam(qs, 'sortBy', params.sortBy)
     appendQueryParam(qs, 'sortOrder', params.sortOrder)
     return request<CandleLogPage>(`${API_BASE}/backtest/runs/${runId}/candle-log?${qs.toString()}`)

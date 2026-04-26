@@ -105,7 +105,7 @@ export class CandleLogController {
     @Query('cooldownDurationMax') cooldownDurationMaxRaw?: string,
     @Query('cooldownRemainingMin') cooldownRemainingMinRaw?: string,
     @Query('cooldownRemainingMax') cooldownRemainingMaxRaw?: string,
-    @Query('isSimulation') isSimulationRaw?: string,
+    @Query('tradePhases') tradePhasesRaw?: string,
   ): Promise<CandleLogPageResponse> {
     // ── 1. 校验 run 是否存在 ──
     const run = await this.runRepo.findOneBy({ id: runId });
@@ -136,10 +136,16 @@ export class CandleLogController {
     const cooldownDurationMax = cooldownDurationMaxRaw !== undefined && cooldownDurationMaxRaw !== '' ? parseInt(cooldownDurationMaxRaw, 10) : null;
     const cooldownRemainingMin = cooldownRemainingMinRaw !== undefined && cooldownRemainingMinRaw !== '' ? parseInt(cooldownRemainingMinRaw, 10) : null;
     const cooldownRemainingMax = cooldownRemainingMaxRaw !== undefined && cooldownRemainingMaxRaw !== '' ? parseInt(cooldownRemainingMaxRaw, 10) : null;
-    const isSimulation =
-      isSimulationRaw === 'true' ? true
-        : isSimulationRaw === 'false' ? false
-          : null;
+    const PHASE_TOKENS = new Set(['simulation', 'probe', 'live']);
+    const tradePhases: Array<'simulation' | 'probe' | 'live'> = tradePhasesRaw
+      ? tradePhasesRaw.split(',').reduce<Array<'simulation' | 'probe' | 'live'>>((acc, p) => {
+          const t = p.trim();
+          if (PHASE_TOKENS.has(t) && !acc.includes(t as 'simulation' | 'probe' | 'live')) {
+            acc.push(t as 'simulation' | 'probe' | 'live');
+          }
+          return acc;
+        }, [])
+      : [];
 
     // 实体别名为 cl，列名转驼峰映射
     const sortColumnMap: Record<string, string> = {
@@ -239,11 +245,16 @@ export class CandleLogController {
       qb.andWhere('cl.cooldown_remaining <= :cooldownRemainingMax', { cooldownRemainingMax });
     }
 
-    if (typeof isSimulation === 'boolean') {
-      qb.andWhere(
-        `cl.exits_json @> :simExit::jsonb`,
-        { simExit: JSON.stringify([{ isSimulation }]) },
-      );
+    if (tradePhases.length > 0) {
+      const phaseOrSql = tradePhases
+        .map((_, i) => `(cl.exits_json @> :tpExit${i}::jsonb OR cl.entries_json @> :tpEntry${i}::jsonb)`)
+        .join(' OR ');
+      const phaseParams: Record<string, string> = {};
+      tradePhases.forEach((phase, i) => {
+        phaseParams[`tpExit${i}`] = JSON.stringify([{ tradePhase: phase }]);
+        phaseParams[`tpEntry${i}`] = JSON.stringify([{ tradePhase: phase }]);
+      });
+      qb.andWhere(`(${phaseOrSql})`, phaseParams);
     }
 
     // 分页 + 排序

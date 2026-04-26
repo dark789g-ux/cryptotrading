@@ -1,10 +1,6 @@
 ## 项目
 crtptotrading:加密量化策略
 
-## AGENTS.md的编辑规范
-- 文本精简，惜字如金
-- 引用使用 `@/path/to/file` 的格式
-
 ## 背景
 - 开发环境：windows11
 - 编码为 GBK

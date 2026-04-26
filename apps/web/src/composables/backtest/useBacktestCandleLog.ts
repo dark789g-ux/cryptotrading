@@ -7,10 +7,10 @@ import {
   type BacktestCandleLogTradeState,
 } from '../useApi'
 
-type CandleLogFilterState = Omit<BacktestCandleLogFilters, 'tradeStates' | 'inCooldown' | 'isSimulation'> & {
+type CandleLogFilterState = Omit<BacktestCandleLogFilters, 'tradeStates' | 'inCooldown' | 'tradePhases'> & {
   tradeStates: BacktestCandleLogTradeState[]
   inCooldown: 'true' | 'false' | null
-  isSimulation: 'true' | 'false' | null
+  tradePhases: Array<'simulation' | 'probe' | 'live'>
 }
 type CandleLogSortBy = 'bar_idx' | 'ts' | 'open_equity' | 'close_equity' | 'pos_count' | 'equity_change' | 'equity_change_pct' | 'cooldown_duration' | 'cooldown_remaining'
 
@@ -36,7 +36,7 @@ function createEmptyFilters(): CandleLogFilterState {
     tradeStates: [...DEFAULT_TRADE_STATES],
     symbol: '',
     inCooldown: null,
-    isSimulation: null,
+    tradePhases: [],
     startTs: null,
     endTs: null,
     equityChangeMin: null,
@@ -62,7 +62,7 @@ function cloneFilters(filters: CandleLogFilterState): CandleLogFilterState {
     tradeStates: cloneTradeStates(filters.tradeStates as unknown),
     symbol: filters.symbol ?? '',
     inCooldown: filters.inCooldown ?? null,
-    isSimulation: filters.isSimulation ?? null,
+    tradePhases: Array.isArray(filters.tradePhases) ? [...filters.tradePhases] : [],
     startTs: filters.startTs ?? null,
     endTs: filters.endTs ?? null,
     equityChangeMin: filters.equityChangeMin ?? null,
@@ -113,7 +113,7 @@ export function useBacktestCandleLog(
       filtersApplied.value.startTs ||
       filtersApplied.value.endTs ||
       filtersApplied.value.inCooldown !== null ||
-      filtersApplied.value.isSimulation !== null ||
+      (filtersApplied.value.tradePhases?.length ?? 0) > 0 ||
       filtersApplied.value.equityChangeMin != null ||
       filtersApplied.value.equityChangeMax != null ||
       filtersApplied.value.equityChangePctMin != null ||
@@ -189,13 +189,12 @@ export function useBacktestCandleLog(
     if (!selectedRunId.value) return
     candleLogLoading.value = true
     try {
-      const { inCooldown: inCooldownStr, isSimulation: isSimulationStr, ...restFilters } = filtersApplied.value
+      const { inCooldown: inCooldownStr, ...restFilters } = filtersApplied.value
       const res = await backtestApi.getCandleLog(selectedRunId.value, {
         page: candleLogPage.value,
         pageSize: candleLogPageSize.value,
         ...restFilters,
         inCooldown: inCooldownStr === null ? null : inCooldownStr === 'true',
-        isSimulation: isSimulationStr === null ? null : isSimulationStr === 'true',
         sortBy: candleLogSortBy.value,
         sortOrder: candleLogSortOrder.value,
       })
@@ -212,13 +211,12 @@ export function useBacktestCandleLog(
   const loadCandleLogTotalOnly = async () => {
     if (!selectedRunId.value) return
     try {
-      const { inCooldown: inCooldownStr2, isSimulation: isSimulationStr2, ...restFilters2 } = filtersApplied.value
+      const { inCooldown: inCooldownStr2, ...restFilters2 } = filtersApplied.value
       const res = await backtestApi.getCandleLog(selectedRunId.value, {
         page: 1,
         pageSize: 1,
         ...restFilters2,
         inCooldown: inCooldownStr2 === null ? null : inCooldownStr2 === 'true',
-        isSimulation: isSimulationStr2 === null ? null : isSimulationStr2 === 'true',
         sortBy: candleLogSortBy.value,
         sortOrder: candleLogSortOrder.value,
       })
@@ -330,14 +328,20 @@ export function useBacktestCandleLog(
         render: (row: CandleLogRow) => row.exits.length === 0 ? '—' : `${row.exits.length} 条`,
       },
       {
-        title: '模拟/实盘',
+        title: '状态',
         key: 'isSimulation',
-        width: 90,
+        width: 80,
         render: (row: CandleLogRow) => {
-          const lastExit = row.exits[row.exits.length - 1] as { isSimulation?: boolean } | undefined
-          if (lastExit) return lastExit.isSimulation ? '模拟' : '实盘'
-          const firstEntry = row.entries[0] as { isSimulation?: boolean } | undefined
-          if (firstEntry) return firstEntry.isSimulation ? '模拟' : '实盘'
+          type PhaseRecord = { tradePhase?: string; isSimulation?: boolean }
+          const lastExit = row.exits[row.exits.length - 1] as PhaseRecord | undefined
+          const firstEntry = row.entries[0] as PhaseRecord | undefined
+          const phase = lastExit?.tradePhase ?? firstEntry?.tradePhase
+          if (phase === 'probe') return '探针'
+          if (phase === 'simulation') return '模拟'
+          if (phase === 'live') return '实盘'
+          const isSim = lastExit?.isSimulation ?? firstEntry?.isSimulation
+          if (isSim === true) return '模拟'
+          if (isSim === false) return '实盘'
           return '—'
         },
       },

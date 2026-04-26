@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir \"c:/codes/cryptotrading/.spec/kline-chart/charts\")",
+      "Bash(mv \"c:/codes/cryptotrading/.spec/kline-chart/main-chart.md\" \"c:/codes/cryptotrading/.spec/kline-chart/charts/\")",
+      "Bash(mv \"c:/codes/cryptotrading/.spec/kline-chart/kdj-chart.md\" \"c:/codes/cryptotrading/.spec/kline-chart/charts/\")",
+      "Bash(mv \"c:/codes/cryptotrading/.spec/kline-chart/macd-chart.md\" \"c:/codes/cryptotrading/.spec/kline-chart/charts/\")",
+      "Bash(mv \"c:/codes/cryptotrading/.spec/kline-chart/brick-chart.md\" \"c:/codes/cryptotrading/.spec/kline-chart/charts/\")",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}
