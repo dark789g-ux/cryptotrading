@@ -1,12 +1,23 @@
 import { computed, ref } from 'vue'
 import type { DataTableSortState } from 'naive-ui'
-import { aSharesApi, type ASharePriceMode, type AShareRow, type AShareSummary } from '../../../composables/useApi'
+import {
+  aSharesApi,
+  type AShareFilterPreset,
+  type ASharePriceMode,
+  type AShareRow,
+  type AShareSummary,
+} from '../../../composables/useApi'
 import { formatTradeDate } from './aSharesFormatters'
-import type { Condition, SelectOption, SummaryItem } from './types'
+import type { ASharesFilterState, Condition, SelectOption, SummaryItem } from './types'
 
-export function useASharesQuery(message: { error: (content: string) => void }) {
+export function useASharesQuery(message: {
+  error: (content: string) => void
+  success?: (content: string) => void
+}) {
   const loading = ref(false)
+  const filterPresetsLoading = ref(false)
   const rows = ref<AShareRow[]>([])
+  const filterPresets = ref<AShareFilterPreset[]>([])
   const total = ref(0)
   const page = ref(1)
   const pageSize = ref(10)
@@ -53,6 +64,28 @@ export function useASharesQuery(message: { error: (content: string) => void }) {
     return conditions
   }
 
+  function buildFilterState(): ASharesFilterState {
+    return {
+      searchQuery: searchQuery.value,
+      selectedMarket: selectedMarket.value,
+      selectedIndustry: selectedIndustry.value,
+      priceMode: priceMode.value,
+      pctChangeMin: pctChangeMin.value,
+      turnoverRateMin: turnoverRateMin.value,
+      advancedConditions: advancedConditions.value.map((condition) => ({ ...condition })),
+    }
+  }
+
+  function applyFilterState(filters: ASharesFilterState) {
+    searchQuery.value = filters.searchQuery
+    selectedMarket.value = filters.selectedMarket
+    selectedIndustry.value = filters.selectedIndustry
+    priceMode.value = filters.priceMode
+    pctChangeMin.value = filters.pctChangeMin
+    turnoverRateMin.value = filters.turnoverRateMin
+    advancedConditions.value = filters.advancedConditions.map((condition) => ({ ...condition }))
+  }
+
   async function loadData() {
     loading.value = true
     try {
@@ -94,8 +127,19 @@ export function useASharesQuery(message: { error: (content: string) => void }) {
     }
   }
 
+  async function loadFilterPresets() {
+    filterPresetsLoading.value = true
+    try {
+      filterPresets.value = await aSharesApi.listFilterPresets()
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '加载筛选方案失败')
+    } finally {
+      filterPresetsLoading.value = false
+    }
+  }
+
   async function reload() {
-    await Promise.all([loadSummary(), loadFilterOptions(), loadData()])
+    await Promise.all([loadSummary(), loadFilterOptions(), loadFilterPresets(), loadData()])
   }
 
   function applyFilters() {
@@ -112,6 +156,53 @@ export function useASharesQuery(message: { error: (content: string) => void }) {
     advancedConditions.value = []
     priceMode.value = 'qfq'
     page.value = 1
+    void loadData()
+  }
+
+  async function createFilterPreset(name: string) {
+    try {
+      await aSharesApi.createFilterPreset({ name, filters: buildFilterState() })
+      message.success?.(`已保存筛选方案 "${name}"`)
+      await loadFilterPresets()
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '保存筛选方案失败')
+    }
+  }
+
+  async function overwriteFilterPreset(preset: AShareFilterPreset) {
+    try {
+      await aSharesApi.updateFilterPreset(preset.id, { filters: buildFilterState() })
+      message.success?.(`已覆盖筛选方案 "${preset.name}"`)
+      await loadFilterPresets()
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '覆盖筛选方案失败')
+    }
+  }
+
+  async function renameFilterPreset(preset: AShareFilterPreset, name: string) {
+    try {
+      await aSharesApi.updateFilterPreset(preset.id, { name })
+      message.success?.('重命名成功')
+      await loadFilterPresets()
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '重命名筛选方案失败')
+    }
+  }
+
+  async function deleteFilterPreset(preset: AShareFilterPreset) {
+    try {
+      await aSharesApi.deleteFilterPreset(preset.id)
+      message.success?.(`已删除筛选方案 "${preset.name}"`)
+      await loadFilterPresets()
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '删除筛选方案失败')
+    }
+  }
+
+  function applyFilterPreset(preset: AShareFilterPreset) {
+    applyFilterState(preset.filters)
+    page.value = 1
+    message.success?.(`已套用筛选方案 "${preset.name}"`)
     void loadData()
   }
 
@@ -140,7 +231,9 @@ export function useASharesQuery(message: { error: (content: string) => void }) {
 
   return {
     loading,
+    filterPresetsLoading,
     rows,
+    filterPresets,
     searchQuery,
     selectedMarket,
     selectedIndustry,
@@ -153,8 +246,14 @@ export function useASharesQuery(message: { error: (content: string) => void }) {
     paginationState,
     summaryItems,
     reload,
+    loadFilterPresets,
     applyFilters,
     resetFilters,
+    createFilterPreset,
+    overwriteFilterPreset,
+    renameFilterPreset,
+    deleteFilterPreset,
+    applyFilterPreset,
     handlePriceModeChange,
     handlePageChange,
     handlePageSizeChange,

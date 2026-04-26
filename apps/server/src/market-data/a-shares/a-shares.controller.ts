@@ -1,10 +1,14 @@
-import { Body, Controller, Get, Header, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Param, Post, Put, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
+import { ASharesFilterPresetsService } from './a-shares-filter-presets.service';
 import { ASharesService, QueryASharesDto, SyncASharesDto } from './a-shares.service';
 
 @Controller('a-shares')
 export class ASharesController {
-  constructor(private readonly aSharesService: ASharesService) {}
+  constructor(
+    private readonly aSharesService: ASharesService,
+    private readonly filterPresetsService: ASharesFilterPresetsService,
+  ) {}
 
   @Get('summary')
   getSummary() {
@@ -19,6 +23,26 @@ export class ASharesController {
   @Get('date-range')
   getDateRange() {
     return this.aSharesService.getDateRange();
+  }
+
+  @Get('filter-presets')
+  listFilterPresets() {
+    return this.filterPresetsService.list();
+  }
+
+  @Post('filter-presets')
+  createFilterPreset(@Body() body: { name: string; filters: unknown }) {
+    return this.filterPresetsService.create(body);
+  }
+
+  @Put('filter-presets/:id')
+  updateFilterPreset(@Param('id') id: string, @Body() body: { name?: string; filters?: unknown }) {
+    return this.filterPresetsService.update(id, body);
+  }
+
+  @Delete('filter-presets/:id')
+  removeFilterPreset(@Param('id') id: string) {
+    return this.filterPresetsService.remove(id);
   }
 
   @Get(':tsCode/klines')

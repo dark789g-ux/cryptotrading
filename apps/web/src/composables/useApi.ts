@@ -437,6 +437,24 @@ export interface AShareQueryBody {
   conditions?: Array<{ field: string; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; value: number }>
 }
 
+export interface AShareFilterPresetFilters {
+  searchQuery: string
+  selectedMarket: string | null
+  selectedIndustry: string | null
+  priceMode: ASharePriceMode
+  pctChangeMin: number | null
+  turnoverRateMin: number | null
+  advancedConditions: Array<{ field: string; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; value: number }>
+}
+
+export interface AShareFilterPreset {
+  id: string
+  name: string
+  filters: AShareFilterPresetFilters
+  createdAt: string
+  updatedAt: string
+}
+
 export interface AShareSyncResult {
   ok: boolean
   status: 'done' | 'partial' | 'error'
@@ -455,6 +473,12 @@ export const aSharesApi = {
   getSummary: () => request<AShareSummary>(`${API_BASE}/a-shares/summary`),
   getFilterOptions: () => request<AShareFilterOptions>(`${API_BASE}/a-shares/filter-options`),
   getDateRange: () => request<AShareDateRange>(`${API_BASE}/a-shares/date-range`),
+  listFilterPresets: () => request<AShareFilterPreset[]>(`${API_BASE}/a-shares/filter-presets`),
+  createFilterPreset: (body: { name: string; filters: AShareFilterPresetFilters }) =>
+    post<AShareFilterPreset>(`${API_BASE}/a-shares/filter-presets`, body),
+  updateFilterPreset: (id: string, body: { name?: string; filters?: AShareFilterPresetFilters }) =>
+    put<AShareFilterPreset>(`${API_BASE}/a-shares/filter-presets/${id}`, body),
+  deleteFilterPreset: (id: string) => del<{ ok: true }>(`${API_BASE}/a-shares/filter-presets/${id}`),
   query: (body: AShareQueryBody) =>
     post<{ rows: AShareRow[]; total: number; page: number; pageSize: number }>(`${API_BASE}/a-shares/query`, body),
   getKlines: (tsCode: string, limit = 300, priceMode: ASharePriceMode = 'qfq') => {

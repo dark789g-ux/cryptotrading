@@ -61,6 +61,16 @@
           description="使用最新交易日的技术指标和估值指标筛选 A 股标的。"
           @update:conditions="emit('update:advancedConditions', $event)"
         />
+        <a-shares-filter-preset-picker
+          :presets="filterPresets"
+          :loading="filterPresetsLoading"
+          @refresh="emit('refreshFilterPresets')"
+          @create="emit('createFilterPreset', $event)"
+          @load="emit('applyFilterPreset', $event)"
+          @overwrite="emit('overwriteFilterPreset', $event)"
+          @rename="emit('renameFilterPreset', $event.preset, $event.name)"
+          @delete="emit('deleteFilterPreset', $event)"
+        />
         <n-button type="primary" @click="emit('apply')">应用</n-button>
       </div>
     </div>
@@ -70,8 +80,10 @@
 <script setup lang="ts">
 import { NButton, NCard, NIcon, NInput, NInputNumber, NRadioButton, NRadioGroup, NSelect } from 'naive-ui'
 import { SearchOutline } from '@vicons/ionicons5'
+import type { AShareFilterPreset } from '../../../composables/useApi'
 import NumericConditionFilter from '../../common/NumericConditionFilter.vue'
 import type { NumericConditionFieldOption } from '../../common/numericConditionFilterTypes'
+import ASharesFilterPresetPicker from './ASharesFilterPresetPicker.vue'
 import type { Condition, SelectOption } from './types'
 
 defineProps<{
@@ -84,6 +96,8 @@ defineProps<{
   advancedConditions: Condition[]
   marketOptions: SelectOption[]
   industryOptions: SelectOption[]
+  filterPresets: AShareFilterPreset[]
+  filterPresetsLoading: boolean
 }>()
 
 const emit = defineEmits<{
@@ -96,6 +110,12 @@ const emit = defineEmits<{
   'update:advancedConditions': [value: Condition[]]
   apply: []
   reset: []
+  refreshFilterPresets: []
+  createFilterPreset: [name: string]
+  overwriteFilterPreset: [preset: AShareFilterPreset]
+  renameFilterPreset: [preset: AShareFilterPreset, name: string]
+  deleteFilterPreset: [preset: AShareFilterPreset]
+  applyFilterPreset: [preset: AShareFilterPreset]
 }>()
 
 const advancedFieldOptions: NumericConditionFieldOption[] = [

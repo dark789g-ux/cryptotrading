@@ -27,9 +27,17 @@
       v-model:advanced-conditions="advancedConditions"
       :market-options="marketOptions"
       :industry-options="industryOptions"
+      :filter-presets="filterPresets"
+      :filter-presets-loading="filterPresetsLoading"
       @apply="applyFilters"
       @reset="resetFilters"
       @update:price-mode="handlePriceModeChange"
+      @refresh-filter-presets="loadFilterPresets"
+      @create-filter-preset="createFilterPreset"
+      @overwrite-filter-preset="overwriteFilterPreset"
+      @rename-filter-preset="renameFilterPreset"
+      @delete-filter-preset="deleteFilterPreset"
+      @apply-filter-preset="applyFilterPreset"
     />
 
     <n-card :bordered="false">
@@ -88,7 +96,9 @@ import { useASharesSync } from './a-shares/useASharesSync'
 const message = useMessage()
 const {
   loading,
+  filterPresetsLoading,
   rows,
+  filterPresets,
   searchQuery,
   selectedMarket,
   selectedIndustry,
@@ -100,8 +110,14 @@ const {
   industryOptions,
   paginationState,
   reload,
+  loadFilterPresets,
   applyFilters,
   resetFilters,
+  createFilterPreset,
+  overwriteFilterPreset,
+  renameFilterPreset,
+  deleteFilterPreset,
+  applyFilterPreset,
   handlePriceModeChange,
   handlePageChange,
   handlePageSizeChange,

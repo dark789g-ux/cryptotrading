@@ -18,6 +18,7 @@ import { AShareDailyQuoteEntity } from './entities/a-share/a-share-daily-quote.e
 import { AShareDailyMetricEntity } from './entities/a-share/a-share-daily-metric.entity';
 import { AShareDailyIndicatorEntity } from './entities/a-share/a-share-daily-indicator.entity';
 import { AShareAdjFactorEntity } from './entities/a-share/a-share-adj-factor.entity';
+import { AShareFilterPresetEntity } from './entities/a-share/a-share-filter-preset.entity';
 import { StrategyTypeEntity } from './entities/strategy/strategy-type.entity';
 import { StrategyEntity } from './entities/strategy/strategy.entity';
 import { BacktestRunEntity } from './entities/backtest/backtest-run.entity';
@@ -50,6 +51,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           AShareDailyMetricEntity,
           AShareDailyIndicatorEntity,
           AShareAdjFactorEntity,
+          AShareFilterPresetEntity,
           StrategyTypeEntity,
           StrategyEntity,
           BacktestRunEntity,

@@ -27,6 +27,9 @@ const { echartsTheme } = useTheme()
 const chartRef = ref<HTMLElement | null>(null)
 let chartInstance: echarts.ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
+let pendingGraphicFrame: number | null = null
+let pendingGraphicIdx: number | null = null
+let lastGraphicIdx: number | null = null
 
 const chartStyle = computed(() => ({
   width: '100%',
@@ -34,8 +37,11 @@ const chartStyle = computed(() => ({
 }))
 
 function disposeChart() {
+  cancelPendingGraphicUpdate()
   chartInstance?.dispose()
   chartInstance = null
+  lastGraphicIdx = null
+  pendingGraphicIdx = null
 }
 
 function handleResize() {
@@ -54,6 +60,32 @@ function observeChartResize(el: HTMLElement) {
     handleResize()
   })
   resizeObserver.observe(el)
+}
+
+function cancelPendingGraphicUpdate() {
+  if (pendingGraphicFrame === null) return
+  window.cancelAnimationFrame(pendingGraphicFrame)
+  pendingGraphicFrame = null
+}
+
+function scheduleGraphicUpdate(idx: number, data: KlineChartBar[]) {
+  if (idx === lastGraphicIdx || idx === pendingGraphicIdx) return
+
+  pendingGraphicIdx = idx
+  if (pendingGraphicFrame !== null) return
+
+  pendingGraphicFrame = window.requestAnimationFrame(() => {
+    pendingGraphicFrame = null
+    const nextIdx = pendingGraphicIdx
+    pendingGraphicIdx = null
+    if (nextIdx === null || nextIdx === lastGraphicIdx) return
+
+    lastGraphicIdx = nextIdx
+    chartInstance?.setOption(
+      { graphic: buildKlineChartGraphics(nextIdx, data) },
+      { lazyUpdate: true, silent: true },
+    )
+  })
 }
 
 async function renderChart() {
@@ -82,12 +114,13 @@ async function renderChart() {
   )
 
   const lastIdx = data.length - 1
+  lastGraphicIdx = lastIdx
   chartInstance.on('updateAxisPointer', (ev: unknown) => {
     const event = ev as { axesInfo?: { axisDim: string; value: number }[] }
     const info = event.axesInfo?.find((item) => item.axisDim === 'x')
     const idx = typeof info?.value === 'number' ? info.value : lastIdx
     const safeIdx = idx >= 0 && idx < data.length ? idx : lastIdx
-    chartInstance?.setOption({ graphic: buildKlineChartGraphics(safeIdx, data) })
+    scheduleGraphicUpdate(safeIdx, data)
   })
 }
 

@@ -1,4 +1,4 @@
-import type { AShareRow } from '../../../composables/useApi'
+import type { AShareFilterPresetFilters, AShareRow } from '../../../composables/useApi'
 
 export interface SelectOption {
   label: string
@@ -11,6 +11,8 @@ export interface Condition {
   op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'
   value: number
 }
+
+export type ASharesFilterState = AShareFilterPresetFilters
 
 export interface SummaryItem {
   label: string

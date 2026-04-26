@@ -24,6 +24,8 @@ interface BuildKlineChartOptionsParams {
 
 type BrickRangeDatum = [number, number, number]
 
+const DATA_ZOOM_THROTTLE_MS = 80
+
 function buildKdjMarkArea(data: KlineChartBar[]) {
   const greenZones: [number, number][] = []
   const redZones: [number, number][] = []
@@ -272,6 +274,8 @@ export function buildKlineChartOption({
 
   return {
     ...echartsTheme,
+    animation: false,
+    animationDurationUpdate: 0,
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
@@ -357,8 +361,27 @@ export function buildKlineChartOption({
       { scale: true, splitLine: { show: false }, gridIndex: 4, axisPointer: { label: { show: false } } },
     ],
     dataZoom: [
-      { type: 'inside', xAxisIndex: [0, 1, 2, 3, 4], start: sliderStart, end: 100 },
-      { type: 'slider', xAxisIndex: [0, 1, 2, 3, 4], start: sliderStart, end: 100, bottom: 20, height: 22 },
+      {
+        type: 'inside',
+        xAxisIndex: [0, 1, 2, 3, 4],
+        start: sliderStart,
+        end: 100,
+        realtime: true,
+        throttle: DATA_ZOOM_THROTTLE_MS,
+        zoomOnMouseWheel: true,
+        moveOnMouseWheel: false,
+        moveOnMouseMove: true,
+      },
+      {
+        type: 'slider',
+        xAxisIndex: [0, 1, 2, 3, 4],
+        start: sliderStart,
+        end: 100,
+        realtime: true,
+        throttle: DATA_ZOOM_THROTTLE_MS,
+        bottom: 20,
+        height: 22,
+      },
     ],
     graphic: buildGraphics(lastIdx, data),
     series,

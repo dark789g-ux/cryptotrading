@@ -19,6 +19,24 @@ export interface QueryASharesDto {
   conditions?: QueryCondition[];
 }
 
+export interface ASharesFilterPresetFilters {
+  searchQuery: string;
+  selectedMarket: string | null;
+  selectedIndustry: string | null;
+  priceMode: 'qfq' | 'raw';
+  pctChangeMin: number | null;
+  turnoverRateMin: number | null;
+  advancedConditions: QueryCondition[];
+}
+
+export interface ASharesFilterPresetDto {
+  id: string;
+  name: string;
+  filters: ASharesFilterPresetFilters;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface SyncASharesDto {
   tradeDate?: string;
   startDate?: string;
