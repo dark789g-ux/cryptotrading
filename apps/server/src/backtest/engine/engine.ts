@@ -236,7 +236,8 @@ export async function runBacktest(
       const prevLen = simPositions.length;
       [simPendingBuys, simCash, entryEvents] = executePendingBuys(
         simPendingBuys, ts, data, tsToIdx, simCash, simPortfolioLog, simPositions, config,
-        isProbeMode ? undefined : makeKellyCtx(),
+        makeKellyCtx(),
+        { applyKellySizing: !isProbeMode },
       );
       for (let i = prevLen; i < simPositions.length; i++) {
         const pos = simPositions[i];

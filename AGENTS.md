@@ -9,9 +9,6 @@ crtptotrading:加密量化策略
 - 开发环境：windows11
 - 编码为 GBK
 
-## 语言风格
-- 书写的文本，以自然语言为主，代码作为引用，减少理解门槛。
-
 ## 硬约束
 - 所有源代码文件使用 UTF-8 编码
 - 涉及文件 I/O 操作时，始终显式指定 encoding='utf-8'
@@ -19,7 +16,6 @@ crtptotrading:加密量化策略
 - HTML 模板必须包含 <meta charset="UTF-8">
 - 数据库连接字符串使用 utf8mb4
 - 对象键名使用英文（避免 Windows GBK 终端下中文裸键名解析错误）
-- 不要自己测试，用户来测试
 - 涉及数据库调整时，应附带 docker exec 格式的可执行脚本。
 
 ## 技术栈
@@ -38,7 +34,6 @@ crtptotrading:加密量化策略
 - ECharts custom series 禁用 `data.map()` 产生 `null` 项：null 项仍会触发 `renderItem`，`api.value(n)` 返回 `0`，`typeof 0 === 'number'` 绕过空值检查，在 y=0 处生成幽灵柱并破坏 yAxis 量程；必须用 `data.flatMap()` 过滤掉 `null`（见 [ECharts custom series 规范](#echarts-custom-series-规范)）
 - ECharts custom series 过滤 null 后禁用 `params.dataIndex` 定位 x：`params.dataIndex` 是过滤后数组的局部索引，与 category 轴错位；应将原始索引 `idx` 存入 data 第 0 维，renderItem 中用 `api.value(0)` 取出作为 x 坐标
 - 禁 `any`，改用 `unknown` + 类型收窄
-- 禁用 `git log` / `git diff` 查历史
 - 禁在 `.vue` / `.ts` / `.css` 中手写 `#xxxxxx` / `rgba(...)` 颜色值，必须到 `apps/web/src/styles/tokens` 里引用
 - 原生 SQL ID 参数用 `::text[]`（ID 列均为 `character varying`），禁 `::uuid[]`
 - 500 报错：开 TypeORM `logging: ['error','warn']` 并 `logger.error(err.stack)`，禁静态分析猜
@@ -50,14 +45,11 @@ crtptotrading:加密量化策略
 - 不要设计导出CSV的功能。
 
 ## DO
-- 动手前用 `AskUserQuestion` 确认真实需求
 - 优先用 `Naive UI` 组件，禁止自建
 - 表头排序走后端接口，禁止前端排序
 - 用 `中文` 思考与回答
-- 安装前端包：`cd apps/web && pnpm add ...`（在 bash 中执行）
 - 单文件不超过 500 行，模块化拆分
 - 大改后类型自检：`apps/server` 执行 `pnpm exec tsc --noEmit`；`apps/web` 执行 `pnpm exec vue-tsc --noEmit`（勿新增报错）
-- 编辑文件用 StrReplace / Write，禁止 PowerShell 文本处理
 - tokens 中找不到需要的颜色或样式时，必须先 `AskUserQuestion` 向用户确认，禁止擅自新增
 
 ## ECharts custom series 规范

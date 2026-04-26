@@ -21,6 +21,10 @@ export interface KellyContext {
   currentWindowOdds: number;
 }
 
+interface ExecutePendingBuysOptions {
+  applyKellySizing?: boolean;
+}
+
 export function executePendingBuys(
   pendingBuys: [string, string, number, number][],
   ts: string,
@@ -31,9 +35,11 @@ export function executePendingBuys(
   positions: Position[],
   config: BacktestConfig,
   kellyCtx?: KellyContext,
+  options: ExecutePendingBuysOptions = {},
 ): [[string, string, number, number][], number, CandleEntryEvent[]] {
   const newPending: [string, string, number, number][] = [];
   const entryEvents: CandleEntryEvent[] = [];
+  const applyKellySizing = options.applyKellySizing ?? true;
 
   for (const [sym, sigTs, rrRatio, age] of pendingBuys) {
     const df = data.get(sym);
@@ -70,7 +76,9 @@ export function executePendingBuys(
         kellyRaw = (b * p - q) / b;
       }
       kellyAdjusted = Math.max(0, kellyRaw * config.kellyFraction);
-      positionRatio = Math.min(kellyAdjusted, config.kellyMaxPositionRatio, config.positionRatio);
+      if (applyKellySizing) {
+        positionRatio = Math.min(kellyAdjusted, config.kellyMaxPositionRatio, config.positionRatio);
+      }
       windowWinRate = p;
       windowOdds = b;
     }

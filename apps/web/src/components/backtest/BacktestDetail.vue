@@ -165,20 +165,19 @@
               </div>
 
               <template v-if="configView === 'form'">
-                <n-descriptions
+                <section
                   v-for="grp in visibleConfigGroups"
                   :key="grp.title"
-                  :title="grp.title"
-                  bordered
-                  :column="2"
-                  size="small"
-                  label-placement="left"
-                  class="config-group dark-descriptions"
+                  class="config-group"
                 >
-                  <n-descriptions-item v-for="f in grp.fields" :key="f.key" :label="f.label">
-                    {{ formatConfigValue(f.key, configSnapshot[f.key]) }}
-                  </n-descriptions-item>
-                </n-descriptions>
+                  <h3 class="config-group-title">{{ grp.title }}</h3>
+                  <div class="config-grid">
+                    <div v-for="f in grp.fields" :key="f.key" class="config-item">
+                      <div class="config-label">{{ f.label }}</div>
+                      <div class="config-value">{{ formatConfigValue(f.key, configSnapshot[f.key]) }}</div>
+                    </div>
+                  </div>
+                </section>
               </template>
 
               <div v-else ref="jsonViewRef" class="json-view">
@@ -222,7 +221,7 @@
 import { ref, computed, toRef } from 'vue'
 import {
   NEmpty, NSpin, NSelect, NDataTable, NTabs, NTabPane,
-  NDescriptions, NDescriptionsItem, NButton, NInputNumber, NDatePicker, NPagination,
+  NButton, NInputNumber, NDatePicker, NPagination,
 } from 'naive-ui'
 import { type BacktestCandleLogTradeState } from '../../composables/useApi'
 import { useBacktestRun } from '../../composables/backtest/useBacktestRun'
@@ -397,7 +396,52 @@ const {
   padding: 12px 16px 16px;
 }
 .config-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
-.config-group { margin-bottom: 20px; }
+.config-group {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--color-surface-elevated) 70%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
+  border-radius: 10px;
+}
+.config-group-title {
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-size: 16px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.config-item {
+  min-width: 0;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--color-surface) 88%, var(--color-surface-elevated));
+  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  border-radius: 8px;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.config-item:hover {
+  background: var(--color-surface-elevated);
+  border-color: var(--color-border);
+}
+.config-label {
+  margin-bottom: 6px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.config-value {
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
 .json-view {
   font-family: 'Source Code Pro', 'Consolas', monospace;
   font-size: 13px;
@@ -436,4 +480,9 @@ const {
   background: var(--color-surface-elevated);
 }
 .record-count { font-size: 13px; color: var(--ember-neutral); margin-right: auto; }
+@media (max-width: 900px) {
+  .config-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

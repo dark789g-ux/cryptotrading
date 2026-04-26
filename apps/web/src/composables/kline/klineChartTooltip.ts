@@ -36,11 +36,11 @@ const buildKellyHtml = (trade: TradeOnBar, detailStyle: string): string => {
   }
   const windowOdds = finiteNumber(trade.windowOdds)
 
-  pushPercent('Kelly Raw', trade.kellyRaw)
-  pushPercent('Kelly Adjusted', trade.kellyAdjusted)
-  pushPercent('Position Ratio', trade.positionRatio)
-  pushPercent('Window Win Rate', trade.windowWinRate)
-  if (windowOdds !== null) rows.push(`<div style="${detailStyle}">Window Odds: ${windowOdds.toFixed(2)}</div>`)
+  pushPercent('凯利系数', trade.kellyRaw)
+  pushPercent('调整后凯利系数', trade.kellyAdjusted)
+  pushPercent('实际仓位比例', trade.positionRatio)
+  pushPercent('窗口胜率', trade.windowWinRate)
+  if (windowOdds !== null) rows.push(`<div style="${detailStyle}">窗口赔率: ${windowOdds.toFixed(2)}</div>`)
 
   return rows.length ? rows.join('') : ''
 }
