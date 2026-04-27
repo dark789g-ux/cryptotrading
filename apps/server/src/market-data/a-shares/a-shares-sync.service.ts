@@ -5,6 +5,7 @@ import { AShareAdjFactorEntity } from '../../entities/a-share/a-share-adj-factor
 import { AShareDailyMetricEntity } from '../../entities/a-share/a-share-daily-metric.entity';
 import { AShareDailyQuoteEntity } from '../../entities/a-share/a-share-daily-quote.entity';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
+import { AShareSyncStateEntity } from '../../entities/a-share/a-share-sync-state.entity';
 import { asNullableString, asString, formatChinaDate } from './a-shares-format.util';
 import { ASharesIndicatorService } from './a-shares-indicator.service';
 import { ADJ_FACTOR_FIELDS, DAILY_BASIC_FIELDS, DAILY_FIELDS, STOCK_BASIC_FIELDS } from './a-shares-sync.constants';
@@ -29,10 +30,11 @@ export class ASharesSyncService {
     private readonly metricRepo: Repository<AShareDailyMetricEntity>,
     @InjectRepository(AShareAdjFactorEntity)
     private readonly adjFactorRepo: Repository<AShareAdjFactorEntity>,
+    @InjectRepository(AShareSyncStateEntity)
+    private readonly syncStateRepo: Repository<AShareSyncStateEntity>,
     private readonly tushareClient: TushareClientService,
     private readonly indicatorService: ASharesIndicatorService,
   ) {}
-
   async syncWithProgress(
     dto: SyncASharesDto,
     emit: (event: ASharesSyncEvent) => void = () => undefined,
@@ -56,7 +58,8 @@ export class ASharesSyncService {
     let metrics = 0;
     let adjFactors = 0;
     let indicators = 0;
-    const changedTsCodes = new Set<string>();
+    const changedRanges = new Map<string, string>();
+    const latestAdjFactorChanged = new Set<string>();
     const failedItems: ASharesSyncFailedItem[] = [];
 
     if (!total) {
@@ -76,7 +79,7 @@ export class ASharesSyncService {
       try {
         const result = await this.syncDailyQuotesByTradeDate(tradeDate);
         quotes += result.count;
-        result.tsCodes.forEach((tsCode) => changedTsCodes.add(tsCode));
+        this.mergeChangedDates(changedRanges, result.tsCodes, tradeDate);
       } catch (err: unknown) {
         failedItems.push(this.createFailedItem('daily', tradeDate, err));
       }
@@ -106,7 +109,8 @@ export class ASharesSyncService {
       try {
         const result = await this.syncAdjFactorsByTradeDate(tradeDate);
         adjFactors += result.count;
-        result.tsCodes.forEach((tsCode) => changedTsCodes.add(tsCode));
+        this.mergeChangedDates(changedRanges, result.tsCodes, tradeDate);
+        result.latestChangedTsCodes.forEach((tsCode) => latestAdjFactorChanged.add(tsCode));
       } catch (err: unknown) {
         failedItems.push(this.createFailedItem('adj_factor', tradeDate, err));
       }
@@ -120,7 +124,6 @@ export class ASharesSyncService {
         message: `${tradeDate} 日线 ${quotes}，指标 ${metrics}，复权因子 ${adjFactors}`,
       });
     }
-
     if (quotes <= 0 && failedItems.length > 0) {
       failedItems.push({
         apiName: 'technical_indicators',
@@ -131,24 +134,31 @@ export class ASharesSyncService {
 
     emit({
       type: 'progress',
-      phase: '计算前复权行情',
+      phase: '标记脏区间',
       current: 0,
-      total: changedTsCodes.size,
-      percent: 96,
-      message: `${changedTsCodes.size} 只股票`,
+      total: changedRanges.size,
+      percent: 95,
+      message: `${changedRanges.size} 只股票`,
     });
-    await this.recalculateQfqQuotes([...changedTsCodes]);
-
+    await this.markDirtyRanges(changedRanges, latestAdjFactorChanged);
     emit({
       type: 'progress',
-      phase: '计算技术指标',
+      phase: '增量计算前复权',
+      current: 0,
+      total: changedRanges.size,
+      percent: 96,
+      message: `${changedRanges.size} 只股票`,
+    });
+    await this.recalculateDirtyQfqQuotes([...changedRanges.keys()]);
+    emit({
+      type: 'progress',
+      phase: '增量计算技术指标',
       current: 0,
       total: 1,
       percent: 98,
       message: `${range.startDate} - ${range.endDate}`,
     });
-    indicators = await this.indicatorService.recalculateIndicatorsForSymbols([...changedTsCodes]);
-
+    indicators = await this.indicatorService.recalculateDirtyIndicatorsForSymbols([...changedRanges.keys()]);
     const status: ASharesSyncStatus = failedItems.length > 0 ? 'partial' : 'done';
     return this.createResult(status, symbols, quotes, metrics, adjFactors, indicators, failedItems, range);
   }
@@ -221,12 +231,14 @@ export class ASharesSyncService {
     return entities.length;
   }
 
-  private async syncAdjFactorsByTradeDate(tradeDate: string): Promise<{ count: number; tsCodes: string[] }> {
+  private async syncAdjFactorsByTradeDate(tradeDate: string): Promise<{ count: number; tsCodes: string[]; latestChangedTsCodes: string[] }> {
     const rows = await this.tushareClient.query(
       'adj_factor',
       { trade_date: tradeDate },
       ADJ_FACTOR_FIELDS,
     );
+    const tsCodes = rows.map((row) => asString(row.ts_code)).filter(Boolean);
+    const latestBefore = await this.loadLatestAdjFactors(tsCodes);
     const entities = rows.map((row) =>
       this.adjFactorRepo.create({
         tsCode: asString(row.ts_code),
@@ -235,16 +247,22 @@ export class ASharesSyncService {
       }),
     );
     await this.upsertInChunks(this.adjFactorRepo, entities, ['tsCode', 'tradeDate']);
-    return { count: entities.length, tsCodes: rows.map((row) => asString(row.ts_code)).filter(Boolean) };
+    const latestChangedTsCodes = rows
+      .filter((row) => this.isLatestAdjFactorChange(latestBefore.get(asString(row.ts_code)), tradeDate, row.adj_factor))
+      .map((row) => asString(row.ts_code))
+      .filter(Boolean);
+    return { count: entities.length, tsCodes, latestChangedTsCodes };
   }
-
-  private async recalculateQfqQuotes(tsCodes: string[]): Promise<void> {
+  private async recalculateDirtyQfqQuotes(tsCodes: string[]): Promise<void> {
     for (const tsCode of tsCodes) {
-      await this.recalculateQfqQuotesForSymbol(tsCode);
+      await this.recalculateDirtyQfqQuotesForSymbol(tsCode);
     }
   }
 
-  private async recalculateQfqQuotesForSymbol(tsCode: string): Promise<void> {
+  private async recalculateDirtyQfqQuotesForSymbol(tsCode: string): Promise<void> {
+    const state = await this.syncStateRepo.findOne({ where: { tsCode } });
+    const dirtyFrom = state?.qfqDirtyFromDate;
+    if (!dirtyFrom) return;
     await this.quoteRepo.query(`
       WITH adjusted AS (
         SELECT
@@ -265,16 +283,29 @@ export class ASharesSyncService {
           LIMIT 1
         ) latest ON true
         WHERE q.ts_code = $1
+          AND q.trade_date >= $2
       ),
       with_prev AS (
         SELECT
-          id,
+          adjusted.id,
           qfq_open,
           qfq_high,
           qfq_low,
           qfq_close,
-          LAG(qfq_close) OVER (ORDER BY trade_date ASC) AS qfq_pre_close
+          COALESCE(
+            LAG(qfq_close) OVER (ORDER BY adjusted.trade_date ASC),
+            prev.prev_qfq_close
+          ) AS qfq_pre_close
         FROM adjusted
+        LEFT JOIN LATERAL (
+          SELECT pq.qfq_close AS prev_qfq_close
+          FROM a_share_daily_quotes pq
+          WHERE pq.ts_code = $1
+            AND pq.trade_date < $2
+            AND pq.qfq_close IS NOT NULL
+          ORDER BY pq.trade_date DESC
+          LIMIT 1
+        ) prev ON true
       )
       UPDATE a_share_daily_quotes AS target
       SET
@@ -293,7 +324,93 @@ export class ASharesSyncService {
         END
       FROM with_prev
       WHERE target.id = with_prev.id
+    `, [tsCode, dirtyFrom]);
+    await this.quoteRepo.query(`
+      INSERT INTO a_share_sync_states (
+        ts_code,
+        qfq_dirty_from_date,
+        indicator_dirty_from_date,
+        updated_at
+      )
+      VALUES ($1, NULL, $2, now())
+      ON CONFLICT (ts_code) DO UPDATE SET
+        qfq_dirty_from_date = NULL,
+        indicator_dirty_from_date = CASE
+          WHEN a_share_sync_states.indicator_dirty_from_date IS NULL THEN EXCLUDED.indicator_dirty_from_date
+          WHEN EXCLUDED.indicator_dirty_from_date < a_share_sync_states.indicator_dirty_from_date THEN EXCLUDED.indicator_dirty_from_date
+          ELSE a_share_sync_states.indicator_dirty_from_date
+        END,
+        updated_at = now()
+    `, [tsCode, dirtyFrom]);
+  }
+
+  private mergeChangedDates(target: Map<string, string>, tsCodes: string[], tradeDate: string): void {
+    for (const tsCode of tsCodes) {
+      const existing = target.get(tsCode);
+      if (!existing || tradeDate < existing) target.set(tsCode, tradeDate);
+    }
+  }
+
+  private async markDirtyRanges(changedRanges: Map<string, string>, latestAdjFactorChanged: Set<string>): Promise<void> {
+    for (const [tsCode, tradeDate] of changedRanges) {
+      const dirtyFrom = latestAdjFactorChanged.has(tsCode)
+        ? await this.resolveEarliestQuoteDate(tsCode, tradeDate)
+        : tradeDate;
+      await this.quoteRepo.query(`
+        INSERT INTO a_share_sync_states (
+          ts_code,
+          qfq_dirty_from_date,
+          indicator_dirty_from_date,
+          updated_at
+        )
+        VALUES ($1, $2, $2, now())
+        ON CONFLICT (ts_code) DO UPDATE SET
+          qfq_dirty_from_date = CASE
+            WHEN a_share_sync_states.qfq_dirty_from_date IS NULL THEN EXCLUDED.qfq_dirty_from_date
+            WHEN EXCLUDED.qfq_dirty_from_date < a_share_sync_states.qfq_dirty_from_date THEN EXCLUDED.qfq_dirty_from_date
+            ELSE a_share_sync_states.qfq_dirty_from_date
+          END,
+          indicator_dirty_from_date = CASE
+            WHEN a_share_sync_states.indicator_dirty_from_date IS NULL THEN EXCLUDED.indicator_dirty_from_date
+            WHEN EXCLUDED.indicator_dirty_from_date < a_share_sync_states.indicator_dirty_from_date THEN EXCLUDED.indicator_dirty_from_date
+            ELSE a_share_sync_states.indicator_dirty_from_date
+          END,
+          updated_at = now()
+      `, [tsCode, dirtyFrom]);
+    }
+  }
+
+  private async resolveEarliestQuoteDate(tsCode: string, fallback: string): Promise<string> {
+    const rows = await this.quoteRepo.query<Array<{ tradeDate: string }>>(`
+      SELECT MIN(trade_date) AS "tradeDate"
+      FROM a_share_daily_quotes
+      WHERE ts_code = $1
     `, [tsCode]);
+    return rows[0]?.tradeDate ?? fallback;
+  }
+  private async loadLatestAdjFactors(
+    tsCodes: string[],
+  ): Promise<Map<string, { tradeDate: string; adjFactor: string | null }>> {
+    if (!tsCodes.length) return new Map();
+    const rows = await this.adjFactorRepo.query<Array<{ tsCode: string; tradeDate: string; adjFactor: string | null }>>(`
+      SELECT DISTINCT ON (ts_code)
+        ts_code AS "tsCode",
+        trade_date AS "tradeDate",
+        adj_factor AS "adjFactor"
+      FROM a_share_adj_factors
+      WHERE ts_code = ANY($1::text[])
+      ORDER BY ts_code, trade_date DESC
+    `, [tsCodes]);
+    return new Map(rows.map((row) => [row.tsCode, row]));
+  }
+  private isLatestAdjFactorChange(
+    latestBefore: { tradeDate: string; adjFactor: string | null } | undefined,
+    tradeDate: string,
+    adjFactor: unknown,
+  ): boolean {
+    if (!latestBefore) return true;
+    if (tradeDate < latestBefore.tradeDate) return false;
+    return String(latestBefore.adjFactor ?? '') !== String(adjFactor ?? '');
   }
 
   private async resolveOpenTradeDates(range: ASharesSyncRange): Promise<string[]> {

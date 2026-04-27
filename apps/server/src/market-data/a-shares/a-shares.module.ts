@@ -5,6 +5,8 @@ import { AShareDailyMetricEntity } from '../../entities/a-share/a-share-daily-me
 import { AShareDailyQuoteEntity } from '../../entities/a-share/a-share-daily-quote.entity';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
 import { AShareAdjFactorEntity } from '../../entities/a-share/a-share-adj-factor.entity';
+import { AShareIndicatorCalcStateEntity } from '../../entities/a-share/a-share-indicator-calc-state.entity';
+import { AShareSyncStateEntity } from '../../entities/a-share/a-share-sync-state.entity';
 import { AShareFilterPresetEntity } from '../../entities/a-share/a-share-filter-preset.entity';
 import { ASharesController } from './a-shares.controller';
 import { ASharesFilterPresetsService } from './a-shares-filter-presets.service';
@@ -20,6 +22,8 @@ import { TushareClientService } from './tushare-client.service';
     AShareDailyMetricEntity,
     AShareDailyIndicatorEntity,
     AShareAdjFactorEntity,
+    AShareIndicatorCalcStateEntity,
+    AShareSyncStateEntity,
     AShareFilterPresetEntity,
   ])],
   controllers: [ASharesController],

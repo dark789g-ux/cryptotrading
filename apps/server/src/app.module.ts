@@ -18,6 +18,8 @@ import { AShareDailyQuoteEntity } from './entities/a-share/a-share-daily-quote.e
 import { AShareDailyMetricEntity } from './entities/a-share/a-share-daily-metric.entity';
 import { AShareDailyIndicatorEntity } from './entities/a-share/a-share-daily-indicator.entity';
 import { AShareAdjFactorEntity } from './entities/a-share/a-share-adj-factor.entity';
+import { AShareIndicatorCalcStateEntity } from './entities/a-share/a-share-indicator-calc-state.entity';
+import { AShareSyncStateEntity } from './entities/a-share/a-share-sync-state.entity';
 import { AShareFilterPresetEntity } from './entities/a-share/a-share-filter-preset.entity';
 import { StrategyTypeEntity } from './entities/strategy/strategy-type.entity';
 import { StrategyEntity } from './entities/strategy/strategy.entity';
@@ -51,6 +53,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           AShareDailyMetricEntity,
           AShareDailyIndicatorEntity,
           AShareAdjFactorEntity,
+          AShareIndicatorCalcStateEntity,
+          AShareSyncStateEntity,
           AShareFilterPresetEntity,
           StrategyTypeEntity,
           StrategyEntity,

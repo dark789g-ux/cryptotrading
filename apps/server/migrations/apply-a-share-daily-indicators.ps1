@@ -1,6 +1,7 @@
 $sqlFiles = @(
   '20260426170000-create-a-share-daily-indicators.sql',
-  '20260426183000-add-a-share-brick-indicators.sql'
+  '20260426183000-add-a-share-brick-indicators.sql',
+  '20260428110000-add-a-share-incremental-sync-state.sql'
 )
 
 foreach ($sqlFile in $sqlFiles) {
