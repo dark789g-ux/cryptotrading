@@ -2,11 +2,23 @@ import type { BrickChartPoint } from '../../indicators/brick-chart';
 
 export type SortOrder = 'ascend' | 'descend' | null;
 
-export interface QueryCondition {
+export type QueryConditionOp = 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq';
+
+export interface QueryNumberCondition {
   field: string;
-  op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq';
+  op: QueryConditionOp;
+  valueType?: 'number';
   value: number;
 }
+
+export interface QueryFieldCondition {
+  field: string;
+  op: QueryConditionOp;
+  valueType: 'field';
+  compareField: string;
+}
+
+export type QueryCondition = QueryNumberCondition | QueryFieldCondition;
 
 export interface QueryASharesDto {
   page?: number;

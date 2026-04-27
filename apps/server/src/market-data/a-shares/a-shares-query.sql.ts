@@ -1,6 +1,6 @@
-import { QueryASharesDto, QueryCondition } from './a-shares.types';
+import { QueryASharesDto, QueryConditionOp } from './a-shares.types';
 
-const OP_MAP: Record<QueryCondition['op'], string> = {
+const OP_MAP: Record<QueryConditionOp, string> = {
   gt: '>',
   gte: '>=',
   lt: '<',
@@ -10,9 +10,13 @@ const OP_MAP: Record<QueryCondition['op'], string> = {
 };
 
 const RAW_CONDITION_COL_MAP: Record<string, string> = {
+  open: 'q.open',
+  high: 'q.high',
+  low: 'q.low',
   close: 'q.close',
   change: 'q.change',
   pctChg: 'q.pct_chg',
+  volume: 'q.vol',
   amount: 'q.amount',
   turnoverRate: 'm.turnover_rate',
   volumeRatio: 'm.volume_ratio',
@@ -34,6 +38,9 @@ const RAW_CONDITION_COL_MAP: Record<string, string> = {
 
 const QFQ_CONDITION_COL_MAP: Record<string, string> = {
   ...RAW_CONDITION_COL_MAP,
+  open: 'q.qfq_open',
+  high: 'q.qfq_high',
+  low: 'q.qfq_low',
   close: 'q.qfq_close',
   change: 'q.qfq_change',
   pctChg: 'q.qfq_pct_chg',
@@ -125,12 +132,19 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
   }
 
   for (const condition of (dto.conditions ?? []).slice(0, 10)) {
-    const column = (priceMode === 'raw' ? RAW_CONDITION_COL_MAP : QFQ_CONDITION_COL_MAP)[condition.field];
+    const conditionColMap = priceMode === 'raw' ? RAW_CONDITION_COL_MAP : QFQ_CONDITION_COL_MAP;
+    const column = conditionColMap[condition.field];
     const op = OP_MAP[condition.op];
     if (!column || !op) continue;
-    sql += ` AND ${column} ${op} $${paramIndex}`;
-    params.push(condition.value);
-    paramIndex++;
+    if (condition.valueType === 'field') {
+      const compareColumn = conditionColMap[condition.compareField];
+      if (!compareColumn) continue;
+      sql += ` AND ${column} ${op} ${compareColumn}`;
+    } else {
+      sql += ` AND ${column} ${op} $${paramIndex}`;
+      params.push(condition.value);
+      paramIndex++;
+    }
   }
 
   return { sql, params, nextParamIndex: paramIndex };

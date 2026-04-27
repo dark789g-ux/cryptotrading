@@ -40,7 +40,7 @@
       </div>
       <div v-if="conditions.length" class="filter-tags">
         <n-tag v-for="(cond, index) in conditions" :key="index" closable @close="removeCondition(index)">
-          {{ cond.field }} {{ opLabels[cond.op] }} {{ cond.value }}
+          {{ formatConditionTag(cond) }}
         </n-tag>
       </div>
     </n-card>
@@ -140,6 +140,11 @@ const opLabels: Record<NumericCondition['op'], string> = {
   lte: '<=',
   eq: '=',
   neq: '!=',
+}
+
+const formatConditionTag = (condition: NumericCondition) => {
+  const rightValue = condition.valueType === 'field' ? condition.compareField : condition.value
+  return `${condition.field} ${opLabels[condition.op]} ${rightValue}`
 }
 
 const paginationState = computed(() => ({

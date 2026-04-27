@@ -370,6 +370,9 @@ export const symbolApi = {
 
 // A 股
 export type ASharePriceMode = 'qfq' | 'raw'
+export type NumericConditionPayload =
+  | { field: string; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; valueType?: 'number'; value: number }
+  | { field: string; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; valueType: 'field'; compareField: string }
 
 export interface AShareSummary {
   totalSymbols: string
@@ -434,7 +437,7 @@ export interface AShareQueryBody {
   industry?: string | null
   priceMode?: ASharePriceMode
   sort?: { field?: string; order?: 'ascend' | 'descend' | null; asc?: boolean }
-  conditions?: Array<{ field: string; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; value: number }>
+  conditions?: NumericConditionPayload[]
 }
 
 export interface AShareFilterPresetFilters {
@@ -444,7 +447,7 @@ export interface AShareFilterPresetFilters {
   priceMode: ASharePriceMode
   pctChangeMin: number | null
   turnoverRateMin: number | null
-  advancedConditions: Array<{ field: string; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; value: number }>
+  advancedConditions: NumericConditionPayload[]
 }
 
 export interface AShareFilterPreset {

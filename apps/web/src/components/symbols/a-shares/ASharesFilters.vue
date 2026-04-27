@@ -121,6 +121,19 @@ const emit = defineEmits<{
 const advancedFieldOptions: NumericConditionFieldOption[] = [
   {
     type: 'group',
+    label: '行情',
+    key: 'quote',
+    children: [
+      { label: '开盘价', value: 'open' },
+      { label: '最高价', value: 'high' },
+      { label: '最低价', value: 'low' },
+      { label: '最新价/收盘价', value: 'close' },
+      { label: '涨跌额', value: 'change' },
+      { label: '涨跌幅', value: 'pctChg' },
+    ],
+  },
+  {
+    type: 'group',
     label: '均线',
     key: 'ma',
     children: [
@@ -156,6 +169,8 @@ const advancedFieldOptions: NumericConditionFieldOption[] = [
     label: '成交与估值',
     key: 'valuation',
     children: [
+      { label: '成交量', value: 'volume' },
+      { label: '成交额', value: 'amount' },
       { label: '量比', value: 'volumeRatio' },
       { label: 'PE', value: 'pe' },
       { label: 'PB', value: 'pb' },

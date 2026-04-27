@@ -24,8 +24,27 @@
         <n-select v-model:value="draft.op" :options="opOptions" placeholder="选择关系" />
       </div>
       <div class="field-group field-group--compact">
-        <label>数值</label>
-        <n-input-number v-model:value="draft.value" placeholder="输入数值" />
+        <label>右值</label>
+        <n-radio-group v-model:value="draft.valueType" size="small" class="value-type-group">
+          <n-radio-button
+            v-for="option in valueTypeOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </n-radio-button>
+        </n-radio-group>
+      </div>
+      <div class="field-group field-group--compact">
+        <label>{{ draft.valueType === 'field' ? '字段' : '数值' }}</label>
+        <n-select
+          v-if="draft.valueType === 'field'"
+          v-model:value="draft.compareField"
+          :options="fieldOptions"
+          filterable
+          placeholder="选择字段"
+        />
+        <n-input-number v-else v-model:value="draft.value" placeholder="输入数值" />
       </div>
       <n-button type="primary" :disabled="!canAddCondition" @click="addCondition">添加</n-button>
     </div>
@@ -36,7 +55,7 @@
       <div class="condition-section-title">当前条件</div>
       <n-empty v-if="!conditions.length" class="condition-empty" :description="emptyDescription" />
       <div v-else class="condition-list">
-        <div v-for="(condition, index) in conditions" :key="`${condition.field}-${condition.op}-${condition.value}-${index}`" class="condition-item">
+        <div v-for="(condition, index) in conditions" :key="conditionKey(condition, index)" class="condition-item">
           <span>{{ formatCondition(condition) }}</span>
           <n-button quaternary circle size="small" @click="removeCondition(index)">
             <template #icon><n-icon><close-outline /></n-icon></template>
@@ -57,9 +76,17 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NBadge, NButton, NDivider, NEmpty, NIcon, NInputNumber, NModal, NSelect } from 'naive-ui'
+import { NBadge, NButton, NDivider, NEmpty, NIcon, NInputNumber, NModal, NRadioButton, NRadioGroup, NSelect } from 'naive-ui'
 import { CloseOutline, FilterOutline } from '@vicons/ionicons5'
-import type { NumericCondition, NumericConditionFieldOption } from './numericConditionFilterTypes'
+import type { NumericCondition, NumericConditionFieldOption, NumericConditionOp, NumericConditionValueType } from './numericConditionFilterTypes'
+
+interface DraftCondition {
+  field: string
+  op: NumericConditionOp
+  valueType: NumericConditionValueType
+  value: number | null
+  compareField: string
+}
 
 const props = withDefaults(
   defineProps<{
@@ -84,10 +111,15 @@ const emit = defineEmits<{
 }>()
 
 const showModal = ref(false)
-const draft = ref<NumericCondition>({ field: '', op: 'gt', value: 0 })
+const draft = ref<DraftCondition>({ field: '', op: 'gt', valueType: 'number', value: 0, compareField: '' })
 const modalStyle = {
-  width: 'min(480px, calc(100vw - 32px))',
+  width: 'min(560px, calc(100vw - 32px))',
 } as const
+
+const valueTypeOptions = [
+  { label: '数值', value: 'number' },
+  { label: '字段', value: 'field' },
+] satisfies Array<{ label: string; value: NumericConditionValueType }>
 
 const opOptions = [
   { label: '>', value: 'gt' },
@@ -96,9 +128,9 @@ const opOptions = [
   { label: '<=', value: 'lte' },
   { label: '=', value: 'eq' },
   { label: '!=', value: 'neq' },
-] satisfies Array<{ label: string; value: NumericCondition['op'] }>
+] satisfies Array<{ label: string; value: NumericConditionOp }>
 
-const opLabels: Record<NumericCondition['op'], string> = {
+const opLabels: Record<NumericConditionOp, string> = {
   gt: '>',
   gte: '>=',
   lt: '<',
@@ -125,15 +157,32 @@ const fieldLabelMap = computed(() => {
   return map
 })
 
-const canAddCondition = computed(() => Boolean(draft.value.field) && Number.isFinite(Number(draft.value.value)))
+const canAddCondition = computed(() => {
+  if (!draft.value.field) return false
+  if (draft.value.valueType === 'field') return Boolean(draft.value.compareField)
+  return Number.isFinite(Number(draft.value.value))
+})
 
 function resetDraft() {
-  draft.value = { field: '', op: 'gt', value: 0 }
+  draft.value = { field: '', op: 'gt', valueType: 'number', value: 0, compareField: '' }
 }
 
 function addCondition() {
   if (!canAddCondition.value) return
-  emit('update:conditions', [...props.conditions, { ...draft.value, value: Number(draft.value.value) }])
+  const nextCondition: NumericCondition = draft.value.valueType === 'field'
+    ? {
+        field: draft.value.field,
+        op: draft.value.op,
+        valueType: 'field',
+        compareField: draft.value.compareField,
+      }
+    : {
+        field: draft.value.field,
+        op: draft.value.op,
+        valueType: 'number',
+        value: Number(draft.value.value),
+      }
+  emit('update:conditions', [...props.conditions, nextCondition])
   resetDraft()
 }
 
@@ -155,7 +204,16 @@ function confirmConditions() {
 
 function formatCondition(condition: NumericCondition) {
   const fieldLabel = fieldLabelMap.value.get(condition.field) ?? condition.field
+  if (condition.valueType === 'field') {
+    const compareFieldLabel = fieldLabelMap.value.get(condition.compareField) ?? condition.compareField
+    return `${fieldLabel} ${opLabels[condition.op]} ${compareFieldLabel}`
+  }
   return `${fieldLabel} ${opLabels[condition.op]} ${condition.value}`
+}
+
+function conditionKey(condition: NumericCondition, index: number) {
+  const rightValue = condition.valueType === 'field' ? condition.compareField : condition.value
+  return `${condition.field}-${condition.op}-${condition.valueType ?? 'number'}-${rightValue}-${index}`
 }
 </script>
 
@@ -165,7 +223,10 @@ function formatCondition(condition: NumericCondition) {
 .field-group { display: flex; flex-direction: column; gap: 6px; }
 .field-group:first-child { grid-column: 1 / -1; }
 .field-group label { color: var(--color-text-secondary); font-size: 13px; }
-.field-group--compact :deep(.n-input-number) { width: 100%; }
+.field-group--compact :deep(.n-input-number),
+.field-group--compact :deep(.n-select),
+.value-type-group { width: 100%; }
+.value-type-group :deep(.n-radio-button) { flex: 1; text-align: center; }
 .condition-form > .n-button { justify-self: end; }
 .condition-section-title { margin-bottom: 10px; font-size: 14px; font-weight: 700; }
 .condition-empty { min-height: 96px; display: flex; align-items: center; justify-content: center; }

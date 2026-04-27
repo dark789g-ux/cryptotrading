@@ -10,9 +10,13 @@ export interface QuerySymbolsDto {
   page_size: number;
   sort: { field: string; asc: boolean };
   q?: string;
-  conditions?: { field: string; op: string; value: number }[];
+  conditions?: QuerySymbolCondition[];
   fields?: string[];
 }
+
+type QuerySymbolCondition =
+  | { field: string; op: string; valueType?: 'number'; value: number }
+  | { field: string; op: string; valueType: 'field'; compareField: string };
 
 /** 指标列名映射（与 klines 表列名一致，供 symbols 查询与回测快照共用） */
 export const KLINE_INDICATOR_COLUMNS: Record<string, string> = {
@@ -110,7 +114,7 @@ export class SymbolsService {
       JOIN symbols s ON s.symbol = k.symbol
       WHERE s.is_excluded = false`;
 
-    const params: any[] = [interval];
+    const params: Array<string | number> = [interval];
     let pi = 2;
 
     if (q) {
@@ -123,9 +127,15 @@ export class SymbolsService {
       const col = KLINE_INDICATOR_COLUMNS[cond.field];
       const op = KLINE_OP_MAP[cond.op];
       if (!col || !op) continue;
-      sql += ` AND k.${col} ${op} $${pi}`;
-      params.push(cond.value);
-      pi++;
+      if (cond.valueType === 'field') {
+        const compareCol = KLINE_INDICATOR_COLUMNS[cond.compareField];
+        if (!compareCol) continue;
+        sql += ` AND k.${col} ${op} k.${compareCol}`;
+      } else {
+        sql += ` AND k.${col} ${op} $${pi}`;
+        params.push(cond.value);
+        pi++;
+      }
     }
 
     // 计总数

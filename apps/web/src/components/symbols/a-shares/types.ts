@@ -1,4 +1,5 @@
 import type { AShareFilterPresetFilters, AShareRow } from '../../../composables/useApi'
+import type { NumericCondition } from '../../common/numericConditionFilterTypes'
 
 export interface SelectOption {
   label: string
@@ -6,11 +7,7 @@ export interface SelectOption {
   [key: string]: unknown
 }
 
-export interface Condition {
-  field: string
-  op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'
-  value: number
-}
+export type Condition = NumericCondition
 
 export type ASharesFilterState = AShareFilterPresetFilters
 

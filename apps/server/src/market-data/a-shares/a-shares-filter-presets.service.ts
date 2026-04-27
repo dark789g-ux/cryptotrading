@@ -98,11 +98,22 @@ export class ASharesFilterPresetsService {
       if (!OPS.includes(item.op as QueryCondition['op'])) {
         throw new BadRequestException('advancedConditions.op 无效');
       }
+      if (item.valueType === 'field') {
+        if (typeof item.compareField !== 'string' || !item.compareField.trim()) {
+          throw new BadRequestException('advancedConditions.compareField 不能为空');
+        }
+        return {
+          field: item.field.trim(),
+          op: item.op as QueryCondition['op'],
+          valueType: 'field',
+          compareField: item.compareField.trim(),
+        };
+      }
       const valueNumber = Number(item.value);
       if (!Number.isFinite(valueNumber)) {
         throw new BadRequestException('advancedConditions.value 必须是有限数字');
       }
-      return { field: item.field.trim(), op: item.op as QueryCondition['op'], value: valueNumber };
+      return { field: item.field.trim(), op: item.op as QueryCondition['op'], valueType: 'number', value: valueNumber };
     });
   }
 
