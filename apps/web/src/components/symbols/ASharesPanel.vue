@@ -163,8 +163,6 @@ onMounted(() => {
 .panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .panel-title { margin: 0; font-size: 22px; line-height: 1.2; }
 .panel-subtitle { margin: 6px 0 0; color: var(--color-text-secondary); }
-.trend-up { color: var(--color-success); }
-.trend-down { color: var(--color-error); }
 
 @media (max-width: 960px) {
   .panel-header { flex-direction: column; }

@@ -120,6 +120,9 @@ Parent feature component 仍负责 search text、market/industry selectors、int
 
 - 默认不要用行点击；交互放在 `操作` 列。
 - 表格默认带分页器，选项为 `[10, 20, 50]`，默认 `10`。
+- 表格单元格的条件样式应贴近列 `render` 实现：如果颜色、文本状态、徽标等由当前单元格值决定，优先在列定义里计算并绑定到 render 输出，避免依赖父组件 `scoped`/`:deep()` 样式去覆盖 `n-data-table` 内部 DOM。
+- 条件颜色必须使用现有 TS token（如 `colors.success.DEFAULT` / `colors.error.DEFAULT`）或 CSS token，不要手写颜色值；保留语义 class 可以用于复用，但关键视觉结果不要只依赖跨组件 CSS 覆盖。
+- 修改表格条件展示前先搜索相邻页面是否已有同类模式，例如收益率、涨跌幅、状态列等；优先复用已验证的 render + token 写法。
 - 远程模式下，未点表头时列 `sortOrder` 恒为 `false`，避免默认排序假高亮；请求仍可带默认 `sortBy`/`sortOrder`。
 - 使用 `explicitSort` 区分默认排序和用户点击。用户点击了与默认同列同向的排序，也应视为显式并高亮。
 - 清除排序或重置筛选后回到默认排序，且 `explicitSort=false`；仅修改筛选不应改变 `explicitSort`。

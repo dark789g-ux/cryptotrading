@@ -2,11 +2,19 @@ import { h } from 'vue'
 import { NButton, NIcon, NTooltip, type DataTableColumns } from 'naive-ui'
 import { OpenOutline } from '@vicons/ionicons5'
 import type { AShareRow } from '../../../composables/useApi'
+import { colors } from '../../../styles/tokens'
 import { formatAmount, formatNumber, formatPercent, formatTradeDate, trendClass } from './aSharesFormatters'
 
 interface ASharesColumnsOptions {
   onViewDetail: (row: AShareRow) => void
   priceMode: 'qfq' | 'raw'
+}
+
+function getPctChangeColor(value: string | null) {
+  const num = value == null ? 0 : Number(value)
+  if (num > 0) return colors.success.DEFAULT
+  if (num < 0) return colors.error.DEFAULT
+  return undefined
 }
 
 export function createASharesColumns(options: ASharesColumnsOptions): DataTableColumns<AShareRow> {
@@ -22,7 +30,14 @@ export function createASharesColumns(options: ASharesColumnsOptions): DataTableC
       key: 'pctChg',
       width: 130,
       sorter: true,
-      render: (row) => h('span', { class: trendClass(row.pctChg) }, formatPercent(row.pctChg)),
+      render: (row) => {
+        const color = getPctChangeColor(row.pctChg)
+        return h(
+          'span',
+          { class: trendClass(row.pctChg), style: color ? { color } : undefined },
+          formatPercent(row.pctChg),
+        )
+      },
     },
     { title: '成交额', key: 'amount', width: 120, sorter: true, render: (row) => formatAmount(row.amount) },
     { title: '换手率', key: 'turnoverRate', width: 110, sorter: true, render: (row) => formatPercent(row.turnoverRate) },
