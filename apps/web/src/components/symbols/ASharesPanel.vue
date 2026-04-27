@@ -55,6 +55,7 @@
 
     <a-shares-sync-modal
       v-model:show="showSyncModal"
+      v-model:sync-mode="syncMode"
       v-model:sync-date-range="syncDateRange"
       :syncing="syncing"
       :sync-range-label="syncRangeLabel"
@@ -127,6 +128,7 @@ const {
 const {
   syncing,
   showSyncModal,
+  syncMode,
   syncDateRange,
   syncProgressVisible,
   syncStatusLabel,

@@ -395,6 +395,7 @@ export interface AShareRow {
   turnoverRate: string | null
   volumeRatio: string | null
   pe: string | null
+  peTtm: string | null
   pb: string | null
   totalMv?: string | null
   circMv?: string | null
@@ -414,6 +415,7 @@ export interface AShareKlineBar extends KlineChartBar {
   turnoverRate: number | null
   volumeRatio: number | null
   pe: number | null
+  peTtm: number | null
   pb: number | null
   totalMv: number | null
   circMv: number | null
@@ -470,7 +472,11 @@ export interface AShareSyncResult {
   failedItems: Array<{ tradeDate?: string; apiName: string; message: string }>
   startDate: string
   endDate: string
+  skippedDates?: number
+  skippedDatasets?: number
 }
+
+export type AShareSyncMode = 'incremental' | 'overwrite'
 
 export const aSharesApi = {
   getSummary: () => request<AShareSummary>(`${API_BASE}/a-shares/summary`),
@@ -490,13 +496,14 @@ export const aSharesApi = {
     qs.set('priceMode', priceMode)
     return request<AShareKlineBar[]>(`${API_BASE}/a-shares/${encodeURIComponent(tsCode)}/klines?${qs.toString()}`)
   },
-  sync: (body: { tradeDate?: string; startDate?: string; endDate?: string } = {}) =>
+  sync: (body: { tradeDate?: string; startDate?: string; endDate?: string; syncMode?: AShareSyncMode } = {}) =>
     post<AShareSyncResult>(`${API_BASE}/a-shares/sync`, body),
-  syncRunUrl: (body: { tradeDate?: string; startDate?: string; endDate?: string } = {}) => {
+  syncRunUrl: (body: { tradeDate?: string; startDate?: string; endDate?: string; syncMode?: AShareSyncMode } = {}) => {
     const qs = new URLSearchParams()
     appendQueryParam(qs, 'tradeDate', body.tradeDate)
     appendQueryParam(qs, 'startDate', body.startDate)
     appendQueryParam(qs, 'endDate', body.endDate)
+    appendQueryParam(qs, 'syncMode', body.syncMode)
     const query = qs.toString()
     return `${API_BASE}/a-shares/sync/run${query ? `?${query}` : ''}`
   },

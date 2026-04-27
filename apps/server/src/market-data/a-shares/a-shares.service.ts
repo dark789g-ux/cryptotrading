@@ -7,9 +7,9 @@ import {
   asNullableNumber,
   asNumber,
   formatTradeDateLabel,
-} from './a-shares-format.util';
-import { buildASharesBaseQuery, appendASharesSort } from './a-shares-query.sql';
-import { ASharesSyncService } from './a-shares-sync.service';
+} from './utils/a-shares-format.util';
+import { buildASharesBaseQuery, appendASharesSort } from './data-access/a-shares-query.sql';
+import { ASharesSyncService } from './sync/a-shares-sync.service';
 import {
   AShareKlineRow,
   ASharesSyncEvent,
@@ -188,6 +188,7 @@ export class ASharesService {
         m.turnover_rate AS "turnoverRate",
         m.volume_ratio AS "volumeRatio",
           m.pe,
+          m.pe_ttm AS "peTtm",
           m.pb,
           m.total_mv AS "totalMv",
           m.circ_mv AS "circMv"
@@ -239,6 +240,7 @@ export class ASharesService {
         turnoverRate: asNullableNumber(row.turnoverRate),
         volumeRatio: asNullableNumber(row.volumeRatio),
         pe: asNullableNumber(row.pe),
+        peTtm: asNullableNumber(row.peTtm),
         pb: asNullableNumber(row.pb),
         totalMv: asNullableNumber(row.totalMv),
         circMv: asNullableNumber(row.circMv),

@@ -9,11 +9,11 @@ import { AShareIndicatorCalcStateEntity } from '../../entities/a-share/a-share-i
 import { AShareSyncStateEntity } from '../../entities/a-share/a-share-sync-state.entity';
 import { AShareFilterPresetEntity } from '../../entities/a-share/a-share-filter-preset.entity';
 import { ASharesController } from './a-shares.controller';
-import { ASharesFilterPresetsService } from './a-shares-filter-presets.service';
-import { ASharesIndicatorService } from './a-shares-indicator.service';
+import { ASharesFilterPresetsService } from './services/a-shares-filter-presets.service';
+import { ASharesIndicatorService } from './services/a-shares-indicator.service';
 import { ASharesService } from './a-shares.service';
-import { ASharesSyncService } from './a-shares-sync.service';
-import { TushareClientService } from './tushare-client.service';
+import { ASharesSyncService } from './sync/a-shares-sync.service';
+import { TushareClientService } from './services/tushare-client.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([

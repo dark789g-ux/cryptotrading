@@ -173,6 +173,7 @@ const advancedFieldOptions: NumericConditionFieldOption[] = [
       { label: '成交额', value: 'amount' },
       { label: '量比', value: 'volumeRatio' },
       { label: 'PE', value: 'pe' },
+      { label: 'PE(TTM)', value: 'peTtm' },
       { label: 'PB', value: 'pb' },
     ],
   },

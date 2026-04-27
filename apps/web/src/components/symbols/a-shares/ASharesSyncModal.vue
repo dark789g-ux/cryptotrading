@@ -21,6 +21,27 @@
       </div>
     </template>
     <div class="sync-form">
+      <div class="sync-mode-panel">
+        <div class="sync-field-label">
+          <n-icon><swap-horizontal-outline /></n-icon>
+          <span>同步模式</span>
+        </div>
+        <n-radio-group
+          :value="syncMode"
+          size="small"
+          :disabled="syncing"
+          @update:value="handleSyncModeChange"
+        >
+          <n-radio-button
+            v-for="option in syncModeOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </n-radio-button>
+        </n-radio-group>
+        <div class="sync-mode-note">{{ syncModeNote }}</div>
+      </div>
       <div class="sync-data-range">
         <div class="sync-field-label">
           <n-icon><calendar-outline /></n-icon>
@@ -52,7 +73,7 @@
       </div>
       <div class="sync-note">
         <n-icon><information-circle-outline /></n-icon>
-        <span>重复同步同一日期范围会覆盖更新本地数据，并重算相关股票的前复权行情与技术指标。</span>
+        <span>{{ syncNote }}</span>
       </div>
       <div v-if="syncProgressVisible" class="sync-progress-panel">
         <div class="sync-progress-head">
@@ -83,17 +104,20 @@
 </template>
 
 <script setup lang="ts">
-import { NButton, NDatePicker, NIcon, NModal, NProgress, NSpin } from 'naive-ui'
+import { computed } from 'vue'
+import { NButton, NDatePicker, NIcon, NModal, NProgress, NRadioButton, NRadioGroup, NSpin } from 'naive-ui'
 import {
   CalendarOutline,
   CloudDownloadOutline,
   InformationCircleOutline,
   SwapHorizontalOutline,
 } from '@vicons/ionicons5'
+import type { AShareSyncMode } from '../../../composables/useApi'
 
-defineProps<{
+const props = defineProps<{
   show: boolean
   syncing: boolean
+  syncMode: AShareSyncMode
   syncDateRange: [number, number] | null
   syncRangeLabel: { start: string; end: string }
   syncProgressVisible: boolean
@@ -110,9 +134,33 @@ defineProps<{
 
 const emit = defineEmits<{
   'update:show': [value: boolean]
+  'update:syncMode': [value: AShareSyncMode]
   'update:syncDateRange': [value: [number, number] | null]
   confirm: []
 }>()
+
+const syncModeOptions: Array<{ label: string; value: AShareSyncMode }> = [
+  { label: '增量更新', value: 'incremental' },
+  { label: '覆盖更新', value: 'overwrite' },
+]
+
+function handleSyncModeChange(value: string | number | boolean) {
+  if (value === 'incremental' || value === 'overwrite') {
+    emit('update:syncMode', value)
+  }
+}
+
+const syncModeNote = computed(() =>
+  props.syncMode === 'overwrite'
+    ? '重新拉取并覆盖写入所选日期范围。'
+    : '按字段完整度补齐缺失数据，完整数据集会自动跳过。',
+)
+
+const syncNote = computed(() =>
+  props.syncMode === 'overwrite'
+    ? '覆盖更新会重新拉取所选日期范围，并重算相关股票的前复权行情与技术指标。'
+    : '增量更新会按数据集字段完整度跳过完整数据，仅补齐缺失数据；日线或复权因子变化时才重算指标。',
+)
 </script>
 
 <style scoped>
@@ -121,6 +169,8 @@ const emit = defineEmits<{
 .sync-modal-header h3 { margin: 0; font-size: 18px; line-height: 1.2; }
 .sync-modal-header p { margin: 5px 0 0; color: var(--color-text-secondary); font-size: 13px; }
 .sync-form { display: flex; flex-direction: column; gap: 14px; }
+.sync-mode-panel { padding: 14px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); }
+.sync-mode-note { margin-top: 10px; color: var(--color-text-secondary); font-size: 13px; line-height: 1.45; }
 .sync-data-range { padding: 12px 14px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); }
 .sync-data-range-value { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--color-text); font-size: 14px; font-weight: 700; }
 .sync-range-panel { padding: 14px; border: 1px solid var(--color-border); border-radius: 8px; background: color-mix(in srgb, var(--color-surface-elevated) 60%, var(--color-surface)); }

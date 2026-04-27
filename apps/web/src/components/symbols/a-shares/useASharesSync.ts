@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import { aSharesApi, type AShareDateRange, type AShareSyncResult } from '../../../composables/useApi'
+import { aSharesApi, type AShareDateRange, type AShareSyncMode, type AShareSyncResult } from '../../../composables/useApi'
 import { useSSE } from '../../../composables/useSSE'
 import { buildDefaultDateRange, formatDisplayDate, formatTradeDate, formatTushareDate } from './aSharesFormatters'
 
@@ -13,6 +13,7 @@ export function useASharesSync(
   const syncSse = useSSE()
   const syncing = ref(false)
   const showSyncModal = ref(false)
+  const syncMode = ref<AShareSyncMode>('incremental')
   const syncDateRange = ref<[number, number] | null>(buildDefaultDateRange())
   const dataDateRange = ref<AShareDateRange | null>(null)
   const dataDateRangeLoading = ref(false)
@@ -79,6 +80,7 @@ export function useASharesSync(
     const syncBody = {
       startDate: formatTushareDate(startMs),
       endDate: formatTushareDate(endMs),
+      syncMode: syncMode.value,
     }
     await syncSse.start(aSharesApi.syncRunUrl(syncBody), {
       method: 'GET',
@@ -119,6 +121,7 @@ export function useASharesSync(
   return {
     syncing,
     showSyncModal,
+    syncMode,
     syncDateRange,
     syncProgressVisible,
     syncStatusLabel,
@@ -165,6 +168,8 @@ function parseSyncResult(data: unknown): AShareSyncResult | null {
     failedItems: value.failedItems.filter(isSyncFailedItem),
     startDate: value.startDate,
     endDate: value.endDate,
+    skippedDates: typeof value.skippedDates === 'number' ? value.skippedDates : undefined,
+    skippedDatasets: typeof value.skippedDatasets === 'number' ? value.skippedDatasets : undefined,
   }
 }
 

@@ -23,6 +23,9 @@ export class AShareDailyMetricEntity {
   @Column({ type: 'numeric', precision: 30, scale: 10, nullable: true })
   pe: string;
 
+  @Column({ name: 'pe_ttm', type: 'numeric', precision: 30, scale: 10, nullable: true })
+  peTtm: string;
+
   @Column({ type: 'numeric', precision: 30, scale: 10, nullable: true })
   pb: string;
 

@@ -32,6 +32,7 @@ export const DAILY_BASIC_FIELDS = [
   'turnover_rate',
   'volume_ratio',
   'pe',
+  'pe_ttm',
   'pb',
   'total_mv',
   'circ_mv',

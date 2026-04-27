@@ -42,6 +42,7 @@ export function createASharesColumns(options: ASharesColumnsOptions): DataTableC
     { title: '成交额', key: 'amount', width: 120, sorter: true, render: (row) => formatAmount(row.amount) },
     { title: '换手率', key: 'turnoverRate', width: 110, sorter: true, render: (row) => formatPercent(row.turnoverRate) },
     { title: 'PE', key: 'pe', width: 90, sorter: true, render: (row) => formatNumber(row.pe, 2) },
+    { title: 'PE(TTM)', key: 'peTtm', width: 110, sorter: true, render: (row) => formatNumber(row.peTtm, 2) },
     { title: 'PB', key: 'pb', width: 90, sorter: true, render: (row) => formatNumber(row.pb, 2) },
     { title: '交易日', key: 'tradeDate', width: 110, sorter: true, render: (row) => formatTradeDate(row.tradeDate) },
     {

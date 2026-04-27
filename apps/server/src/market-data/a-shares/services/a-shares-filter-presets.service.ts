@@ -2,12 +2,12 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { InjectRepository } from '@nestjs/typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { Not, QueryFailedError, Repository } from 'typeorm';
-import { AShareFilterPresetEntity } from '../../entities/a-share/a-share-filter-preset.entity';
+import { AShareFilterPresetEntity } from '../../../entities/a-share/a-share-filter-preset.entity';
 import {
   ASharesFilterPresetDto,
   ASharesFilterPresetFilters,
   QueryCondition,
-} from './a-shares.types';
+} from '../a-shares.types';
 
 const OPS: QueryCondition['op'][] = ['gt', 'gte', 'lt', 'lte', 'eq', 'neq'];
 

@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { AShareDailyIndicatorEntity } from '../../entities/a-share/a-share-daily-indicator.entity';
-import { AShareIndicatorCalcStateEntity } from '../../entities/a-share/a-share-indicator-calc-state.entity';
-import { calcBrickChartPoints } from '../../indicators/brick-chart';
-import { calcIndicators, KlineRow } from '../../indicators/indicators';
-import { calcIndicatorsStreaming, normalizeIndicatorCalcState } from '../../indicators/indicators-stream';
-import { ASharesSyncRange, AShareQuoteForIndicator } from './a-shares.types';
+import { AShareDailyIndicatorEntity } from '../../../entities/a-share/a-share-daily-indicator.entity';
+import { AShareIndicatorCalcStateEntity } from '../../../entities/a-share/a-share-indicator-calc-state.entity';
+import { calcBrickChartPoints } from '../../../indicators/brick-chart';
+import { calcIndicators, KlineRow } from '../../../indicators/indicators';
+import { calcIndicatorsStreaming, normalizeIndicatorCalcState } from '../../../indicators/indicators-stream';
+import { ASharesSyncRange, AShareQuoteForIndicator } from '../a-shares.types';
 
 @Injectable()
 export class ASharesIndicatorService {

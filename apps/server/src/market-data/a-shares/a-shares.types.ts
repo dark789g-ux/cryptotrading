@@ -53,6 +53,7 @@ export interface SyncASharesDto {
   tradeDate?: string;
   startDate?: string;
   endDate?: string;
+  syncMode?: 'incremental' | 'overwrite';
 }
 
 export type ASharesSyncStatus = 'done' | 'partial' | 'error';
@@ -75,6 +76,8 @@ export interface ASharesSyncResult {
   failedItems: ASharesSyncFailedItem[];
   startDate: string;
   endDate: string;
+  skippedDates?: number;
+  skippedDatasets?: number;
 }
 
 export interface ASharesSyncEvent extends Partial<ASharesSyncResult> {
@@ -132,6 +135,7 @@ export interface AShareKlineRow {
   turnoverRate: number | null;
   volumeRatio: number | null;
   pe: number | null;
+  peTtm: number | null;
   pb: number | null;
   totalMv: number | null;
   circMv: number | null;

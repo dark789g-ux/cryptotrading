@@ -1,4 +1,4 @@
-import { QueryASharesDto, QueryConditionOp } from './a-shares.types';
+import { QueryASharesDto, QueryConditionOp } from '../a-shares.types';
 
 const OP_MAP: Record<QueryConditionOp, string> = {
   gt: '>',
@@ -21,6 +21,7 @@ const RAW_CONDITION_COL_MAP: Record<string, string> = {
   turnoverRate: 'm.turnover_rate',
   volumeRatio: 'm.volume_ratio',
   pe: 'm.pe',
+  peTtm: 'm.pe_ttm',
   pb: 'm.pb',
   DIF: 'i.dif',
   DEA: 'i.dea',
@@ -58,6 +59,7 @@ const RAW_SORT_COL_MAP: Record<string, string> = {
   amount: 'q.amount',
   turnoverRate: 'm.turnover_rate',
   pe: 'm.pe',
+  peTtm: 'm.pe_ttm',
   pb: 'm.pb',
   tradeDate: 'q.trade_date',
 };
@@ -101,6 +103,7 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
         m.turnover_rate AS "turnoverRate",
         m.volume_ratio AS "volumeRatio",
         m.pe,
+        m.pe_ttm AS "peTtm",
         m.pb,
         m.total_mv AS "totalMv",
         m.circ_mv AS "circMv",
