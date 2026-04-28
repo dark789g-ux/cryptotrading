@@ -9,7 +9,10 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { CurrentUserParam as CurrentUser } from '../auth/decorators/current-user.decorator';
 import { BacktestService, type RunSymbolMetricsQueryDto } from './backtest.service';
+
+type CurrentUserPayload = { id: string };
 
 function parseSymbolMetricsBody(body: unknown): RunSymbolMetricsQueryDto {
   if (body === null || typeof body !== 'object') {
@@ -83,25 +86,26 @@ export class BacktestController {
 
   /** GET /api/backtest/runs/:strategyId — 历史回测列表 */
   @Get('runs/:strategyId')
-  listRuns(@Param('strategyId') strategyId: string) {
-    return this.backtestService.listRuns(strategyId);
+  listRuns(@CurrentUser() user: CurrentUserPayload, @Param('strategyId') strategyId: string) {
+    return this.backtestService.listRuns(user.id, strategyId);
   }
 
   /** GET /api/backtest/run/:runId — 单次回测详情 */
   @Get('run/:runId')
-  getRun(@Param('runId') runId: string) {
-    return this.backtestService.getRun(runId);
+  getRun(@CurrentUser() user: CurrentUserPayload, @Param('runId') runId: string) {
+    return this.backtestService.getRun(user.id, runId);
   }
 
   /** GET /api/backtest/progress/:strategyId — 轮询回测进度 */
   @Get('progress/:strategyId')
-  getProgress(@Param('strategyId') strategyId: string) {
-    return this.backtestService.getProgress(strategyId);
+  getProgress(@CurrentUser() user: CurrentUserPayload, @Param('strategyId') strategyId: string) {
+    return this.backtestService.getProgress(user.id, strategyId);
   }
 
   /** GET /api/backtest/runs/:runId/positions — 仓位记录（分页+排序） */
   @Get('runs/:runId/positions')
   async getRunPositions(
+    @CurrentUser() user: CurrentUserPayload,
     @Param('runId') runId: string,
     @Query('page') pageRaw?: string,
     @Query('pageSize') pageSizeRaw?: string,
@@ -121,7 +125,7 @@ export class BacktestController {
     const page = Math.max(1, parseInt(pageRaw ?? '1', 10) || 1);
     const pageSize = Math.min(200, Math.max(1, parseInt(pageSizeRaw ?? '10', 10) || 10));
     const sortOrder = (sortOrderRaw ?? '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-    const res = await this.backtestService.getRunPositions(runId, {
+    const res = await this.backtestService.getRunPositions(user.id, runId, {
       page,
       pageSize,
       sortBy,
@@ -144,6 +148,7 @@ export class BacktestController {
   /** GET /api/backtest/runs/:runId/symbols — 标的盈亏统计（分页+排序） */
   @Get('runs/:runId/symbols')
   async getRunSymbols(
+    @CurrentUser() user: CurrentUserPayload,
     @Param('runId') runId: string,
     @Query('page') pageRaw?: string,
     @Query('pageSize') pageSizeRaw?: string,
@@ -158,7 +163,7 @@ export class BacktestController {
     const page = Math.max(1, parseInt(pageRaw ?? '1', 10) || 1);
     const pageSize = Math.min(200, Math.max(1, parseInt(pageSizeRaw ?? '10', 10) || 10));
     const sortOrder = (sortOrderRaw ?? '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-    const res = await this.backtestService.getRunSymbols(runId, {
+    const res = await this.backtestService.getRunSymbols(user.id, runId, {
       page,
       pageSize,
       sortBy,
@@ -176,9 +181,13 @@ export class BacktestController {
   /** POST /api/backtest/runs/:runId/symbol-metrics/query — 指定 ts 上回测标的池指标快照 */
   @Post('runs/:runId/symbol-metrics/query')
   @HttpCode(200)
-  async queryRunSymbolMetrics(@Param('runId') runId: string, @Body() body: unknown) {
+  async queryRunSymbolMetrics(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('runId') runId: string,
+    @Body() body: unknown,
+  ) {
     const dto = parseSymbolMetricsBody(body);
-    const res = await this.backtestService.queryRunSymbolMetricsAtTs(runId, dto);
+    const res = await this.backtestService.queryRunSymbolMetricsAtTs(user.id, runId, dto);
     if (!res) throw new NotFoundException(`回测运行 ${runId} 不存在`);
     return res;
   }
@@ -186,10 +195,11 @@ export class BacktestController {
   /** POST /api/backtest/start/:strategyId — 启动回测（立即返回） */
   @Post('start/:strategyId')
   @HttpCode(200)
-  startBacktest(
+  async startBacktest(
+    @CurrentUser() user: CurrentUserPayload,
     @Param('strategyId') strategyId: string,
     @Body() body: { symbols?: string[] },
   ) {
-    return this.backtestService.startBacktest(strategyId, body.symbols ?? []);
+    return this.backtestService.startBacktest(user.id, strategyId, body.symbols ?? []);
   }
 }

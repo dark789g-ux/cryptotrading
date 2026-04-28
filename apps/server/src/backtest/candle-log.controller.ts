@@ -8,8 +8,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { CurrentUserParam as CurrentUser } from '../auth/decorators/current-user.decorator';
 import { BacktestCandleLogEntity } from '../entities/backtest/backtest-candle-log.entity';
 import { BacktestRunEntity } from '../entities/backtest/backtest-run.entity';
+
+type CurrentUserPayload = { id: string };
 
 /** Controller 返回给前端的单行结构 */
 export interface CandleLogRow {
@@ -87,6 +90,7 @@ export class CandleLogController {
 
   @Get()
   async getPage(
+    @CurrentUser() user: CurrentUserPayload,
     @Param('runId') runId: string,
     @Query('page') pageRaw?: string,
     @Query('pageSize') pageSizeRaw?: string,
@@ -108,7 +112,7 @@ export class CandleLogController {
     @Query('tradePhases') tradePhasesRaw?: string,
   ): Promise<CandleLogPageResponse> {
     // ── 1. 校验 run 是否存在 ──
-    const run = await this.runRepo.findOneBy({ id: runId });
+    const run = await this.runRepo.findOneBy({ id: runId, userId: user.id } as any);
     if (!run) {
       throw new NotFoundException(`回测运行 ${runId} 不存在`);
     }

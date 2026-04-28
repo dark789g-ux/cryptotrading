@@ -112,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useMessage } from 'naive-ui'
 import { SyncOutline, CheckmarkCircle, CloseCircle, TimeOutline } from '@vicons/ionicons5'
 import { syncApi, symbolApi } from '../composables/useApi'
@@ -201,6 +201,7 @@ watch(symbolMode, (val) => {
 })
 
 onMounted(() => { loadConfig(); loadSymbols() })
+onUnmounted(() => sse.reset())
 </script>
 
 <style scoped>

@@ -7,6 +7,8 @@ export interface ASharesSyncDirtyRangeDeps {
   syncStateRepo: Repository<AShareSyncStateEntity>;
 }
 
+export type ASharesSymbolProgressCallback = (current: number, total: number, tsCode: string) => void;
+
 export function mergeChangedDates(target: Map<string, string>, tsCodes: string[], tradeDate: string): void {
   for (const tsCode of tsCodes) {
     const existing = target.get(tsCode);
@@ -50,9 +52,13 @@ export async function markDirtyRanges(
 export async function recalculateDirtyQfqQuotes(
   deps: ASharesSyncDirtyRangeDeps,
   tsCodes: string[],
+  onProgress?: ASharesSymbolProgressCallback,
 ): Promise<void> {
-  for (const tsCode of tsCodes) {
+  const targetTsCodes = [...new Set(tsCodes)].filter((value) => value.length > 0).sort();
+  for (let index = 0; index < targetTsCodes.length; index++) {
+    const tsCode = targetTsCodes[index];
     await recalculateDirtyQfqQuotesForSymbol(deps, tsCode);
+    onProgress?.(index + 1, targetTsCodes.length, tsCode);
   }
 }
 

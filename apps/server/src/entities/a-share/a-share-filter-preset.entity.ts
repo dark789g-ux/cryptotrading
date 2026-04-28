@@ -5,8 +5,11 @@ export class AShareFilterPresetEntity {
   @PrimaryColumn()
   id: string;
 
-  @Column({ unique: true })
+  @Column()
   name: string;
+
+  @Column({ name: 'user_id', type: 'character varying', nullable: true })
+  userId: string;
 
   @Column({ type: 'jsonb' })
   filters: unknown;

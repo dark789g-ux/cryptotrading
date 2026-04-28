@@ -8,7 +8,8 @@
     <n-message-provider>
       <n-dialog-provider>
         <n-loading-bar-provider>
-          <Layout />
+          <Layout v-if="!route.meta.authPage" />
+          <router-view v-else />
         </n-loading-bar-provider>
       </n-dialog-provider>
     </n-message-provider>
@@ -21,8 +22,11 @@ import {
   zhCN, dateZhCN,
 } from 'naive-ui'
 import type { GlobalThemeOverrides } from 'naive-ui'
+import { useRoute } from 'vue-router'
 import Layout from './components/layout/Layout.vue'
 import { colors } from './styles/tokens'
+
+const route = useRoute()
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {

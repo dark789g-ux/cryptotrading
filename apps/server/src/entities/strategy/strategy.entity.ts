@@ -15,6 +15,9 @@ export class StrategyEntity {
   @Column({ name: 'type_id' })
   typeId: string;
 
+  @Column({ name: 'user_id', type: 'character varying', nullable: true })
+  userId: string;
+
   @ManyToOne(() => StrategyTypeEntity)
   @JoinColumn({ name: 'type_id' })
   type: StrategyTypeEntity;

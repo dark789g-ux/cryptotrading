@@ -9,6 +9,9 @@ export class WatchlistEntity {
   @Column()
   name: string;
 
+  @Column({ name: 'user_id', type: 'character varying', nullable: true })
+  userId: string;
+
   @OneToMany(() => WatchlistItemEntity, (item) => item.watchlist, { cascade: true })
   items: WatchlistItemEntity[];
 

@@ -1,4 +1,6 @@
 import { ref } from 'vue'
+import { ApiError } from './apiClient'
+import { useAuth } from './useAuth'
 
 export function useSSE() {
   const status = ref<'idle' | 'running' | 'done' | 'error'>('idle')
@@ -25,17 +27,35 @@ export function useSSE() {
     total.value = 0
 
     try {
+      const auth = useAuth()
+      if (!auth.ready.value) await auth.ensureLoaded()
+
       const fetchOptions: RequestInit = {
         method: options.method ?? 'GET',
         signal: _abortCtrl.signal,
+        credentials: 'same-origin',
+      }
+      const headers = new Headers()
+      let hasHeaders = false
+      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(fetchOptions.method).toUpperCase())) {
+        headers.set('X-Requested-With', 'XMLHttpRequest')
+        hasHeaders = true
       }
       if (options.body) {
-        fetchOptions.headers = { 'Content-Type': 'application/json' }
+        headers.set('Content-Type', 'application/json')
+        hasHeaders = true
         fetchOptions.body = JSON.stringify(options.body)
       }
+      if (hasHeaders) fetchOptions.headers = headers
 
       const res = await fetch(url, fetchOptions)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        if (res.status === 401 && typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('api:unauthorized', { detail: { status: 401 } }))
+        }
+        throw new ApiError(res.status, res.status === 403 ? '没有权限执行此操作' : text || `HTTP ${res.status}`, text)
+      }
 
       const reader = res.body!.getReader()
       const decoder = new TextDecoder()
@@ -74,11 +94,11 @@ export function useSSE() {
           } catch { /* ignore JSON parse errors */ }
         }
       }
-    } catch (err: any) {
-      if (err.name === 'AbortError') return
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return
       status.value = 'error'
-      message.value = err.message
-      options.onError?.(err.message)
+      message.value = err instanceof Error ? err.message : '请求失败'
+      options.onError?.(message.value)
     }
   }
 

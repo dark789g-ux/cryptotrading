@@ -6,8 +6,11 @@ export class SymbolPresetEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column()
   name: string;
+
+  @Column({ name: 'user_id', type: 'character varying', nullable: true })
+  userId: string;
 
   @OneToMany(() => SymbolPresetItemEntity, (item) => item.preset, { cascade: true })
   items: SymbolPresetItemEntity[];

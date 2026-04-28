@@ -1,36 +1,5 @@
-// API 封装 - 匹配 NestJS 后端路由
-const API_BASE = '/api'
-
-async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(url, options)
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(text || `HTTP ${res.status}`)
-  }
-  const text = await res.text()
-  if (!text.trim()) return null as unknown as T
-  return JSON.parse(text) as T
-}
-
-function post<T>(url: string, body?: unknown): Promise<T> {
-  return request<T>(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
-}
-
-function put<T>(url: string, body?: unknown): Promise<T> {
-  return request<T>(url, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
-}
-
-function del<T>(url: string): Promise<T> {
-  return request<T>(url, { method: 'DELETE' })
-}
+// 业务 API 封装 - 匹配 NestJS 后端路由
+import { API_BASE, del, patch, post, put, request } from './apiClient'
 
 // ── 策略 ────────────────────────────────────────────────────
 export const strategyApi = {
@@ -360,12 +329,7 @@ export const symbolApi = {
     request<{ min: string | null; max: string | null }>(`${API_BASE}/symbols/date-range?interval=${interval}`),
   getKlineColumns: () => request<string[]>(`${API_BASE}/symbols/kline-columns`),
   query: (body: object) => post<{ items: any[]; total: number }>(`${API_BASE}/symbols/query`, body),
-  patch: (symbol: string, body: object) =>
-    request<any>(`${API_BASE}/symbols/${symbol}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
+  patch: (symbol: string, body: object) => patch<any>(`${API_BASE}/symbols/${symbol}`, body),
 }
 
 // A 股

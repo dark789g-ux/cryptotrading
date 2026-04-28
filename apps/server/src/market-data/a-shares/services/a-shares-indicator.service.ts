@@ -8,6 +8,8 @@ import { calcIndicators, KlineRow } from '../../../indicators/indicators';
 import { calcIndicatorsStreaming, normalizeIndicatorCalcState } from '../../../indicators/indicators-stream';
 import { ASharesSyncRange, AShareQuoteForIndicator } from '../a-shares.types';
 
+type ASharesSymbolProgressCallback = (current: number, total: number, tsCode: string) => void;
+
 @Injectable()
 export class ASharesIndicatorService {
   constructor(
@@ -41,10 +43,16 @@ export class ASharesIndicatorService {
     return count;
   }
 
-  async recalculateDirtyIndicatorsForSymbols(tsCodes: string[]): Promise<number> {
+  async recalculateDirtyIndicatorsForSymbols(
+    tsCodes: string[],
+    onProgress?: ASharesSymbolProgressCallback,
+  ): Promise<number> {
     let count = 0;
-    for (const tsCode of [...new Set(tsCodes)].filter((value) => value.length > 0).sort()) {
+    const targetTsCodes = [...new Set(tsCodes)].filter((value) => value.length > 0).sort();
+    for (let index = 0; index < targetTsCodes.length; index++) {
+      const tsCode = targetTsCodes[index];
       count += await this.recalculateDirtyIndicatorsForSymbol(tsCode);
+      onProgress?.(index + 1, targetTsCodes.length, tsCode);
     }
     return count;
   }

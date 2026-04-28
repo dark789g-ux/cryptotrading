@@ -5,7 +5,7 @@
       <div class="main-content workspace-panel">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
-            <keep-alive include="SymbolsView">
+            <keep-alive :key="auth.authVersion.value" include="SymbolsView">
               <component :is="Component" />
             </keep-alive>
           </transition>
@@ -17,9 +17,11 @@
 
 <script setup lang="ts">
 import Sidebar from './Sidebar.vue'
+import { useAuth } from '../../composables/useAuth'
 import { useSidebarCollapsed } from '../../composables/useSidebarCollapsed'
 
 const { isCollapsed } = useSidebarCollapsed()
+const auth = useAuth()
 </script>
 
 <style scoped>

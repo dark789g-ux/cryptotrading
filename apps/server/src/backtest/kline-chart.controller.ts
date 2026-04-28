@@ -8,11 +8,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { CurrentUserParam as CurrentUser } from '../auth/decorators/current-user.decorator';
 import { calcBrickChartPoints, type BrickChartPoint } from '../indicators/brick-chart';
 import { BacktestCandleLogEntity } from '../entities/backtest/backtest-candle-log.entity';
 import { BacktestRunEntity } from '../entities/backtest/backtest-run.entity';
 import { KlineEntity } from '../entities/kline.entity';
 import { fmtTs, parseUTC } from './utils/backtest-ts.util';
+
+type CurrentUserPayload = { id: string };
 
 export interface TradeOnBar {
   type: 'entry' | 'exit';
@@ -111,13 +114,14 @@ export class KlineChartController {
 
   @Get()
   async getChart(
+    @CurrentUser() user: CurrentUserPayload,
     @Param('runId') runId: string,
     @Query('symbol') symbol?: string,
     @Query('ts') tsRaw?: string,
     @Query('before') beforeRaw?: string,
     @Query('after') afterRaw?: string,
   ): Promise<KlineChartBar[]> {
-    const run = await this.runRepo.findOneBy({ id: runId });
+    const run = await this.runRepo.findOneBy({ id: runId, userId: user.id } as any);
     if (!run) throw new NotFoundException(`Backtest run ${runId} not found`);
     if (!symbol?.trim()) return [];
 

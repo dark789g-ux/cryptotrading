@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
+import { AdminOnly } from '../../auth/decorators/admin-only.decorator';
 import { SymbolsService, QuerySymbolsDto } from './symbols.service';
 
 @Controller('symbols')
@@ -31,6 +32,7 @@ export class SymbolsController {
 
   /** PATCH /api/symbols/:symbol */
   @Patch(':symbol')
+  @AdminOnly()
   patchSymbol(
     @Param('symbol') symbol: string,
     @Body() body: { syncEnabled?: boolean; isExcluded?: boolean },

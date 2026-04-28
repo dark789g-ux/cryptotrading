@@ -1,4 +1,5 @@
 import { Controller, Get, Put, Body, Param } from '@nestjs/common';
+import { AdminOnly } from '../auth/decorators/admin-only.decorator';
 import { SettingsService } from './settings.service';
 
 @Controller('settings')
@@ -13,6 +14,7 @@ export class SettingsController {
 
   /** PUT /api/settings/excluded-symbols */
   @Put('excluded-symbols')
+  @AdminOnly()
   setExcluded(@Body() body: { symbols: string[] }) {
     return this.settingsService.setExcludedSymbols(body.symbols);
   }
@@ -31,6 +33,7 @@ export class SettingsController {
 
   /** PUT /api/settings/config/:key */
   @Put('config/:key')
+  @AdminOnly()
   setConfig(@Param('key') key: string, @Body() body: { value: unknown }) {
     return this.settingsService.setConfig(key, body.value);
   }

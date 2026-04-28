@@ -17,7 +17,7 @@ export class StrategiesService {
     return this.typeRepo.find({ order: { id: 'ASC' } });
   }
 
-  async listStrategies(opts?: { sortField?: string; sortOrder?: 'ASC' | 'DESC'; page?: number; pageSize?: number }) {
+  async listStrategies(userId: string, opts?: { sortField?: string; sortOrder?: 'ASC' | 'DESC'; page?: number; pageSize?: number }) {
     const ALLOWED = ['createdAt', 'lastBacktestAt', 'lastBacktestReturn', 'name'] as const;
     type AllowedField = typeof ALLOWED[number];
     const field: AllowedField = (ALLOWED as readonly string[]).includes(opts?.sortField ?? '')
@@ -29,6 +29,7 @@ export class StrategiesService {
 
     const [entities, total] = await this.strategyRepo.findAndCount({
       select: ['id', 'name', 'typeId', 'params', 'lastBacktestAt', 'lastBacktestReturn', 'createdAt'],
+      where: { userId } as any,
       order: { [field]: order },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -47,22 +48,23 @@ export class StrategiesService {
     return { rows, total, page, pageSize };
   }
 
-  async getStrategy(id: string) {
-    const s = await this.strategyRepo.findOneBy({ id });
+  async getStrategy(userId: string, id: string) {
+    const s = await this.strategyRepo.findOneBy({ id, userId } as any);
     if (!s) throw new NotFoundException(`Strategy ${id} not found`);
     return s;
   }
 
-  async createStrategy(dto: { name?: string; typeId: string; params?: object; symbols?: string[] }) {
+  async createStrategy(userId: string, dto: { name?: string; typeId: string; params?: object; symbols?: string[] }) {
     const type = await this.typeRepo.findOneBy({ id: dto.typeId });
     if (!type) throw new NotFoundException(`StrategyType ${dto.typeId} not found`);
     const name = dto.name?.trim() || this.buildDefaultName(type.name);
     const entity = this.strategyRepo.create({
+      userId,
       name,
       typeId: dto.typeId,
       params: dto.params ?? type.paramSchema,
       symbols: dto.symbols ?? [],
-    });
+    } as any);
     return this.strategyRepo.save(entity);
   }
 
@@ -73,8 +75,8 @@ export class StrategiesService {
     return `${typeName}-${ts}`;
   }
 
-  async updateStrategy(id: string, dto: { name?: string; params?: object; symbols?: string[] }) {
-    const s = await this.strategyRepo.findOneBy({ id });
+  async updateStrategy(userId: string, id: string, dto: { name?: string; params?: object; symbols?: string[] }) {
+    const s = await this.strategyRepo.findOneBy({ id, userId } as any);
     if (!s) throw new NotFoundException(`Strategy ${id} not found`);
     if (dto.name !== undefined) s.name = dto.name;
     if (dto.params !== undefined) s.params = dto.params;
@@ -82,8 +84,8 @@ export class StrategiesService {
     return this.strategyRepo.save(s);
   }
 
-  async deleteStrategy(id: string) {
-    const s = await this.strategyRepo.findOneBy({ id });
+  async deleteStrategy(userId: string, id: string) {
+    const s = await this.strategyRepo.findOneBy({ id, userId } as any);
     if (!s) throw new NotFoundException(`Strategy ${id} not found`);
     await this.strategyRepo.remove(s);
     return { ok: true };

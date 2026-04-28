@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { parseUTC } from './utils/backtest-ts.util';
@@ -46,22 +46,22 @@ export class BacktestService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async listRuns(strategyId: string) {
+  async listRuns(userId: string, strategyId: string) {
     return this.runRepo.find({
-      where: { strategyId },
+      where: { strategyId, userId } as any,
       order: { createdAt: 'DESC' },
     });
   }
 
-  async getRun(runId: string) {
-    const run = await this.runRepo.findOneBy({ id: runId });
+  async getRun(userId: string, runId: string) {
+    const run = await this.runRepo.findOneBy({ id: runId, userId } as any);
     if (!run) return null;
     const trades = await this.tradeRepo.find({ where: { runId } });
     return { ...run, trades };
   }
 
-  async getRunPositions(runId: string, opts: PositionQueryOptions) {
-    const run = await this.runRepo.findOneBy({ id: runId });
+  async getRunPositions(userId: string, runId: string, opts: PositionQueryOptions) {
+    const run = await this.runRepo.findOneBy({ id: runId, userId } as any);
     if (!run) return null;
     const reportData = (run.stats ?? {}) as Record<string, unknown>;
     return filterSortPaginatePositions(reportData, opts);
@@ -71,10 +71,11 @@ export class BacktestService {
    * 回测标的池在指定 open_time 上的指标快照（LEFT JOIN klines，缺行 dataStatus=missing）
    */
   async queryRunSymbolMetricsAtTs(
+    userId: string,
     runId: string,
     dto: RunSymbolMetricsQueryDto,
   ): Promise<{ items: RunSymbolMetricRow[]; total: number; page: number; page_size: number } | null> {
-    const run = await this.runRepo.findOneBy({ id: runId });
+    const run = await this.runRepo.findOneBy({ id: runId, userId } as any);
     if (!run) return null;
 
     const tsDate = parseUTC(dto.ts);
@@ -132,15 +133,15 @@ export class BacktestService {
     }
   }
 
-  async getRunSymbols(runId: string, opts: SymbolQueryOptions) {
-    const run = await this.runRepo.findOneBy({ id: runId });
+  async getRunSymbols(userId: string, runId: string, opts: SymbolQueryOptions) {
+    const run = await this.runRepo.findOneBy({ id: runId, userId } as any);
     if (!run) return null;
     const reportData = (run.stats ?? {}) as Record<string, unknown>;
     return filterSortPaginateSymbols(reportData, opts);
   }
 
-  getProgress(strategyId: string): BacktestProgress | null {
-    const p = this.progressMap.get(strategyId);
+  getProgress(userId: string, strategyId: string): BacktestProgress | null {
+    const p = this.progressMap.get(this.progressKey(userId, strategyId));
     if (!p) return null;
     if (p.status !== 'running') return p;
     const elapsedMs = Date.now() - p.startedAt;
@@ -152,12 +153,18 @@ export class BacktestService {
   }
 
   /** 启动回测，立即返回；通过 getProgress 轮询进度 */
-  startBacktest(strategyId: string, symbols: string[]): { ok: boolean; message?: string } {
+  async startBacktest(userId: string, strategyId: string, symbols: string[]): Promise<{ ok: boolean; message?: string }> {
     if (this.isRunning) {
       return { ok: false, message: '回测任务已在运行中，请稍后再试' };
     }
+    const strategy = await this.strategyRepo.findOneBy({ id: strategyId, userId } as any);
+    if (!strategy) {
+      throw new NotFoundException(`策略 ${strategyId} 不存在`);
+    }
+
     this.isRunning = true;
-    this.progressMap.set(strategyId, {
+    const key = this.progressKey(userId, strategyId);
+    this.progressMap.set(key, {
       status: 'running',
       phase: '初始化',
       percent: 0,
@@ -168,29 +175,29 @@ export class BacktestService {
       elapsedMs: 0,
       etaMs: null,
     });
-    this.doBacktest(strategyId, symbols).finally(() => {
+    this.doBacktest(userId, strategyId, symbols, key).finally(() => {
       this.isRunning = false;
     });
     return { ok: true };
   }
 
-  private updateProgress(strategyId: string, patch: Partial<BacktestProgress>) {
-    const cur = this.progressMap.get(strategyId);
+  private updateProgress(key: string, patch: Partial<BacktestProgress>) {
+    const cur = this.progressMap.get(key);
     if (!cur) return;
     const next: BacktestProgress = { ...cur, ...patch };
     next.elapsedMs = Date.now() - next.startedAt;
     if (next.status === 'running' && next.percent > 0 && next.percent < 100) {
       next.etaMs = Math.max(0, (next.elapsedMs * (100 - next.percent)) / next.percent);
     }
-    this.progressMap.set(strategyId, next);
+    this.progressMap.set(key, next);
   }
 
-  private finalizeProgress(strategyId: string, patch: Partial<BacktestProgress>) {
-    this.updateProgress(strategyId, patch);
-    setTimeout(() => this.progressMap.delete(strategyId), PROGRESS_RETENTION_MS);
+  private finalizeProgress(key: string, patch: Partial<BacktestProgress>) {
+    this.updateProgress(key, patch);
+    setTimeout(() => this.progressMap.delete(key), PROGRESS_RETENTION_MS);
   }
 
-  private async doBacktest(strategyId: string, symbols: string[]) {
+  private async doBacktest(userId: string, strategyId: string, symbols: string[], key: string) {
     await executeBacktestPipeline(
       {
         logger: this.logger,
@@ -202,8 +209,14 @@ export class BacktestService {
         updateProgress: (id, patch) => this.updateProgress(id, patch),
         finalizeProgress: (id, patch) => this.finalizeProgress(id, patch),
       },
+      userId,
       strategyId,
       symbols,
+      key,
     );
+  }
+
+  private progressKey(userId: string, strategyId: string): string {
+    return `${userId}:${strategyId}`;
   }
 }

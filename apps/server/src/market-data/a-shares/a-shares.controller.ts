@@ -1,7 +1,11 @@
 import { Body, Controller, Delete, Get, Header, Param, Post, Put, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
+import { AdminOnly } from '../../auth/decorators/admin-only.decorator';
+import { CurrentUserParam as CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { ASharesFilterPresetsService } from './services/a-shares-filter-presets.service';
 import { ASharesService, QueryASharesDto, SyncASharesDto } from './a-shares.service';
+
+type CurrentUserPayload = { id: string };
 
 @Controller('a-shares')
 export class ASharesController {
@@ -26,23 +30,27 @@ export class ASharesController {
   }
 
   @Get('filter-presets')
-  listFilterPresets() {
-    return this.filterPresetsService.list();
+  listFilterPresets(@CurrentUser() user: CurrentUserPayload) {
+    return this.filterPresetsService.list(user.id);
   }
 
   @Post('filter-presets')
-  createFilterPreset(@Body() body: { name: string; filters: unknown }) {
-    return this.filterPresetsService.create(body);
+  createFilterPreset(@CurrentUser() user: CurrentUserPayload, @Body() body: { name: string; filters: unknown }) {
+    return this.filterPresetsService.create(user.id, body);
   }
 
   @Put('filter-presets/:id')
-  updateFilterPreset(@Param('id') id: string, @Body() body: { name?: string; filters?: unknown }) {
-    return this.filterPresetsService.update(id, body);
+  updateFilterPreset(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() body: { name?: string; filters?: unknown },
+  ) {
+    return this.filterPresetsService.update(user.id, id, body);
   }
 
   @Delete('filter-presets/:id')
-  removeFilterPreset(@Param('id') id: string) {
-    return this.filterPresetsService.remove(id);
+  removeFilterPreset(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.filterPresetsService.remove(user.id, id);
   }
 
   @Get(':tsCode/klines')
@@ -60,11 +68,13 @@ export class ASharesController {
   }
 
   @Post('sync')
+  @AdminOnly()
   sync(@Body() body: SyncASharesDto) {
     return this.aSharesService.sync(body);
   }
 
   @Get('sync/run')
+  @AdminOnly()
   @Header('Content-Type', 'text/event-stream')
   @Header('Cache-Control', 'no-cache')
   @Header('Connection', 'keep-alive')

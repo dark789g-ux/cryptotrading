@@ -12,6 +12,9 @@ export class BacktestRunEntity {
   @Column({ name: 'strategy_id' })
   strategyId: string;
 
+  @Column({ name: 'user_id', type: 'character varying', nullable: true })
+  userId: string;
+
   @ManyToOne(() => StrategyEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'strategy_id' })
   strategy: StrategyEntity;

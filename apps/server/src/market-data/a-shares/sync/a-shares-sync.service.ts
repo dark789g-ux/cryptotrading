@@ -192,16 +192,37 @@ export class ASharesSyncService {
         percent: 96,
         message: `${changedRanges.size} 只股票`,
       });
-      await recalculateDirtyQfqQuotes(this.dirtyRangeDeps, [...changedRanges.keys()]);
+      await recalculateDirtyQfqQuotes(this.dirtyRangeDeps, [...changedRanges.keys()], (current, total, tsCode) => {
+        emit({
+          type: 'progress',
+          phase: '增量计算前复权',
+          current,
+          total,
+          percent: 96 + (current / total) * 2,
+          message: tsCode,
+        });
+      });
       emit({
         type: 'progress',
         phase: '增量计算技术指标',
         current: 0,
-        total: 1,
+        total: changedRanges.size,
         percent: 98,
-        message: `${range.startDate} - ${range.endDate}`,
+        message: `${changedRanges.size} 只股票`,
       });
-      indicators = await this.indicatorService.recalculateDirtyIndicatorsForSymbols([...changedRanges.keys()]);
+      indicators = await this.indicatorService.recalculateDirtyIndicatorsForSymbols(
+        [...changedRanges.keys()],
+        (current, total, tsCode) => {
+          emit({
+            type: 'progress',
+            phase: '增量计算技术指标',
+            current,
+            total,
+            percent: 98 + (current / total) * 2,
+            message: tsCode,
+          });
+        },
+      );
     }
 
     const status: ASharesSyncStatus = failedItems.length > 0 ? 'partial' : 'done';

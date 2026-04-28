@@ -11,6 +11,8 @@ import { WatchlistsModule } from './catalog/watchlists/watchlists.module';
 import { SymbolPresetsModule } from './catalog/symbol-presets/symbol-presets.module';
 import { SettingsModule } from './settings/settings.module';
 import { ASharesModule } from './market-data/a-shares/a-shares.module';
+import { AuthModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
 import { SymbolEntity } from './entities/symbol/symbol.entity';
 import { KlineEntity } from './entities/kline.entity';
 import { AShareSymbolEntity } from './entities/a-share/a-share-symbol.entity';
@@ -31,6 +33,9 @@ import { WatchlistItemEntity } from './entities/watchlist/watchlist-item.entity'
 import { SymbolPresetEntity } from './entities/symbol/symbol-preset.entity';
 import { SymbolPresetItemEntity } from './entities/symbol/symbol-preset-item.entity';
 import { AppConfigEntity } from './entities/app-config.entity';
+import { UserEntity } from './users/entities/user.entity';
+import { AuthSessionEntity } from './auth/entities/auth-session.entity';
+import { UserInvitationEntity } from './users/entities/user-invitation.entity';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -66,6 +71,9 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           SymbolPresetEntity,
           SymbolPresetItemEntity,
           AppConfigEntity,
+          UserEntity,
+          AuthSessionEntity,
+          UserInvitationEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],
@@ -81,6 +89,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     SymbolPresetsModule,
     SettingsModule,
     ASharesModule,
+    AuthModule,
+    UsersModule,
   ],
 })
 export class AppModule implements OnModuleInit {

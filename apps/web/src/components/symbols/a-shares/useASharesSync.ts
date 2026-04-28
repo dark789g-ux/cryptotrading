@@ -30,7 +30,7 @@ export function useASharesSync(
     const current = syncSse.current.value
     const total = syncSse.total.value
     if (!total) return ''
-    return `${current}/${total} 个交易日`
+    return `${current}/${total} ${getSyncProgressUnit(syncSse.phase.value)}`
   })
 
   const canConfirmSync = computed(() => {
@@ -191,4 +191,14 @@ function buildSyncResultMessage(res: AShareSyncResult, title: string): string {
     ? `；失败 ${res.failedCount} 项，首项 ${firstFailure.tradeDate ? `${firstFailure.tradeDate} ` : ''}${firstFailure.apiName}`
     : `；失败 ${res.failedCount} 项`
   return `${base}${detail}`
+}
+
+function getSyncProgressUnit(phase: string): string {
+  if (['同步日线行情', '同步每日指标', '同步复权因子', '同步交易日'].includes(phase)) {
+    return '个交易日'
+  }
+  if (['标记脏区间', '增量计算前复权', '增量计算技术指标'].includes(phase)) {
+    return '只股票'
+  }
+  return '项'
 }

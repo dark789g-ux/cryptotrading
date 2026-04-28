@@ -5,8 +5,11 @@
     </div>
 
     <div class="settings-grid">
+      <AccountSecurityPanel />
+      <UserManagementPanel v-if="auth.isAdmin.value" />
+
       <!-- 排除标的管理 -->
-      <n-card class="settings-card" title="排除标的（稳定币等）" :bordered="false">
+      <n-card v-if="auth.isAdmin.value" class="settings-card" title="排除标的（稳定币等）" :bordered="false">
         <p class="card-desc">以下标的将在同步和回测时被排除，不参与策略扫描。</p>
         <n-select
           v-model:value="excludedSymbols"
@@ -27,7 +30,7 @@
       </n-card>
 
       <!-- 同步默认配置 -->
-      <n-card class="settings-card" title="数据同步默认配置" :bordered="false">
+      <n-card v-if="auth.isAdmin.value" class="settings-card" title="数据同步默认配置" :bordered="false">
         <n-form label-placement="left" label-width="140px">
           <n-form-item label="默认同步周期">
             <n-checkbox-group v-model:value="syncIntervals">
@@ -59,10 +62,26 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useMessage } from 'naive-ui'
+import {
+  NButton,
+  NCard,
+  NCheckbox,
+  NCheckboxGroup,
+  NDescriptions,
+  NDescriptionsItem,
+  NForm,
+  NFormItem,
+  NSelect,
+  NSpace,
+  useMessage,
+} from 'naive-ui'
 import { settingsApi, symbolApi, syncApi } from '../composables/useApi'
+import { useAuth } from '../composables/useAuth'
+import AccountSecurityPanel from '../components/settings/AccountSecurityPanel.vue'
+import UserManagementPanel from '../components/settings/UserManagementPanel.vue'
 
 const message = useMessage()
+const auth = useAuth()
 
 const excludedSymbols = ref<string[]>([])
 const savingExcluded = ref(false)
@@ -125,6 +144,7 @@ const addStablecoins = () => {
 }
 
 onMounted(() => {
+  if (!auth.isAdmin.value) return
   loadExcluded()
   loadSymbols()
   loadSyncConfig()

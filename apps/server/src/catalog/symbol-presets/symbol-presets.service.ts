@@ -20,40 +20,41 @@ export class SymbolPresetsService {
     private readonly itemRepo: Repository<SymbolPresetItemEntity>,
   ) {}
 
-  async list(): Promise<PresetDto[]> {
+  async list(userId: string): Promise<PresetDto[]> {
     const rows = await this.presetRepo.find({
+      where: { userId } as any,
       relations: ['items'],
       order: { createdAt: 'DESC' },
     });
     return rows.map((r) => this.toDto(r));
   }
 
-  async get(id: string): Promise<PresetDto> {
-    const row = await this.presetRepo.findOne({ where: { id }, relations: ['items'] });
+  async get(userId: string, id: string): Promise<PresetDto> {
+    const row = await this.presetRepo.findOne({ where: { id, userId } as any, relations: ['items'] });
     if (!row) throw new NotFoundException(`Preset ${id} not found`);
     return this.toDto(row);
   }
 
-  async create(dto: { name: string; symbols?: string[] }): Promise<PresetDto> {
+  async create(userId: string, dto: { name: string; symbols?: string[] }): Promise<PresetDto> {
     const name = (dto.name ?? '').trim();
     if (!name) throw new ConflictException('预设名称不能为空');
-    await this.ensureNameAvailable(name);
-    const entity = this.presetRepo.create({ name });
+    await this.ensureNameAvailable(userId, name);
+    const entity = this.presetRepo.create({ userId, name } as Partial<SymbolPresetEntity>) as SymbolPresetEntity;
     const saved = await this.presetRepo.save(entity).catch((e) => this.handleUniqueError(e));
     if (dto.symbols?.length) {
       await this.setSymbols(saved.id, dto.symbols);
     }
-    return this.get(saved.id);
+    return this.get(userId, saved.id);
   }
 
-  async update(id: string, dto: { name?: string; symbols?: string[] }): Promise<PresetDto> {
-    const row = await this.presetRepo.findOneBy({ id });
+  async update(userId: string, id: string, dto: { name?: string; symbols?: string[] }): Promise<PresetDto> {
+    const row = await this.presetRepo.findOneBy({ id, userId } as any);
     if (!row) throw new NotFoundException(`Preset ${id} not found`);
     if (dto.name !== undefined) {
       const name = dto.name.trim();
       if (!name) throw new ConflictException('预设名称不能为空');
       if (name !== row.name) {
-        await this.ensureNameAvailable(name, id);
+        await this.ensureNameAvailable(userId, name, id);
         row.name = name;
         await this.presetRepo.save(row).catch((e) => this.handleUniqueError(e));
       }
@@ -61,19 +62,19 @@ export class SymbolPresetsService {
     if (dto.symbols !== undefined) {
       await this.setSymbols(id, dto.symbols);
     }
-    return this.get(id);
+    return this.get(userId, id);
   }
 
-  async remove(id: string): Promise<{ ok: true }> {
-    const row = await this.presetRepo.findOneBy({ id });
+  async remove(userId: string, id: string): Promise<{ ok: true }> {
+    const row = await this.presetRepo.findOneBy({ id, userId } as any);
     if (!row) throw new NotFoundException(`Preset ${id} not found`);
     await this.presetRepo.remove(row);
     return { ok: true };
   }
 
-  private async ensureNameAvailable(name: string, excludeId?: string) {
+  private async ensureNameAvailable(userId: string, name: string, excludeId?: string) {
     const existed = await this.presetRepo.findOne({
-      where: excludeId ? { name, id: Not(excludeId) } : { name },
+      where: excludeId ? { userId, name, id: Not(excludeId) } as any : { userId, name } as any,
     });
     if (existed) throw new ConflictException(`预设名称 "${name}" 已存在`);
   }

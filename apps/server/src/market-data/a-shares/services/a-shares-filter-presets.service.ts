@@ -18,28 +18,36 @@ export class ASharesFilterPresetsService {
     private readonly presetRepo: Repository<AShareFilterPresetEntity>,
   ) {}
 
-  async list(): Promise<ASharesFilterPresetDto[]> {
-    const rows = await this.presetRepo.find({ order: { updatedAt: 'DESC' } });
+  async list(userId: string): Promise<ASharesFilterPresetDto[]> {
+    const rows = await this.presetRepo.find({
+      where: { userId } as any,
+      order: { updatedAt: 'DESC' },
+    });
     return rows.map((row) => this.toDto(row));
   }
 
-  async create(dto: { name: string; filters: unknown }): Promise<ASharesFilterPresetDto> {
+  async create(userId: string, dto: { name: string; filters: unknown }): Promise<ASharesFilterPresetDto> {
     const name = this.normalizeName(dto.name);
-    await this.ensureNameAvailable(name);
+    await this.ensureNameAvailable(userId, name);
     const filters = this.normalizeFilters(dto.filters);
-    const entity = this.presetRepo.create({ id: uuidv4(), name, filters });
+    const entity = this.presetRepo.create({
+      id: uuidv4(),
+      userId,
+      name,
+      filters,
+    } as Partial<AShareFilterPresetEntity>) as AShareFilterPresetEntity;
     const saved = await this.presetRepo.save(entity).catch((err) => this.handleUniqueError(err));
     return this.toDto(saved);
   }
 
-  async update(id: string, dto: { name?: string; filters?: unknown }): Promise<ASharesFilterPresetDto> {
-    const row = await this.presetRepo.findOneBy({ id });
+  async update(userId: string, id: string, dto: { name?: string; filters?: unknown }): Promise<ASharesFilterPresetDto> {
+    const row = await this.presetRepo.findOneBy({ id, userId } as any);
     if (!row) throw new NotFoundException(`Filter preset ${id} not found`);
 
     if (dto.name !== undefined) {
       const name = this.normalizeName(dto.name);
       if (name !== row.name) {
-        await this.ensureNameAvailable(name, id);
+        await this.ensureNameAvailable(userId, name, id);
         row.name = name;
       }
     }
@@ -51,8 +59,8 @@ export class ASharesFilterPresetsService {
     return this.toDto(saved);
   }
 
-  async remove(id: string): Promise<{ ok: true }> {
-    const row = await this.presetRepo.findOneBy({ id });
+  async remove(userId: string, id: string): Promise<{ ok: true }> {
+    const row = await this.presetRepo.findOneBy({ id, userId } as any);
     if (!row) throw new NotFoundException(`Filter preset ${id} not found`);
     await this.presetRepo.remove(row);
     return { ok: true };
@@ -64,9 +72,9 @@ export class ASharesFilterPresetsService {
     return name;
   }
 
-  private async ensureNameAvailable(name: string, excludeId?: string) {
+  private async ensureNameAvailable(userId: string, name: string, excludeId?: string) {
     const existed = await this.presetRepo.findOne({
-      where: excludeId ? { name, id: Not(excludeId) } : { name },
+      where: excludeId ? { userId, name, id: Not(excludeId) } as any : { userId, name } as any,
     });
     if (existed) throw new ConflictException(`筛选方案 "${name}" 已存在`);
   }

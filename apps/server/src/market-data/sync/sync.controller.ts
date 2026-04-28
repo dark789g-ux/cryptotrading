@@ -1,5 +1,6 @@
 import { Controller, Get, Put, Body, Res, Header } from '@nestjs/common';
 import { Response } from 'express';
+import { AdminOnly } from '../../auth/decorators/admin-only.decorator';
 import { SyncService } from './sync.service';
 
 @Controller('sync')
@@ -14,12 +15,14 @@ export class SyncController {
 
   /** PUT /api/sync/preferences */
   @Put('preferences')
+  @AdminOnly()
   savePreferences(@Body() body: { intervals: string[]; symbols: string[] }) {
     return this.syncService.savePreferences(body);
   }
 
   /** GET /api/sync/run — SSE 推送同步进度 */
   @Get('run')
+  @AdminOnly()
   @Header('Content-Type', 'text/event-stream')
   @Header('Cache-Control', 'no-cache')
   @Header('Connection', 'keep-alive')

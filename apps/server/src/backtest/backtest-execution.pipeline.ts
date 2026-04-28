@@ -23,13 +23,15 @@ export interface BacktestPipelineContext {
 
 export async function executeBacktestPipeline(
   ctx: BacktestPipelineContext,
+  userId: string,
   strategyId: string,
   symbols: string[],
+  progressKey: string,
 ): Promise<void> {
   try {
-    const strategy = await ctx.strategyRepo.findOneBy({ id: strategyId });
+    const strategy = await ctx.strategyRepo.findOneBy({ id: strategyId, userId } as any);
     if (!strategy) {
-      ctx.finalizeProgress(strategyId, { status: 'error', message: `策略 ${strategyId} 不存在` });
+      ctx.finalizeProgress(progressKey, { status: 'error', message: `策略 ${strategyId} 不存在` });
       return;
     }
 
@@ -39,11 +41,11 @@ export async function executeBacktestPipeline(
     const targetSymbols = symbols.length ? symbols : (strategy.symbols ?? []);
 
     if (!targetSymbols.length) {
-      ctx.finalizeProgress(strategyId, { status: 'error', message: '未选择任何交易对' });
+      ctx.finalizeProgress(progressKey, { status: 'error', message: '未选择任何交易对' });
       return;
     }
 
-    ctx.updateProgress(strategyId, { phase: '加载 K 线数据', percent: 2 });
+    ctx.updateProgress(progressKey, { phase: '加载 K 线数据', percent: 2 });
 
     const { data, backtestStart } = await ctx.dataService.loadKlines(
       targetSymbols,
@@ -52,7 +54,7 @@ export async function executeBacktestPipeline(
     );
 
     if (!data.size) {
-      ctx.finalizeProgress(strategyId, { status: 'error', message: '无可用数据' });
+      ctx.finalizeProgress(progressKey, { status: 'error', message: '无可用数据' });
       return;
     }
 
@@ -73,7 +75,7 @@ export async function executeBacktestPipeline(
     const endMs = maxTs ? Date.parse(maxTs.replace(' ', 'T') + 'Z') : 0;
     const spanMs = Math.max(1, endMs - startMs);
 
-    ctx.updateProgress(strategyId, {
+    ctx.updateProgress(progressKey, {
       phase: '运行回测引擎',
       startTs: minTs,
       endTs: maxTs,
@@ -88,7 +90,7 @@ export async function executeBacktestPipeline(
         const curMs = Date.parse(currentTs.replace(' ', 'T') + 'Z');
         const timePct = ((curMs - startMs) / spanMs) * 100;
         const overall = 5 + Math.max(0, Math.min(100, timePct)) * 0.85;
-        ctx.updateProgress(strategyId, {
+        ctx.updateProgress(progressKey, {
           phase: '运行回测引擎',
           percent: overall,
           currentTs,
@@ -96,14 +98,15 @@ export async function executeBacktestPipeline(
       },
     );
 
-    ctx.updateProgress(strategyId, { phase: '计算统计指标', percent: 92 });
+    ctx.updateProgress(progressKey, { phase: '计算统计指标', percent: 92 });
     const stats = calcStats(trades, portfolioLog, config.initialCapital, config.timeframe);
     const effectiveMaxPos = config.enableKellySizing ? 1 : config.maxPositions;
     const reportData = prepareReportData([...simTrades, ...trades], portfolioLog, stats, effectiveMaxPos, posSnapshots);
 
-    ctx.updateProgress(strategyId, { phase: '保存结果', percent: 96 });
+    ctx.updateProgress(progressKey, { phase: '保存结果', percent: 96 });
 
     const run = ctx.runRepo.create({
+      userId,
       strategyId,
       timeframe: config.timeframe,
       dateStart: config.dateStart,
@@ -111,7 +114,7 @@ export async function executeBacktestPipeline(
       symbols: targetSymbols,
       stats: reportData,
       configSnapshot: config as unknown as Record<string, unknown>,
-    });
+    } as Partial<BacktestRunEntity>) as BacktestRunEntity;
     const savedRun = await ctx.runRepo.save(run);
 
     const allTradesForDb = [...simTrades, ...trades];
@@ -160,13 +163,13 @@ export async function executeBacktestPipeline(
       ctx.logger.log(`candleLog 写入完成：runId=${savedRun.id}，共 ${candleLog.length} 条`);
     }
 
-    await ctx.strategyRepo.update(strategyId, {
+    await ctx.strategyRepo.update({ id: strategyId, userId } as any, {
       lastBacktestAt: savedRun.createdAt,
       lastBacktestReturn: stats.totalReturnPct,
       symbols: targetSymbols,
     });
 
-    ctx.finalizeProgress(strategyId, {
+    ctx.finalizeProgress(progressKey, {
       status: 'done',
       phase: '完成',
       percent: 100,
@@ -176,7 +179,7 @@ export async function executeBacktestPipeline(
   } catch (err) {
     const e = err as Error;
     ctx.logger.error(`回测失败 strategyId=${strategyId}: ${e.message}`, e.stack);
-    ctx.finalizeProgress(strategyId, {
+    ctx.finalizeProgress(progressKey, {
       status: 'error',
       message: e.message || String(err),
     });
