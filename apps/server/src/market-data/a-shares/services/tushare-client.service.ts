@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { type AxiosError } from 'axios';
+import pLimit = require('p-limit');
 
 interface TushareResponse {
   code: number;
@@ -19,15 +20,41 @@ export class TushareClientService {
   private readonly maxAttempts = 3;
   private readonly retryDelaysMs = [1000, 2000, 4000];
 
-  constructor(private readonly configService: ConfigService) {}
+  private readonly limiter: pLimit.Limit;
+  private lastRequestAt = 0;
+  private currentIntervalMs: number;
+  private readonly minIntervalMs: number;
+  private readonly maxIntervalMs: number;
+
+  constructor(private readonly configService: ConfigService) {
+    const concurrency = Number(configService.get('TUSHARE_CONCURRENCY') ?? 5);
+    this.minIntervalMs = Number(configService.get('TUSHARE_MIN_INTERVAL_MS') ?? 200);
+    this.maxIntervalMs = Number(configService.get('TUSHARE_MAX_INTERVAL_MS') ?? 5000);
+    this.currentIntervalMs = this.minIntervalMs;
+    this.limiter = pLimit(concurrency);
+  }
 
   async query(apiName: string, params: Record<string, string | number> = {}, fields = ''): Promise<TushareRow[]> {
+    return this.limiter(() => this.throttledQuery(apiName, params, fields));
+  }
+
+  private async throttledQuery(
+    apiName: string,
+    params: Record<string, string | number>,
+    fields: string,
+  ): Promise<TushareRow[]> {
     const token = this.configService.get<string>('TUSHARE_TOKEN');
     if (!token) {
       throw new BadRequestException('TUSHARE_TOKEN 未配置，无法同步 A 股数据');
     }
 
+    const wait = this.currentIntervalMs - (Date.now() - this.lastRequestAt);
+    if (wait > 0) await this.delay(wait);
+    this.lastRequestAt = Date.now();
+
     const response = await this.postWithRetry(apiName, token, params, fields);
+
+    this.currentIntervalMs = Math.max(this.currentIntervalMs * 0.9, this.minIntervalMs);
 
     const payload = response.data;
     if (payload.code !== 0) {
@@ -36,7 +63,6 @@ export class TushareClientService {
 
     const data = payload.data;
     if (!data) return [];
-
     return data.items.map((item) => this.toRow(data.fields, item));
   }
 
@@ -51,18 +77,14 @@ export class TushareClientService {
       try {
         const response = await axios.post<TushareResponse>(
           this.endpoint,
-          {
-            api_name: apiName,
-            token,
-            params,
-            fields,
-          },
+          { api_name: apiName, token, params, fields },
           { timeout: 30000 },
         );
         const payload = response.data;
         if (payload.code !== 0) {
           const error = new ServiceUnavailableException(`TuShare ${apiName} 调用失败：${payload.msg ?? payload.code}`);
           if (!this.shouldRetryTusharePayload(payload)) throw error;
+          this.onRateLimit();
           lastError = error;
         } else {
           return response;
@@ -80,22 +102,15 @@ export class TushareClientService {
     throw lastError instanceof Error ? lastError : new ServiceUnavailableException(`TuShare ${apiName} 调用失败`);
   }
 
+  private onRateLimit(): void {
+    this.currentIntervalMs = Math.min(this.currentIntervalMs * 2, this.maxIntervalMs);
+  }
+
   private shouldRetryTusharePayload(payload: TushareResponse): boolean {
     const msg = String(payload.msg ?? '').toLowerCase();
     return [
-      'timeout',
-      'timed out',
-      'rate',
-      'too many',
-      'limit',
-      'busy',
-      'temporar',
-      '超时',
-      '频率',
-      '限流',
-      '稍后',
-      '繁忙',
-      '服务忙',
+      'timeout', 'timed out', 'rate', 'too many', 'limit', 'busy', 'temporar',
+      '超时', '频率', '限流', '稍后', '繁忙', '服务忙',
     ].some((pattern) => msg.includes(pattern));
   }
 
@@ -117,7 +132,9 @@ export class TushareClientService {
     fields.forEach((field, index) => {
       const value = item[index];
       const normalized: string | number | null =
-        value == null ? null : typeof value === 'string' || typeof value === 'number' ? value : String(value);
+        value == null ? null
+        : typeof value === 'string' || typeof value === 'number' ? value
+        : String(value);
       row[field] = normalized;
     });
     return row;
