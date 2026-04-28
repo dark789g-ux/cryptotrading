@@ -105,7 +105,7 @@ import {
   NProgress, NTooltip, NModal, NTag, NDropdown, type DataTableSortState,
 } from 'naive-ui'
 import { AddOutline, PlayOutline, CreateOutline, TrashOutline, EyeOutline, EllipsisVerticalOutline, TimeOutline } from '@vicons/ionicons5'
-import { strategyApi, backtestApi, type BacktestProgress } from '../composables/useApi'
+import { strategyApi, backtestApi, type BacktestProgress } from '@/api'
 import { colors } from '../styles/tokens'
 import StrategyModal from '../components/backtest/StrategyModal.vue'
 import BacktestDetail from '../components/backtest/BacktestDetail.vue'

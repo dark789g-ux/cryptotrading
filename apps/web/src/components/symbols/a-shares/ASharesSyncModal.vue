@@ -112,7 +112,7 @@ import {
   InformationCircleOutline,
   SwapHorizontalOutline,
 } from '@vicons/ionicons5'
-import type { AShareSyncMode } from '../../../composables/useApi'
+import type { AShareSyncMode } from '@/api'
 
 const props = defineProps<{
   show: boolean

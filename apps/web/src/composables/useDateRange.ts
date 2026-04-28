@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { useMessage } from 'naive-ui'
-import { symbolApi } from './useApi'
+import { symbolApi } from '@/api'
 
 const pad = (n: number) => n.toString().padStart(2, '0')
 

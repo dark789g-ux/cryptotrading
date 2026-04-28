@@ -45,7 +45,7 @@ import {
   useCandleRunSymbolMetricsColumns,
   type ColSortOrder,
 } from '../../composables/backtest/useCandleRunSymbolMetricsColumns'
-import { backtestApi, symbolApi, type RunSymbolMetricRow } from '../../composables/useApi'
+import { backtestApi, symbolApi, type RunSymbolMetricRow } from '@/api'
 import CandleRunSymbolMetricsFilterBar from './CandleRunSymbolMetricsFilterBar.vue'
 import KlineChartModal from './KlineChartModal.vue'
 

@@ -1,4 +1,4 @@
-import type { AShareFilterPresetFilters, AShareRow } from '../../../composables/useApi'
+import type { AShareFilterPresetFilters, AShareRow } from '@/api'
 import type { NumericCondition } from '../../common/numericConditionFilterTypes'
 
 export interface SelectOption {

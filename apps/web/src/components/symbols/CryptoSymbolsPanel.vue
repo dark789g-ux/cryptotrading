@@ -96,7 +96,7 @@ import { RefreshOutline, SearchOutline, TrendingUpOutline } from '@vicons/ionico
 import KlineChart from '../kline/KlineChart.vue'
 import NumericConditionFilter from '../common/NumericConditionFilter.vue'
 import type { NumericCondition, NumericConditionFieldOption } from '../common/numericConditionFilterTypes'
-import { klinesApi, symbolApi, type KlineChartBar } from '../../composables/useApi'
+import { klinesApi, symbolApi, type KlineChartBar } from '@/api'
 
 interface SymbolRow {
   symbol: string

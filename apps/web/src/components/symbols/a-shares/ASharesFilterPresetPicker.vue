@@ -98,7 +98,7 @@
 import { computed, ref } from 'vue'
 import { NButton, NIcon, NInput, NModal, NPopconfirm, NPopover, NSpin, NTooltip, useMessage } from 'naive-ui'
 import { BookmarkOutline, CreateOutline, RefreshOutline, SaveOutline, TrashOutline } from '@vicons/ionicons5'
-import type { AShareFilterPreset } from '../../../composables/useApi'
+import type { AShareFilterPreset } from '@/api'
 
 const props = defineProps<{
   presets: AShareFilterPreset[]

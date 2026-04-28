@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import { aSharesApi, type AShareDateRange, type AShareSyncMode, type AShareSyncResult } from '../../../composables/useApi'
+import { aSharesApi, type AShareDateRange, type AShareSyncMode, type AShareSyncResult } from '@/api'
 import { useSSE } from '../../../composables/useSSE'
 import { buildDefaultDateRange, formatDisplayDate, formatTradeDate, formatTushareDate } from './aSharesFormatters'
 

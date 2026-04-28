@@ -81,7 +81,7 @@ import {
   useMessage,
   NPopover, NPopconfirm, NTooltip, NSpin, NModal, NInput, NButton,
 } from 'naive-ui'
-import { symbolPresetApi, type SymbolPreset } from '../../../composables/useApi'
+import { symbolPresetApi, type SymbolPreset } from '@/api'
 
 const props = defineProps<{
   currentSymbols: string[]

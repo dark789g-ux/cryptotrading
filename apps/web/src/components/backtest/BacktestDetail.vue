@@ -223,7 +223,7 @@ import {
   NEmpty, NSpin, NSelect, NDataTable, NTabs, NTabPane,
   NButton, NInputNumber, NDatePicker, NPagination,
 } from 'naive-ui'
-import { type BacktestCandleLogTradeState } from '../../composables/useApi'
+import { type BacktestCandleLogTradeState } from '@/api'
 import { useBacktestRun } from '../../composables/backtest/useBacktestRun'
 import { useBacktestCandleLog } from '../../composables/backtest/useBacktestCandleLog'
 import { useBacktestPositions } from '../../composables/backtest/useBacktestPositions'

@@ -44,7 +44,7 @@ import {
   useMessage,
 } from 'naive-ui'
 import KlineChart from '../../kline/KlineChart.vue'
-import { aSharesApi, type AShareKlineBar, type AShareRow } from '../../../composables/useApi'
+import { aSharesApi, type AShareKlineBar, type AShareRow } from '@/api'
 import { formatTradeDate } from './aSharesFormatters'
 
 const props = defineProps<{

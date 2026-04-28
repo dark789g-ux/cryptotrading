@@ -5,7 +5,7 @@ import {
   type CandleLogRow,
   type BacktestCandleLogFilters,
   type BacktestCandleLogTradeState,
-} from '../useApi'
+} from '@/api'
 
 type CandleLogFilterState = Omit<BacktestCandleLogFilters, 'tradeStates' | 'inCooldown' | 'tradePhases'> & {
   tradeStates: BacktestCandleLogTradeState[]

@@ -1,7 +1,7 @@
 import { h } from 'vue'
 import { NButton, NIcon, NTooltip, type DataTableColumns } from 'naive-ui'
 import { OpenOutline } from '@vicons/ionicons5'
-import type { AShareRow } from '../../../composables/useApi'
+import type { AShareRow } from '@/api'
 import { colors } from '../../../styles/tokens'
 import { formatAmount, formatNumber, formatPercent, formatTradeDate, trendClass } from './aSharesFormatters'
 

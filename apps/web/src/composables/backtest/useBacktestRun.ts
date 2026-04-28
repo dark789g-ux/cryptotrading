@@ -1,7 +1,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, type Ref } from 'vue'
 import * as echarts from 'echarts'
 import { useMessage } from 'naive-ui'
-import { backtestApi } from '../useApi'
+import { backtestApi } from '@/api'
 import { useTheme } from '../useTheme'
 
 type ActiveTab = 'kpiOverview' | 'positions' | 'symbols' | 'config' | 'candleLog'

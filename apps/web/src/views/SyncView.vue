@@ -38,6 +38,14 @@
             />
           </n-form-item>
 
+          <n-form-item label="A 股数据">
+            <p class="a-shares-sync-hint">TuShare 日线同步，与上方加密标的同步流程独立。</p>
+            <n-button :loading="aSharesSyncing" @click="openASharesSyncModal">
+              <template #icon><n-icon><cloud-download-outline /></n-icon></template>
+              同步 A 股数据
+            </n-button>
+          </n-form-item>
+
           <n-space justify="end">
             <n-button @click="saveConfig" :loading="saving">保存配置</n-button>
             <n-button
@@ -108,18 +116,74 @@
         </div>
       </n-card>
     </div>
+
+    <a-shares-sync-modal
+      v-model:show="showASharesSyncModal"
+      v-model:sync-mode="aSharesSyncMode"
+      v-model:sync-date-range="aSharesSyncDateRange"
+      :syncing="aSharesSyncing"
+      :sync-range-label="aSharesSyncRangeLabel"
+      :sync-progress-visible="aSharesSyncProgressVisible"
+      :sync-status-label="aSharesSyncStatusLabel"
+      :sync-progress-count-label="aSharesSyncProgressCountLabel"
+      :can-confirm-sync="aSharesCanConfirmSync"
+      :sync-phase="aSharesSyncPhase"
+      :sync-percent="aSharesSyncPercent"
+      :sync-status="aSharesSyncStatus"
+      :sync-message="aSharesSyncMessage"
+      :data-date-range-label="aSharesDataDateRangeLabel"
+      :data-date-range-loading="aSharesDataDateRangeLoading"
+      @confirm="syncAShares"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { useMessage } from 'naive-ui'
-import { SyncOutline, CheckmarkCircle, CloseCircle, TimeOutline } from '@vicons/ionicons5'
-import { syncApi, symbolApi } from '../composables/useApi'
+import {
+  NButton,
+  NCard,
+  NCheckbox,
+  NCheckboxGroup,
+  NForm,
+  NFormItem,
+  NIcon,
+  NProgress,
+  NRadioButton,
+  NRadioGroup,
+  NSelect,
+  NSpace,
+  useMessage,
+} from 'naive-ui'
+import { SyncOutline, CheckmarkCircle, CloseCircle, TimeOutline, CloudDownloadOutline } from '@vicons/ionicons5'
+import { syncApi, symbolApi } from '@/api'
 import { useSSE } from '../composables/useSSE'
+import ASharesSyncModal from '../components/symbols/a-shares/ASharesSyncModal.vue'
+import { useASharesSync } from '../components/symbols/a-shares/useASharesSync'
 
 const message = useMessage()
 const sse = useSSE()
+
+const noopReload = async () => {}
+const {
+  syncing: aSharesSyncing,
+  showSyncModal: showASharesSyncModal,
+  syncMode: aSharesSyncMode,
+  syncDateRange: aSharesSyncDateRange,
+  syncProgressVisible: aSharesSyncProgressVisible,
+  syncStatusLabel: aSharesSyncStatusLabel,
+  syncProgressCountLabel: aSharesSyncProgressCountLabel,
+  canConfirmSync: aSharesCanConfirmSync,
+  syncRangeLabel: aSharesSyncRangeLabel,
+  syncPhase: aSharesSyncPhase,
+  syncPercent: aSharesSyncPercent,
+  syncStatus: aSharesSyncStatus,
+  syncMessage: aSharesSyncMessage,
+  dataDateRangeLabel: aSharesDataDateRangeLabel,
+  dataDateRangeLoading: aSharesDataDateRangeLoading,
+  openSyncModal: openASharesSyncModal,
+  syncAShares,
+} = useASharesSync(message, noopReload)
 
 const syncConfig = ref({ symbols: [] as string[], intervals: ['1h'] as string[] })
 const symbolMode = ref<'all' | 'custom'>('all')
@@ -237,4 +301,5 @@ onUnmounted(() => sse.reset())
 .log-time { color: var(--ember-neutral); margin-right: 12px; }
 .log-item.success .log-text { color: var(--color-success); }
 .log-item.error .log-text { color: var(--color-error); }
+.a-shares-sync-hint { margin: 0 0 12px; font-size: 13px; color: var(--ember-text-secondary); line-height: 1.45; }
 </style>

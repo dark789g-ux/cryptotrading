@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { useMessage } from 'naive-ui'
-import { strategyApi } from '../useApi'
+import { strategyApi } from '@/api'
 import type { StrategyFormData } from './useStrategyForm'
 
 export function useImportStrategies(propsRef: { strategy?: unknown }) {
@@ -65,7 +65,7 @@ export function useImportStrategies(propsRef: { strategy?: unknown }) {
         name: (s?.name as string) ?? '',
         typeId: (s?.typeId as string) ?? 'ma_kdj',
         symbols: ((s?.symbols as string[]) ?? []),
-        params: { ...(s?.params as StrategyFormData['params']) },
+        params: { ...(s?.params as unknown as StrategyFormData['params']) },
       }
       callbacks.onSuccess(imported)
       message.success('参数已导入')

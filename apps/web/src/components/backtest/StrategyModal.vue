@@ -143,7 +143,7 @@ import {
   NDatePicker, NButton, NSwitch,
   NTabs, NTabPane,
 } from 'naive-ui'
-import { strategyApi } from '../../composables/useApi'
+import { strategyApi } from '@/api'
 import { useStrategyForm } from '../../composables/backtest/useStrategyForm'
 import { useImportStrategies } from '../../composables/backtest/useImportStrategies'
 import { useSymbolOptions } from '../../composables/useSymbolOptions'
@@ -286,7 +286,7 @@ watch(showImportPopover, (v) => {
 onMounted(async () => {
   try {
     const types = await strategyApi.getStrategyTypes()
-    strategyTypeOptions.value = types.map((t: Record<string, string>) => ({ label: t.name, value: t.id }))
+    strategyTypeOptions.value = types.map((t) => ({ label: t.name, value: t.id }))
   } catch { /* ignore */ }
 })
 </script>

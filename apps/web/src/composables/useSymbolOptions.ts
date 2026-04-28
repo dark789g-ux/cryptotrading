@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { useMessage } from 'naive-ui'
-import { symbolApi } from './useApi'
+import { symbolApi } from '@/api'
 
 const SELECT_ALL = '__SELECT_ALL__'
 

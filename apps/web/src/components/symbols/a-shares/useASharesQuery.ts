@@ -6,7 +6,7 @@ import {
   type ASharePriceMode,
   type AShareRow,
   type AShareSummary,
-} from '../../../composables/useApi'
+} from '@/api'
 import { formatTradeDate } from './aSharesFormatters'
 import type { ASharesFilterState, Condition, SelectOption, SummaryItem } from './types'
 

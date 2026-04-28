@@ -40,7 +40,7 @@ import { computed, ref, watch } from 'vue'
 import { NButton, NEmpty, NIcon, NModal, NSpin, useMessage } from 'naive-ui'
 import { ContractOutline, ExpandOutline } from '@vicons/ionicons5'
 import KlineChart from '../kline/KlineChart.vue'
-import { backtestApi, type KlineChartBar } from '../../composables/useApi'
+import { backtestApi, type KlineChartBar } from '@/api'
 
 const props = defineProps<{
   show: boolean

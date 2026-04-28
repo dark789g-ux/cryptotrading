@@ -6,7 +6,7 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { buildKlineChartGraphics, buildKlineChartOption } from '../../composables/kline/klineChartOptions'
-import type { KlineChartBar } from '../../composables/useApi'
+import type { KlineChartBar } from '@/api'
 import { useTheme } from '../../composables/useTheme'
 
 const props = withDefaults(

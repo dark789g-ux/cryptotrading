@@ -80,7 +80,7 @@
 <script setup lang="ts">
 import { NButton, NCard, NIcon, NInput, NInputNumber, NRadioButton, NRadioGroup, NSelect } from 'naive-ui'
 import { SearchOutline } from '@vicons/ionicons5'
-import type { AShareFilterPreset } from '../../../composables/useApi'
+import type { AShareFilterPreset } from '@/api'
 import NumericConditionFilter from '../../common/NumericConditionFilter.vue'
 import type { NumericConditionFieldOption } from '../../common/numericConditionFilterTypes'
 import ASharesFilterPresetPicker from './ASharesFilterPresetPicker.vue'

@@ -89,7 +89,7 @@
 import { ref, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { AddOutline, CreateOutline, TrashOutline } from '@vicons/ionicons5'
-import { watchlistApi, symbolApi } from '../composables/useApi'
+import { watchlistApi, symbolApi } from '@/api'
 
 const message = useMessage()
 const dialog = useDialog()

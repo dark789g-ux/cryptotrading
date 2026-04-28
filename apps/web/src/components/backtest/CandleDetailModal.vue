@@ -27,7 +27,7 @@
 
 <script setup lang="ts">
 import { NModal, NEmpty } from 'naive-ui'
-import type { CandleLogRow } from '../../composables/useApi'
+import type { CandleLogRow } from '@/api'
 import CandleRunSymbolMetrics from './CandleRunSymbolMetrics.vue'
 
 defineProps<{

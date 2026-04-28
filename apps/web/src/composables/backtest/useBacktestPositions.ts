@@ -1,6 +1,6 @@
 import { ref, computed, watch, type Ref } from 'vue'
 import { useMessage, type DataTableSortState } from 'naive-ui'
-import { backtestApi, type BacktestPositionFilters } from '../useApi'
+import { backtestApi, type BacktestPositionFilters } from '@/api'
 
 type PositionFilterState = BacktestPositionFilters
 

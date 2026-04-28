@@ -1,6 +1,6 @@
 import { computed, h } from 'vue'
 import { NButton, NTag as NTagComponent, type DataTableColumns } from 'naive-ui'
-import type { RunSymbolMetricRow } from '../useApi'
+import type { RunSymbolMetricRow } from '@/api'
 
 export type ColSortOrder = false | 'ascend' | 'descend'
 

@@ -1,6 +1,6 @@
 ---
 name: refactor-split
-description: 仅手动调用（/refactor-split），请勿自动触发。
+description: 用户提及重构代码的时候触发。
 ---
 
 ## 目标
