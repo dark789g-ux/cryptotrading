@@ -15,6 +15,9 @@ export class WatchlistEntity {
   @OneToMany(() => WatchlistItemEntity, (item) => item.watchlist, { cascade: true })
   items: WatchlistItemEntity[];
 
+  @Column({ name: 'display_order', type: 'int', default: 0 })
+  displayOrder: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

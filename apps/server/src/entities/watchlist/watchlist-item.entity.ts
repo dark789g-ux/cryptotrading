@@ -18,4 +18,7 @@ export class WatchlistItemEntity {
 
   @Column()
   symbol: string;
+
+  @Column({ name: 'display_order', type: 'int', default: 0 })
+  displayOrder: number;
 }
