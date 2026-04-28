@@ -86,7 +86,7 @@
 import { computed } from 'vue'
 import { NCollapse, NCollapseItem, NFormItem, NInputNumber, NSlider, NSwitch } from 'naive-ui'
 import type { StrategyParams } from '../../../../composables/backtest/useStrategyForm'
-import { useEditableNumber } from '../../../../composables/useEditableNumber'
+import { useEditableNumber } from '../../../../composables/hooks/useEditableNumber'
 import '../strategy-section.css'
 import LabelWithTip from '../LabelWithTip.vue'
 

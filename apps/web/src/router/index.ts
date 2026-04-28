@@ -1,24 +1,24 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuth } from '../composables/useAuth'
+import { useAuth } from '../composables/hooks/useAuth'
 
 const routes: any[] = [
   { path: '/', redirect: '/backtest' },
   {
     path: '/login',
     name: 'login',
-    component: () => import('../views/LoginView.vue'),
+    component: () => import('../views/auth/LoginView.vue'),
     meta: { title: '登录', authPage: true, public: true },
   },
   {
     path: '/bootstrap',
     name: 'bootstrap',
-    component: () => import('../views/BootstrapView.vue'),
+    component: () => import('../views/auth/BootstrapView.vue'),
     meta: { title: '初始化管理员', authPage: true, public: true },
   },
   {
     path: '/invitations/:token',
     name: 'invitation-accept',
-    component: () => import('../views/InvitationAcceptView.vue'),
+    component: () => import('../views/auth/InvitationAcceptView.vue'),
     meta: { title: '接受邀请', authPage: true, public: true },
   },
   {
@@ -36,7 +36,7 @@ const routes: any[] = [
   {
     path: '/sync',
     name: 'sync',
-    component: () => import('../views/SyncView.vue'),
+    component: () => import('../views/sync/SyncView.vue'),
     meta: { title: '同步', adminOnly: true },
   },
   {

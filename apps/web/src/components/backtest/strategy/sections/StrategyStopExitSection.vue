@@ -88,7 +88,7 @@
 <script setup lang="ts">
 import { NFormItem, NSelect, NInputNumber, NSlider, NSwitch } from 'naive-ui'
 import type { StrategyParams } from '../../../../composables/backtest/useStrategyForm'
-import { useEditableNumber } from '../../../../composables/useEditableNumber'
+import { useEditableNumber } from '../../../../composables/hooks/useEditableNumber'
 import '../strategy-section.css'
 import LabelWithTip from '../LabelWithTip.vue'
 import ExitManagementSection from './ExitManagementSection.vue'

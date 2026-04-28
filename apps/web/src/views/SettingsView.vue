@@ -76,7 +76,7 @@ import {
   useMessage,
 } from 'naive-ui'
 import { settingsApi, symbolApi, syncApi } from '@/api'
-import { useAuth } from '../composables/useAuth'
+import { useAuth } from '../composables/hooks/useAuth'
 import AccountSecurityPanel from '../components/settings/AccountSecurityPanel.vue'
 import UserManagementPanel from '../components/settings/UserManagementPanel.vue'
 

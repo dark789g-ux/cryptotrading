@@ -2,7 +2,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick, type Ref } from
 import * as echarts from 'echarts'
 import { useMessage } from 'naive-ui'
 import { backtestApi } from '@/api'
-import { useTheme } from '../useTheme'
+import { useTheme } from '../hooks/useTheme'
 
 type ActiveTab = 'kpiOverview' | 'positions' | 'symbols' | 'config' | 'candleLog'
 

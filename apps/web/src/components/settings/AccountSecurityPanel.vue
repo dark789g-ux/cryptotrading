@@ -31,7 +31,7 @@ import {
   NInput,
   useMessage,
 } from 'naive-ui'
-import { useAuth } from '../../composables/useAuth'
+import { useAuth } from '../../composables/hooks/useAuth'
 
 const auth = useAuth()
 const router = useRouter()

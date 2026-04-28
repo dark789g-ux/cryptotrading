@@ -1,6 +1,6 @@
 ---
 name: folder-organizer
-description: 仅手动调用（/folder-organizer），请勿自动触发。
+description: 用户提及整理目录/文件夹时触发。
 ---
 
 ## 目标

@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { aSharesApi, type AShareDateRange, type AShareSyncMode, type AShareSyncResult } from '@/api'
-import { useSSE } from '../../../composables/useSSE'
+import { useSSE } from '../../../composables/hooks/useSSE'
 import { buildDefaultDateRange, formatDisplayDate, formatTradeDate, formatTushareDate } from './aSharesFormatters'
 
 export function useASharesSync(

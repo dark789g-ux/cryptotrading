@@ -17,8 +17,8 @@
 
 <script setup lang="ts">
 import Sidebar from './Sidebar.vue'
-import { useAuth } from '../../composables/useAuth'
-import { useSidebarCollapsed } from '../../composables/useSidebarCollapsed'
+import { useAuth } from '../../composables/hooks/useAuth'
+import { useSidebarCollapsed } from '../../composables/hooks/useSidebarCollapsed'
 
 const { isCollapsed } = useSidebarCollapsed()
 const auth = useAuth()
@@ -28,16 +28,17 @@ const auth = useAuth()
 .layout {
   display: flex;
   min-height: 100vh;
+  background: #181a20;
 }
 
 .main-shell {
   flex: 1;
   min-height: 100vh;
   margin-left: 228px;
-  padding: 18px 18px 18px 0;
+  padding: 16px 16px 16px 0;
   position: relative;
   z-index: 2;
-  transition: margin-left 0.24s ease, padding 0.24s ease;
+  transition: margin-left 0.26s cubic-bezier(0.4, 0, 0.2, 1), padding 0.26s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .main-shell.collapsed {
@@ -45,7 +46,7 @@ const auth = useAuth()
 }
 
 .main-content {
-  height: calc(100vh - 36px);
+  height: calc(100vh - 32px);
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable;

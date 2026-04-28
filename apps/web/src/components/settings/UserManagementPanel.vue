@@ -109,9 +109,9 @@ import {
   NTag,
   useMessage,
 } from 'naive-ui'
-import { usersApi, type InvitationListItem, type UserListItem } from '../../composables/usersApi'
-import { useAuth } from '../../composables/useAuth'
-import type { UserRole } from '../../composables/authApi'
+import { usersApi, type InvitationListItem, type UserListItem } from '../../composables/api/usersApi'
+import { useAuth } from '../../composables/hooks/useAuth'
+import type { UserRole } from '../../composables/api/authApi'
 
 const message = useMessage()
 const auth = useAuth()

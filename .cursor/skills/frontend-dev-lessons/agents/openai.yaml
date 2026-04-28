@@ -1,4 +1,0 @@
-interface:
-  display_name: "Frontend Dev Lessons"
-  short_description: "Project frontend constraints and lessons"
-  default_prompt: "Use frontend-dev-lessons when changing Vue/Naive UI/ECharts frontend code in this repo."
