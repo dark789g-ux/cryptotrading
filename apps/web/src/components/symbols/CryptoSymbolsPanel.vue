@@ -95,6 +95,7 @@ import {
 import { RefreshOutline, SearchOutline, TrendingUpOutline } from '@vicons/ionicons5'
 import KlineChart from '../kline/KlineChart.vue'
 import NumericConditionFilter from '../common/NumericConditionFilter.vue'
+import SymbolStarButton from '../common/SymbolStarButton.vue'
 import type { NumericCondition, NumericConditionFieldOption } from '../common/numericConditionFilterTypes'
 import { klinesApi, symbolApi, type KlineChartBar } from '@/api'
 
@@ -160,7 +161,18 @@ const formatFixed = (value: number | null | undefined, digits: number) =>
   value == null ? '-' : value.toFixed(digits)
 
 const columns = computed<DataTableColumns<SymbolRow>>(() => [
-  { title: 'Symbol', key: 'symbol', width: 120, fixed: 'left', sorter: true },
+  {
+    title: 'Symbol',
+    key: 'symbol',
+    width: 140,
+    fixed: 'left',
+    sorter: true,
+    render: (row) =>
+      h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
+        h(SymbolStarButton, { symbol: row.symbol }),
+        h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, row.symbol),
+      ]),
+  },
   {
     title: 'Close',
     key: 'close',

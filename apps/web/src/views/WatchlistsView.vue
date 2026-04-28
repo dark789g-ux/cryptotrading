@@ -42,6 +42,8 @@
             :key="item.id"
             size="small"
             round
+            closable
+            @close="removeItem(wl.id, item.symbol)"
           >
             {{ item.symbol }}
           </n-tag>
@@ -149,6 +151,16 @@ const handleSubmit = async () => {
     message.error(err.message)
   } finally {
     submitting.value = false
+  }
+}
+
+const removeItem = async (watchlistId: string, symbol: string) => {
+  try {
+    await watchlistApi.removeSymbol(watchlistId, symbol)
+    message.success('已移除')
+    loadWatchlists()
+  } catch (err: any) {
+    message.error(err.message)
   }
 }
 

@@ -90,4 +90,22 @@ export class WatchlistsService {
       await this.itemRepo.save(items);
     }
   }
+
+  async addSymbol(userId: string, id: string, symbol: string) {
+    const w = await this.watchlistRepo.findOne({ where: { id, userId } as any, relations: ['items'] });
+    if (!w) throw new NotFoundException(`Watchlist ${id} not found`);
+    const exists = w.items?.some((item) => item.symbol === symbol);
+    if (!exists) {
+      const item = this.itemRepo.create({ watchlistId: id, symbol });
+      await this.itemRepo.save(item);
+    }
+    return this.getWatchlist(userId, id);
+  }
+
+  async removeSymbol(userId: string, id: string, symbol: string) {
+    const w = await this.watchlistRepo.findOneBy({ id, userId } as any);
+    if (!w) throw new NotFoundException(`Watchlist ${id} not found`);
+    await this.itemRepo.delete({ watchlistId: id, symbol });
+    return { ok: true };
+  }
 }

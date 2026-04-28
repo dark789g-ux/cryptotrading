@@ -1,6 +1,7 @@
 import { h } from 'vue'
 import { NButton, NIcon, NTooltip, type DataTableColumns } from 'naive-ui'
 import { OpenOutline } from '@vicons/ionicons5'
+import SymbolStarButton from '../../common/SymbolStarButton.vue'
 import type { AShareRow } from '@/api'
 import { colors } from '../../../styles/tokens'
 import { formatAmount, formatNumber, formatPercent, formatTradeDate, trendClass } from './aSharesFormatters'
@@ -20,7 +21,18 @@ function getPctChangeColor(value: string | null) {
 export function createASharesColumns(options: ASharesColumnsOptions): DataTableColumns<AShareRow> {
   const priceSuffix = options.priceMode === 'raw' ? '原始' : '前复权'
   return [
-    { title: '代码', key: 'tsCode', width: 110, fixed: 'left', sorter: true },
+    {
+      title: '代码',
+      key: 'tsCode',
+      width: 140,
+      fixed: 'left',
+      sorter: true,
+      render: (row) =>
+        h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
+          h(SymbolStarButton, { symbol: row.tsCode }),
+          h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, row.tsCode),
+        ]),
+    },
     { title: '名称', key: 'name', width: 120, fixed: 'left', sorter: true },
     { title: '市场', key: 'market', width: 100, sorter: true, render: (row) => row.market ?? '-' },
     { title: '行业', key: 'industry', width: 120, sorter: true, render: (row) => row.industry ?? '-' },

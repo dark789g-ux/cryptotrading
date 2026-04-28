@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 import { CurrentUserParam as CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { WatchlistsService } from './watchlists.service';
 
@@ -31,5 +32,25 @@ export class WatchlistsController {
   @Delete(':id')
   remove(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.watchlistsService.deleteWatchlist(user.id, id);
+  }
+
+  @Post(':id/symbols')
+  addSymbol(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() body: { symbol?: string },
+  ) {
+    const symbol = (body.symbol ?? '').trim();
+    if (!symbol) throw new ConflictException('symbol 不能为空');
+    return this.watchlistsService.addSymbol(user.id, id, symbol);
+  }
+
+  @Delete(':id/symbols/:symbol')
+  removeSymbol(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Param('symbol') symbol: string,
+  ) {
+    return this.watchlistsService.removeSymbol(user.id, id, decodeURIComponent(symbol));
   }
 }

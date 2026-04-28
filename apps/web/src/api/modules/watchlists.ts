@@ -22,4 +22,6 @@ export const watchlistApi = {
   create: (body: WatchlistPayload) => post<Watchlist>(`${API_BASE}/watchlists`, body),
   update: (id: string, body: Partial<WatchlistPayload>) => put<Watchlist>(`${API_BASE}/watchlists/${id}`, body),
   delete: (id: string) => del<{ ok: true }>(`${API_BASE}/watchlists/${id}`),
+  addSymbol: (id: string, symbol: string) => post<Watchlist>(`${API_BASE}/watchlists/${id}/symbols`, { symbol }),
+  removeSymbol: (id: string, symbol: string) => del<{ ok: true }>(`${API_BASE}/watchlists/${id}/symbols/${encodeURIComponent(symbol)}`),
 }
