@@ -343,6 +343,10 @@ const logout = async () => {
   background: color-mix(in srgb, var(--color-border) 50%, transparent) !important;
 }
 
+:deep(.n-menu-item-content--selected::before) {
+  background-color: transparent !important;
+}
+
 :deep(.n-menu-item-content--selected) {
   background: linear-gradient(90deg,
     color-mix(in srgb, var(--color-primary) 16%, transparent),
