@@ -69,12 +69,14 @@ export class ASharesSyncService {
     });
     const tradeDates = await resolveOpenTradeDates(this.tushareClient, range);
     const total = tradeDates.length;
+
     let quotes = 0;
     let metrics = 0;
     let adjFactors = 0;
     let indicators = 0;
     let skippedDates = 0;
     let skippedDatasets = 0;
+    let completedDates = 0;
     const changedRanges = new Map<string, string>();
     const latestAdjFactorChanged = new Set<string>();
     const failedItems: ASharesSyncFailedItem[] = [];
@@ -83,19 +85,10 @@ export class ASharesSyncService {
       return createResult('done', symbols, quotes, metrics, adjFactors, indicators, failedItems, range, skippedDates, skippedDatasets);
     }
 
-    for (let index = 0; index < tradeDates.length; index++) {
-      const tradeDate = tradeDates[index];
+    await Promise.all(tradeDates.map(async (tradeDate) => {
       let syncedDatasetsForDate = 0;
       let skippedDatasetsForDate = 0;
 
-      emit({
-        type: 'progress',
-        phase: '同步日线行情',
-        current: index,
-        total,
-        percent: calculateSyncPercent(index, total),
-        message: tradeDate,
-      });
       try {
         if (await shouldSyncDataset(this.quoteRepo, syncMode, 'daily', tradeDate)) {
           const result = await syncDailyQuotesByTradeDate(this.fetcherDeps, tradeDate);
@@ -110,14 +103,6 @@ export class ASharesSyncService {
         failedItems.push(createFailedItem('daily', tradeDate, err));
       }
 
-      emit({
-        type: 'progress',
-        phase: '同步每日指标',
-        current: index,
-        total,
-        percent: calculateSyncPercent(index + 0.5, total),
-        message: tradeDate,
-      });
       try {
         if (await shouldSyncDataset(this.quoteRepo, syncMode, 'daily_basic', tradeDate)) {
           metrics += await syncDailyMetricsByTradeDate(this.fetcherDeps, tradeDate);
@@ -130,14 +115,6 @@ export class ASharesSyncService {
         failedItems.push(createFailedItem('daily_basic', tradeDate, err));
       }
 
-      emit({
-        type: 'progress',
-        phase: '同步复权因子',
-        current: index,
-        total,
-        percent: calculateSyncPercent(index + 0.75, total),
-        message: tradeDate,
-      });
       try {
         if (await shouldSyncDataset(this.quoteRepo, syncMode, 'adj_factor', tradeDate)) {
           const result = await syncAdjFactorsByTradeDate(this.fetcherDeps, tradeDate);
@@ -155,15 +132,16 @@ export class ASharesSyncService {
 
       if (syncedDatasetsForDate === 0 && skippedDatasetsForDate === 3) skippedDates++;
 
+      completedDates++;
       emit({
         type: 'progress',
         phase: '同步交易日',
-        current: index + 1,
+        current: completedDates,
         total,
-        percent: calculateSyncPercent(index + 1, total),
+        percent: calculateSyncPercent(completedDates, total),
         message: `${tradeDate} 日线 ${quotes}，指标 ${metrics}，复权因子 ${adjFactors}，跳过 ${skippedDatasets}`,
       });
-    }
+    }));
 
     if (quotes + metrics + adjFactors <= 0 && failedItems.length > 0 && skippedDatasets < total * 3) {
       failedItems.push({
@@ -202,6 +180,7 @@ export class ASharesSyncService {
           message: tsCode,
         });
       });
+
       emit({
         type: 'progress',
         phase: '增量计算技术指标',
