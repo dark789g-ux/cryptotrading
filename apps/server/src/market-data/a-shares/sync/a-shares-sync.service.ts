@@ -19,6 +19,7 @@ import {
   calculateSyncPercent,
   createFailedItem,
   createResult,
+  createStageFailedItem,
   normalizeSyncMode,
   resolveOpenTradeDates,
   resolveSyncRange,
@@ -159,7 +160,11 @@ export class ASharesSyncService {
       percent: 95,
       message: `${changedRanges.size} 只股票`,
     });
-    await markDirtyRanges(this.dirtyRangeDeps, changedRanges, latestAdjFactorChanged);
+    try {
+      await markDirtyRanges(this.dirtyRangeDeps, changedRanges, latestAdjFactorChanged);
+    } catch (err: unknown) {
+      failedItems.push(createStageFailedItem('mark_dirty_ranges', err));
+    }
 
     if (changedRanges.size > 0) {
       emit({
@@ -170,16 +175,20 @@ export class ASharesSyncService {
         percent: 96,
         message: `${changedRanges.size} 只股票`,
       });
-      await recalculateDirtyQfqQuotes(this.dirtyRangeDeps, [...changedRanges.keys()], (current, total, tsCode) => {
-        emit({
-          type: 'progress',
-          phase: '增量计算前复权',
-          current,
-          total,
-          percent: 96 + (current / total) * 2,
-          message: tsCode,
+      try {
+        await recalculateDirtyQfqQuotes(this.dirtyRangeDeps, [...changedRanges.keys()], (current, total, tsCode) => {
+          emit({
+            type: 'progress',
+            phase: '增量计算前复权',
+            current,
+            total,
+            percent: 96 + (current / total) * 2,
+            message: tsCode,
+          });
         });
-      });
+      } catch (err: unknown) {
+        failedItems.push(createStageFailedItem('qfq_recalculate', err));
+      }
 
       emit({
         type: 'progress',
@@ -189,19 +198,23 @@ export class ASharesSyncService {
         percent: 98,
         message: `${changedRanges.size} 只股票`,
       });
-      indicators = await this.indicatorService.recalculateDirtyIndicatorsForSymbols(
-        [...changedRanges.keys()],
-        (current, total, tsCode) => {
-          emit({
-            type: 'progress',
-            phase: '增量计算技术指标',
-            current,
-            total,
-            percent: 98 + (current / total) * 2,
-            message: tsCode,
-          });
-        },
-      );
+      try {
+        indicators = await this.indicatorService.recalculateDirtyIndicatorsForSymbols(
+          [...changedRanges.keys()],
+          (current, total, tsCode) => {
+            emit({
+              type: 'progress',
+              phase: '增量计算技术指标',
+              current,
+              total,
+              percent: 98 + (current / total) * 2,
+              message: tsCode,
+            });
+          },
+        );
+      } catch (err: unknown) {
+        failedItems.push(createStageFailedItem('indicator_recalculate', err));
+      }
     }
 
     const status: ASharesSyncStatus = failedItems.length > 0 ? 'partial' : 'done';

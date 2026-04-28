@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Subject } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
@@ -38,7 +38,15 @@ export class ASharesService {
   ) {}
 
   async sync(dto: SyncASharesDto = {}): Promise<ASharesSyncResult> {
-    return this.syncService.syncWithProgress(dto);
+    if (this.isSyncing) {
+      throw new ConflictException('A 股同步任务正在运行中，请稍后再试');
+    }
+    this.isSyncing = true;
+    try {
+      return await this.syncService.syncWithProgress(dto);
+    } finally {
+      this.isSyncing = false;
+    }
   }
 
   startSync(dto: SyncASharesDto = {}): Subject<ASharesSyncEvent> {

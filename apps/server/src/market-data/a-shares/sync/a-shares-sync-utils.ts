@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import type { Repository } from 'typeorm';
 import { asString, formatChinaDate } from '../utils/a-shares-format.util';
 import type { ASharesSyncFailedItem, ASharesSyncRange, ASharesSyncResult, ASharesSyncStatus, SyncASharesDto } from '../a-shares.types';
@@ -36,6 +37,13 @@ export function createFailedItem(apiName: string, tradeDate: string, err: unknow
   };
 }
 
+export function createStageFailedItem(apiName: string, err: unknown): ASharesSyncFailedItem {
+  return {
+    apiName,
+    message: err instanceof Error ? err.message : String(err),
+  };
+}
+
 export function createResult(
   status: ASharesSyncStatus,
   symbols: number,
@@ -65,12 +73,30 @@ export function createResult(
   };
 }
 
+const TRADE_DATE_YMD8 = /^\d{8}$/;
+
+function assertTradeDateParam(label: string, value: string): void {
+  if (!TRADE_DATE_YMD8.test(value)) {
+    throw new BadRequestException(`${label} 须为 YYYYMMDD 格式（8 位数字）`);
+  }
+}
+
 export async function resolveSyncRange(
   tushareClient: TushareClientService,
   dto: SyncASharesDto,
 ): Promise<ASharesSyncRange> {
-  if (dto.tradeDate) return { startDate: dto.tradeDate, endDate: dto.tradeDate };
-  if (dto.startDate && dto.endDate) return { startDate: dto.startDate, endDate: dto.endDate };
+  if (dto.tradeDate) {
+    assertTradeDateParam('tradeDate', dto.tradeDate);
+    return { startDate: dto.tradeDate, endDate: dto.tradeDate };
+  }
+  if (dto.startDate && dto.endDate) {
+    assertTradeDateParam('startDate', dto.startDate);
+    assertTradeDateParam('endDate', dto.endDate);
+    if (dto.startDate > dto.endDate) {
+      throw new BadRequestException('startDate 必须小于或等于 endDate');
+    }
+    return { startDate: dto.startDate, endDate: dto.endDate };
+  }
 
   const endDate = formatChinaDate(new Date());
   const start = new Date();

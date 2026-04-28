@@ -4,11 +4,13 @@ import { DataSource, Repository } from 'typeorm';
 import { AShareDailyIndicatorEntity } from '../../../entities/a-share/a-share-daily-indicator.entity';
 import { AShareIndicatorCalcStateEntity } from '../../../entities/a-share/a-share-indicator-calc-state.entity';
 import { calcBrickChartPoints } from '../../../indicators/brick-chart';
-import { calcIndicators, KlineRow } from '../../../indicators/indicators';
+import { calcIndicators, KlineRow, KlineRowWithIndicators } from '../../../indicators/indicators';
+import { IndicatorWorkerPool } from '../../../indicators/indicator-worker-pool';
 import { calcIndicatorsStreaming, normalizeIndicatorCalcState } from '../../../indicators/indicators-stream';
 import { ASharesSyncRange, AShareQuoteForIndicator } from '../a-shares.types';
 
 type ASharesSymbolProgressCallback = (current: number, total: number, tsCode: string) => void;
+const DIRTY_INDICATOR_CONCURRENCY = 5;
 
 @Injectable()
 export class ASharesIndicatorService {
@@ -48,16 +50,31 @@ export class ASharesIndicatorService {
     onProgress?: ASharesSymbolProgressCallback,
   ): Promise<number> {
     let count = 0;
+    let completed = 0;
     const targetTsCodes = [...new Set(tsCodes)].filter((value) => value.length > 0).sort();
-    for (let index = 0; index < targetTsCodes.length; index++) {
-      const tsCode = targetTsCodes[index];
-      count += await this.recalculateDirtyIndicatorsForSymbol(tsCode);
-      onProgress?.(index + 1, targetTsCodes.length, tsCode);
+    const workerPool = new IndicatorWorkerPool();
+
+    try {
+      for (let index = 0; index < targetTsCodes.length; index += DIRTY_INDICATOR_CONCURRENCY) {
+        const batch = targetTsCodes.slice(index, index + DIRTY_INDICATOR_CONCURRENCY);
+        const results = await Promise.all(batch.map(async (tsCode) => {
+          const symbolCount = await this.recalculateDirtyIndicatorsForSymbol(tsCode, workerPool);
+          onProgress?.(++completed, targetTsCodes.length, tsCode);
+          return symbolCount;
+        }));
+        count += results.reduce((sum, value) => sum + value, 0);
+      }
+    } finally {
+      await workerPool.terminate();
     }
+
     return count;
   }
 
-  private async recalculateDirtyIndicatorsForSymbol(tsCode: string): Promise<number> {
+  private async recalculateDirtyIndicatorsForSymbol(
+    tsCode: string,
+    workerPool?: IndicatorWorkerPool,
+  ): Promise<number> {
     const syncRows = await this.dataSource.query<Array<{ dirtyFrom: string | null }>>(`
       SELECT indicator_dirty_from_date AS "dirtyFrom"
       FROM a_share_sync_states
@@ -75,12 +92,14 @@ export class ASharesIndicatorService {
       LIMIT 1
     `, [tsCode, dirtyFrom]);
     const seedState = normalizeIndicatorCalcState(seedRows[0]?.state);
-    const startDate = seedState ? dirtyFrom : null;
+    const seedTradeDate = seedState ? seedRows[0]?.tradeDate : null;
 
-    const rows = await this.loadQuoteRows(tsCode, startDate);
+    const rows = seedState && seedTradeDate
+      ? await this.loadQuoteRowsAfter(tsCode, seedTradeDate)
+      : await this.loadQuoteRows(tsCode, null);
     if (!rows.length) return 0;
 
-    const calculated = calcIndicatorsStreaming(rows.map((row): KlineRow => ({
+    const klineRows = rows.map((row): KlineRow => ({
       open_time: row.tradeDate,
       open: row.qfqOpen ?? 0,
       high: row.qfqHigh ?? 0,
@@ -88,18 +107,29 @@ export class ASharesIndicatorService {
       close: row.qfqClose ?? 0,
       volume: row.vol ?? 0,
       quote_volume: row.amount ?? 0,
-    })), seedState);
+    }));
+    const calculated = workerPool
+      ? await workerPool.run(klineRows, seedState)
+      : calcIndicatorsStreaming(klineRows, seedState);
 
     const entities = calculated.map(({ row, brickChart }, index) =>
       this.createIndicatorEntity(tsCode, rows[index].tradeDate, row, brickChart),
-    );
-    const states = calculated.map(({ state }, index) => this.calcStateRepo.create({
-      tsCode,
-      tradeDate: rows[index].tradeDate,
-      state: state as unknown as Record<string, unknown>,
-    }));
-    await this.upsertInChunks(this.indicatorRepo, entities, ['tsCode', 'tradeDate']);
-    await this.upsertInChunks(this.calcStateRepo, states, ['tsCode', 'tradeDate']);
+    ).filter((_, index) => !seedState || rows[index].tradeDate >= dirtyFrom);
+    const stateEntities = this.createSparseCalcStateEntities(tsCode, rows, calculated);
+
+    if (seedState) {
+      await this.upsertInChunks(this.indicatorRepo, entities, ['tsCode', 'tradeDate']);
+      await this.dataSource.query(`
+        DELETE FROM a_share_indicator_calc_states
+        WHERE ts_code = $1
+          AND trade_date >= $2
+      `, [tsCode, dirtyFrom]);
+    } else {
+      await this.dataSource.query('DELETE FROM a_share_daily_indicators WHERE ts_code = $1', [tsCode]);
+      await this.dataSource.query('DELETE FROM a_share_indicator_calc_states WHERE ts_code = $1', [tsCode]);
+      await this.insertInChunks(this.indicatorRepo, entities);
+    }
+    await this.upsertInChunks(this.calcStateRepo, stateEntities, ['tsCode', 'tradeDate']);
 
     const latestTradeDate = rows[rows.length - 1].tradeDate;
     await this.dataSource.query(`
@@ -162,10 +192,32 @@ export class ASharesIndicatorService {
     `, params);
   }
 
+  private async loadQuoteRowsAfter(tsCode: string, afterDate: string): Promise<AShareQuoteForIndicator[]> {
+    return this.dataSource.query<AShareQuoteForIndicator[]>(`
+      SELECT
+        ts_code AS "tsCode",
+        trade_date AS "tradeDate",
+        qfq_open AS "qfqOpen",
+        qfq_high AS "qfqHigh",
+        qfq_low AS "qfqLow",
+        qfq_close AS "qfqClose",
+        vol,
+        amount
+      FROM a_share_daily_quotes
+      WHERE ts_code = $1
+        AND trade_date > $2
+        AND qfq_open IS NOT NULL
+        AND qfq_high IS NOT NULL
+        AND qfq_low IS NOT NULL
+        AND qfq_close IS NOT NULL
+      ORDER BY trade_date ASC
+    `, [tsCode, afterDate]);
+  }
+
   private createIndicatorEntity(
     tsCode: string,
     tradeDate: string,
-    row: ReturnType<typeof calcIndicators>[number],
+    row: KlineRowWithIndicators,
     brickChart: { brick: number; delta: number; xg: boolean } | null,
   ): AShareDailyIndicatorEntity {
     return this.indicatorRepo.create({
@@ -196,6 +248,22 @@ export class ASharesIndicatorService {
     });
   }
 
+  private createSparseCalcStateEntities(
+    tsCode: string,
+    rows: AShareQuoteForIndicator[],
+    calculated: Awaited<ReturnType<IndicatorWorkerPool['run']>>,
+  ): AShareIndicatorCalcStateEntity[] {
+    const indexes = new Set<number>();
+    indexes.add(rows.length - 1);
+    if (rows.length > 1) indexes.add(rows.length - 2);
+
+    return [...indexes].sort((a, b) => a - b).map((index) => this.calcStateRepo.create({
+      tsCode,
+      tradeDate: rows[index].tradeDate,
+      state: calculated[index].state as unknown as Record<string, unknown>,
+    }));
+  }
+
   private async upsertInChunks<Entity extends object>(
     repo: Repository<Entity>,
     entities: Entity[],
@@ -204,6 +272,16 @@ export class ASharesIndicatorService {
     const chunkSize = 1000;
     for (let index = 0; index < entities.length; index += chunkSize) {
       await repo.upsert(entities.slice(index, index + chunkSize), conflictPaths);
+    }
+  }
+
+  private async insertInChunks<Entity extends object>(
+    repo: Repository<Entity>,
+    entities: Entity[],
+  ): Promise<void> {
+    const chunkSize = 1000;
+    for (let index = 0; index < entities.length; index += chunkSize) {
+      await repo.insert(entities.slice(index, index + chunkSize));
     }
   }
 }

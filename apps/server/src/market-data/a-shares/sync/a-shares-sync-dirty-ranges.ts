@@ -25,7 +25,7 @@ export async function markDirtyRanges(
     const dirtyFrom = latestAdjFactorChanged.has(tsCode)
       ? await resolveEarliestQuoteDate(deps.quoteRepo, tsCode, tradeDate)
       : tradeDate;
-    await deps.quoteRepo.query(`
+    await deps.syncStateRepo.query(`
       INSERT INTO a_share_sync_states (
         ts_code,
         qfq_dirty_from_date,
@@ -131,7 +131,7 @@ async function recalculateDirtyQfqQuotesForSymbol(
     FROM with_prev
     WHERE target.id = with_prev.id
   `, [tsCode, dirtyFrom]);
-  await deps.quoteRepo.query(`
+  await deps.syncStateRepo.query(`
     INSERT INTO a_share_sync_states (
       ts_code,
       qfq_dirty_from_date,

@@ -135,6 +135,12 @@ async function loadLatestAdjFactors(
   return new Map(rows.map((row) => [row.tsCode, row]));
 }
 
+function adjFactorToNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function isLatestAdjFactorChange(
   latestBefore: LatestAdjFactor | undefined,
   tradeDate: string,
@@ -142,5 +148,9 @@ function isLatestAdjFactorChange(
 ): boolean {
   if (!latestBefore) return true;
   if (tradeDate < latestBefore.tradeDate) return false;
-  return String(latestBefore.adjFactor ?? '') !== String(adjFactor ?? '');
+  const prev = adjFactorToNumber(latestBefore.adjFactor);
+  const curr = adjFactorToNumber(adjFactor);
+  if (prev === null && curr === null) return false;
+  if (prev === null || curr === null) return true;
+  return Math.abs(prev - curr) > 1e-9;
 }

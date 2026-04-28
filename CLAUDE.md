@@ -24,6 +24,9 @@ crtptotrading:加密量化策略
 ## 常用命令
 - 查询数据库：`docker exec crypto-postgres psql -U cryptouser -d cryptodb -c ...`
 
+## Shell 规范
+- 使用 PowerShell 时禁用 `&&` 连接命令，改用 `;` 或分多行执行
+
 ## NOT DO
 - 原生 SQL ID 参数用 `::text[]`（ID 列均为 `character varying`），禁 `::uuid[]`
 - 500 报错：开 TypeORM `logging: ['error','warn']` 并 `logger.error(err.stack)`，禁静态分析猜
