@@ -27,11 +27,16 @@ export class TushareClientService {
   private readonly maxIntervalMs: number;
 
   constructor(private readonly configService: ConfigService) {
-    const concurrency = Number(configService.get('TUSHARE_CONCURRENCY') ?? 5);
-    this.minIntervalMs = Number(configService.get('TUSHARE_MIN_INTERVAL_MS') ?? 200);
-    this.maxIntervalMs = Number(configService.get('TUSHARE_MAX_INTERVAL_MS') ?? 5000);
+    this.minIntervalMs = this.parsePositiveInt(configService.get('TUSHARE_MIN_INTERVAL_MS'), 200);
+    this.maxIntervalMs = this.parsePositiveInt(configService.get('TUSHARE_MAX_INTERVAL_MS'), 5000);
     this.currentIntervalMs = this.minIntervalMs;
+    const concurrency = this.parsePositiveInt(configService.get('TUSHARE_CONCURRENCY'), 5);
     this.limiter = pLimit(concurrency);
+  }
+
+  private parsePositiveInt(value: string | undefined, fallback: number): number {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
   }
 
   async query(apiName: string, params: Record<string, string | number> = {}, fields = ''): Promise<TushareRow[]> {
@@ -52,9 +57,11 @@ export class TushareClientService {
     if (wait > 0) await this.delay(wait);
     this.lastRequestAt = Date.now();
 
-    const response = await this.postWithRetry(apiName, token, params, fields);
+    const { response, hadRateLimit } = await this.postWithRetry(apiName, token, params, fields);
 
-    this.currentIntervalMs = Math.max(this.currentIntervalMs * 0.9, this.minIntervalMs);
+    if (!hadRateLimit) {
+      this.currentIntervalMs = Math.max(this.currentIntervalMs * 0.9, this.minIntervalMs);
+    }
 
     const payload = response.data;
     if (payload.code !== 0) {
@@ -71,8 +78,9 @@ export class TushareClientService {
     token: string,
     params: Record<string, string | number>,
     fields: string,
-  ) {
+  ): Promise<{ response: Awaited<ReturnType<typeof axios.post<TushareResponse>>>; hadRateLimit: boolean }> {
     let lastError: unknown;
+    let hadRateLimit = false;
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
       try {
         const response = await axios.post<TushareResponse>(
@@ -85,9 +93,10 @@ export class TushareClientService {
           const error = new ServiceUnavailableException(`TuShare ${apiName} 调用失败：${payload.msg ?? payload.code}`);
           if (!this.shouldRetryTusharePayload(payload)) throw error;
           this.onRateLimit();
+          hadRateLimit = true;
           lastError = error;
         } else {
-          return response;
+          return { response, hadRateLimit };
         }
       } catch (err: unknown) {
         if (!this.shouldRetryError(err)) throw err;
