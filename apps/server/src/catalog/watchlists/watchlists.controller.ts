@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
 import { ConflictException } from '@nestjs/common';
 import { CurrentUserParam as CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { WatchlistsService } from './watchlists.service';
@@ -52,5 +52,42 @@ export class WatchlistsController {
     @Param('symbol') symbol: string,
   ) {
     return this.watchlistsService.removeSymbol(user.id, id, decodeURIComponent(symbol));
+  }
+
+  @Get(':id/quotes')
+  getQuotes(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Query('interval') interval: string = '1h',
+    @Query('page') page: string = '1',
+    @Query('page_size') pageSize: string = '20',
+    @Query('sort') sortJson?: string,
+  ) {
+    const sort = sortJson ? JSON.parse(sortJson) : undefined;
+    return this.watchlistsService.getWatchlistQuotes(
+      user.id,
+      id,
+      interval,
+      parseInt(page, 10),
+      parseInt(pageSize, 10),
+      sort,
+    );
+  }
+
+  @Put('reorder')
+  reorderWatchlists(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: { ids: string[] },
+  ) {
+    return this.watchlistsService.reorderWatchlists(user.id, body.ids);
+  }
+
+  @Put(':id/reorder')
+  reorderItems(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() body: { symbols: string[] },
+  ) {
+    return this.watchlistsService.reorderItems(user.id, id, body.symbols);
   }
 }
