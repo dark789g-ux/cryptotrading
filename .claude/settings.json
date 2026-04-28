@@ -6,5 +6,8 @@
       "Bash(pnpm --filter * exec tsc --noEmit *)",
       "Bash(pnpm --filter * exec vue-tsc --noEmit *)"
     ]
+  },
+    "enabledPlugins": {
+    "superpowers@superpowers-dev": true
   }
 }

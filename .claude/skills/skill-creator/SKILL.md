@@ -1,6 +1,6 @@
 ---
 name: skill-creator
-description: 仅手动调用（/skill-creator），请勿自动触发。
+description: 用户期望创建技能的时候触发。
 ---
  
 # Skill Creator
