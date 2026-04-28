@@ -42,15 +42,32 @@
         class="filter-number"
         @update:value="emit('update:turnoverRateMin', $event)"
       />
-      <n-radio-group
-        :value="priceMode"
-        size="small"
-        class="price-mode-group"
-        @update:value="emit('update:priceMode', $event)"
+      <div
+        class="price-mode-toggle"
+        role="radiogroup"
+        aria-label="价格口径"
       >
-        <n-radio-button value="qfq">前复权</n-radio-button>
-        <n-radio-button value="raw">原始价</n-radio-button>
-      </n-radio-group>
+        <button
+          type="button"
+          role="radio"
+          :aria-checked="priceMode === 'qfq'"
+          class="price-mode-toggle__btn"
+          :class="{ 'price-mode-toggle__btn--active': priceMode === 'qfq' }"
+          @click="emit('update:priceMode', 'qfq')"
+        >
+          前复权
+        </button>
+        <button
+          type="button"
+          role="radio"
+          :aria-checked="priceMode === 'raw'"
+          class="price-mode-toggle__btn"
+          :class="{ 'price-mode-toggle__btn--active': priceMode === 'raw' }"
+          @click="emit('update:priceMode', 'raw')"
+        >
+          原始价
+        </button>
+      </div>
       <div class="filter-actions">
         <n-button @click="emit('reset')">重置</n-button>
         <numeric-condition-filter
@@ -78,7 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import { NButton, NCard, NIcon, NInput, NInputNumber, NRadioButton, NRadioGroup, NSelect } from 'naive-ui'
+import { NButton, NCard, NIcon, NInput, NInputNumber, NSelect } from 'naive-ui'
 import { SearchOutline } from '@vicons/ionicons5'
 import type { AShareFilterPreset } from '@/api'
 import NumericConditionFilter from '../../common/NumericConditionFilter.vue'
@@ -185,14 +202,51 @@ const advancedFieldOptions: NumericConditionFieldOption[] = [
 .search-input { width: 200px; }
 .filter-select { width: 140px; }
 .filter-number { width: 130px; }
-.price-mode-group { flex-shrink: 0; }
+.price-mode-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  box-sizing: border-box;
+}
+.price-mode-toggle__btn {
+  margin: 0;
+  padding: 0 12px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.price-mode-toggle__btn:hover:not(.price-mode-toggle__btn--active) {
+  color: var(--color-text);
+}
+.price-mode-toggle__btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+.price-mode-toggle__btn:first-child {
+  border-right: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+.price-mode-toggle__btn--active {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-border) 85%, transparent);
+}
 .filter-actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
 
 @media (max-width: 960px) {
   .search-input,
   .filter-select,
   .filter-number,
-  .price-mode-group,
+  .price-mode-toggle,
   .filter-actions { width: 100%; }
   .filter-actions { margin-left: 0; justify-content: flex-end; }
 }
