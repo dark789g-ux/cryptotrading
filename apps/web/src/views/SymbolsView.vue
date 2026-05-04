@@ -29,8 +29,10 @@
       </div>
     </div>
 
-    <crypto-symbols-panel v-if="activeTab === 'crypto'" />
-    <a-shares-panel v-else />
+    <keep-alive>
+      <crypto-symbols-panel v-if="activeTab === 'crypto'" />
+      <a-shares-panel v-else />
+    </keep-alive>
   </div>
 </template>
 

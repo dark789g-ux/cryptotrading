@@ -1,7 +1,7 @@
 <template>
   <div class="crypto-symbols-panel">
     <div class="page-header workspace-page-header">
-      <h2 class="panel-title">加密标的</h2>
+      <h2 class="panel-title">鍔犲瘑鏍囩殑</h2>
       <n-space>
         <n-select
           v-model:value="selectedInterval"
@@ -12,6 +12,10 @@
         <n-button :loading="loading" @click="loadData">
           <template #icon><n-icon><refresh-outline /></n-icon></template>
           Refresh
+        </n-button>
+        <n-button secondary @click="showColumnSettings = true">
+          <template #icon><n-icon><settings-outline /></n-icon></template>
+          Columns
         </n-button>
       </n-space>
     </div>
@@ -64,52 +68,51 @@
       :width="1000"
       class="glass-drawer"
     >
-      <n-drawer-content :title="`${selectedSymbol} · ${selectedInterval.toUpperCase()}`" closable>
+      <n-drawer-content :title="`${selectedSymbol} 路 ${selectedInterval.toUpperCase()}`" closable>
         <kline-chart v-if="klineData.length" :data="klineData" height="700px" :slider-start="70" />
         <n-empty v-else description="No kline data" style="padding: 40px 0" />
       </n-drawer-content>
     </n-drawer>
+
+    <column-settings-drawer
+      v-model:show="showColumnSettings"
+      v-model:modelValue="scopePreferences"
+      title="Crypto Columns"
+      :definitions="columnDefs"
+      :loading="columnPrefsLoading"
+      :saving="columnPrefsSaving"
+      @save="handleSaveColumnPreferences"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 defineOptions({ name: 'CryptoSymbolsPanel' })
 
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   NButton,
   NCard,
   NDataTable,
   NDrawer,
   NDrawerContent,
+  NEmpty,
   NIcon,
   NInput,
   NSelect,
   NSpace,
   NTag,
-  NTooltip,
-  type DataTableColumns,
   type DataTableSortState,
   useMessage,
 } from 'naive-ui'
-import { RefreshOutline, SearchOutline, TrendingUpOutline } from '@vicons/ionicons5'
+import { RefreshOutline, SearchOutline, SettingsOutline } from '@vicons/ionicons5'
 import KlineChart from '../kline/KlineChart.vue'
 import NumericConditionFilter from '../common/NumericConditionFilter.vue'
-import SymbolStarButton from '../common/SymbolStarButton.vue'
 import type { NumericCondition, NumericConditionFieldOption } from '../common/numericConditionFilterTypes'
-import { klinesApi, symbolApi, type KlineChartBar } from '@/api'
-
-interface SymbolRow {
-  symbol: string
-  close?: number | null
-  ma5?: number | null
-  ma30?: number | null
-  ma60?: number | null
-  kdjJ?: number | null
-  riskRewardRatio?: number | null
-  stopLossPct?: number | null
-  openTime?: string | null
-}
+import { klinesApi, symbolApi, type KlineChartBar, type SymbolRow } from '@/api'
+import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
+import { createCryptoColumnDefs } from './cryptoColumns'
+import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
 
 const message = useMessage()
 
@@ -125,6 +128,7 @@ const symbols = ref<SymbolRow[]>([])
 const total = ref(0)
 const searchQuery = ref('')
 const showChartDrawer = ref(false)
+const showColumnSettings = ref(false)
 const selectedSymbol = ref('')
 const klineData = ref<KlineChartBar[]>([])
 const conditions = ref<NumericCondition[]>([])
@@ -133,6 +137,16 @@ const sortKey = ref<string | null>(null)
 const sortOrder = ref<'ascend' | 'descend' | null>(null)
 const page = ref(1)
 const pageSize = ref(20)
+
+const columnDefs = createCryptoColumnDefs({ onViewChart: openChart })
+const {
+  loading: columnPrefsLoading,
+  saving: columnPrefsSaving,
+  scopePreferences,
+  columns,
+  load: loadColumnPreferences,
+  save: saveColumnPreferences,
+} = useSymbolColumnPreferences('crypto', columnDefs)
 
 const opLabels: Record<NumericCondition['op'], string> = {
   gt: '>',
@@ -156,72 +170,6 @@ const paginationState = computed(() => ({
   pageSizes: [10, 20, 50],
   prefix: () => `Total ${total.value}`,
 }))
-
-const formatFixed = (value: number | null | undefined, digits: number) =>
-  value == null ? '-' : value.toFixed(digits)
-
-const columns = computed<DataTableColumns<SymbolRow>>(() => [
-  {
-    title: 'Symbol',
-    key: 'symbol',
-    width: 140,
-    fixed: 'left',
-    sorter: true,
-    render: (row) =>
-      h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
-        h(SymbolStarButton, { symbol: row.symbol }),
-        h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, row.symbol),
-      ]),
-  },
-  {
-    title: 'Close',
-    key: 'close',
-    width: 110,
-    sorter: true,
-    render: (row) => (row.close == null ? '-' : Number(row.close).toPrecision(6)),
-  },
-  { title: 'MA5', key: 'ma5', width: 110, sorter: true, render: (row) => formatFixed(row.ma5, 4) },
-  { title: 'MA30', key: 'ma30', width: 110, sorter: true, render: (row) => formatFixed(row.ma30, 4) },
-  { title: 'MA60', key: 'ma60', width: 110, sorter: true, render: (row) => formatFixed(row.ma60, 4) },
-  { title: 'KDJ.J', key: 'kdjJ', width: 90, sorter: true, render: (row) => formatFixed(row.kdjJ, 2) },
-  {
-    title: 'RR',
-    key: 'riskRewardRatio',
-    width: 90,
-    sorter: true,
-    render: (row) => formatFixed(row.riskRewardRatio, 2),
-  },
-  {
-    title: 'Stop %',
-    key: 'stopLossPct',
-    width: 90,
-    sorter: true,
-    render: (row) => (row.stopLossPct == null ? '-' : `${row.stopLossPct.toFixed(2)}%`),
-  },
-  {
-    title: 'Updated',
-    key: 'openTime',
-    width: 110,
-    sorter: true,
-    render: (row) => (row.openTime ? new Date(row.openTime).toISOString().slice(0, 10) : '-'),
-  },
-  {
-    title: 'Action',
-    key: 'actions',
-    width: 70,
-    fixed: 'right',
-    render: (row) =>
-      h(NTooltip, null, {
-        trigger: () =>
-          h(
-            NButton,
-            { size: 'small', onClick: () => void openChart(row.symbol) },
-            { icon: () => h(NIcon, null, () => h(TrendingUpOutline)) },
-          ),
-        default: () => 'Open chart',
-      }),
-  },
-])
 
 const buildQuery = () => ({
   interval: selectedInterval.value,
@@ -289,7 +237,7 @@ const handleSort = (sorter: DataTableSortState | DataTableSortState[] | null) =>
   void loadData()
 }
 
-const openChart = async (symbol: string) => {
+async function openChart(symbol: string) {
   selectedSymbol.value = symbol
   showChartDrawer.value = true
   klineData.value = []
@@ -300,8 +248,21 @@ const openChart = async (symbol: string) => {
   }
 }
 
+async function handleSaveColumnPreferences() {
+  try {
+    await saveColumnPreferences()
+    showColumnSettings.value = false
+    message.success('列设置已保存')
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : String(err))
+  }
+}
+
 onMounted(() => {
   void loadFields()
+  void loadColumnPreferences().catch((err: unknown) => {
+    message.error(err instanceof Error ? err.message : String(err))
+  })
   void loadData()
 })
 </script>

@@ -1,5 +1,20 @@
 <template>
   <div class="a-shares-panel">
+    <div class="panel-header">
+      <div>
+        <h2 class="panel-title">A 股数据</h2>
+      </div>
+      <n-space>
+        <n-button :loading="loading" @click="reload">
+          <template #icon><n-icon><refresh-outline /></n-icon></template>
+          Refresh
+        </n-button>
+        <n-button secondary @click="showColumnSettings = true">
+          <template #icon><n-icon><settings-outline /></n-icon></template>
+          Columns
+        </n-button>
+      </n-space>
+    </div>
 
     <a-shares-filters
       v-model:search-query="searchQuery"
@@ -37,6 +52,16 @@
       />
     </n-card>
 
+    <column-settings-drawer
+      v-model:show="showColumnSettings"
+      v-model:modelValue="scopePreferences"
+      title="A 股 Columns"
+      :definitions="columnDefs"
+      :loading="columnPrefsLoading"
+      :saving="columnPrefsSaving"
+      @save="handleSaveColumnPreferences"
+    />
+
     <a-share-detail-drawer
       v-model:show="showDetailDrawer"
       :row="selectedDetailRow"
@@ -50,12 +75,14 @@ defineOptions({ name: 'ASharesPanel' })
 
 import { computed, onMounted, ref } from 'vue'
 import { NButton, NCard, NDataTable, NIcon, NSpace, useMessage } from 'naive-ui'
-import { RefreshOutline } from '@vicons/ionicons5'
+import { RefreshOutline, SettingsOutline } from '@vicons/ionicons5'
 import type { AShareRow } from '@/api'
 import AShareDetailDrawer from './a-shares/AShareDetailDrawer.vue'
 import ASharesFilters from './a-shares/ASharesFilters.vue'
-import { createASharesColumns } from './a-shares/aSharesColumns'
+import { createASharesColumnDefs } from './a-shares/aSharesColumns'
 import { useASharesQuery } from './a-shares/useASharesQuery'
+import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
+import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
 
 const message = useMessage()
 const {
@@ -89,6 +116,7 @@ const {
 } = useASharesQuery(message)
 
 const showDetailDrawer = ref(false)
+const showColumnSettings = ref(false)
 const selectedDetailRow = ref<AShareRow | null>(null)
 
 function handleViewDetail(row: AShareRow) {
@@ -96,10 +124,34 @@ function handleViewDetail(row: AShareRow) {
   showDetailDrawer.value = true
 }
 
-const columns = computed(() => createASharesColumns({ onViewDetail: handleViewDetail, priceMode: priceMode.value }))
+const columnDefs = computed(() =>
+  createASharesColumnDefs({ onViewDetail: handleViewDetail, priceMode: priceMode.value }),
+)
+
+const {
+  loading: columnPrefsLoading,
+  saving: columnPrefsSaving,
+  scopePreferences,
+  columns,
+  load: loadColumnPreferences,
+  save: saveColumnPreferences,
+} = useSymbolColumnPreferences('aShares', columnDefs)
+
+async function handleSaveColumnPreferences() {
+  try {
+    await saveColumnPreferences()
+    showColumnSettings.value = false
+    message.success('列设置已保存')
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : String(err))
+  }
+}
 
 onMounted(() => {
   void reload()
+  void loadColumnPreferences().catch((err: unknown) => {
+    message.error(err instanceof Error ? err.message : String(err))
+  })
 })
 </script>
 

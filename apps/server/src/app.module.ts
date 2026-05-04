@@ -10,6 +10,7 @@ import { BacktestModule } from './backtest/backtest.module';
 import { WatchlistsModule } from './catalog/watchlists/watchlists.module';
 import { SymbolPresetsModule } from './catalog/symbol-presets/symbol-presets.module';
 import { SettingsModule } from './settings/settings.module';
+import { PreferencesModule } from './preferences/preferences.module';
 import { ASharesModule } from './market-data/a-shares/a-shares.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -33,6 +34,7 @@ import { WatchlistItemEntity } from './entities/watchlist/watchlist-item.entity'
 import { SymbolPresetEntity } from './entities/symbol/symbol-preset.entity';
 import { SymbolPresetItemEntity } from './entities/symbol/symbol-preset-item.entity';
 import { AppConfigEntity } from './entities/app-config.entity';
+import { UserPreferenceEntity } from './entities/user-preference.entity';
 import { UserEntity } from './users/entities/user.entity';
 import { AuthSessionEntity } from './auth/entities/auth-session.entity';
 import { UserInvitationEntity } from './users/entities/user-invitation.entity';
@@ -71,6 +73,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           SymbolPresetEntity,
           SymbolPresetItemEntity,
           AppConfigEntity,
+          UserPreferenceEntity,
           UserEntity,
           AuthSessionEntity,
           UserInvitationEntity,
@@ -88,6 +91,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     WatchlistsModule,
     SymbolPresetsModule,
     SettingsModule,
+    PreferencesModule,
     ASharesModule,
     AuthModule,
     UsersModule,
