@@ -60,7 +60,7 @@ import {
 } from 'naive-ui'
 import { RefreshOutline, SettingsOutline } from '@vicons/ionicons5'
 import { useWatchlistStore } from '@/stores/watchlist'
-import { klinesApi, watchlistApi, type KlineChartBar } from '@/api'
+import { aSharesApi, klinesApi, watchlistApi, type KlineChartBar } from '@/api'
 import SymbolStarButton from '@/components/common/SymbolStarButton.vue'
 import WatchlistTableSettings from './WatchlistTableSettings.vue'
 import KlineChart from '@/components/kline/KlineChart.vue'
@@ -110,10 +110,16 @@ async function openChart(symbol: string) {
   showChartDrawer.value = true
   klineData.value = []
   try {
-    klineData.value = await klinesApi.getKlines(symbol, store.interval)
+    klineData.value = isAShareSymbol(symbol)
+      ? await aSharesApi.getKlines(symbol, 360, 'qfq')
+      : await klinesApi.getKlines(symbol, store.interval)
   } catch (err: any) {
     console.error(err)
   }
+}
+
+function isAShareSymbol(symbol: string) {
+  return /^\d{6}\.(SZ|SH|BJ)$/.test(symbol)
 }
 
 async function removeSymbol(symbol: string) {

@@ -135,47 +135,92 @@ export class WatchlistsService {
     const pageSymbols = symbols.slice(offset, offset + pageSize);
 
     let sql = `
-      WITH latest AS (
+      WITH page_symbols AS (
+        SELECT symbol, ord::int
+        FROM unnest($2::text[]) WITH ORDINALITY AS t(symbol, ord)
+      ),
+      crypto_latest AS (
         SELECT symbol, MAX(open_time) AS max_time
         FROM klines
-        WHERE interval = $1 AND symbol = ANY($2)
+        WHERE interval = $1 AND symbol IN (SELECT symbol FROM page_symbols)
         GROUP BY symbol
+      ),
+      crypto_rows AS (
+        SELECT
+          ps.ord,
+          k.symbol,
+          k.close,
+          k.ma5,
+          k.ma30,
+          k.ma60,
+          k.kdj_j AS "kdjJ",
+          k.risk_reward_ratio AS "riskRewardRatio",
+          k.stop_loss_pct AS "stopLossPct",
+          k.open_time AS "openTime"
+        FROM page_symbols ps
+        JOIN crypto_latest latest ON latest.symbol = ps.symbol
+        JOIN klines k ON k.symbol = latest.symbol AND k.open_time = latest.max_time AND k.interval = $1
+      ),
+      a_share_latest AS (
+        SELECT q.ts_code, MAX(q.trade_date) AS trade_date
+        FROM a_share_daily_quotes q
+        JOIN page_symbols ps ON ps.symbol = q.ts_code
+        GROUP BY q.ts_code
+      ),
+      a_share_rows AS (
+        SELECT
+          ps.ord,
+          q.ts_code AS symbol,
+          COALESCE(q.qfq_close, q.close) AS close,
+          i.ma5,
+          i.ma30,
+          i.ma60,
+          i.kdj_j AS "kdjJ",
+          i.risk_reward_ratio AS "riskRewardRatio",
+          i.stop_loss_pct AS "stopLossPct",
+          to_date(q.trade_date, 'YYYYMMDD')::timestamp AS "openTime"
+        FROM page_symbols ps
+        JOIN a_share_latest latest ON latest.ts_code = ps.symbol
+        JOIN a_share_daily_quotes q ON q.ts_code = latest.ts_code AND q.trade_date = latest.trade_date
+        LEFT JOIN a_share_daily_indicators i ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
+      ),
+      rows AS (
+        SELECT * FROM crypto_rows
+        UNION ALL
+        SELECT * FROM a_share_rows
       )
       SELECT
-        k.symbol,
-        k.close,
-        k.ma5,
-        k.ma30,
-        k.ma60,
-        k.kdj_j AS "kdjJ",
-        k.risk_reward_ratio AS "riskRewardRatio",
-        k.stop_loss_pct AS "stopLossPct",
-        k.open_time AS "openTime"
-      FROM klines k
-      JOIN latest ON k.symbol = latest.symbol AND k.open_time = latest.max_time AND k.interval = $1
-      WHERE k.symbol = ANY($2)
+        symbol,
+        close,
+        ma5,
+        ma30,
+        ma60,
+        "kdjJ",
+        "riskRewardRatio",
+        "stopLossPct",
+        "openTime"
+      FROM rows
     `;
 
     const params: Array<string | number | string[]> = [interval, pageSymbols];
 
     const SORT_COL_MAP: Record<string, string> = {
-      symbol: 'k.symbol',
-      close: 'k.close',
-      ma5: 'k.ma5',
-      ma30: 'k.ma30',
-      ma60: 'k.ma60',
-      kdjJ: 'k.kdj_j',
-      riskRewardRatio: 'k.risk_reward_ratio',
-      stopLossPct: 'k.stop_loss_pct',
-      openTime: 'k.open_time',
+      symbol: 'symbol',
+      close: 'close',
+      ma5: 'ma5',
+      ma30: 'ma30',
+      ma60: 'ma60',
+      kdjJ: '"kdjJ"',
+      riskRewardRatio: '"riskRewardRatio"',
+      stopLossPct: '"stopLossPct"',
+      openTime: '"openTime"',
     };
 
     if (sort?.field && SORT_COL_MAP[sort.field]) {
       const dir = sort.order === 'descend' ? 'DESC' : 'ASC';
       sql += ` ORDER BY ${SORT_COL_MAP[sort.field]} ${dir} NULLS LAST`;
     } else {
-      const orderCases = pageSymbols.map((s, i) => `WHEN '${s}' THEN ${i}`).join(' ');
-      sql += ` ORDER BY CASE k.symbol ${orderCases} END`;
+      sql += ' ORDER BY ord ASC';
     }
 
     const items = await this.watchlistRepo.query(sql, params);

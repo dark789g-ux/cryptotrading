@@ -1,17 +1,5 @@
 <template>
   <div class="a-shares-panel">
-    <div class="panel-header">
-      <div>
-        <h2 class="panel-title">A 股数据</h2>
-        <p class="panel-subtitle">TuShare 日线数据，本地库查询</p>
-      </div>
-      <n-space>
-        <n-button :loading="loading" @click="reload">
-          <template #icon><n-icon><refresh-outline /></n-icon></template>
-          刷新
-        </n-button>
-      </n-space>
-    </div>
 
     <a-shares-filters
       v-model:search-query="searchQuery"

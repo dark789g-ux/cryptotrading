@@ -50,5 +50,6 @@ const auth = useAuth()
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable;
+  width: 100%;
 }
 </style>

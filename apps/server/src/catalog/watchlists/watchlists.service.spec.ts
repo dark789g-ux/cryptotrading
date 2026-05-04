@@ -74,4 +74,50 @@ describe('WatchlistsService', () => {
       expect(itemRepo.update).toHaveBeenCalledTimes(2);
     });
   });
+
+  describe('getWatchlistQuotes', () => {
+    it('should query A-share quote tables for watchlist symbols stored as ts_code', async () => {
+      watchlistRepo.findOne.mockResolvedValue({
+        id: 'wl-1',
+        userId: 'user-1',
+        items: [{ symbol: '000001.SZ' }, { symbol: '000002.SZ' }],
+      } as WatchlistEntity);
+      watchlistRepo.query.mockResolvedValue([
+        {
+          symbol: '000001.SZ',
+          close: '12.3400000000',
+          ma5: 12.1,
+          ma30: 11.8,
+          kdjJ: 72.5,
+          riskRewardRatio: 2.1,
+          stopLossPct: 6.2,
+          openTime: '20260430',
+        },
+      ]);
+
+      const result = await service.getWatchlistQuotes('user-1', 'wl-1', '1d', 1, 20);
+
+      expect(result).toEqual({
+        items: [
+          {
+            symbol: '000001.SZ',
+            close: '12.3400000000',
+            ma5: 12.1,
+            ma30: 11.8,
+            kdjJ: 72.5,
+            riskRewardRatio: 2.1,
+            stopLossPct: 6.2,
+            openTime: '20260430',
+          },
+        ],
+        total: 2,
+        page: 1,
+        page_size: 20,
+      });
+      const [sql, params] = watchlistRepo.query.mock.calls[0];
+      expect(sql).toContain('a_share_daily_quotes');
+      expect(sql).toContain('a_share_daily_indicators');
+      expect(params).toEqual(['1d', ['000001.SZ', '000002.SZ']]);
+    });
+  });
 });
