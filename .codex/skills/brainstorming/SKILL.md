@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "在进行任何创意性工作之前必须使用此技能 — 创建功能、构建组件、添加功能或修改行为。在实现前探索用户意图、需求和设计。"
+description: "在进行任何创意性工作之前必须使用此技能 — 创建功能、构建组件、添加功能或修改行为。在实现前探索用户意图、需求和设计。用户提及需求时触发。"
 ---
 
 # Brainstorming Ideas Into Designs
