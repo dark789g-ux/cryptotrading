@@ -2,12 +2,6 @@
   <div class="watchlist-table">
     <!-- 工具栏 -->
     <div class="table-toolbar">
-      <n-select
-        v-model:value="store.interval"
-        :options="intervalOptions"
-        style="width: 100px"
-        @update:value="store.loadQuotes"
-      />
       <n-button @click="store.loadQuotes">
         <template #icon>
           <n-icon><refresh-outline /></n-icon>
@@ -40,13 +34,29 @@
     <!-- K 线抽屉 -->
     <n-drawer
       v-model:show="showChartDrawer"
+      width="min(1440px, 96vw)"
       placement="right"
-      :width="1000"
-      class="glass-drawer"
     >
-      <n-drawer-content :title="`${selectedSymbol} · ${store.interval.toUpperCase()}`" closable>
-        <kline-chart v-if="klineData.length" :data="klineData" height="700px" :slider-start="70" />
-        <n-empty v-else description="No kline data" style="padding: 40px 0" />
+      <n-drawer-content class="kline-detail-drawer" closable>
+        <template #header>
+          <div v-if="selectedSymbol" class="drawer-title">
+            <div class="symbol-line">
+              <span class="symbol-name">{{ selectedSymbol }}</span>
+              <n-tag size="small" :bordered="false">{{ store.interval.toUpperCase() }}</n-tag>
+            </div>
+          </div>
+          <span v-else>K 线详情</span>
+        </template>
+
+        <div class="detail-content">
+          <div class="chart-panel">
+            <div v-if="loadingKline" class="chart-center">
+              <n-spin />
+            </div>
+            <n-empty v-else-if="!klineData.length" description="暂无 K 线数据" class="chart-empty" />
+            <kline-chart v-else :data="klineData" height="100%" :slider-start="35" />
+          </div>
+        </div>
       </n-drawer-content>
     </n-drawer>
   </div>
@@ -55,13 +65,12 @@
 <script setup lang="ts">
 import { computed, h, ref } from 'vue'
 import {
-  NButton, NDataTable, NDrawer, NDrawerContent, NEmpty, NIcon, NSelect,
+  NButton, NDataTable, NDrawer, NDrawerContent, NEmpty, NIcon, NSpin, NTag,
   type DataTableColumns, type DataTableSortState,
 } from 'naive-ui'
-import { RefreshOutline, SettingsOutline } from '@vicons/ionicons5'
+import { RefreshOutline, SettingsOutline, TrendingUpOutline } from '@vicons/ionicons5'
 import { useWatchlistStore } from '@/stores/watchlist'
 import { aSharesApi, klinesApi, watchlistApi, type KlineChartBar } from '@/api'
-import SymbolStarButton from '@/components/common/SymbolStarButton.vue'
 import WatchlistTableSettings from './WatchlistTableSettings.vue'
 import KlineChart from '@/components/kline/KlineChart.vue'
 
@@ -70,12 +79,7 @@ const showSettings = ref(false)
 const showChartDrawer = ref(false)
 const selectedSymbol = ref('')
 const klineData = ref<KlineChartBar[]>([])
-
-const intervalOptions = [
-  { label: '1h', value: '1h' },
-  { label: '4h', value: '4h' },
-  { label: '1d', value: '1d' },
-]
+const loadingKline = ref(false)
 
 const paginationState = computed(() => ({
   page: store.page,
@@ -108,6 +112,7 @@ function handleSort(sorter: DataTableSortState | DataTableSortState[] | null) {
 async function openChart(symbol: string) {
   selectedSymbol.value = symbol
   showChartDrawer.value = true
+  loadingKline.value = true
   klineData.value = []
   try {
     klineData.value = isAShareSymbol(symbol)
@@ -115,6 +120,8 @@ async function openChart(symbol: string) {
       : await klinesApi.getKlines(symbol, store.interval)
   } catch (err: any) {
     console.error(err)
+  } finally {
+    loadingKline.value = false
   }
 }
 
@@ -146,13 +153,9 @@ const columns = computed<DataTableColumns<any>>(() => {
       fixed: 'left',
       sorter: true,
       render: (row) =>
-        h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
-          h(SymbolStarButton, { symbol: row.symbol }),
-          h('span', {
-            style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--primary-color)',
-            onClick: () => openChart(row.symbol),
+        h('span', {
+            style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
           }, row.symbol),
-        ]),
     },
   ]
 
@@ -174,10 +177,27 @@ const columns = computed<DataTableColumns<any>>(() => {
   base.push({
     title: 'Action',
     key: 'actions',
-    width: 80,
+    width: 180,
     fixed: 'right',
     render: (row) =>
-      h(NButton, { size: 'small', type: 'error', ghost: true, onClick: () => removeSymbol(row.symbol) }, () => '移除'),
+      h('div', { style: 'display:flex;gap:8px;align-items:center' }, [
+        h(NButton, {
+          size: 'small',
+          tertiary: true,
+          onClick: () => openChart(row.symbol),
+        }, {
+          icon: () => h(NIcon, null, { default: () => h(TrendingUpOutline) }),
+          default: () => '查看K线',
+        }),
+        h(NButton, {
+          size: 'small',
+          type: 'error',
+          ghost: true,
+          onClick: () => removeSymbol(row.symbol),
+        }, {
+          default: () => '移除',
+        }),
+      ]),
   })
 
   return base
@@ -196,5 +216,60 @@ const columns = computed<DataTableColumns<any>>(() => {
   display: flex;
   gap: 12px;
   align-items: center;
+}
+
+.kline-detail-drawer :deep(.n-drawer-body) {
+  flex: 1;
+  min-height: 0;
+}
+
+.kline-detail-drawer :deep(.n-drawer-body-content-wrapper) {
+  height: 100%;
+  padding: 0;
+}
+
+.drawer-title {
+  min-width: 0;
+}
+
+.symbol-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.symbol-name {
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-content,
+.chart-panel {
+  display: flex;
+  flex: 1;
+  height: 100%;
+  min-height: 620px;
+  min-width: 0;
+}
+
+.chart-center,
+.chart-empty {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  justify-content: center;
+}
+
+@media (max-width: 960px) {
+  .detail-content,
+  .chart-panel {
+    min-height: 520px;
+  }
 }
 </style>

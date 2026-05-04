@@ -4,6 +4,7 @@ import { watchlistApi, type Watchlist, type SymbolRow } from '@/api'
 
 const STORAGE_KEY = 'watchlist-columns'
 const DEFAULT_COLUMNS = ['symbol', 'close', 'ma5', 'ma30', 'kdjJ', 'riskRewardRatio']
+const ASHARE_SYMBOL_RE = /^\d{6}\.(SZ|SH|BJ)$/
 
 export const useWatchlistStore = defineStore('watchlist', () => {
   // State
@@ -13,7 +14,6 @@ export const useWatchlistStore = defineStore('watchlist', () => {
   const total = ref(0)
   const loadingLists = ref(false)
   const loadingQuotes = ref(false)
-  const interval = ref<'1h' | '4h' | '1d'>('1h')
   const page = ref(1)
   const pageSize = ref(20)
   const sortKey = ref<string | null>(null)
@@ -24,14 +24,24 @@ export const useWatchlistStore = defineStore('watchlist', () => {
   const currentWatchlist = computed(() =>
     watchlists.value.find((w) => w.id === currentId.value) ?? null,
   )
+  const interval = computed<'1h' | '1d'>(() => {
+    const items = currentWatchlist.value?.items ?? []
+    return items.length > 0 && items.every((item) => ASHARE_SYMBOL_RE.test(item.symbol))
+      ? '1d'
+      : '1h'
+  })
 
   // Actions
   async function loadWatchlists() {
     loadingLists.value = true
     try {
+      const hadSelection = !!currentId.value
       watchlists.value = await watchlistApi.list()
       if (!currentId.value && watchlists.value.length > 0) {
         currentId.value = watchlists.value[0].id
+      }
+      if (!hadSelection && currentId.value) {
+        await loadQuotes()
       }
     } finally {
       loadingLists.value = false
