@@ -45,31 +45,32 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { NButton, NCheckbox, NDivider, NEmpty, NIcon, NInput, NPopover, NSpin, useMessage } from 'naive-ui'
 import { StarOutline, Star } from '@vicons/ionicons5'
 import { watchlistApi, type Watchlist } from '@/api'
+import { useWatchlistStore } from '@/stores/watchlist'
 
 const props = defineProps<{ symbol: string }>()
 const message = useMessage()
+const watchlistStore = useWatchlistStore()
 
-const watchlists = ref<Watchlist[]>([])
 const loading = ref(false)
 const toggling = ref<Record<string, boolean>>({})
 const newListName = ref('')
 const creating = ref(false)
-const popoverVisible = ref(false)
 
+const watchlists = computed(() => watchlistStore.watchlists)
 const isStarred = computed(() => watchlists.value.some((wl) => wl.items?.some((item) => item.symbol === props.symbol)))
 
 function isInWatchlist(wl: Watchlist) {
   return wl.items?.some((item) => item.symbol === props.symbol) ?? false
 }
 
-async function load() {
+async function loadWatchlists() {
   loading.value = true
   try {
-    watchlists.value = await watchlistApi.list()
+    await watchlistStore.ensureWatchlistsLoaded()
   } catch (err: any) {
     message.error(err.message || '获取自选列表失败')
   } finally {
@@ -78,8 +79,7 @@ async function load() {
 }
 
 function handleShowChange(show: boolean) {
-  popoverVisible.value = show
-  if (show) load()
+  if (show && !watchlistStore.watchlists.length) void loadWatchlists()
 }
 
 async function toggle(watchlistId: string, checked: boolean) {
@@ -90,12 +90,7 @@ async function toggle(watchlistId: string, checked: boolean) {
     } else {
       await watchlistApi.removeSymbol(watchlistId, props.symbol)
     }
-    // 刷新该 watchlist 的本地状态
-    const idx = watchlists.value.findIndex((w) => w.id === watchlistId)
-    if (idx >= 0) {
-      const updated = await watchlistApi.get(watchlistId)
-      watchlists.value[idx] = updated
-    }
+    await watchlistStore.loadWatchlists()
   } catch (err: any) {
     message.error(err.message || '操作失败')
   } finally {
@@ -108,8 +103,8 @@ async function createAndAdd() {
   if (!name) return
   creating.value = true
   try {
-    const created = await watchlistApi.create({ name, symbols: [props.symbol] })
-    watchlists.value.unshift(created)
+    await watchlistApi.create({ name, symbols: [props.symbol] })
+    await watchlistStore.loadWatchlists()
     newListName.value = ''
     message.success(`已创建列表 "${name}" 并添加标的`)
   } catch (err: any) {
@@ -119,7 +114,9 @@ async function createAndAdd() {
   }
 }
 
-// 外部可能通过 WatchlistsView 修改了数据，popover 关闭时不清空，下次打开会重新加载
+onMounted(() => {
+  void watchlistStore.ensureWatchlistsLoaded()
+})
 </script>
 
 <style scoped>

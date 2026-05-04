@@ -19,6 +19,8 @@ export const useWatchlistStore = defineStore('watchlist', () => {
   const sortKey = ref<string | null>(null)
   const sortOrder = ref<'ascend' | 'descend' | null>(null)
   const columns = ref<string[]>(loadColumns())
+  const loaded = ref(false)
+  let loadPromise: Promise<void> | null = null
 
   // Getters
   const currentWatchlist = computed(() =>
@@ -33,19 +35,32 @@ export const useWatchlistStore = defineStore('watchlist', () => {
 
   // Actions
   async function loadWatchlists() {
+    if (loadPromise) return loadPromise
+
     loadingLists.value = true
-    try {
-      const hadSelection = !!currentId.value
-      watchlists.value = await watchlistApi.list()
-      if (!currentId.value && watchlists.value.length > 0) {
-        currentId.value = watchlists.value[0].id
+    loadPromise = (async () => {
+      try {
+        const hadSelection = !!currentId.value
+        watchlists.value = await watchlistApi.list()
+        if (!currentId.value && watchlists.value.length > 0) {
+          currentId.value = watchlists.value[0].id
+        }
+        if (!hadSelection && currentId.value) {
+          await loadQuotes()
+        }
+        loaded.value = true
+      } finally {
+        loadingLists.value = false
+        loadPromise = null
       }
-      if (!hadSelection && currentId.value) {
-        await loadQuotes()
-      }
-    } finally {
-      loadingLists.value = false
-    }
+    })()
+
+    return loadPromise
+  }
+
+  async function ensureWatchlistsLoaded() {
+    if (loaded.value) return
+    await loadWatchlists()
   }
 
   function setCurrentId(id: string | null) {
@@ -135,5 +150,6 @@ export const useWatchlistStore = defineStore('watchlist', () => {
     reorderWatchlists,
     reorderItems,
     saveColumns,
+    ensureWatchlistsLoaded,
   }
 })
