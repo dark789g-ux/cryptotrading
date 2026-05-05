@@ -1,4 +1,6 @@
-import { PartialType } from '@nestjs/mapped-types';
-import { CreateStrategyConditionDto } from './create-strategy-condition.dto';
+import { StrategyConditionItemDto } from './create-strategy-condition.dto';
 
-export class UpdateStrategyConditionDto extends PartialType(CreateStrategyConditionDto) {}
+export interface UpdateStrategyConditionDto {
+  name?: string;
+  conditions?: StrategyConditionItemDto[];
+}

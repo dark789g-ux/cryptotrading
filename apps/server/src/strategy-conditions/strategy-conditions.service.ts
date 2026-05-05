@@ -26,7 +26,9 @@ export class StrategyConditionsService {
 
   async create(userId: string, dto: CreateStrategyConditionDto): Promise<StrategyConditionEntity> {
     const entity = this.repo.create({
-      ...dto,
+      name: dto.name,
+      targetType: dto.targetType as any,
+      conditions: dto.conditions as any,
       userId,
     });
     return this.repo.save(entity);

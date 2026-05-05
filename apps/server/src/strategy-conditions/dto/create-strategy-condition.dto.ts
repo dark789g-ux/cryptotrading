@@ -1,31 +1,12 @@
-import { IsString, IsArray, IsIn, ValidateNested, IsOptional, IsNumber } from 'class-validator';
-import { Type } from 'class-transformer';
-
-class StrategyConditionItemDto {
-  @IsString()
+export interface StrategyConditionItemDto {
   field: string;
-
-  @IsIn(['gt', 'gte', 'lt', 'lte', 'eq', 'neq', 'cross_above', 'cross_below'])
-  operator: string;
-
-  @IsOptional()
-  @IsNumber()
+  operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq' | 'cross_above' | 'cross_below';
   value?: number;
-
-  @IsOptional()
-  @IsString()
   compareField?: string;
 }
 
-export class CreateStrategyConditionDto {
-  @IsString()
+export interface CreateStrategyConditionDto {
   name: string;
-
-  @IsIn(['crypto', 'a-share'])
-  targetType: string;
-
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => StrategyConditionItemDto)
+  targetType: 'crypto' | 'a-share';
   conditions: StrategyConditionItemDto[];
 }
