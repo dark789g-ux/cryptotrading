@@ -1,5 +1,5 @@
 import { h } from 'vue'
-import { NButton, NIcon, NTooltip, type DataTableColumns } from 'naive-ui'
+import { NButton, NIcon, NTag, NTooltip, type DataTableColumns } from 'naive-ui'
 import { OpenOutline } from '@vicons/ionicons5'
 import SymbolStarButton from '../../common/SymbolStarButton.vue'
 import type { AShareRow } from '@/api'
@@ -68,6 +68,19 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
     { title: 'PE(TTM)', key: 'peTtm', width: 110, sorter: true, defaultVisible: true, render: (row) => formatNumber(row.peTtm, 2) },
     { title: 'PB', key: 'pb', width: 90, sorter: true, defaultVisible: true, render: (row) => formatNumber(row.pb, 2) },
     { title: '交易日', key: 'tradeDate', width: 110, sorter: true, defaultVisible: true, render: (row) => formatTradeDate(row.tradeDate) },
+    {
+      title: '标签',
+      key: 'tags',
+      width: 180,
+      defaultVisible: true,
+      render: (row) => {
+        const tags = row.tags as { id: string; name: string }[] | undefined
+        if (!tags || tags.length === 0) return h('span', { style: 'color: var(--color-text-secondary)' }, '—')
+        return h('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' },
+          tags.map((tag) => h(NTag, { size: 'small', bordered: false, round: true }, { default: () => tag.name })),
+        )
+      },
+    },
     {
       title: '操作',
       key: 'actions',
