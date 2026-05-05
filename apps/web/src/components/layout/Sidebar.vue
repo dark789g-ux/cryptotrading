@@ -64,7 +64,7 @@ import { NMenu, NButton, NIcon, NTooltip } from 'naive-ui'
 import {
   ChevronBack, ChevronForward,
   TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline, CalculatorOutline,
-  LogOutOutline, PersonCircleOutline,
+  LogOutOutline, PersonCircleOutline, AnalyticsOutline,
 } from '@vicons/ionicons5'
 import { useSidebarCollapsed } from '../../composables/hooks/useSidebarCollapsed'
 import { useAuth } from '../../composables/hooks/useAuth'
@@ -85,6 +85,7 @@ const menuOptions = computed(() => [
   { label: '标的筛选', key: 'symbols', icon: renderIcon(ListOutline) },
   ...(auth.isAdmin.value ? [{ label: '数据同步', key: 'sync', icon: renderIcon(SyncOutline) }] : []),
   { label: '自选列表', key: 'watchlists', icon: renderIcon(BookmarkOutline) },
+  { label: '策略条件', key: 'strategy-conditions', icon: renderIcon(AnalyticsOutline) },
   { label: '工具', key: 'tools', icon: renderIcon(CalculatorOutline) },
   { label: '系统设置', key: 'settings', icon: renderIcon(SettingsOutline) },
 ])

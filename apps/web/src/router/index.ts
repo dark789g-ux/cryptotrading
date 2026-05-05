@@ -57,6 +57,12 @@ const routes: any[] = [
     component: () => import('../views/SettingsView.vue'),
     meta: { title: '设置' },
   },
+  {
+    path: '/strategy-conditions',
+    name: 'strategy-conditions',
+    component: () => import('../views/StrategyConditionsView.vue'),
+    meta: { title: '策略条件' },
+  },
 ]
 
 const router = createRouter({
