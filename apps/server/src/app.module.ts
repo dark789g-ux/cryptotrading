@@ -38,6 +38,8 @@ import { UserPreferenceEntity } from './entities/user-preference.entity';
 import { UserEntity } from './users/entities/user.entity';
 import { AuthSessionEntity } from './auth/entities/auth-session.entity';
 import { UserInvitationEntity } from './users/entities/user-invitation.entity';
+import { StrategyConditionEntity } from './entities/strategy-condition.entity';
+import { StrategyConditionsModule } from './strategy-conditions/strategy-conditions.module';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -77,6 +79,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           UserEntity,
           AuthSessionEntity,
           UserInvitationEntity,
+          StrategyConditionEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],
@@ -95,6 +98,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     ASharesModule,
     AuthModule,
     UsersModule,
+    StrategyConditionsModule,
   ],
 })
 export class AppModule implements OnModuleInit {
