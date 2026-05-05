@@ -12,6 +12,7 @@ export interface QuerySymbolsDto {
   q?: string;
   conditions?: QuerySymbolCondition[];
   fields?: string[];
+  watchlistIds?: string[];
 }
 
 type QuerySymbolCondition =
@@ -77,9 +78,9 @@ export class SymbolsService {
     const {
       interval, page, page_size, sort, q = '',
       conditions = [],
+      watchlistIds = [],
     } = dto;
 
-    // 前端 camelCase 字段名 → DB 列名
     const SORT_COL_MAP: Record<string, string> = {
       symbol: 'k.symbol',
       close: 'k.close',
@@ -108,18 +109,31 @@ export class SymbolsService {
         k.kdj_j AS "kdjJ",
         k.risk_reward_ratio AS "riskRewardRatio",
         k.stop_loss_pct AS "stopLossPct",
-        k.open_time AS "openTime"
+        k.open_time AS "openTime",
+        COALESCE(
+          (SELECT jsonb_agg(DISTINCT jsonb_build_object('id', w.id::text, 'name', w.name))
+           FROM watchlist_items wi
+           JOIN watchlists w ON w.id = wi.watchlist_id
+           WHERE wi.symbol = k.symbol),
+          '[]'::jsonb
+        ) AS tags
       FROM klines k
       JOIN latest ON k.symbol = latest.symbol AND k.open_time = latest.max_time AND k.interval = $1
       JOIN symbols s ON s.symbol = k.symbol
       WHERE s.is_excluded = false`;
 
-    const params: Array<string | number> = [interval];
+    const params: Array<string | number | string[]> = [interval];
     let pi = 2;
 
     if (q) {
       sql += ` AND k.symbol ILIKE $${pi}`;
       params.push(`%${q}%`);
+      pi++;
+    }
+
+    if (watchlistIds.length > 0) {
+      sql += ` AND k.symbol IN (SELECT wi2.symbol FROM watchlist_items wi2 WHERE wi2.watchlist_id = ANY($${pi}::text[]))`;
+      params.push(watchlistIds);
       pi++;
     }
 
@@ -138,16 +152,13 @@ export class SymbolsService {
       }
     }
 
-    // 计总数
     const countSql = `SELECT COUNT(*) FROM (${sql}) sub`;
     const countResult = await this.dataSource.query(countSql, params);
     const total = parseInt(countResult[0].count, 10);
 
-    // 排序
     const sortCol = SORT_COL_MAP[sort.field] ?? 'k.symbol';
     sql += ` ORDER BY ${sortCol} ${sort.asc ? 'ASC' : 'DESC'} NULLS LAST`;
 
-    // 分页
     const offset = (page - 1) * page_size;
     sql += ` LIMIT $${pi} OFFSET $${pi + 1}`;
     params.push(page_size, offset);
