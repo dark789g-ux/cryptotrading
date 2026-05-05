@@ -7,6 +7,7 @@ import {
   type AShareRow,
   type AShareSummary,
 } from '@/api'
+import { useWatchlistTagFilter } from '@/composables/symbols/useWatchlistTagFilter'
 import { formatTradeDate } from './aSharesFormatters'
 import type { ASharesFilterState, Condition, SelectOption, SummaryItem } from './types'
 
@@ -39,6 +40,14 @@ export function useASharesQuery(message: {
   })
   const marketOptions = ref<SelectOption[]>([])
   const industryOptions = ref<SelectOption[]>([])
+
+  const {
+    selectedWatchlistIds,
+    watchlistOptions,
+    watchlistIds,
+    resetWatchlistFilter,
+    ensureWatchlistsLoaded,
+  } = useWatchlistTagFilter()
 
   const paginationState = computed(() => ({
     page: page.value,
@@ -96,6 +105,7 @@ export function useASharesQuery(message: {
         market: selectedMarket.value,
         industry: selectedIndustry.value,
         priceMode: priceMode.value,
+        watchlistIds: watchlistIds.value,
         sort: { field: sortKey.value ?? 'tsCode', order: sortOrder.value },
         conditions: buildConditions(),
       })
@@ -139,7 +149,7 @@ export function useASharesQuery(message: {
   }
 
   async function reload() {
-    await Promise.all([loadSummary(), loadFilterOptions(), loadFilterPresets(), loadData()])
+    await Promise.all([ensureWatchlistsLoaded(), loadSummary(), loadFilterOptions(), loadFilterPresets(), loadData()])
   }
 
   function applyFilters() {
@@ -155,6 +165,7 @@ export function useASharesQuery(message: {
     turnoverRateMin.value = null
     advancedConditions.value = []
     priceMode.value = 'qfq'
+    resetWatchlistFilter()
     page.value = 1
     void loadData()
   }
@@ -237,6 +248,8 @@ export function useASharesQuery(message: {
     searchQuery,
     selectedMarket,
     selectedIndustry,
+    selectedWatchlistIds,
+    watchlistOptions,
     priceMode,
     pctChangeMin,
     turnoverRateMin,

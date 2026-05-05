@@ -28,6 +28,16 @@
         class="filter-select"
         @update:value="emit('update:selectedIndustry', $event)"
       />
+      <n-select
+        :value="selectedWatchlistIds"
+        :options="watchlistOptions"
+        multiple
+        filterable
+        placeholder="标签"
+        clearable
+        class="filter-select"
+        @update:value="emit('update:selectedWatchlistIds', $event)"
+      />
       <n-input-number
         :value="pctChangeMin"
         placeholder="涨跌幅 >="
@@ -107,12 +117,14 @@ defineProps<{
   searchQuery: string
   selectedMarket: string | null
   selectedIndustry: string | null
+  selectedWatchlistIds: string[]
   priceMode: 'qfq' | 'raw'
   pctChangeMin: number | null
   turnoverRateMin: number | null
   advancedConditions: Condition[]
   marketOptions: SelectOption[]
   industryOptions: SelectOption[]
+  watchlistOptions: SelectOption[]
   filterPresets: AShareFilterPreset[]
   filterPresetsLoading: boolean
 }>()
@@ -121,6 +133,7 @@ const emit = defineEmits<{
   'update:searchQuery': [value: string]
   'update:selectedMarket': [value: string | null]
   'update:selectedIndustry': [value: string | null]
+  'update:selectedWatchlistIds': [value: string[]]
   'update:priceMode': [value: 'qfq' | 'raw']
   'update:pctChangeMin': [value: number | null]
   'update:turnoverRateMin': [value: number | null]

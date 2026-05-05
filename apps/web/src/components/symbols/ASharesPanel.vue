@@ -20,12 +20,14 @@
       v-model:search-query="searchQuery"
       v-model:selected-market="selectedMarket"
       v-model:selected-industry="selectedIndustry"
+      v-model:selected-watchlist-ids="selectedWatchlistIds"
       v-model:price-mode="priceMode"
       v-model:pct-change-min="pctChangeMin"
       v-model:turnover-rate-min="turnoverRateMin"
       v-model:advanced-conditions="advancedConditions"
       :market-options="marketOptions"
       :industry-options="industryOptions"
+      :watchlist-options="watchlistOptions"
       :filter-presets="filterPresets"
       :filter-presets-loading="filterPresetsLoading"
       @apply="applyFilters"
@@ -93,6 +95,8 @@ const {
   searchQuery,
   selectedMarket,
   selectedIndustry,
+  selectedWatchlistIds,
+  watchlistOptions,
   priceMode,
   pctChangeMin,
   turnoverRateMin,
