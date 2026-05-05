@@ -16,6 +16,11 @@
       </n-space>
     </div>
 
+    <strategy-condition-picker
+      target-type="a-share"
+      @run="handleStrategyRun"
+    />
+
     <a-shares-filters
       v-model:search-query="searchQuery"
       v-model:selected-market="selectedMarket"
@@ -75,8 +80,8 @@
 <script setup lang="ts">
 defineOptions({ name: 'ASharesPanel' })
 
-import { computed, onMounted, ref } from 'vue'
-import { NButton, NCard, NDataTable, NIcon, NSpace, useMessage } from 'naive-ui'
+import { computed, h, onMounted, ref } from 'vue'
+import { NButton, NCard, NDataTable, NIcon, NSpace, NTag, useMessage } from 'naive-ui'
 import { RefreshOutline, SettingsOutline } from '@vicons/ionicons5'
 import type { AShareRow } from '@/api'
 import AShareDetailDrawer from './a-shares/AShareDetailDrawer.vue'
@@ -85,6 +90,8 @@ import { createASharesColumnDefs } from './a-shares/aSharesColumns'
 import { useASharesQuery } from './a-shares/useASharesQuery'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
+import StrategyConditionPicker from './common/StrategyConditionPicker.vue'
+import { useStrategyConditionsStore } from '@/stores/strategyConditions'
 
 const message = useMessage()
 const {
@@ -128,9 +135,37 @@ function handleViewDetail(row: AShareRow) {
   showDetailDrawer.value = true
 }
 
-const columnDefs = computed(() =>
-  createASharesColumnDefs({ onViewDetail: handleViewDetail, priceMode: priceMode.value }),
-)
+const strategyStore = useStrategyConditionsStore()
+const strategyRunResults = ref<Map<string, any>>(new Map())
+
+function handleStrategyRun(results: Map<string, any>) {
+  strategyRunResults.value = results
+}
+
+const columnDefs = computed(() => {
+  const baseDefs = createASharesColumnDefs({ onViewDetail: handleViewDetail, priceMode: priceMode.value })
+  // 添加买入信号列
+  baseDefs.push({
+    title: '买入信号',
+    key: 'buySignal',
+    width: 200,
+    defaultVisible: true,
+    render: (row: AShareRow) => {
+      const hits: string[] = []
+      strategyRunResults.value.forEach((result, conditionId) => {
+        const condition = strategyStore.conditions.find(c => c.id === conditionId)
+        if (condition && result.hits.some((h: any) => h.tsCode === row.tsCode)) {
+          hits.push(condition.name)
+        }
+      })
+      if (hits.length === 0) return '-'
+      return h(NSpace, { size: 4 }, {
+        default: () => hits.map(name => h(NTag, { type: 'success', size: 'small' }, { default: () => name })),
+      })
+    },
+  })
+  return baseDefs
+})
 
 const {
   loading: columnPrefsLoading,
