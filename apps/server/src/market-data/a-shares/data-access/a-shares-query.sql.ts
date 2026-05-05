@@ -158,7 +158,7 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
   }
 
   if (dto.watchlistIds && dto.watchlistIds.length > 0) {
-    sql += ` AND s.ts_code IN (SELECT wi2.symbol FROM watchlist_items wi2 WHERE wi2.watchlist_id = ANY($${paramIndex}::text[]))`;
+    sql += ` AND s.ts_code IN (SELECT wi2.symbol FROM watchlist_items wi2 WHERE wi2.watchlist_id = ANY($${paramIndex}::uuid[]))`;
     params.push(dto.watchlistIds);
     paramIndex++;
   }

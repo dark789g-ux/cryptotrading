@@ -7,16 +7,13 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   Request,
 } from '@nestjs/common';
 import { StrategyConditionsService } from './strategy-conditions.service';
 import { CreateStrategyConditionDto } from './dto/create-strategy-condition.dto';
 import { UpdateStrategyConditionDto } from './dto/update-strategy-condition.dto';
-import { AuthGuard } from '../auth/auth.guard';
 
 @Controller('strategy-conditions')
-@UseGuards(AuthGuard)
 export class StrategyConditionsController {
   constructor(private readonly service: StrategyConditionsService) {}
 

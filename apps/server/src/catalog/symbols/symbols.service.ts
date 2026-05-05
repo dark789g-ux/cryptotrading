@@ -132,7 +132,7 @@ export class SymbolsService {
     }
 
     if (watchlistIds.length > 0) {
-      sql += ` AND k.symbol IN (SELECT wi2.symbol FROM watchlist_items wi2 WHERE wi2.watchlist_id = ANY($${pi}::text[]))`;
+      sql += ` AND k.symbol IN (SELECT wi2.symbol FROM watchlist_items wi2 WHERE wi2.watchlist_id = ANY($${pi}::uuid[]))`;
       params.push(watchlistIds);
       pi++;
     }

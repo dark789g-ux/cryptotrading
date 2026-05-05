@@ -1,10 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import {
-  strategyConditionsApi,
-  StrategyCondition,
-  RunResult,
-} from '../api/modules/strategyConditions';
+import { strategyConditionsApi } from '../api/modules/strategyConditions';
+import type { StrategyCondition, RunResult } from '../api/modules/strategyConditions';
 
 export const useStrategyConditionsStore = defineStore('strategyConditions', () => {
   const conditions = ref<StrategyCondition[]>([]);
@@ -33,7 +30,7 @@ export const useStrategyConditionsStore = defineStore('strategyConditions', () =
   async function fetchConditions(targetType?: string) {
     loading.value = true;
     try {
-      const { data } = await strategyConditionsApi.findAll(targetType);
+      const data = await strategyConditionsApi.findAll(targetType);
       conditions.value = data;
     } finally {
       loading.value = false;
@@ -45,13 +42,13 @@ export const useStrategyConditionsStore = defineStore('strategyConditions', () =
     targetType: 'crypto' | 'a-share';
     conditions: any[];
   }) {
-    const { data } = await strategyConditionsApi.create(dto);
+    const data = await strategyConditionsApi.create(dto);
     conditions.value.unshift(data);
     return data;
   }
 
   async function updateCondition(id: string, dto: { name?: string; conditions?: any[] }) {
-    const { data } = await strategyConditionsApi.update(id, dto);
+    const data = await strategyConditionsApi.update(id, dto);
     const index = conditions.value.findIndex(c => c.id === id);
     if (index !== -1) {
       conditions.value[index] = data;
@@ -68,7 +65,7 @@ export const useStrategyConditionsStore = defineStore('strategyConditions', () =
   async function runCondition(id: string) {
     runningId.value = id;
     try {
-      const { data } = await strategyConditionsApi.run(id);
+      const data = await strategyConditionsApi.run(id);
       runResults.value.set(id, data);
       return data;
     } finally {

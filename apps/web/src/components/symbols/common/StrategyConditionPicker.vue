@@ -24,8 +24,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { NSelect, NButton, NSpace } from 'naive-ui';
+import { NSelect, NButton, NSpace, useMessage } from 'naive-ui';
 import { useStrategyConditionsStore } from '../../../stores/strategyConditions';
+
+const message = useMessage()
 
 interface Props {
   targetType: 'crypto' | 'a-share';
@@ -54,9 +56,9 @@ async function handleRun() {
       await store.runCondition(id);
     }
     emit('run', store.runResults);
-    window.$message?.success('策略运行完成');
+    message.success('策略运行完成');
   } catch (error) {
-    window.$message?.error('策略运行失败');
+    message.error('策略运行失败');
   } finally {
     isRunning.value = false;
   }

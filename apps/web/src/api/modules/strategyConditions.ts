@@ -1,4 +1,4 @@
-import { http } from '../http';
+import { API_BASE, post, put, del, request } from '../client'
 
 export interface StrategyConditionItem {
   field: string;
@@ -40,28 +40,29 @@ export interface UpdateStrategyConditionDto {
 
 export const strategyConditionsApi = {
   create(data: CreateStrategyConditionDto) {
-    return http.post<StrategyCondition>('/strategy-conditions', data);
+    return post<StrategyCondition>(`${API_BASE}/strategy-conditions`, data);
   },
 
   findAll(targetType?: string) {
-    return http.get<StrategyCondition[]>('/strategy-conditions', {
-      params: { targetType },
-    });
+    const url = targetType
+      ? `${API_BASE}/strategy-conditions?targetType=${targetType}`
+      : `${API_BASE}/strategy-conditions`;
+    return request<StrategyCondition[]>(url);
   },
 
   findOne(id: string) {
-    return http.get<StrategyCondition>(`/strategy-conditions/${id}`);
+    return request<StrategyCondition>(`${API_BASE}/strategy-conditions/${id}`);
   },
 
   update(id: string, data: UpdateStrategyConditionDto) {
-    return http.put<StrategyCondition>(`/strategy-conditions/${id}`, data);
+    return put<StrategyCondition>(`${API_BASE}/strategy-conditions/${id}`, data);
   },
 
   remove(id: string) {
-    return http.delete(`/strategy-conditions/${id}`);
+    return del(`${API_BASE}/strategy-conditions/${id}`);
   },
 
   run(id: string) {
-    return http.post<RunResult>(`/strategy-conditions/${id}/run`);
+    return post<RunResult>(`${API_BASE}/strategy-conditions/${id}/run`);
   },
 };
