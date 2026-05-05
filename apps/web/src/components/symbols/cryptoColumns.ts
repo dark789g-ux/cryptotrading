@@ -1,5 +1,5 @@
 import { h } from 'vue'
-import { NButton, NIcon, NTooltip, type DataTableColumns } from 'naive-ui'
+import { NButton, NIcon, NTag, NTooltip, type DataTableColumns } from 'naive-ui'
 import { TrendingUpOutline } from '@vicons/ionicons5'
 import SymbolStarButton from '../common/SymbolStarButton.vue'
 import type { SymbolRow } from '@/api'
@@ -59,6 +59,18 @@ export function createCryptoColumnDefs(options: CryptoColumnsOptions): SymbolCol
       width: 110,
       sorter: true,
       render: (row) => (row.openTime ? new Date(String(row.openTime)).toISOString().slice(0, 10) : '-'),
+    },
+    {
+      title: 'Tags',
+      key: 'tags',
+      width: 180,
+      render: (row) => {
+        const tags = row.tags as { id: string; name: string }[] | undefined
+        if (!tags || tags.length === 0) return h('span', { style: 'color: var(--color-text-secondary)' }, '—')
+        return h('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' },
+          tags.map((tag) => h(NTag, { size: 'small', bordered: false, round: true }, { default: () => tag.name })),
+        )
+      },
     },
     {
       title: 'Action',
