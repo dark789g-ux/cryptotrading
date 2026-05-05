@@ -73,12 +73,12 @@ const QFQ_SORT_COL_MAP: Record<string, string> = {
 
 export interface ASharesQuerySql {
   sql: string;
-  params: Array<string | number>;
+  params: Array<string | number | string[]>;
   nextParamIndex: number;
 }
 
 export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
-  const params: Array<string | number> = [];
+  const params: Array<string | number | string[]> = [];
   let paramIndex = 1;
   const priceMode = dto.priceMode === 'raw' ? 'raw' : 'qfq';
   const priceCols = priceMode === 'raw'
@@ -107,7 +107,14 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
         m.pb,
         m.total_mv AS "totalMv",
         m.circ_mv AS "circMv",
-        q.trade_date AS "tradeDate"
+        q.trade_date AS "tradeDate",
+        COALESCE(
+          (SELECT jsonb_agg(DISTINCT jsonb_build_object('id', w.id::text, 'name', w.name))
+           FROM watchlist_items wi
+           JOIN watchlists w ON w.id = wi.watchlist_id
+           WHERE wi.symbol = s.ts_code),
+          '[]'::jsonb
+        ) AS tags
       FROM a_share_symbols s
       LEFT JOIN latest l ON l.ts_code = s.ts_code
       LEFT JOIN a_share_daily_quotes q ON q.ts_code = s.ts_code AND q.trade_date = l.trade_date
@@ -148,6 +155,12 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
       params.push(condition.value);
       paramIndex++;
     }
+  }
+
+  if (dto.watchlistIds && dto.watchlistIds.length > 0) {
+    sql += ` AND s.ts_code IN (SELECT wi2.symbol FROM watchlist_items wi2 WHERE wi2.watchlist_id = ANY($${paramIndex}::text[]))`;
+    params.push(dto.watchlistIds);
+    paramIndex++;
   }
 
   return { sql, params, nextParamIndex: paramIndex };

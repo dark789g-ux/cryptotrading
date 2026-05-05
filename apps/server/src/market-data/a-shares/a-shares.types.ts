@@ -29,6 +29,7 @@ export interface QueryASharesDto {
   priceMode?: 'qfq' | 'raw';
   sort?: { field?: string; order?: SortOrder; asc?: boolean };
   conditions?: QueryCondition[];
+  watchlistIds?: string[];
 }
 
 export interface ASharesFilterPresetFilters {
