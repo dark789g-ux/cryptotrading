@@ -41,6 +41,8 @@ crtptotrading:加密量化策略
 ## DO
 - 单文件不超过 500 行，模块化拆分
 - Modal 组件优先复用 `@/components/common/AppModal.vue`，避免直接使用 `n-modal`
+- Modal 按钮控制权单一归属：使用 AppModal 时，操作按钮统一放在 `#actions` slot，子组件内部禁止自带"保存/取消"按钮，避免双重按钮问题
+- **条件/表达式构建器的设计原则**：凡是涉及"比较"的 UI（条件筛选、策略规则、阈值配置等），比较目标必须同时支持**字段引用**（指标/属性）和**常量值**（用户直接输入数值）两种类型，由用户自行选择，禁止硬编码为单一类型
 
 ## 时间规范
 - DB 时间列一律 `timestamptz`，禁 `timestamp`（无 TZ 列遇 JS Date 会按 Node 本地 TZ 落库，与 UTC 错位）。

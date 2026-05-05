@@ -27,7 +27,6 @@
     >
       <StrategyConditionBuilder
         ref="builderRef"
-        embedded
         :edit-id="editingId"
         :initial-data="editingData"
         @save="handleSave"

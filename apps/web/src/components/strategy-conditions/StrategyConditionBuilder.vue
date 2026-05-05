@@ -29,7 +29,15 @@
             placeholder="选择操作符"
             style="width: 140px"
           />
-          <template v-if="isCompareToField(condition.operator)">
+          <n-radio-group
+            :value="condition.compareMode"
+            size="small"
+            @update:value="handleCompareModeChange(condition, $event)"
+          >
+            <n-radio-button value="field">指标</n-radio-button>
+            <n-radio-button value="value">数值</n-radio-button>
+          </n-radio-group>
+          <template v-if="condition.compareMode === 'field'">
             <n-select
               v-model:value="condition.compareField"
               :options="fieldOptions"
@@ -56,10 +64,6 @@
       </n-button>
     </n-form>
 
-    <div v-if="!embedded" class="actions">
-      <n-button @click="$emit('cancel')">取消</n-button>
-      <n-button type="primary" :loading="saving" @click="handleSave">保存</n-button>
-    </div>
   </div>
 </template>
 
@@ -73,7 +77,6 @@ const message = useMessage()
 
 interface Props {
   editId?: string;
-  embedded?: boolean;
   initialData?: {
     name: string;
     targetType: 'crypto' | 'a-share';
@@ -81,15 +84,10 @@ interface Props {
   };
 }
 
-const props = withDefaults(defineProps<Props>(), {
-  embedded: false,
-});
+const props = defineProps<Props>();
 const emit = defineEmits<{
   save: [data: { name: string; targetType: string; conditions: StrategyConditionItem[] }];
-  cancel: [];
 }>();
-
-const saving = ref(false);
 
 const form = ref({
   name: '',
@@ -102,7 +100,10 @@ watch(() => props.initialData, (data) => {
     form.value = {
       name: data.name,
       targetType: data.targetType,
-      conditions: [...data.conditions],
+      conditions: data.conditions.map(c => ({
+        ...c,
+        compareMode: c.compareMode ?? (c.compareField ? 'field' : 'value'),
+      })),
     };
   }
 }, { immediate: true });
@@ -183,17 +184,23 @@ const operatorOptions = [
   { label: '下穿', value: 'cross_below' },
 ];
 
-function isCompareToField(operator: string) {
-  return ['cross_above', 'cross_below'].includes(operator) || true; // 所有操作符都支持字段比较
-}
-
 function addCondition() {
   form.value.conditions.push({
     field: '',
     operator: 'lt',
     value: undefined,
     compareField: undefined,
+    compareMode: 'field',
   });
+}
+
+function handleCompareModeChange(condition: StrategyConditionItem, mode: 'field' | 'value') {
+  condition.compareMode = mode;
+  if (mode === 'field') {
+    condition.value = undefined;
+  } else {
+    condition.compareField = undefined;
+  }
 }
 
 function removeCondition(index: number) {
@@ -231,12 +238,5 @@ defineExpose({
 
 .add-btn {
   margin-top: 12px;
-}
-
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 24px;
 }
 </style>

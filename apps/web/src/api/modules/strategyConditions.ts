@@ -5,6 +5,7 @@ export interface StrategyConditionItem {
   operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq' | 'cross_above' | 'cross_below';
   value?: number;
   compareField?: string;
+  compareMode?: 'field' | 'value';
 }
 
 export interface StrategyCondition {
