@@ -43,12 +43,14 @@
 import { ref, computed, h, onMounted } from 'vue';
 import { NCard, NButton, NIcon, NDataTable, NTag, NSpace, NPopconfirm, useMessage } from 'naive-ui';
 import { Add as AddIcon, Construct as ConstructOutline, Create as EditIcon, Trash as TrashIcon } from '@vicons/ionicons5';
+import { useRouter } from 'vue-router';
 import { useStrategyConditionsStore } from '../stores/strategyConditions';
 import type { StrategyCondition } from '../api/modules/strategyConditions';
 import AppModal from '../components/common/AppModal.vue';
 import StrategyConditionBuilder from '../components/strategy-conditions/StrategyConditionBuilder.vue';
 
 const message = useMessage()
+const router = useRouter()
 
 const store = useStrategyConditionsStore();
 const showBuilder = ref(false);
@@ -66,6 +68,10 @@ const editingData = computed(() => {
       }
     : undefined;
 });
+
+function handleViewResults(row: StrategyCondition) {
+  router.push({ path: '/symbols', query: { strategyId: row.id } });
+}
 
 const columns = [
   {
@@ -89,6 +95,27 @@ const columns = [
     },
   },
   {
+    title: '状态',
+    key: 'status',
+    width: 100,
+    render(row: StrategyCondition) {
+      const status = store.runStatuses.get(row.id);
+      if (!status || status.freshness === 'never') {
+        return h(NTag, { type: 'default', size: 'small' }, { default: () => '未运行' });
+      }
+      if (status.freshness === 'running') {
+        return h(NTag, { type: 'info', size: 'small' }, { default: () => '运行中' });
+      }
+      if (status.freshness === 'failed') {
+        return h(NTag, { type: 'error', size: 'small' }, { default: () => '失败' });
+      }
+      if (status.freshness === 'fresh') {
+        return h(NTag, { type: 'success', size: 'small' }, { default: () => '最新' });
+      }
+      return h(NTag, { type: 'warning', size: 'small' }, { default: () => '过期' });
+    },
+  },
+  {
     title: '创建时间',
     key: 'createdAt',
     render(row: StrategyCondition) {
@@ -99,30 +126,61 @@ const columns = [
     title: '操作',
     key: 'actions',
     render(row: StrategyCondition) {
-      return h(NSpace, {}, {
+      const isRunning = store.runningId === row.id;
+      const progress = store.runProgress.get(row.id);
+      const status = store.runStatuses.get(row.id);
+
+      return h(NSpace, { vertical: true, size: 2 }, {
         default: () => [
-          h(NButton, {
-            size: 'small',
-            onClick: () => {
-              editingId.value = row.id;
-              showBuilder.value = true;
-            },
-          }, {
-            icon: () => h(NIcon, null, { default: () => h(EditIcon) }),
-            default: () => '编辑',
+          h(NSpace, { size: 4 }, {
+            default: () => [
+              h(NButton, {
+                size: 'small',
+                type: 'primary',
+                loading: isRunning,
+                disabled: isRunning,
+                onClick: () => store.startRun(row.id),
+              }, {
+                default: () => isRunning ? '运行中' : '运行',
+              }),
+              h(NButton, {
+                size: 'small',
+                onClick: () => {
+                  editingId.value = row.id;
+                  showBuilder.value = true;
+                },
+              }, {
+                icon: () => h(NIcon, null, { default: () => h(EditIcon) }),
+                default: () => '编辑',
+              }),
+              h(NPopconfirm, {
+                onPositiveClick: () => store.deleteCondition(row.id),
+              }, {
+                trigger: () => h(NButton, {
+                  size: 'small',
+                  type: 'error',
+                }, {
+                  icon: () => h(NIcon, null, { default: () => h(TrashIcon) }),
+                  default: () => '删除',
+                }),
+                default: () => '确定删除该条件组？',
+              }),
+            ],
           }),
-          h(NPopconfirm, {
-            onPositiveClick: () => store.deleteCondition(row.id),
-          }, {
-            trigger: () => h(NButton, {
-              size: 'small',
-              type: 'error',
-            }, {
-              icon: () => h(NIcon, null, { default: () => h(TrashIcon) }),
-              default: () => '删除',
-            }),
-            default: () => '确定删除该条件组？',
-          }),
+          isRunning && progress
+            ? h('div', { style: { fontSize: '12px', color: '#666' } },
+                `扫描 ${progress.progressScanned}/${progress.progressTotal}`)
+            : null,
+          !isRunning && status && (status.freshness === 'fresh' || status.freshness === 'stale') && status.totalHits > 0
+            ? h(NButton, {
+                size: 'tiny',
+                text: true,
+                type: 'info',
+                onClick: () => handleViewResults(row),
+              }, {
+                default: () => `查看 ${status.totalHits} 个命中结果`,
+              })
+            : null,
         ],
       });
     },
@@ -150,6 +208,7 @@ function handleBuilderSave() {
 
 onMounted(() => {
   store.fetchConditions();
+  store.fetchLastRunStatus();
 });
 </script>
 

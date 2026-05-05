@@ -30,6 +30,7 @@ export interface QueryASharesDto {
   sort?: { field?: string; order?: SortOrder; asc?: boolean };
   conditions?: QueryCondition[];
   watchlistIds?: string[];
+  strategyHitIds?: string[];
 }
 
 export interface ASharesFilterPresetFilters {

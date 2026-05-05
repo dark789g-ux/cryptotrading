@@ -62,6 +62,7 @@ export interface SymbolQueryBody {
   sort?: { field?: string | null; order?: 'ascend' | 'descend' | null; asc?: boolean }
   conditions?: SymbolConditionPayload[]
   watchlistIds?: string[]
+  strategyHitIds?: string[]
 }
 
 export interface SymbolRow extends Record<string, unknown> {

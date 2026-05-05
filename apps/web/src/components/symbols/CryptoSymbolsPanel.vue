@@ -1,7 +1,7 @@
 <template>
   <div class="crypto-symbols-panel">
     <div class="page-header workspace-page-header">
-      <h2 class="panel-title">鍔犲瘑鏍囩殑</h2>
+      <h2 class="panel-title">加密货币</h2>
       <n-space>
         <n-select
           v-model:value="selectedInterval"
@@ -20,11 +20,6 @@
       </n-space>
     </div>
 
-    <strategy-condition-picker
-      target-type="crypto"
-      @run="handleStrategyRun"
-    />
-
     <n-card class="filter-card" :bordered="false">
       <div class="filter-row">
         <n-input
@@ -42,6 +37,16 @@
           multiple
           filterable
           placeholder="标签"
+          clearable
+          style="width: 200px"
+          @update:value="applyFilters"
+        />
+        <n-select
+          v-model:value="selectedStrategyIds"
+          :options="strategyFilterOptions"
+          multiple
+          filterable
+          placeholder="策略命中"
           clearable
           style="width: 200px"
           @update:value="applyFilters"
@@ -83,7 +88,7 @@
       :width="1000"
       class="glass-drawer"
     >
-      <n-drawer-content :title="`${selectedSymbol} 路 ${selectedInterval.toUpperCase()}`" closable>
+      <n-drawer-content :title="`${selectedSymbol} · ${selectedInterval.toUpperCase()}`" closable>
         <kline-chart v-if="klineData.length" :data="klineData" height="700px" :slider-start="70" />
         <n-empty v-else description="No kline data" style="padding: 40px 0" />
       </n-drawer-content>
@@ -129,8 +134,8 @@ import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { createCryptoColumnDefs } from './cryptoColumns'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
 import { useWatchlistTagFilter } from '@/composables/symbols/useWatchlistTagFilter'
-import StrategyConditionPicker from './common/StrategyConditionPicker.vue'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
+import { strategyConditionsApi } from '@/api/modules/strategyConditions'
 
 const message = useMessage()
 
@@ -155,6 +160,41 @@ const sortKey = ref<string | null>(null)
 const sortOrder = ref<'ascend' | 'descend' | null>(null)
 const page = ref(1)
 const pageSize = ref(20)
+const selectedStrategyIds = ref<string[]>([])
+const hitLookup = ref<Map<string, Set<string>>>(new Map())
+
+const strategyStore = useStrategyConditionsStore()
+
+const strategyFilterOptions = computed(() => {
+  return strategyStore.conditions
+    .filter(c => c.targetType === 'crypto')
+    .filter(c => {
+      const status = strategyStore.runStatuses.get(c.id)
+      return status && (status.freshness === 'fresh' || status.freshness === 'stale')
+    })
+    .map(c => ({
+      label: `${c.name} (${strategyStore.runStatuses.get(c.id)?.totalHits ?? 0} 命中)`,
+      value: c.id,
+    }))
+})
+
+async function loadHitLookup() {
+  const newLookup = new Map<string, Set<string>>()
+  for (const condition of strategyStore.conditions) {
+    if (condition.targetType !== 'crypto') continue
+    const status = strategyStore.runStatuses.get(condition.id)
+    if (!status || (status.freshness !== 'fresh' && status.freshness !== 'stale')) continue
+    try {
+      const result = await strategyConditionsApi.getRunResult(condition.id)
+      for (const hit of result.hits) {
+        const names = newLookup.get(hit.tsCode) ?? new Set<string>()
+        names.add(condition.name)
+        newLookup.set(hit.tsCode, names)
+      }
+    } catch { /* ignore */ }
+  }
+  hitLookup.value = newLookup
+}
 
 const baseColumnDefs = createCryptoColumnDefs({ onViewChart: openChart })
 const columnDefs = [
@@ -165,16 +205,11 @@ const columnDefs = [
     width: 200,
     defaultVisible: true,
     render: (row: SymbolRow) => {
-      const hits: string[] = []
-      strategyRunResults.value.forEach((result, conditionId) => {
-        const condition = strategyStore.conditions.find(c => c.id === conditionId)
-        if (condition && result.hits.some((h: any) => h.tsCode === row.symbol)) {
-          hits.push(condition.name)
-        }
-      })
-      if (hits.length === 0) return '-'
+      const matchedNames = hitLookup.value.get(row.symbol)
+      if (!matchedNames || matchedNames.size === 0) return '-'
       return h(NSpace, { size: 4 }, {
-        default: () => hits.map(name => h(NTag, { type: 'success', size: 'small' }, { default: () => name })),
+        default: () => [...matchedNames].map(name =>
+          h(NTag, { type: 'success', size: 'small' }, { default: () => name })),
       })
     },
   },
@@ -224,6 +259,7 @@ const buildQuery = () => ({
   q: searchQuery.value,
   conditions: conditions.value,
   watchlistIds: watchlistIds.value,
+  strategyHitIds: selectedStrategyIds.value,
   sort: { field: sortKey.value ?? 'symbol', asc: sortOrder.value !== 'descend' },
   page: page.value,
   page_size: pageSize.value,
@@ -259,6 +295,7 @@ const applyFilters = () => {
 const resetFilters = () => {
   conditions.value = []
   searchQuery.value = ''
+  selectedStrategyIds.value = []
   resetWatchlistFilter()
   page.value = 1
   void loadData()
@@ -298,13 +335,6 @@ async function openChart(symbol: string) {
   }
 }
 
-const strategyStore = useStrategyConditionsStore()
-const strategyRunResults = ref<Map<string, any>>(new Map())
-
-function handleStrategyRun(results: Map<string, any>) {
-  strategyRunResults.value = results
-}
-
 async function handleSaveColumnPreferences() {
   try {
     await saveColumnPreferences()
@@ -315,13 +345,16 @@ async function handleSaveColumnPreferences() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   void ensureWatchlistsLoaded()
   void loadFields()
   void loadColumnPreferences().catch((err: unknown) => {
     message.error(err instanceof Error ? err.message : String(err))
   })
   void loadData()
+  await strategyStore.fetchConditions('crypto')
+  await strategyStore.fetchLastRunStatus()
+  await loadHitLookup()
 })
 </script>
 

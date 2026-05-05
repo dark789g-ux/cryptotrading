@@ -16,16 +16,12 @@
       </n-space>
     </div>
 
-    <strategy-condition-picker
-      target-type="a-share"
-      @run="handleStrategyRun"
-    />
-
     <a-shares-filters
       v-model:search-query="searchQuery"
       v-model:selected-market="selectedMarket"
       v-model:selected-industry="selectedIndustry"
       v-model:selected-watchlist-ids="selectedWatchlistIds"
+      v-model:selected-strategy-ids="selectedStrategyIds"
       v-model:price-mode="priceMode"
       v-model:pct-change-min="pctChangeMin"
       v-model:turnover-rate-min="turnoverRateMin"
@@ -33,6 +29,7 @@
       :market-options="marketOptions"
       :industry-options="industryOptions"
       :watchlist-options="watchlistOptions"
+      :strategy-options="strategyFilterOptions"
       :filter-presets="filterPresets"
       :filter-presets-loading="filterPresetsLoading"
       @apply="applyFilters"
@@ -90,8 +87,8 @@ import { createASharesColumnDefs } from './a-shares/aSharesColumns'
 import { useASharesQuery } from './a-shares/useASharesQuery'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
-import StrategyConditionPicker from './common/StrategyConditionPicker.vue'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
+import { strategyConditionsApi } from '@/api/modules/strategyConditions'
 
 const message = useMessage()
 const {
@@ -108,6 +105,7 @@ const {
   pctChangeMin,
   turnoverRateMin,
   advancedConditions,
+  selectedStrategyIds,
   marketOptions,
   industryOptions,
   paginationState,
@@ -129,38 +127,59 @@ const {
 const showDetailDrawer = ref(false)
 const showColumnSettings = ref(false)
 const selectedDetailRow = ref<AShareRow | null>(null)
+const hitLookup = ref<Map<string, Set<string>>>(new Map())
+
+const strategyStore = useStrategyConditionsStore()
+
+const strategyFilterOptions = computed(() => {
+  return strategyStore.conditions
+    .filter(c => c.targetType === 'a-share')
+    .filter(c => {
+      const status = strategyStore.runStatuses.get(c.id)
+      return status && (status.freshness === 'fresh' || status.freshness === 'stale')
+    })
+    .map(c => ({
+      label: `${c.name} (${strategyStore.runStatuses.get(c.id)?.totalHits ?? 0} 命中)`,
+      value: c.id,
+    }))
+})
+
+async function loadHitLookup() {
+  const newLookup = new Map<string, Set<string>>()
+  for (const condition of strategyStore.conditions) {
+    if (condition.targetType !== 'a-share') continue
+    const status = strategyStore.runStatuses.get(condition.id)
+    if (!status || (status.freshness !== 'fresh' && status.freshness !== 'stale')) continue
+    try {
+      const result = await strategyConditionsApi.getRunResult(condition.id)
+      for (const hit of result.hits) {
+        const names = newLookup.get(hit.tsCode) ?? new Set<string>()
+        names.add(condition.name)
+        newLookup.set(hit.tsCode, names)
+      }
+    } catch { /* ignore */ }
+  }
+  hitLookup.value = newLookup
+}
 
 function handleViewDetail(row: AShareRow) {
   selectedDetailRow.value = row
   showDetailDrawer.value = true
 }
 
-const strategyStore = useStrategyConditionsStore()
-const strategyRunResults = ref<Map<string, any>>(new Map())
-
-function handleStrategyRun(results: Map<string, any>) {
-  strategyRunResults.value = results
-}
-
 const columnDefs = computed(() => {
   const baseDefs = createASharesColumnDefs({ onViewDetail: handleViewDetail, priceMode: priceMode.value })
-  // 添加买入信号列
   baseDefs.push({
     title: '买入信号',
     key: 'buySignal',
     width: 200,
     defaultVisible: true,
     render: (row: AShareRow) => {
-      const hits: string[] = []
-      strategyRunResults.value.forEach((result, conditionId) => {
-        const condition = strategyStore.conditions.find(c => c.id === conditionId)
-        if (condition && result.hits.some((h: any) => h.tsCode === row.tsCode)) {
-          hits.push(condition.name)
-        }
-      })
-      if (hits.length === 0) return '-'
+      const matchedNames = hitLookup.value.get(row.tsCode)
+      if (!matchedNames || matchedNames.size === 0) return '-'
       return h(NSpace, { size: 4 }, {
-        default: () => hits.map(name => h(NTag, { type: 'success', size: 'small' }, { default: () => name })),
+        default: () => [...matchedNames].map(name =>
+          h(NTag, { type: 'success', size: 'small' }, { default: () => name })),
       })
     },
   })
@@ -186,11 +205,14 @@ async function handleSaveColumnPreferences() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   void reload()
   void loadColumnPreferences().catch((err: unknown) => {
     message.error(err instanceof Error ? err.message : String(err))
   })
+  await strategyStore.fetchConditions('a-share')
+  await strategyStore.fetchLastRunStatus()
+  await loadHitLookup()
 })
 </script>
 

@@ -38,6 +38,16 @@
         class="filter-select"
         @update:value="emit('update:selectedWatchlistIds', $event)"
       />
+      <n-select
+        :value="selectedStrategyIds"
+        :options="strategyOptions"
+        multiple
+        filterable
+        placeholder="策略命中"
+        clearable
+        class="filter-select"
+        @update:value="emit('update:selectedStrategyIds', $event)"
+      />
       <n-input-number
         :value="pctChangeMin"
         placeholder="涨跌幅 >="
@@ -118,6 +128,7 @@ defineProps<{
   selectedMarket: string | null
   selectedIndustry: string | null
   selectedWatchlistIds: string[]
+  selectedStrategyIds: string[]
   priceMode: 'qfq' | 'raw'
   pctChangeMin: number | null
   turnoverRateMin: number | null
@@ -125,6 +136,7 @@ defineProps<{
   marketOptions: SelectOption[]
   industryOptions: SelectOption[]
   watchlistOptions: SelectOption[]
+  strategyOptions: SelectOption[]
   filterPresets: AShareFilterPreset[]
   filterPresetsLoading: boolean
 }>()
@@ -134,6 +146,7 @@ const emit = defineEmits<{
   'update:selectedMarket': [value: string | null]
   'update:selectedIndustry': [value: string | null]
   'update:selectedWatchlistIds': [value: string[]]
+  'update:selectedStrategyIds': [value: string[]]
   'update:priceMode': [value: 'qfq' | 'raw']
   'update:pctChangeMin': [value: number | null]
   'update:turnoverRateMin': [value: number | null]

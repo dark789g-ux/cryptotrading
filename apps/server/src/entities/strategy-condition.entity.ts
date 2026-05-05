@@ -41,6 +41,9 @@ export class StrategyConditionEntity {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
+  @Column({ type: 'uuid', nullable: true, name: 'last_run_id' })
+  lastRunId: string | null;
+
   @ManyToOne(() => UserEntity)
   @JoinColumn({ name: 'user_id' })
   user: UserEntity;

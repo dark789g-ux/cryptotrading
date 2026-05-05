@@ -28,6 +28,31 @@ export interface RunResult {
   totalScanned: number;
 }
 
+export interface RunProgress {
+  runId: string;
+  status: 'running' | 'completed' | 'failed';
+  progressScanned: number;
+  progressTotal: number;
+  totalHits: number;
+  errorMessage: string | null;
+}
+
+export interface RunResultDetail {
+  hits: Array<{
+    tsCode: string;
+    name: string;
+    matchedConditions: string[];
+  }>;
+  totalHits: number;
+}
+
+export interface LastRunStatus {
+  conditionId: string;
+  freshness: 'fresh' | 'stale' | 'never' | 'running' | 'failed';
+  lastRunAt: string | null;
+  totalHits: number;
+}
+
 export interface CreateStrategyConditionDto {
   name: string;
   targetType: 'crypto' | 'a-share';
@@ -65,5 +90,21 @@ export const strategyConditionsApi = {
 
   run(id: string) {
     return post<RunResult>(`${API_BASE}/strategy-conditions/${id}/run`);
+  },
+
+  startRun(id: string) {
+    return post<{ runId: string }>(`${API_BASE}/strategy-conditions/${id}/run`);
+  },
+
+  getRunProgress(id: string) {
+    return request<RunProgress>(`${API_BASE}/strategy-conditions/${id}/run/progress`);
+  },
+
+  getRunResult(id: string) {
+    return request<RunResultDetail>(`${API_BASE}/strategy-conditions/${id}/run/result`);
+  },
+
+  getLastRunStatus() {
+    return request<LastRunStatus[]>(`${API_BASE}/strategy-conditions/last-run-status`);
   },
 };

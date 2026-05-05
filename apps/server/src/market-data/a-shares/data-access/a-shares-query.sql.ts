@@ -163,6 +163,19 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
     paramIndex++;
   }
 
+  if (dto.strategyHitIds && dto.strategyHitIds.length > 0) {
+    sql += ` AND s.ts_code IN (
+      SELECT DISTINCT h.ts_code
+      FROM strategy_condition_hits h
+      JOIN strategy_condition_runs r ON h.run_id = r.id
+      JOIN strategy_conditions c ON c.last_run_id = r.id
+      WHERE c.id = ANY($${paramIndex}::uuid[])
+        AND r.status = 'completed'
+    )`;
+    params.push(dto.strategyHitIds);
+    paramIndex++;
+  }
+
   return { sql, params, nextParamIndex: paramIndex };
 }
 

@@ -75,6 +75,7 @@ export interface AShareQueryBody {
   sort?: { field?: string; order?: 'ascend' | 'descend' | null; asc?: boolean }
   conditions?: NumericConditionPayload[]
   watchlistIds?: string[]
+  strategyHitIds?: string[]
 }
 
 export interface AShareFilterPresetFilters {

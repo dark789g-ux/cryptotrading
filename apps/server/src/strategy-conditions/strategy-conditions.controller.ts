@@ -22,6 +22,11 @@ export class StrategyConditionsController {
     return this.service.create(req.user.id, dto);
   }
 
+  @Get('last-run-status')
+  getLastRunStatus(@Request() req: any) {
+    return this.service.getLastRunStatus(req.user.id);
+  }
+
   @Get()
   findAll(@Request() req: any, @Query('targetType') targetType?: string) {
     return this.service.findAll(req.user.id, targetType);
@@ -49,5 +54,15 @@ export class StrategyConditionsController {
   @Post(':id/run')
   run(@Request() req: any, @Param('id') id: string) {
     return this.service.run(id, req.user.id);
+  }
+
+  @Get(':id/run/progress')
+  getRunProgress(@Request() req: any, @Param('id') id: string) {
+    return this.service.getRunProgress(id, req.user.id);
+  }
+
+  @Get(':id/run/result')
+  getRunResult(@Request() req: any, @Param('id') id: string) {
+    return this.service.getRunResult(id, req.user.id);
   }
 }

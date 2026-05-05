@@ -1,31 +1,17 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
 import { strategyConditionsApi } from '../api/modules/strategyConditions';
-import type { StrategyCondition, RunResult } from '../api/modules/strategyConditions';
+import type { StrategyCondition, RunProgress, LastRunStatus } from '../api/modules/strategyConditions';
 
 export const useStrategyConditionsStore = defineStore('strategyConditions', () => {
   const conditions = ref<StrategyCondition[]>([]);
-  const runResults = ref<Map<string, RunResult>>(new Map());
+  const runStatuses = ref<Map<string, LastRunStatus>>(new Map());
+  const runProgress = ref<Map<string, RunProgress>>(new Map());
   const loading = ref(false);
   const runningId = ref<string | null>(null);
 
-  const getConditionsByTargetType = computed(() => {
-    return (targetType: 'crypto' | 'a-share') =>
-      conditions.value.filter(c => c.targetType === targetType);
-  });
-
-  const getRunResultsByTargetType = computed(() => {
-    return (targetType: 'crypto' | 'a-share') => {
-      const result = new Map<string, RunResult>();
-      runResults.value.forEach((value, key) => {
-        const condition = conditions.value.find(c => c.id === key);
-        if (condition && condition.targetType === targetType) {
-          result.set(key, value);
-        }
-      });
-      return result;
-    };
-  });
+  const getConditionsByTargetType = (targetType: 'crypto' | 'a-share') =>
+    conditions.value.filter(c => c.targetType === targetType);
 
   async function fetchConditions(targetType?: string) {
     loading.value = true;
@@ -35,6 +21,11 @@ export const useStrategyConditionsStore = defineStore('strategyConditions', () =
     } finally {
       loading.value = false;
     }
+  }
+
+  async function fetchLastRunStatus() {
+    const data = await strategyConditionsApi.getLastRunStatus();
+    runStatuses.value = new Map(data.map(s => [s.conditionId, s]));
   }
 
   async function createCondition(dto: {
@@ -50,45 +41,63 @@ export const useStrategyConditionsStore = defineStore('strategyConditions', () =
   async function updateCondition(id: string, dto: { name?: string; conditions?: any[] }) {
     const data = await strategyConditionsApi.update(id, dto);
     const index = conditions.value.findIndex(c => c.id === id);
-    if (index !== -1) {
-      conditions.value[index] = data;
-    }
+    if (index !== -1) conditions.value[index] = data;
     return data;
   }
 
   async function deleteCondition(id: string) {
     await strategyConditionsApi.remove(id);
     conditions.value = conditions.value.filter(c => c.id !== id);
-    runResults.value.delete(id);
+    runStatuses.value.delete(id);
+    runProgress.value.delete(id);
   }
 
-  async function runCondition(id: string) {
+  async function startRun(id: string) {
     runningId.value = id;
     try {
-      const data = await strategyConditionsApi.run(id);
-      runResults.value.set(id, data);
-      return data;
-    } finally {
-      runningId.value = null;
-    }
-  }
+      const { runId } = await strategyConditionsApi.startRun(id);
 
-  function clearRunResults() {
-    runResults.value.clear();
+      const poll = setInterval(async () => {
+        try {
+          const progress = await strategyConditionsApi.getRunProgress(id);
+          runProgress.value.set(id, progress);
+
+          if (progress.status === 'completed' || progress.status === 'failed') {
+            clearInterval(poll);
+            runningId.value = null;
+            await fetchLastRunStatus();
+          }
+        } catch {
+          clearInterval(poll);
+          runningId.value = null;
+        }
+      }, 500);
+
+      // 30s timeout safety
+      setTimeout(() => {
+        clearInterval(poll);
+        if (runningId.value === id) runningId.value = null;
+      }, 30000);
+
+      return { runId };
+    } catch {
+      runningId.value = null;
+      throw new Error('启动运行失败');
+    }
   }
 
   return {
     conditions,
-    runResults,
+    runStatuses,
+    runProgress,
     loading,
     runningId,
     getConditionsByTargetType,
-    getRunResultsByTargetType,
     fetchConditions,
+    fetchLastRunStatus,
     createCondition,
     updateCondition,
     deleteCondition,
-    runCondition,
-    clearRunResults,
+    startRun,
   };
 });

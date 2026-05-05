@@ -29,6 +29,7 @@ export function useASharesQuery(message: {
   const pctChangeMin = ref<number | null>(null)
   const turnoverRateMin = ref<number | null>(null)
   const advancedConditions = ref<Condition[]>([])
+  const selectedStrategyIds = ref<string[]>([])
   const sortKey = ref<string | null>(null)
   const sortOrder = ref<'ascend' | 'descend' | null>(null)
   const summary = ref<AShareSummary>({
@@ -108,6 +109,7 @@ export function useASharesQuery(message: {
         watchlistIds: watchlistIds.value,
         sort: { field: sortKey.value ?? 'tsCode', order: sortOrder.value },
         conditions: buildConditions(),
+	        strategyHitIds: selectedStrategyIds.value,
       })
       rows.value = res.rows
       total.value = res.total
@@ -164,6 +166,7 @@ export function useASharesQuery(message: {
     pctChangeMin.value = null
     turnoverRateMin.value = null
     advancedConditions.value = []
+    selectedStrategyIds.value = []
     priceMode.value = 'qfq'
     resetWatchlistFilter()
     page.value = 1
@@ -254,6 +257,7 @@ export function useASharesQuery(message: {
     pctChangeMin,
     turnoverRateMin,
     advancedConditions,
+    selectedStrategyIds,
     marketOptions,
     industryOptions,
     paginationState,

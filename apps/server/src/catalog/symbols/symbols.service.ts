@@ -13,6 +13,7 @@ export interface QuerySymbolsDto {
   conditions?: QuerySymbolCondition[];
   fields?: string[];
   watchlistIds?: string[];
+  strategyHitIds?: string[];
 }
 
 type QuerySymbolCondition =
@@ -79,6 +80,7 @@ export class SymbolsService {
       interval, page, page_size, sort, q = '',
       conditions = [],
       watchlistIds = [],
+      strategyHitIds = [],
     } = dto;
 
     const SORT_COL_MAP: Record<string, string> = {
@@ -134,6 +136,19 @@ export class SymbolsService {
     if (watchlistIds.length > 0) {
       sql += ` AND k.symbol IN (SELECT wi2.symbol FROM watchlist_items wi2 WHERE wi2.watchlist_id = ANY($${pi}::uuid[]))`;
       params.push(watchlistIds);
+      pi++;
+    }
+
+    if (dto.strategyHitIds && dto.strategyHitIds.length > 0) {
+      sql += ` AND k.symbol IN (
+        SELECT DISTINCT h.ts_code
+        FROM strategy_condition_hits h
+        JOIN strategy_condition_runs r ON h.run_id = r.id
+        JOIN strategy_conditions c ON c.last_run_id = r.id
+        WHERE c.id = ANY($${pi}::uuid[])
+          AND r.status = 'completed'
+      )`;
+      params.push(dto.strategyHitIds);
       pi++;
     }
 
