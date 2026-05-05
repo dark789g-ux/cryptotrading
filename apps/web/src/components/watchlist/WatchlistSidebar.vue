@@ -25,13 +25,17 @@
     </div>
 
     <!-- 新建/重命名弹窗 -->
-    <n-modal v-model:show="showModal" :title="editTarget ? '重命名列表' : '新建列表'" preset="dialog">
-      <n-input v-model:value="formName" placeholder="列表名称" @keyup.enter="submitName" />
-      <template #action>
+    <AppModal
+      v-model:show="showModal"
+      :title="editTarget ? '重命名列表' : '新建列表'"
+      width="min(400px, 90vw)"
+    >
+      <n-input v-model:value="formName" placeholder="列表名称" @keyup.enter="submitName" autofocus />
+      <template #actions>
         <n-button @click="showModal = false">取消</n-button>
         <n-button type="primary" :loading="submitting" @click="submitName">保存</n-button>
       </template>
-    </n-modal>
+    </AppModal>
 
     <!-- 右键菜单 -->
     <n-dropdown
@@ -49,12 +53,13 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import {
-  NButton, NBadge, NDropdown, NIcon, NInput, NModal, NSpin,
+  NButton, NBadge, NDropdown, NIcon, NInput, NSpin,
   useMessage, useDialog,
 } from 'naive-ui'
 import { AddOutline } from '@vicons/ionicons5'
 import { useWatchlistStore } from '@/stores/watchlist'
 import { watchlistApi } from '@/api'
+import AppModal from '@/components/common/AppModal.vue'
 
 const store = useWatchlistStore()
 const message = useMessage()

@@ -6,6 +6,7 @@ crtptotrading:加密量化策略
 - 编码为 GBK
 
 ## 硬约束
+- 用 `中文` 思考与回答
 - 所有源代码文件使用 UTF-8 编码
 - 涉及文件 I/O 操作时，始终显式指定 encoding='utf-8'
 - 中文文本编辑与乱码处理规范：见 [doc/规范/conventions.md](doc/规范/conventions.md)
@@ -27,16 +28,19 @@ crtptotrading:加密量化策略
 ## Shell 规范
 - 使用 PowerShell 时禁用 `&&` 连接命令，改用 `;` 或分多行执行
 
+## NestJS 规范
+- `AuthGuard` 已通过 `APP_GUARD` 注册为全局守卫，Controller 上**禁止**再加 `@UseGuards(AuthGuard)`（会导致 NestJS 在当前模块上下文解析 Guard 依赖，若未导入 `AuthModule` 则启动报 `Can't resolve dependencies`）。
+
 ## NOT DO
-- 原生 SQL ID 参数用 `::text[]`（ID 列均为 `character varying`），禁 `::uuid[]`
+- 原生 SQL 数组参数强转须与列类型匹配：`character varying` 列用 `::text[]`，`uuid` 列用 `::uuid[]`（如 `watchlist_items.watchlist_id` 是 `uuid`，误用 `::text[]` 会 500）
 - 500 报错：开 TypeORM `logging: ['error','warn']` 并 `logger.error(err.stack)`，禁静态分析猜
 - 关闭 `synchronize`
 - TypeORM：`andWhere` 等字符串里禁 `'[]'::jsonb`（误绑 `:jsonb`），用 `CAST('[]' AS jsonb)`
 - 禁同表 `leftJoin` 再 `getManyAndCount`+`orderBy`（0.3 空 metadata）
 
 ## DO
-- 用 `中文` 思考与回答
 - 单文件不超过 500 行，模块化拆分
+- Modal 组件优先复用 `@/components/common/AppModal.vue`，避免直接使用 `n-modal`
 
 ## 时间规范
 - DB 时间列一律 `timestamptz`，禁 `timestamp`（无 TZ 列遇 JS Date 会按 Node 本地 TZ 落库，与 UTC 错位）。

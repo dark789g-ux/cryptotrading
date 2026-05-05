@@ -52,7 +52,7 @@
       </n-tab-pane>
     </n-tabs>
 
-    <n-modal v-model:show="showCreate" preset="dialog" title="新建用户" :show-icon="false" style="width: 460px">
+    <AppModal v-model:show="showCreate" title="新建用户" :header-icon="PersonAddOutline" width="min(460px, 90vw)">
       <n-form label-placement="top">
         <n-form-item label="邮箱"><n-input v-model:value="createForm.email" /></n-form-item>
         <n-form-item label="显示名称"><n-input v-model:value="createForm.displayName" /></n-form-item>
@@ -61,34 +61,34 @@
           <n-select v-model:value="createForm.role" :options="roleOptions" />
         </n-form-item>
       </n-form>
-      <template #action>
+      <template #actions>
         <n-button @click="showCreate = false">取消</n-button>
         <n-button type="primary" :loading="submitting" @click="createUser">创建</n-button>
       </template>
-    </n-modal>
+    </AppModal>
 
-    <n-modal v-model:show="showInvite" preset="dialog" title="创建邀请" :show-icon="false" style="width: 420px">
+    <AppModal v-model:show="showInvite" title="创建邀请" :header-icon="MailOutline" width="min(420px, 90vw)">
       <n-form label-placement="top">
         <n-form-item label="邮箱"><n-input v-model:value="inviteForm.email" /></n-form-item>
         <n-form-item label="角色">
           <n-select v-model:value="inviteForm.role" :options="roleOptions" />
         </n-form-item>
       </n-form>
-      <template #action>
+      <template #actions>
         <n-button @click="showInvite = false">取消</n-button>
         <n-button type="primary" :loading="submitting" @click="createInvitation">创建</n-button>
       </template>
-    </n-modal>
+    </AppModal>
 
-    <n-modal v-model:show="showReset" preset="dialog" title="重置密码" :show-icon="false" style="width: 420px">
+    <AppModal v-model:show="showReset" title="重置密码" :header-icon="KeyOutline" width="min(420px, 90vw)">
       <n-form label-placement="top">
         <n-form-item label="新密码"><n-input v-model:value="resetPassword" type="password" /></n-form-item>
       </n-form>
-      <template #action>
+      <template #actions>
         <n-button @click="showReset = false">取消</n-button>
         <n-button type="primary" :loading="submitting" @click="submitReset">保存</n-button>
       </template>
-    </n-modal>
+    </AppModal>
   </n-card>
 </template>
 
@@ -100,7 +100,6 @@ import {
   NForm,
   NFormItem,
   NInput,
-  NModal,
   NSelect,
   NSpin,
   NSwitch,
@@ -109,9 +108,11 @@ import {
   NTag,
   useMessage,
 } from 'naive-ui'
+import { KeyOutline, MailOutline, PersonAddOutline } from '@vicons/ionicons5'
 import { usersApi, type InvitationListItem, type UserListItem } from '../../composables/api/usersApi'
 import { useAuth } from '../../composables/hooks/useAuth'
 import type { UserRole } from '../../composables/api/authApi'
+import AppModal from '@/components/common/AppModal.vue'
 
 const message = useMessage()
 const auth = useAuth()

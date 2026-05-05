@@ -50,13 +50,13 @@
         </n-space>
       </div>
 
-      <n-button type="dashed" block @click="addCondition" class="add-btn">
+      <n-button dashed block @click="addCondition" class="add-btn">
         <template #icon><n-icon><add-icon /></n-icon></template>
         添加条件
       </n-button>
     </n-form>
 
-    <div class="actions">
+    <div v-if="!embedded" class="actions">
       <n-button @click="$emit('cancel')">取消</n-button>
       <n-button type="primary" :loading="saving" @click="handleSave">保存</n-button>
     </div>
@@ -65,12 +65,15 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { NForm, NFormItem, NInput, NSelect, NInputNumber, NButton, NIcon, NSpace, NDivider, NRadioGroup, NRadioButton } from 'naive-ui';
+import { NForm, NFormItem, NInput, NSelect, NInputNumber, NButton, NIcon, NSpace, NDivider, NRadioGroup, NRadioButton, useMessage } from 'naive-ui';
 import { Add as AddIcon, Trash as TrashIcon } from '@vicons/ionicons5';
-import { StrategyConditionItem } from '../../api/modules/strategyConditions';
+import type { StrategyConditionItem } from '../../api/modules/strategyConditions';
+
+const message = useMessage()
 
 interface Props {
   editId?: string;
+  embedded?: boolean;
   initialData?: {
     name: string;
     targetType: 'crypto' | 'a-share';
@@ -78,7 +81,9 @@ interface Props {
   };
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  embedded: false,
+});
 const emit = defineEmits<{
   save: [data: { name: string; targetType: string; conditions: StrategyConditionItem[] }];
   cancel: [];
@@ -197,15 +202,19 @@ function removeCondition(index: number) {
 
 function handleSave() {
   if (!form.value.name) {
-    window.$message?.warning('请输入条件组名称');
+    message.warning('请输入条件组名称');
     return;
   }
   if (form.value.conditions.length === 0) {
-    window.$message?.warning('请添加至少一个条件');
+    message.warning('请添加至少一个条件');
     return;
   }
   emit('save', { ...form.value });
 }
+
+defineExpose({
+  submit: handleSave,
+});
 </script>
 
 <style scoped>

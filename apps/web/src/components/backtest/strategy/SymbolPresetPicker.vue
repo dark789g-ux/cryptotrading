@@ -63,25 +63,27 @@
     </div>
   </n-popover>
 
-  <n-modal
+  <AppModal
     v-model:show="createDialogShow"
-    preset="dialog"
     title="保存为预设"
-    positive-text="保存"
-    negative-text="取消"
-    @positive-click="submitCreate"
+    width="min(400px, 90vw)"
   >
-    <n-input v-model:value="createName" placeholder="预设名称" @keydown.enter="submitCreate" autofocus />
-  </n-modal>
+    <n-input v-model:value="createName" placeholder="预设名称" @keydown.enter="handleCreateSubmit" autofocus />
+    <template #actions>
+      <n-button @click="createDialogShow = false">取消</n-button>
+      <n-button type="primary" @click="handleCreateSubmit">保存</n-button>
+    </template>
+  </AppModal>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import {
   useMessage,
-  NPopover, NPopconfirm, NTooltip, NSpin, NModal, NInput, NButton,
+  NPopover, NPopconfirm, NTooltip, NSpin, NInput, NButton,
 } from 'naive-ui'
 import { symbolPresetApi, type SymbolPreset } from '@/api'
+import AppModal from '@/components/common/AppModal.vue'
 
 const props = defineProps<{
   currentSymbols: string[]
@@ -202,18 +204,20 @@ const submitCreate = async () => {
   const name = createName.value.trim()
   if (!name) {
     message.warning('请输入预设名称')
-    return false
+    return
   }
   try {
     await symbolPresetApi.create({ name, symbols: props.currentSymbols })
     message.success(`已保存预设 "${name}"`)
     createDialogShow.value = false
     await loadList()
-    return true
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : '保存失败')
-    return false
   }
+}
+
+const handleCreateSubmit = () => {
+  submitCreate()
 }
 </script>
 

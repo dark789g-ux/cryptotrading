@@ -17,32 +17,44 @@
       />
     </n-card>
 
-    <n-modal
+    <AppModal
       v-model:show="showBuilder"
       :title="editingId ? '编辑条件组' : '新建条件组'"
-      style="width: 800px"
+      :header-icon="ConstructOutline"
+      :description="editingId ? '修改条件组的规则配置' : '定义新的策略条件组，支持多指标组合筛选'"
+      width="min(800px, 92vw)"
+      :mask-closable="false"
     >
       <StrategyConditionBuilder
+        ref="builderRef"
+        embedded
         :edit-id="editingId"
         :initial-data="editingData"
         @save="handleSave"
-        @cancel="showBuilder = false"
       />
-    </n-modal>
+      <template #actions>
+        <n-button @click="showBuilder = false">取消</n-button>
+        <n-button type="primary" @click="handleBuilderSave">保存</n-button>
+      </template>
+    </AppModal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, h, onMounted } from 'vue';
-import { NCard, NButton, NIcon, NDataTable, NModal, NTag, NSpace, NPopconfirm } from 'naive-ui';
-import { Add as AddIcon, Create as EditIcon, Trash as TrashIcon } from '@vicons/ionicons5';
+import { NCard, NButton, NIcon, NDataTable, NTag, NSpace, NPopconfirm, useMessage } from 'naive-ui';
+import { Add as AddIcon, Construct as ConstructOutline, Create as EditIcon, Trash as TrashIcon } from '@vicons/ionicons5';
 import { useStrategyConditionsStore } from '../stores/strategyConditions';
-import { StrategyCondition } from '../api/modules/strategyConditions';
+import type { StrategyCondition } from '../api/modules/strategyConditions';
+import AppModal from '../components/common/AppModal.vue';
 import StrategyConditionBuilder from '../components/strategy-conditions/StrategyConditionBuilder.vue';
+
+const message = useMessage()
 
 const store = useStrategyConditionsStore();
 const showBuilder = ref(false);
 const editingId = ref<string | undefined>();
+const builderRef = ref<InstanceType<typeof StrategyConditionBuilder> | null>(null);
 
 const editingData = computed(() => {
   if (!editingId.value) return undefined;
@@ -118,7 +130,7 @@ const columns = [
   },
 ];
 
-async function handleSave(data: { name: string; targetType: string; conditions: any[] }) {
+async function handleSave(data: { name: string; targetType: 'crypto' | 'a-share'; conditions: any[] }) {
   try {
     if (editingId.value) {
       await store.updateCondition(editingId.value, data);
@@ -127,10 +139,14 @@ async function handleSave(data: { name: string; targetType: string; conditions: 
     }
     showBuilder.value = false;
     editingId.value = undefined;
-    window.$message?.success('保存成功');
+    message.success('保存成功');
   } catch (error) {
-    window.$message?.error('保存失败');
+    message.error('保存失败');
   }
+}
+
+function handleBuilderSave() {
+  builderRef.value?.submit();
 }
 
 onMounted(() => {

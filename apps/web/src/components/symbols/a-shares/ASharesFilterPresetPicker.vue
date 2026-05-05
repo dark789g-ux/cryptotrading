@@ -82,23 +82,25 @@
     </div>
   </n-popover>
 
-  <n-modal
+  <AppModal
     v-model:show="createDialogShow"
-    preset="dialog"
     title="保存筛选方案"
-    positive-text="保存"
-    negative-text="取消"
-    @positive-click="submitCreate"
+    width="min(400px, 90vw)"
   >
-    <n-input v-model:value="createName" autofocus placeholder="方案名称" @keydown.enter="submitCreate" />
-  </n-modal>
+    <n-input v-model:value="createName" autofocus placeholder="方案名称" @keydown.enter="handleCreateSubmit" />
+    <template #actions>
+      <n-button @click="createDialogShow = false">取消</n-button>
+      <n-button type="primary" @click="handleCreateSubmit">保存</n-button>
+    </template>
+  </AppModal>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NButton, NIcon, NInput, NModal, NPopconfirm, NPopover, NSpin, NTooltip, useMessage } from 'naive-ui'
+import { NButton, NIcon, NInput, NPopconfirm, NPopover, NSpin, NTooltip, useMessage } from 'naive-ui'
 import { BookmarkOutline, CreateOutline, RefreshOutline, SaveOutline, TrashOutline } from '@vicons/ionicons5'
 import type { AShareFilterPreset } from '@/api'
+import AppModal from '@/components/common/AppModal.vue'
 
 const props = defineProps<{
   presets: AShareFilterPreset[]
@@ -145,11 +147,14 @@ function submitCreate() {
   const name = createName.value.trim()
   if (!name) {
     message.warning('请输入方案名称')
-    return false
+    return
   }
   emit('create', name)
   createDialogShow.value = false
-  return true
+}
+
+function handleCreateSubmit() {
+  submitCreate()
 }
 
 function loadPreset(preset: AShareFilterPreset) {
