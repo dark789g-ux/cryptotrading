@@ -20,6 +20,11 @@
       </n-space>
     </div>
 
+    <strategy-condition-picker
+      target-type="crypto"
+      @run="handleStrategyRun"
+    />
+
     <n-card class="filter-card" :bordered="false">
       <div class="filter-row">
         <n-input
@@ -99,7 +104,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'CryptoSymbolsPanel' })
 
-import { computed, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import {
   NButton,
   NCard,
@@ -124,6 +129,8 @@ import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { createCryptoColumnDefs } from './cryptoColumns'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
 import { useWatchlistTagFilter } from '@/composables/symbols/useWatchlistTagFilter'
+import StrategyConditionPicker from './common/StrategyConditionPicker.vue'
+import { useStrategyConditionsStore } from '@/stores/strategyConditions'
 
 const message = useMessage()
 
@@ -149,7 +156,29 @@ const sortOrder = ref<'ascend' | 'descend' | null>(null)
 const page = ref(1)
 const pageSize = ref(20)
 
-const columnDefs = createCryptoColumnDefs({ onViewChart: openChart })
+const baseColumnDefs = createCryptoColumnDefs({ onViewChart: openChart })
+const columnDefs = [
+  ...baseColumnDefs,
+  {
+    title: '买入信号',
+    key: 'buySignal',
+    width: 200,
+    defaultVisible: true,
+    render: (row: SymbolRow) => {
+      const hits: string[] = []
+      strategyRunResults.value.forEach((result, conditionId) => {
+        const condition = strategyStore.conditions.find(c => c.id === conditionId)
+        if (condition && result.hits.some((h: any) => h.tsCode === row.symbol)) {
+          hits.push(condition.name)
+        }
+      })
+      if (hits.length === 0) return '-'
+      return h(NSpace, { size: 4 }, {
+        default: () => hits.map(name => h(NTag, { type: 'success', size: 'small' }, { default: () => name })),
+      })
+    },
+  },
+]
 const {
   loading: columnPrefsLoading,
   saving: columnPrefsSaving,
@@ -267,6 +296,13 @@ async function openChart(symbol: string) {
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
   }
+}
+
+const strategyStore = useStrategyConditionsStore()
+const strategyRunResults = ref<Map<string, any>>(new Map())
+
+function handleStrategyRun(results: Map<string, any>) {
+  strategyRunResults.value = results
 }
 
 async function handleSaveColumnPreferences() {
