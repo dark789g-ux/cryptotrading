@@ -61,10 +61,12 @@ export interface SymbolQueryBody {
   page_size?: number
   sort?: { field?: string | null; order?: 'ascend' | 'descend' | null; asc?: boolean }
   conditions?: SymbolConditionPayload[]
+  watchlistIds?: string[]
 }
 
 export interface SymbolRow extends Record<string, unknown> {
   symbol: string
+  tags?: { id: string; name: string }[]
 }
 
 export interface SymbolQueryResult {

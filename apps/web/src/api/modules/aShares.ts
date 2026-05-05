@@ -33,6 +33,7 @@ export interface AShareRow {
   totalMv?: string | null
   circMv?: string | null
   tradeDate: string | null
+  tags?: { id: string; name: string }[]
 }
 
 export interface AShareKlineBar extends KlineChartBar {
@@ -73,6 +74,7 @@ export interface AShareQueryBody {
   priceMode?: ASharePriceMode
   sort?: { field?: string; order?: 'ascend' | 'descend' | null; asc?: boolean }
   conditions?: NumericConditionPayload[]
+  watchlistIds?: string[]
 }
 
 export interface AShareFilterPresetFilters {
