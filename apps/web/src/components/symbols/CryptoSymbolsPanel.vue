@@ -31,6 +31,16 @@
         >
           <template #prefix><n-icon><search-outline /></n-icon></template>
         </n-input>
+        <n-select
+          v-model:value="selectedWatchlistIds"
+          :options="watchlistOptions"
+          multiple
+          filterable
+          placeholder="标签"
+          clearable
+          style="width: 200px"
+          @update:value="applyFilters"
+        />
         <numeric-condition-filter
           v-model:conditions="conditions"
           title="Filters"
@@ -113,6 +123,7 @@ import { klinesApi, symbolApi, type KlineChartBar, type SymbolRow } from '@/api'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { createCryptoColumnDefs } from './cryptoColumns'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
+import { useWatchlistTagFilter } from '@/composables/symbols/useWatchlistTagFilter'
 
 const message = useMessage()
 
@@ -148,6 +159,14 @@ const {
   save: saveColumnPreferences,
 } = useSymbolColumnPreferences('crypto', columnDefs)
 
+const {
+  selectedWatchlistIds,
+  watchlistOptions,
+  watchlistIds,
+  resetWatchlistFilter,
+  ensureWatchlistsLoaded,
+} = useWatchlistTagFilter()
+
 const opLabels: Record<NumericCondition['op'], string> = {
   gt: '>',
   gte: '>=',
@@ -175,6 +194,7 @@ const buildQuery = () => ({
   interval: selectedInterval.value,
   q: searchQuery.value,
   conditions: conditions.value,
+  watchlistIds: watchlistIds.value,
   sort: { field: sortKey.value ?? 'symbol', asc: sortOrder.value !== 'descend' },
   page: page.value,
   page_size: pageSize.value,
@@ -210,6 +230,7 @@ const applyFilters = () => {
 const resetFilters = () => {
   conditions.value = []
   searchQuery.value = ''
+  resetWatchlistFilter()
   page.value = 1
   void loadData()
 }
@@ -259,6 +280,7 @@ async function handleSaveColumnPreferences() {
 }
 
 onMounted(() => {
+  void ensureWatchlistsLoaded()
   void loadFields()
   void loadColumnPreferences().catch((err: unknown) => {
     message.error(err instanceof Error ? err.message : String(err))
