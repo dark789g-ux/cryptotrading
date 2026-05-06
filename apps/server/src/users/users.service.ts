@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { PasswordService } from '../auth/password.service';
+import { PasswordService } from '../auth/services/password.service';
 import {
   assertEmail,
   assertRole,
@@ -15,7 +15,7 @@ import {
   newId,
   normalizeEmail,
   toAuthUser,
-} from '../auth/auth.utils';
+} from '../auth/shared/auth.utils';
 import { AuthUserDto } from '../auth/dto/auth.dto';
 import {
   CreateUserDto,
@@ -23,7 +23,7 @@ import {
   ResetPasswordDto,
 } from './dto/users.dto';
 import { UserEntity } from './entities/user.entity';
-import { SessionService } from '../auth/session.service';
+import { SessionService } from '../auth/services/session.service';
 
 export interface AdminUserDto extends AuthUserDto {
   isActive: boolean;

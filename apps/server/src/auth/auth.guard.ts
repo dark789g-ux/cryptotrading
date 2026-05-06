@@ -11,8 +11,8 @@ import {
   AUTH_ADMIN_ONLY_KEY,
   AUTH_PUBLIC_KEY,
   SESSION_COOKIE_NAME,
-} from './auth.constants';
-import { SessionService } from './session.service';
+} from './shared/auth.constants';
+import { SessionService } from './services/session.service';
 
 @Injectable()
 export class AuthGuard implements CanActivate {

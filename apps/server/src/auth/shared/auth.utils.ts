@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID, createHash } from 'crypto';
 
-import { AuthUserDto } from './dto/auth.dto';
-import { UserEntity } from '../users/entities/user.entity';
+import { AuthUserDto } from '../dto/auth.dto';
+import { UserEntity } from '../../users/entities/user.entity';
 import { UserRole } from './auth.types';
 
 export function newId(): string {

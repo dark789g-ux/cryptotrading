@@ -8,7 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-import { UserRole } from '../../auth/auth.types';
+import { UserRole } from '../../auth/shared/auth.types';
 import { UserEntity } from './user.entity';
 
 @Entity('user_invitations')

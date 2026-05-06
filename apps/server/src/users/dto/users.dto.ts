@@ -1,4 +1,4 @@
-import { UserRole } from '../../auth/auth.types';
+import { UserRole } from '../../auth/shared/auth.types';
 
 export interface CreateUserDto {
   email?: string;

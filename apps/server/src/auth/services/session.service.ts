@@ -7,11 +7,11 @@ import {
   REMEMBER_SESSION_TTL_MS,
   SESSION_COOKIE_NAME,
   SESSION_TTL_MS,
-} from './auth.constants';
-import { AuthSessionEntity } from './entities/auth-session.entity';
-import { CurrentUser } from './auth.types';
-import { generateToken, hashToken, newId, toAuthUser } from './auth.utils';
-import { UserEntity } from '../users/entities/user.entity';
+} from '../shared/auth.constants';
+import { AuthSessionEntity } from '../entities/auth-session.entity';
+import { CurrentUser } from '../shared/auth.types';
+import { generateToken, hashToken, newId, toAuthUser } from '../shared/auth.utils';
+import { UserEntity } from '../../users/entities/user.entity';
 
 @Injectable()
 export class SessionService {

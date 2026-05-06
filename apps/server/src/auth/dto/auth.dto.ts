@@ -1,4 +1,4 @@
-import { UserRole } from '../auth.types';
+import { UserRole } from '../shared/auth.types';
 
 export interface BootstrapDto {
   email?: string;

@@ -14,8 +14,8 @@ import {
   hashToken,
   newId,
   normalizeEmail,
-} from '../auth/auth.utils';
-import { UserRole } from '../auth/auth.types';
+} from '../auth/shared/auth.utils';
+import { UserRole } from '../auth/shared/auth.types';
 import { UserInvitationEntity } from './entities/user-invitation.entity';
 import { UserEntity } from './entities/user.entity';
 import { CreateInvitationDto } from './dto/users.dto';

@@ -10,15 +10,15 @@ import { DataSource, Repository } from 'typeorm';
 
 import { UserEntity } from '../users/entities/user.entity';
 import { UserInvitationEntity } from '../users/entities/user-invitation.entity';
-import { PasswordService } from './password.service';
-import { SessionService } from './session.service';
+import { PasswordService } from './services/password.service';
+import { SessionService } from './services/session.service';
 import {
   assertEmail,
   hashToken,
   newId,
   normalizeEmail,
   toAuthUser,
-} from './auth.utils';
+} from './shared/auth.utils';
 import {
   AcceptInvitationDto,
   AuthUserDto,

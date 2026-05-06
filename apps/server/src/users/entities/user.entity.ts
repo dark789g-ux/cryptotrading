@@ -6,7 +6,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-import { UserRole } from '../../auth/auth.types';
+import { UserRole } from '../../auth/shared/auth.types';
 
 @Entity('users')
 export class UserEntity {

@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Req, Res } from '@nestjs/common';
 import { Request, Response } from 'express';
 
-import { SESSION_COOKIE_NAME } from './auth.constants';
+import { SESSION_COOKIE_NAME } from './shared/auth.constants';
 import { AuthService } from './auth.service';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
