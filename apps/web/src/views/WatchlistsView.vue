@@ -73,6 +73,16 @@
       @clickoutside="dropdownVisible = false"
       @select="handleDropdownSelect"
     />
+
+    <!-- 从指数导入 -->
+    <ImportFromIndexModal
+      v-if="importTarget"
+      v-model:show="showImportModal"
+      :watchlist-id="importTarget.id"
+      :watchlist-name="importTarget.name"
+      :current-member-count="importTarget.items?.length ?? 0"
+      @imported="store.loadWatchlists()"
+    />
   </div>
 </template>
 
@@ -87,6 +97,7 @@ import { useWatchlistStore } from '@/stores/watchlist'
 import { watchlistApi, type Watchlist } from '@/api'
 import AppModal from '@/components/common/AppModal.vue'
 import WatchlistTable from '@/components/watchlist/WatchlistTable.vue'
+import ImportFromIndexModal from '@/components/watchlist/ImportFromIndexModal.vue'
 
 const store = useWatchlistStore()
 const message = useMessage()
@@ -106,8 +117,12 @@ const contextMenuTarget = ref<Watchlist | null>(null)
 
 const dropdownOptions = [
   { label: '重命名', key: 'rename' },
+  { label: '从指数导入成员', key: 'import-index' },
   { label: '删除', key: 'delete' },
 ]
+
+const showImportModal = ref(false)
+const importTarget = ref<Watchlist | null>(null)
 
 function handleTabChange(id: string) {
   store.setCurrentId(id)
@@ -146,6 +161,9 @@ function handleDropdownSelect(key: string) {
     editTarget.value = wl
     formName.value = wl.name
     showFormModal.value = true
+  } else if (key === 'import-index') {
+    importTarget.value = wl
+    showImportModal.value = true
   } else if (key === 'delete') {
     handleTabClose(wl.id)
   }
