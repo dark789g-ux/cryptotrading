@@ -1,8 +1,17 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Not, QueryFailedError, Repository } from 'typeorm';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Not, QueryFailedError, Repository } from 'typeorm';
 import { WatchlistEntity } from '../../entities/watchlist/watchlist.entity';
 import { WatchlistItemEntity } from '../../entities/watchlist/watchlist-item.entity';
+import { TushareClientService } from '../../market-data/a-shares/services/tushare-client.service';
+
+export const INDEX_ALLOWLIST: Record<string, string> = {
+  '399300.SZ': '沪深300',
+  '000016.SH': '上证50',
+  '000905.SH': '中证500',
+  '000852.SH': '中证1000',
+  '000010.SH': '上证180',
+};
 
 @Injectable()
 export class WatchlistsService {
@@ -11,6 +20,9 @@ export class WatchlistsService {
     private readonly watchlistRepo: Repository<WatchlistEntity>,
     @InjectRepository(WatchlistItemEntity)
     private readonly itemRepo: Repository<WatchlistItemEntity>,
+    private readonly tushareClient: TushareClientService,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   listWatchlists(userId: string) {
@@ -251,5 +263,47 @@ export class WatchlistsService {
       );
     }
     return { ok: true };
+  }
+
+  async importFromIndex(
+    userId: string,
+    watchlistId: string,
+    indexCode: string,
+  ): Promise<{ imported: number; replaced: number }> {
+    if (!INDEX_ALLOWLIST[indexCode]) {
+      throw new BadRequestException(`不支持的指数代码：${indexCode}`);
+    }
+
+    const w = await this.watchlistRepo.findOne({
+      where: { id: watchlistId, userId } as any,
+      relations: ['items'],
+    });
+    if (!w) throw new NotFoundException(`Watchlist ${watchlistId} not found`);
+
+    const replaced = w.items?.length ?? 0;
+
+    const rows = await this.tushareClient.query(
+      'index_member',
+      { index_code: indexCode },
+      'con_code',
+    );
+
+    const conCodes = rows
+      .map((r) => String(r['con_code'] ?? '').trim())
+      .filter(Boolean);
+
+    if (conCodes.length === 0) {
+      throw new BadRequestException('未找到该指数成分数据');
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.delete(WatchlistItemEntity, { watchlistId });
+      const items = conCodes.map((symbol) =>
+        manager.create(WatchlistItemEntity, { watchlistId, symbol, displayOrder: 0 }),
+      );
+      await manager.save(WatchlistItemEntity, items);
+    });
+
+    return { imported: conCodes.length, replaced };
   }
 }

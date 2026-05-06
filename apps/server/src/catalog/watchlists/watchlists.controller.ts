@@ -90,4 +90,15 @@ export class WatchlistsController {
   ) {
     return this.watchlistsService.reorderItems(user.id, id, body.symbols);
   }
+
+  @Post(':id/import-from-index')
+  importFromIndex(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() body: { indexCode?: string },
+  ) {
+    const indexCode = (body.indexCode ?? '').trim();
+    if (!indexCode) throw new ConflictException('indexCode 不能为空');
+    return this.watchlistsService.importFromIndex(user.id, id, indexCode);
+  }
 }
