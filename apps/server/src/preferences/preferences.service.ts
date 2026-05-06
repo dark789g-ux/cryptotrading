@@ -14,102 +14,34 @@ export interface SymbolsViewColumnPreferences {
   aShares: ColumnPreferenceItem[];
 }
 
-interface ColumnDefinition {
-  key: string;
-  defaultVisible: boolean;
-  locked?: boolean;
-}
-
-const SYMBOLS_VIEW_COLUMN_REGISTRY: Record<keyof SymbolsViewColumnPreferences, ColumnDefinition[]> = {
-  crypto: [
-    { key: 'symbol', defaultVisible: true, locked: true },
-    { key: 'close', defaultVisible: true },
-    { key: 'ma5', defaultVisible: true },
-    { key: 'ma30', defaultVisible: true },
-    { key: 'ma60', defaultVisible: true },
-    { key: 'kdjJ', defaultVisible: true },
-    { key: 'riskRewardRatio', defaultVisible: true },
-    { key: 'stopLossPct', defaultVisible: true },
-    { key: 'openTime', defaultVisible: true },
-    { key: 'actions', defaultVisible: true, locked: true },
-  ],
-  aShares: [
-    { key: 'tsCode', defaultVisible: true, locked: true },
-    { key: 'name', defaultVisible: true },
-    { key: 'market', defaultVisible: true },
-    { key: 'industry', defaultVisible: true },
-    { key: 'close', defaultVisible: true },
-    { key: 'pctChg', defaultVisible: true },
-    { key: 'amount', defaultVisible: true },
-    { key: 'turnoverRate', defaultVisible: true },
-    { key: 'pe', defaultVisible: true },
-    { key: 'peTtm', defaultVisible: true },
-    { key: 'pb', defaultVisible: true },
-    { key: 'tradeDate', defaultVisible: true },
-    { key: 'actions', defaultVisible: true, locked: true },
-  ],
-};
-
-export const DEFAULT_SYMBOLS_VIEW_COLUMNS: SymbolsViewColumnPreferences = {
-  crypto: SYMBOLS_VIEW_COLUMN_REGISTRY.crypto.map((column) => ({
-    key: column.key,
-    visible: column.defaultVisible,
-  })),
-  aShares: SYMBOLS_VIEW_COLUMN_REGISTRY.aShares.map((column) => ({
-    key: column.key,
-    visible: column.defaultVisible,
-  })),
-};
-
 export const SYMBOLS_VIEW_PREFERENCES_KEY = 'symbols_view_columns';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+/** 只校验基本结构合法性，不校验 key 是否在已知列表中。 */
+function sanitizeScopeColumns(input: unknown): ColumnPreferenceItem[] {
+  if (!Array.isArray(input)) return [];
+  return input.filter(
+    (item): item is ColumnPreferenceItem =>
+      item !== null &&
+      typeof item === 'object' &&
+      typeof (item as Record<string, unknown>).key === 'string' &&
+      (item as Record<string, unknown>).key !== '' &&
+      typeof (item as Record<string, unknown>).visible === 'boolean',
+  );
 }
 
-function normalizeScopeColumns(
-  input: unknown,
-  registry: readonly ColumnDefinition[],
-): ColumnPreferenceItem[] {
-  const inputItems = Array.isArray(input) ? input : [];
-  const normalized: ColumnPreferenceItem[] = [];
-  const seen = new Set<string>();
-  const known = new Map(registry.map((item) => [item.key, item]));
-
-  for (const item of inputItems) {
-    if (!isRecord(item)) continue;
-    const key = typeof item.key === 'string' ? item.key : '';
-    if (!key || seen.has(key)) continue;
-    const column = known.get(key);
-    if (!column) continue;
-    const visible = column.locked
-      ? true
-      : typeof item.visible === 'boolean'
-        ? item.visible
-        : column.defaultVisible;
-    normalized.push({ key, visible });
-    seen.add(key);
-  }
-
-  for (const column of registry) {
-    if (seen.has(column.key)) continue;
-    normalized.push({
-      key: column.key,
-      visible: column.locked ? true : column.defaultVisible,
-    });
-    seen.add(column.key);
-  }
-
-  return normalized;
-}
-
-export function normalizeSymbolsView(value: unknown): SymbolsViewColumnPreferences {
-  const input = isRecord(value) ? value : {};
+function sanitizeSymbolsView(value: unknown): SymbolsViewColumnPreferences {
+  const input =
+    value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   return {
-    crypto: normalizeScopeColumns(input.crypto, SYMBOLS_VIEW_COLUMN_REGISTRY.crypto),
-    aShares: normalizeScopeColumns(input.aShares, SYMBOLS_VIEW_COLUMN_REGISTRY.aShares),
+    crypto: sanitizeScopeColumns(input.crypto),
+    aShares: sanitizeScopeColumns(input.aShares),
   };
 }
+
+const EMPTY_SYMBOLS_VIEW_PREFERENCES: SymbolsViewColumnPreferences = {
+  crypto: [],
+  aShares: [],
+};
 
 @Injectable()
 export class PreferencesService {
@@ -120,14 +52,15 @@ export class PreferencesService {
 
   async getSymbolsView(userId: string): Promise<SymbolsViewColumnPreferences> {
     const row = await this.repo.findOneBy({ userId, key: SYMBOLS_VIEW_PREFERENCES_KEY });
-    return normalizeSymbolsView(row?.value ?? DEFAULT_SYMBOLS_VIEW_COLUMNS);
+    if (!row) return EMPTY_SYMBOLS_VIEW_PREFERENCES;
+    return sanitizeSymbolsView(row.value);
   }
 
   async saveSymbolsView(userId: string, value: unknown): Promise<{ ok: true }> {
-    const normalized = normalizeSymbolsView(value);
+    const sanitized = sanitizeSymbolsView(value);
     const existing = await this.repo.findOneBy({ userId, key: SYMBOLS_VIEW_PREFERENCES_KEY });
     if (existing) {
-      existing.value = normalized;
+      existing.value = sanitized;
       await this.repo.save(existing);
       return { ok: true };
     }
@@ -137,7 +70,7 @@ export class PreferencesService {
         id: newId(),
         userId,
         key: SYMBOLS_VIEW_PREFERENCES_KEY,
-        value: normalized,
+        value: sanitized,
       }),
     );
 
