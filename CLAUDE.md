@@ -31,6 +31,11 @@ crtptotrading:加密量化策略
 ## NestJS 规范
 - `AuthGuard` 已通过 `APP_GUARD` 注册为全局守卫，Controller 上**禁止**再加 `@UseGuards(AuthGuard)`（会导致 NestJS 在当前模块上下文解析 Guard 依赖，若未导入 `AuthModule` 则启动报 `Can't resolve dependencies`）。
 
+## A 股日期规范
+- A 股 `trade_date` 存储格式为 Tushare 标准 `YYYYMMDD`（如 `'20260506'`），**禁止直接 `new Date(tradeDate)`**（返回 `Invalid Date`）
+- 需要转为 `Date` 对象时，必须先插入分隔符：`` `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T00:00:00Z` ``
+- 仅用于展示时，使用已有的 `formatTradeDate`（前端）或 `formatTradeDateLabel`（后端）工具函数，禁止 `new Date()`
+
 ## NOT DO
 - 原生 SQL 数组参数强转须与列类型匹配：`character varying` 列用 `::text[]`，`uuid` 列用 `::uuid[]`（如 `watchlist_items.watchlist_id` 是 `uuid`，误用 `::text[]` 会 500）
 - 500 报错：开 TypeORM `logging: ['error','warn']` 并 `logger.error(err.stack)`，禁静态分析猜

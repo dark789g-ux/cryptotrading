@@ -242,6 +242,12 @@ export class StrategyConditionsService {
       SELECT MAX(trade_date) as max FROM a_share_daily_indicators
     `);
 
+    // A股 trade_date 格式为 'YYYYMMDD'，需转为 ISO 格式才能正确构造 Date
+    const parseTradeDate = (s: string): Date => {
+      const iso = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T00:00:00Z`;
+      return new Date(iso);
+    };
+
     return conditions.map(c => {
       const run = c.lastRunId ? runMap.get(c.lastRunId) : undefined;
       if (!run) return { conditionId: c.id, freshness: 'never' as const, lastRunAt: null, totalHits: 0 };
@@ -250,7 +256,7 @@ export class StrategyConditionsService {
 
       const dataUpdateTime = c.targetType === 'crypto'
         ? (cryptoMax?.max ?? new Date(0))
-        : (aShareMax?.max ? new Date(aShareMax.max) : new Date(0));
+        : (aShareMax?.max ? parseTradeDate(aShareMax.max) : new Date(0));
 
       return {
         conditionId: c.id,
