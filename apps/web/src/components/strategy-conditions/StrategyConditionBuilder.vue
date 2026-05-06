@@ -22,10 +22,11 @@
             :options="fieldOptions"
             placeholder="选择指标"
             style="width: 180px"
+            @update:value="handleFieldChange(condition, $event)"
           />
           <n-select
             v-model:value="condition.operator"
-            :options="operatorOptions"
+            :options="getOperatorOptions(condition.field)"
             placeholder="选择操作符"
             style="width: 140px"
           />
@@ -70,6 +71,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { NForm, NFormItem, NInput, NSelect, NInputNumber, NButton, NIcon, NSpace, NDivider, NRadioGroup, NRadioButton, useMessage } from 'naive-ui';
+import type { SelectOption } from 'naive-ui';
 import { Add as AddIcon, Trash as TrashIcon } from '@vicons/ionicons5';
 import type { StrategyConditionItem } from '../../api/modules/strategyConditions';
 
@@ -108,23 +110,30 @@ watch(() => props.initialData, (data) => {
   }
 }, { immediate: true });
 
-const aShareFields = [
-  { label: 'KDJ_J', value: 'kdj_j' },
-  { label: 'KDJ_K', value: 'kdj_k' },
-  { label: 'KDJ_D', value: 'kdj_d' },
-  { label: 'MACD_DIF', value: 'macd_dif' },
-  { label: 'MACD_DEA', value: 'macd_dea' },
-  { label: 'MACD_HIST', value: 'macd_hist' },
-  { label: 'BBI', value: 'bbi' },
-  { label: 'MA5', value: 'ma5' },
-  { label: 'MA10', value: 'ma10' },
-  { label: 'MA20', value: 'ma20' },
-  { label: 'MA30', value: 'ma30' },
-  { label: 'MA60', value: 'ma60' },
-  { label: 'MA120', value: 'ma120' },
-  { label: 'MA240', value: 'ma240' },
-  { label: 'ATR14', value: 'atr14' },
-  { label: '盈亏比', value: 'profit_loss_ratio' },
+interface FieldOption extends SelectOption {
+  /** 是否支持上穿/下穿（仅单表指标字段可用） */
+  supportsCross?: boolean;
+}
+
+const aShareFields: FieldOption[] = [
+  { label: 'KDJ_J', value: 'kdj_j', supportsCross: true },
+  { label: 'KDJ_K', value: 'kdj_k', supportsCross: true },
+  { label: 'KDJ_D', value: 'kdj_d', supportsCross: true },
+  { label: 'MACD_DIF', value: 'macd_dif', supportsCross: true },
+  { label: 'MACD_DEA', value: 'macd_dea', supportsCross: true },
+  { label: 'MACD_HIST', value: 'macd_hist', supportsCross: true },
+  { label: 'BBI', value: 'bbi', supportsCross: true },
+  { label: 'MA5', value: 'ma5', supportsCross: true },
+  { label: 'MA30', value: 'ma30', supportsCross: true },
+  { label: 'MA60', value: 'ma60', supportsCross: true },
+  { label: 'MA120', value: 'ma120', supportsCross: true },
+  { label: 'MA240', value: 'ma240', supportsCross: true },
+  { label: 'ATR14', value: 'atr14', supportsCross: true },
+  { label: '盈亏比', value: 'profit_loss_ratio', supportsCross: true },
+  { label: '砖形图', value: 'brick', supportsCross: true },
+  { label: '砖形图变动', value: 'brick_delta', supportsCross: true },
+  { label: '砖形图信号', value: 'brick_xg' },
+  // 行情 / 估值字段（跨表，不支持上穿/下穿）
   { label: '换手率', value: 'turnover_rate' },
   { label: '量比', value: 'volume_ratio' },
   { label: 'PE', value: 'pe' },
@@ -139,41 +148,36 @@ const aShareFields = [
   { label: '成交量', value: 'volume' },
   { label: '成交额', value: 'amount' },
   { label: '涨跌幅', value: 'pct_chg' },
-  { label: '砖形图', value: 'brick' },
-  { label: '砖形图变动', value: 'brick_delta' },
-  { label: '砖形图信号', value: 'brick_xg' },
 ];
 
-const cryptoFields = [
-  { label: 'KDJ_J', value: 'kdj_j' },
-  { label: 'KDJ_K', value: 'kdj_k' },
-  { label: 'KDJ_D', value: 'kdj_d' },
-  { label: 'MACD_DIF', value: 'macd_dif' },
-  { label: 'MACD_DEA', value: 'macd_dea' },
-  { label: 'MACD_HIST', value: 'macd_hist' },
-  { label: 'BBI', value: 'bbi' },
-  { label: 'MA5', value: 'ma5' },
-  { label: 'MA10', value: 'ma10' },
-  { label: 'MA20', value: 'ma20' },
-  { label: 'MA30', value: 'ma30' },
-  { label: 'MA60', value: 'ma60' },
-  { label: 'MA120', value: 'ma120' },
-  { label: 'MA240', value: 'ma240' },
-  { label: 'ATR14', value: 'atr14' },
-  { label: '盈亏比', value: 'profit_loss_ratio' },
-  { label: '收盘价', value: 'close' },
-  { label: '开盘价', value: 'open' },
-  { label: '最高价', value: 'high' },
-  { label: '最低价', value: 'low' },
-  { label: '成交量', value: 'volume' },
-  { label: '成交额', value: 'amount' },
+const cryptoFields: FieldOption[] = [
+  { label: 'KDJ_J', value: 'kdj_j', supportsCross: true },
+  { label: 'KDJ_K', value: 'kdj_k', supportsCross: true },
+  { label: 'KDJ_D', value: 'kdj_d', supportsCross: true },
+  { label: 'MACD_DIF', value: 'macd_dif', supportsCross: true },
+  { label: 'MACD_DEA', value: 'macd_dea', supportsCross: true },
+  { label: 'MACD_HIST', value: 'macd_hist', supportsCross: true },
+  { label: 'BBI', value: 'bbi', supportsCross: true },
+  { label: 'MA5', value: 'ma5', supportsCross: true },
+  { label: 'MA30', value: 'ma30', supportsCross: true },
+  { label: 'MA60', value: 'ma60', supportsCross: true },
+  { label: 'MA120', value: 'ma120', supportsCross: true },
+  { label: 'MA240', value: 'ma240', supportsCross: true },
+  { label: 'ATR14', value: 'atr14', supportsCross: true },
+  { label: '盈亏比', value: 'profit_loss_ratio', supportsCross: true },
+  { label: '收盘价', value: 'close', supportsCross: true },
+  { label: '开盘价', value: 'open', supportsCross: true },
+  { label: '最高价', value: 'high', supportsCross: true },
+  { label: '最低价', value: 'low', supportsCross: true },
+  { label: '成交量', value: 'volume', supportsCross: true },
+  { label: '成交额', value: 'amount', supportsCross: true },
 ];
 
 const fieldOptions = computed(() => {
   return form.value.targetType === 'a-share' ? aShareFields : cryptoFields;
 });
 
-const operatorOptions = [
+const BASE_OPERATOR_OPTIONS = [
   { label: '大于', value: 'gt' },
   { label: '大于等于', value: 'gte' },
   { label: '小于', value: 'lt' },
@@ -183,6 +187,26 @@ const operatorOptions = [
   { label: '上穿', value: 'cross_above' },
   { label: '下穿', value: 'cross_below' },
 ];
+
+function getOperatorOptions(fieldValue: string) {
+  const fields = form.value.targetType === 'a-share' ? aShareFields : cryptoFields;
+  const fieldDef = fields.find(f => f.value === fieldValue);
+  const supportsCross = fieldDef?.supportsCross ?? false;
+  return BASE_OPERATOR_OPTIONS.map(opt => ({
+    ...opt,
+    disabled: !supportsCross && (opt.value === 'cross_above' || opt.value === 'cross_below'),
+  }));
+}
+
+function handleFieldChange(condition: StrategyConditionItem, newField: string) {
+  condition.field = newField;
+  if (
+    (condition.operator === 'cross_above' || condition.operator === 'cross_below') &&
+    !getOperatorOptions(newField).find(o => o.value === condition.operator && !o.disabled)
+  ) {
+    condition.operator = 'gt';
+  }
+}
 
 function addCondition() {
   form.value.conditions.push({

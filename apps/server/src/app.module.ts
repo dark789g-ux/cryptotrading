@@ -39,6 +39,8 @@ import { UserEntity } from './users/entities/user.entity';
 import { AuthSessionEntity } from './auth/entities/auth-session.entity';
 import { UserInvitationEntity } from './users/entities/user-invitation.entity';
 import { StrategyConditionEntity } from './entities/strategy-condition.entity';
+import { StrategyConditionRunEntity } from './entities/strategy-condition-run.entity';
+import { StrategyConditionHitEntity } from './entities/strategy-condition-hit.entity';
 import { StrategyConditionsModule } from './strategy-conditions/strategy-conditions.module';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
@@ -80,6 +82,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           AuthSessionEntity,
           UserInvitationEntity,
           StrategyConditionEntity,
+          StrategyConditionRunEntity,
+          StrategyConditionHitEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],

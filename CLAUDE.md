@@ -37,12 +37,15 @@ crtptotrading:加密量化策略
 - 关闭 `synchronize`
 - TypeORM：`andWhere` 等字符串里禁 `'[]'::jsonb`（误绑 `:jsonb`），用 `CAST('[]' AS jsonb)`
 - 禁同表 `leftJoin` 再 `getManyAndCount`+`orderBy`（0.3 空 metadata）
+- 动态 SQL 构建**禁止**直接将前端字段名拼入 SQL（如 `i.${field}`）；必须经过字段名映射表翻译为实际列名，未命中映射的字段一律跳过并记 `logger.warn`
 
 ## DO
 - 单文件不超过 500 行，模块化拆分
 - Modal 组件优先复用 `@/components/common/AppModal.vue`，避免直接使用 `n-modal`
 - Modal 按钮控制权单一归属：使用 AppModal 时，操作按钮统一放在 `#actions` slot，子组件内部禁止自带"保存/取消"按钮，避免双重按钮问题
 - **条件/表达式构建器的设计原则**：凡是涉及"比较"的 UI（条件筛选、策略规则、阈值配置等），比较目标必须同时支持**字段引用**（指标/属性）和**常量值**（用户直接输入数值）两种类型，由用户自行选择，禁止硬编码为单一类型
+- **动态字段映射规范**：新增支持用户选字段的查询模块时，必须：① 建立 `FIELD_COL_MAP`（前端字段名 → `表别名.列名`）；② 跳过未知字段时记 `logger.warn`；③ 针对有前提约束的操作符（如上穿/下穿仅限单表指标），在映射表层面校验字段所属表，不满足则 warn + skip；④ 前端操作符列表须同步反映约束（`disabled`），不能仅靠后端防御
+- **修改文件结构性区域后必须立即回读**：凡涉及 import 块、模块顶层声明的编辑，操作完成后须立即读取文件头部验证顺序正确，不得依赖 linter 代替人工确认
 
 ## 时间规范
 - DB 时间列一律 `timestamptz`，禁 `timestamp`（无 TZ 列遇 JS Date 会按 Node 本地 TZ 落库，与 UTC 错位）。

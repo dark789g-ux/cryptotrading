@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { StrategyConditionEntity, StrategyConditionItem } from '../entities/strategy-condition.entity';
@@ -6,6 +6,63 @@ import { StrategyConditionRunEntity } from '../entities/strategy-condition-run.e
 import { StrategyConditionHitEntity } from '../entities/strategy-condition-hit.entity';
 import { CreateStrategyConditionDto } from './dto/create-strategy-condition.dto';
 import { UpdateStrategyConditionDto } from './dto/update-strategy-condition.dto';
+
+const ASHARE_FIELD_COL_MAP: Record<string, string> = {
+  macd_dif: 'i.dif',
+  macd_dea: 'i.dea',
+  macd_hist: 'i.macd',
+  kdj_j: 'i.kdj_j',
+  kdj_k: 'i.kdj_k',
+  kdj_d: 'i.kdj_d',
+  bbi: 'i.bbi',
+  ma5: 'i.ma5',
+  ma30: 'i.ma30',
+  ma60: 'i.ma60',
+  ma120: 'i.ma120',
+  ma240: 'i.ma240',
+  atr14: 'i.atr_14',
+  profit_loss_ratio: 'i.risk_reward_ratio',
+  brick: 'i.brick',
+  brick_delta: 'i.brick_delta',
+  brick_xg: 'i.brick_xg',
+  close: 'q.close',
+  open: 'q.open',
+  high: 'q.high',
+  low: 'q.low',
+  volume: 'q.vol',
+  amount: 'q.amount',
+  pct_chg: 'q.pct_chg',
+  turnover_rate: 'm.turnover_rate',
+  volume_ratio: 'm.volume_ratio',
+  pe: 'm.pe',
+  pe_ttm: 'm.pe_ttm',
+  pb: 'm.pb',
+  total_mv: 'm.total_mv',
+  circ_mv: 'm.circ_mv',
+};
+
+const CRYPTO_FIELD_COL_MAP: Record<string, string> = {
+  macd_dif: 'k.dif',
+  macd_dea: 'k.dea',
+  macd_hist: 'k.macd',
+  kdj_j: 'k.kdj_j',
+  kdj_k: 'k.kdj_k',
+  kdj_d: 'k.kdj_d',
+  bbi: 'k.bbi',
+  ma5: 'k.ma5',
+  ma30: 'k.ma30',
+  ma60: 'k.ma60',
+  ma120: 'k.ma120',
+  ma240: 'k.ma240',
+  atr14: 'k.atr_14',
+  profit_loss_ratio: 'k.risk_reward_ratio',
+  close: 'k.close',
+  open: 'k.open',
+  high: 'k.high',
+  low: 'k.low',
+  volume: 'k.volume',
+  amount: 'k.quote_volume',
+};
 
 export interface RunResult {
   hits: Array<{
@@ -35,6 +92,8 @@ export interface LastRunStatus {
 
 @Injectable()
 export class StrategyConditionsService {
+  private readonly logger = new Logger(StrategyConditionsService.name);
+
   constructor(
     @InjectRepository(StrategyConditionEntity)
     private readonly repo: Repository<StrategyConditionEntity>,
@@ -112,7 +171,7 @@ export class StrategyConditionsService {
 
     // 异步执行扫描
     this.executeRun(entity, run.id).catch(err => {
-      console.error('Strategy run failed:', err);
+      this.logger.error('Strategy run failed', err instanceof Error ? err.stack : String(err));
     });
 
     return { runId: run.id };
@@ -276,9 +335,14 @@ export class StrategyConditionsService {
       query = `
         SELECT s.ts_code as "tsCode", s.name
         FROM a_share_symbols s
-        JOIN a_share_daily_indicators i ON s.ts_code = i.ts_code
-        WHERE i.trade_date = (SELECT MAX(trade_date) FROM a_share_daily_indicators)
-          AND s.list_status = 'L'
+        JOIN a_share_daily_indicators i
+          ON i.ts_code = s.ts_code
+         AND i.trade_date = (SELECT MAX(trade_date) FROM a_share_daily_indicators)
+        LEFT JOIN a_share_daily_quotes q
+          ON q.ts_code = s.ts_code AND q.trade_date = i.trade_date
+        LEFT JOIN a_share_daily_metrics m
+          ON m.ts_code = s.ts_code AND m.trade_date = i.trade_date
+        WHERE s.list_status = 'L'
           AND ${whereClause}
         ORDER BY s.ts_code
         LIMIT ${limit} OFFSET ${offset}
@@ -311,9 +375,32 @@ export class StrategyConditionsService {
 
     for (const cond of conditions) {
       const { field, operator, value, compareField } = cond;
+      const col = ASHARE_FIELD_COL_MAP[field];
+      if (!col) {
+        this.logger.warn(`[A股] 未知字段 "${field}"，已跳过`);
+        continue;
+      }
 
       if (operator === 'cross_above' || operator === 'cross_below') {
-        const direction = operator === 'cross_above' ? '<' : '>';
+        if (!col.startsWith('i.')) {
+          this.logger.warn(
+            `[A股] 字段 "${field}"（${col}）不在 indicators 表，不支持上穿/下穿，已跳过`,
+          );
+          continue;
+        }
+        const compareCol = compareField ? ASHARE_FIELD_COL_MAP[compareField] : null;
+        if (!compareCol) {
+          this.logger.warn(`[A股] cross 比较字段 "${compareField}" 未知，已跳过`);
+          continue;
+        }
+        if (!compareCol.startsWith('i.')) {
+          this.logger.warn(
+            `[A股] 比较字段 "${compareField}"（${compareCol}）不在 indicators 表，不支持上穿/下穿，已跳过`,
+          );
+          continue;
+        }
+        const prevDirection = operator === 'cross_above' ? '<' : '>';
+        const curDirection = operator === 'cross_above' ? '>' : '<';
         whereClauses.push(`
           EXISTS (
             SELECT 1 FROM a_share_daily_indicators prev
@@ -322,18 +409,23 @@ export class StrategyConditionsService {
                 SELECT MAX(trade_date) FROM a_share_daily_indicators
                 WHERE trade_date < i.trade_date AND ts_code = i.ts_code
               )
-              AND prev.${field} ${direction} prev.${compareField}
+              AND ${col.replace(/^i\./, 'prev.')} ${prevDirection} ${compareCol.replace(/^i\./, 'prev.')}
           )
-          AND i.${field} ${operator === 'cross_above' ? '>' : '<'} i.${compareField}
+          AND ${col} ${curDirection} ${compareCol}
         `);
       } else if (compareField) {
-        whereClauses.push(`i.${field} ${this.getSqlOperator(operator)} i.${compareField}`);
+        const compareCol = ASHARE_FIELD_COL_MAP[compareField];
+        if (!compareCol) {
+          this.logger.warn(`[A股] 未知比较字段 "${compareField}"，已跳过`);
+          continue;
+        }
+        whereClauses.push(`${col} ${this.getSqlOperator(operator)} ${compareCol}`);
       } else {
-        whereClauses.push(`i.${field} ${this.getSqlOperator(operator)} ${value}`);
+        whereClauses.push(`${col} ${this.getSqlOperator(operator)} ${value}`);
       }
     }
 
-    return whereClauses.join(' AND ');
+    return whereClauses.length > 0 ? whereClauses.join(' AND ') : 'TRUE';
   }
 
   private buildCryptoQuery(conditions: StrategyConditionItem[]): string {
@@ -341,9 +433,32 @@ export class StrategyConditionsService {
 
     for (const cond of conditions) {
       const { field, operator, value, compareField } = cond;
+      const col = CRYPTO_FIELD_COL_MAP[field];
+      if (!col) {
+        this.logger.warn(`[加密] 未知字段 "${field}"，已跳过`);
+        continue;
+      }
 
       if (operator === 'cross_above' || operator === 'cross_below') {
-        const direction = operator === 'cross_above' ? '<' : '>';
+        if (!col.startsWith('k.')) {
+          this.logger.warn(
+            `[加密] 字段 "${field}"（${col}）不在 klines 表，不支持上穿/下穿，已跳过`,
+          );
+          continue;
+        }
+        const compareCol = compareField ? CRYPTO_FIELD_COL_MAP[compareField] : null;
+        if (!compareCol) {
+          this.logger.warn(`[加密] cross 比较字段 "${compareField}" 未知，已跳过`);
+          continue;
+        }
+        if (!compareCol.startsWith('k.')) {
+          this.logger.warn(
+            `[加密] 比较字段 "${compareField}"（${compareCol}）不在 klines 表，不支持上穿/下穿，已跳过`,
+          );
+          continue;
+        }
+        const prevDirection = operator === 'cross_above' ? '<' : '>';
+        const curDirection = operator === 'cross_above' ? '>' : '<';
         whereClauses.push(`
           EXISTS (
             SELECT 1 FROM klines prev
@@ -353,18 +468,23 @@ export class StrategyConditionsService {
                 SELECT MAX(open_time) FROM klines
                 WHERE open_time < k.open_time AND symbol = k.symbol AND interval = k.interval
               )
-              AND prev.${field} ${direction} prev.${compareField}
+              AND ${col.replace(/^k\./, 'prev.')} ${prevDirection} ${compareCol.replace(/^k\./, 'prev.')}
           )
-          AND k.${field} ${operator === 'cross_above' ? '>' : '<'} k.${compareField}
+          AND ${col} ${curDirection} ${compareCol}
         `);
       } else if (compareField) {
-        whereClauses.push(`k.${field} ${this.getSqlOperator(operator)} k.${compareField}`);
+        const compareCol = CRYPTO_FIELD_COL_MAP[compareField];
+        if (!compareCol) {
+          this.logger.warn(`[加密] 未知比较字段 "${compareField}"，已跳过`);
+          continue;
+        }
+        whereClauses.push(`${col} ${this.getSqlOperator(operator)} ${compareCol}`);
       } else {
-        whereClauses.push(`k.${field} ${this.getSqlOperator(operator)} ${value}`);
+        whereClauses.push(`${col} ${this.getSqlOperator(operator)} ${value}`);
       }
     }
 
-    return whereClauses.join(' AND ');
+    return whereClauses.length > 0 ? whereClauses.join(' AND ') : 'TRUE';
   }
 
   private getSqlOperator(operator: string): string {
