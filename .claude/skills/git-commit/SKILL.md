@@ -82,12 +82,22 @@ git add <file1> <file2> ...
 
 ### 6. 提交
 
-```bash
-git commit -m "$(cat <<'EOF'
-<最终 message>
-EOF
-)"
+**此项目运行环境为 Windows PowerShell，不支持 heredoc，且字符串插值中 Unicode 转义（`` `u{xxxx} ``）不可靠。**
+
+必须用 PowerShell here-string + `WriteAllText` 写入临时文件后再提交：
+
+```powershell
+$msg = @"
+<type>[(scope)]: <中文描述>
+
+- body 行 1
+- body 行 2
+"@
+[System.IO.File]::WriteAllText("$env:TEMP\commitmsg.txt", $msg, [System.Text.Encoding]::UTF8)
+git commit -F "$env:TEMP\commitmsg.txt"
 ```
+
+中文字符直接写入 here-string，**禁止**在字符串变量中使用 `` `u{xxxx} `` 转义中文。
 
 提交成功后告知用户，并提示如需 push 可手动执行 `git push`。
 
