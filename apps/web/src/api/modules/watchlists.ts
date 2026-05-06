@@ -54,4 +54,10 @@ export const watchlistApi = {
 
   reorderItems: (id: string, symbols: string[]) =>
     put<{ ok: true }>(`${API_BASE}/watchlists/${id}/reorder`, { symbols }),
+
+  importFromIndex: (id: string, indexCode: string) =>
+    post<{ imported: number; replaced: number }>(
+      `${API_BASE}/watchlists/${id}/import-from-index`,
+      { indexCode },
+    ),
 }

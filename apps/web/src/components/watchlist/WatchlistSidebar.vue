@@ -47,6 +47,16 @@
       @clickoutside="dropdownVisible = false"
       @select="handleDropdownSelect"
     />
+
+    <!-- 从指数导入 -->
+    <ImportFromIndexModal
+      v-if="importTarget"
+      v-model:show="showImportModal"
+      :watchlist-id="importTarget.id"
+      :watchlist-name="importTarget.name"
+      :current-member-count="importTarget.items?.length ?? 0"
+      @imported="store.loadWatchlists()"
+    />
   </div>
 </template>
 
@@ -60,6 +70,7 @@ import { AddOutline } from '@vicons/ionicons5'
 import { useWatchlistStore } from '@/stores/watchlist'
 import { watchlistApi } from '@/api'
 import AppModal from '@/components/common/AppModal.vue'
+import ImportFromIndexModal from '@/components/watchlist/ImportFromIndexModal.vue'
 
 const store = useWatchlistStore()
 const message = useMessage()
@@ -74,9 +85,12 @@ const dropdownVisible = ref(false)
 const dropdownX = ref(0)
 const dropdownY = ref(0)
 const contextMenuTarget = ref<typeof store.watchlists[0] | null>(null)
+const showImportModal = ref(false)
+const importTarget = ref<typeof store.watchlists[0] | null>(null)
 
 const dropdownOptions = [
   { label: '重命名', key: 'rename' },
+  { label: '从指数导入成员', key: 'import-index' },
   { label: '删除', key: 'delete' },
 ]
 
@@ -95,6 +109,9 @@ function handleDropdownSelect(key: string) {
     editTarget.value = wl
     formName.value = wl.name
     showModal.value = true
+  } else if (key === 'import-index') {
+    importTarget.value = wl
+    showImportModal.value = true
   } else if (key === 'delete') {
     dialog.warning({
       title: '确认删除',
