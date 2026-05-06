@@ -1,14 +1,18 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { WatchlistsService } from './watchlists.service';
+import { WatchlistsService, INDEX_ALLOWLIST } from './watchlists.service';
 import { WatchlistEntity } from '../../entities/watchlist/watchlist.entity';
 import { WatchlistItemEntity } from '../../entities/watchlist/watchlist-item.entity';
+import { TushareClientService } from '../../market-data/a-shares/services/tushare-client.service';
+import { NotFoundException } from '@nestjs/common';
 
 describe('WatchlistsService', () => {
   let service: WatchlistsService;
   let watchlistRepo: jest.Mocked<Repository<WatchlistEntity>>;
   let itemRepo: jest.Mocked<Repository<WatchlistItemEntity>>;
+  let tushareClient: jest.Mocked<TushareClientService>;
+  let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -36,12 +40,28 @@ describe('WatchlistsService', () => {
             update: jest.fn(),
           },
         },
+        {
+          provide: TushareClientService,
+          useValue: { query: jest.fn() },
+        },
+        {
+          provide: getDataSourceToken(),
+          useValue: {
+            transaction: jest.fn((cb) => cb({
+              delete: jest.fn(),
+              create: jest.fn((_, data) => data),
+              save: jest.fn(),
+            })),
+          },
+        },
       ],
     }).compile();
 
     service = module.get<WatchlistsService>(WatchlistsService);
     watchlistRepo = module.get(getRepositoryToken(WatchlistEntity));
     itemRepo = module.get(getRepositoryToken(WatchlistItemEntity));
+    tushareClient = module.get(TushareClientService);
+    dataSource = module.get(getDataSourceToken());
   });
 
   it('should be defined', () => {
@@ -118,6 +138,61 @@ describe('WatchlistsService', () => {
       expect(sql).toContain('a_share_daily_quotes');
       expect(sql).toContain('a_share_daily_indicators');
       expect(params).toEqual(['1d', ['000001.SZ', '000002.SZ']]);
+    });
+  });
+
+  describe('importFromIndex', () => {
+    const watchlistId = 'wl-uuid-1';
+    const userId = 'user-1';
+
+    beforeEach(() => {
+      watchlistRepo.findOne.mockResolvedValue({
+        id: watchlistId,
+        userId,
+        items: [{ symbol: 'OLD.SH' }],
+      } as any);
+    });
+
+    it('should throw BadRequestException for unknown indexCode', async () => {
+      await expect(
+        service.importFromIndex(userId, watchlistId, 'UNKNOWN.XX'),
+      ).rejects.toThrow('不支持的指数代码');
+    });
+
+    it('should throw BadRequestException when Tushare returns empty list', async () => {
+      tushareClient.query.mockResolvedValue([]);
+      await expect(
+        service.importFromIndex(userId, watchlistId, '399300.SZ'),
+      ).rejects.toThrow('未找到该指数成分数据');
+    });
+
+    it('should throw NotFoundException when watchlist not found', async () => {
+      watchlistRepo.findOne.mockResolvedValue(null);
+      tushareClient.query.mockResolvedValue([{ con_code: '600000.SH' }]);
+      await expect(
+        service.importFromIndex(userId, watchlistId, '399300.SZ'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should replace members and return counts', async () => {
+      const conCodes = ['600000.SH', '000001.SZ'];
+      tushareClient.query.mockResolvedValue(
+        conCodes.map((c) => ({ con_code: c })),
+      );
+
+      const result = await service.importFromIndex(userId, watchlistId, '399300.SZ');
+
+      expect(tushareClient.query).toHaveBeenCalledWith(
+        'index_member',
+        { index_code: '399300.SZ' },
+        'con_code',
+      );
+      expect(dataSource.transaction).toHaveBeenCalled();
+      expect(result).toEqual({ imported: 2, replaced: 1 });
+    });
+
+    it('INDEX_ALLOWLIST should contain 5 entries', () => {
+      expect(Object.keys(INDEX_ALLOWLIST)).toHaveLength(5);
     });
   });
 });
