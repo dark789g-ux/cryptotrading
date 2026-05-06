@@ -5,6 +5,8 @@ import { StrategyConditionRunEntity } from '../entities/strategy-condition-run.e
 import { StrategyConditionHitEntity } from '../entities/strategy-condition-hit.entity';
 import { StrategyConditionsController } from './strategy-conditions.controller';
 import { StrategyConditionsService } from './strategy-conditions.service';
+import { StrategyConditionsRunner } from './strategy-conditions.runner';
+import { StrategyConditionsQueryBuilder } from './strategy-conditions.query-builder';
 
 @Module({
   imports: [TypeOrmModule.forFeature([
@@ -13,7 +15,7 @@ import { StrategyConditionsService } from './strategy-conditions.service';
     StrategyConditionHitEntity,
   ])],
   controllers: [StrategyConditionsController],
-  providers: [StrategyConditionsService],
+  providers: [StrategyConditionsQueryBuilder, StrategyConditionsRunner, StrategyConditionsService],
   exports: [StrategyConditionsService],
 })
 export class StrategyConditionsModule {}
