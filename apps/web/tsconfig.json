@@ -3,7 +3,9 @@
   "include": ["src/**/*", "src/**/*.vue"],
   "compilerOptions": {
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@cryptotrading/shared-types": ["../../packages/shared-types/src/index.ts"],
+      "@cryptotrading/shared-types/*": ["../../packages/shared-types/src/*"]
     },
     "strict": false
   }

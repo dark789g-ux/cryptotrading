@@ -1,77 +1,26 @@
 import { API_BASE, post, request } from '../client'
 
-export interface MoneyFlowQueryParams {
-  trade_date?: string
-  start_date?: string
-  end_date?: string
-  ts_code?: string
-}
+export type {
+  MoneyFlowQueryParams,
+  MoneyFlowSyncParams,
+  MoneyFlowSyncResult,
+  MoneyFlowLatestDates,
+  MoneyFlowStockRow,
+  MoneyFlowIndustryRow,
+  MoneyFlowSectorRow,
+  MoneyFlowMarketRow,
+} from '@cryptotrading/shared-types'
 
-export interface MoneyFlowSyncParams {
-  start_date: string
-  end_date: string
-}
-
-export interface MoneyFlowSyncResult {
-  success: number
-  skipped: number
-  errors: string[]
-}
-
-export interface MoneyFlowLatestDates {
-  stock: string | null
-  industry: string | null
-  sector: string | null
-  market: string | null
-}
-
-export interface MoneyFlowStockRow {
-  id: string
-  tsCode: string
-  tradeDate: string
-  name: string | null
-  pctChange: string | null
-  latest: string | null
-  netAmount: string | null
-  netD5Amount: string | null
-  buyLgAmount: string | null
-  buyLgAmountRate: string | null
-  buyMdAmount: string | null
-  buyMdAmountRate: string | null
-  buySmAmount: string | null
-  buySmAmountRate: string | null
-}
-
-export interface MoneyFlowIndustryRow {
-  id: string
-  tradeDate: string
-  industry: string
-  pctChange: string | null
-  netAmount: string | null
-  buyLgAmount: string | null
-  buyMdAmount: string | null
-  buySmAmount: string | null
-}
-
-export interface MoneyFlowSectorRow {
-  id: string
-  tradeDate: string
-  sector: string
-  pctChange: string | null
-  netAmount: string | null
-  buyLgAmount: string | null
-  buyMdAmount: string | null
-  buySmAmount: string | null
-}
-
-export interface MoneyFlowMarketRow {
-  id: string
-  tradeDate: string
-  netAmount: string | null
-  buyLgAmount: string | null
-  buySmAmount: string | null
-  hkNetAmount: string | null
-}
+import type {
+  MoneyFlowQueryParams,
+  MoneyFlowSyncParams,
+  MoneyFlowSyncResult,
+  MoneyFlowLatestDates,
+  MoneyFlowStockRow,
+  MoneyFlowIndustryRow,
+  MoneyFlowSectorRow,
+  MoneyFlowMarketRow,
+} from '@cryptotrading/shared-types'
 
 function buildQs(params: MoneyFlowQueryParams): string {
   const qs = new URLSearchParams()
