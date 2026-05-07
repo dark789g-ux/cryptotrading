@@ -66,7 +66,7 @@ const chartRows = computed((): BarChartRow[] =>
 const columns: DataTableColumns<MoneyFlowIndustryRow> = [
   { title: '行业', key: 'industry', width: 120 },
   { title: '涨跌幅%', key: 'pctChange', width: 90, sorter: (a, b) => Number(a.pctChange) - Number(b.pctChange), render: row => { const v = Number(row.pctChange); return h('span', { class: v > 0 ? 'positive' : v < 0 ? 'negative' : '' }, `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`) } },
-  { title: '净流入(万)', key: 'netAmount', width: 110, defaultSortOrder: 'descend', sorter: (a, b) => Number(a.netAmount) - Number(b.netAmount), render: row => { const v = Number(row.netAmount); return h('span', { class: v > 0 ? 'positive' : v < 0 ? 'negative' : '' }, v.toFixed(2)) } },
+  { title: '净流入(万)', key: 'netAmount', width: 110, defaultSortOrder: 'descend' as const, sorter: (a, b) => Number(a.netAmount) - Number(b.netAmount), render: row => { const v = Number(row.netAmount); return h('span', { class: v > 0 ? 'positive' : v < 0 ? 'negative' : '' }, v.toFixed(2)) } },
   { title: '大单净额(万)', key: 'buyLgAmount', width: 115, sorter: (a, b) => Number(a.buyLgAmount) - Number(b.buyLgAmount), render: row => { const v = Number(row.buyLgAmount); return h('span', { class: v > 0 ? 'positive' : 'negative' }, v.toFixed(2)) } },
   { title: '中单净额(万)', key: 'buyMdAmount', width: 115, render: row => { const v = Number(row.buyMdAmount); return h('span', { class: v > 0 ? 'positive' : 'negative' }, v.toFixed(2)) } },
   { title: '小单净额(万)', key: 'buySmAmount', width: 115, render: row => { const v = Number(row.buySmAmount); return h('span', { class: v > 0 ? 'positive' : 'negative' }, v.toFixed(2)) } },

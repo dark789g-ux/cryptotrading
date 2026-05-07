@@ -98,7 +98,7 @@ const columns: DataTableColumns<MoneyFlowStockRow> = [
     key: 'netAmount',
     width: 110,
     sorter: (a, b) => Number(a.netAmount) - Number(b.netAmount),
-    defaultSortOrder: 'descend',
+    defaultSortOrder: 'descend' as const,
     render: (row) => {
       const v = Number(row.netAmount)
       return h('span', { class: v > 0 ? 'positive' : v < 0 ? 'negative' : '' }, v.toFixed(2))
