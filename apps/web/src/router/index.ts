@@ -63,6 +63,12 @@ const routes: any[] = [
     component: () => import('../views/StrategyConditionsView.vue'),
     meta: { title: '策略条件' },
   },
+  {
+    path: '/money-flow',
+    name: 'money-flow',
+    component: () => import('../views/MoneyFlowView.vue'),
+    meta: { title: '资金流向' },
+  },
 ]
 
 const router = createRouter({
