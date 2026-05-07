@@ -2,7 +2,7 @@
 <template>
   <div class="stock-flow-panel">
     <div class="panel-controls">
-      <FlowDateControl @change="onDateChange" />
+      <FlowDateControl :default-date="latestDate" @change="onDateChange" />
       <n-input
         v-model:value="searchQuery"
         placeholder="搜索股票代码/名称"
@@ -40,7 +40,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'StockFlowPanel' })
 
-import { computed, h, onActivated, ref } from 'vue'
+import { computed, h, onActivated, onMounted, ref } from 'vue'
 import { NDataTable, NInput } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowStockRow } from '@/api/modules/moneyFlow'
@@ -53,6 +53,7 @@ const rows = ref<MoneyFlowStockRow[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
 const currentParams = ref<MoneyFlowQueryParams>({})
+const latestDate = ref<string | null>(null)
 
 const filteredRows = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
@@ -151,6 +152,13 @@ function onDateChange(params: MoneyFlowQueryParams) {
   currentParams.value = params
   load()
 }
+
+onMounted(async () => {
+  try {
+    const dates = await moneyFlowApi.getLatestDates()
+    latestDate.value = dates.stock
+  } catch { /* ignore */ }
+})
 
 onActivated(load)
 </script>

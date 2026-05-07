@@ -19,9 +19,6 @@ export class MoneyFlowMarketEntity {
   @Column({ name: 'buy_sm_amount', type: 'numeric', precision: 20, scale: 4, nullable: true })
   buySmAmount: string | null;
 
-  @Column({ name: 'hk_net_amount', type: 'numeric', precision: 20, scale: 4, nullable: true })
-  hkNetAmount: string | null;
-
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }

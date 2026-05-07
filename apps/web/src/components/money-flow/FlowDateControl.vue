@@ -33,10 +33,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { NDatePicker } from 'naive-ui'
 
 type DateMode = 'single' | 'range'
+
+const props = defineProps<{
+  defaultDate?: string | null
+}>()
 
 const emit = defineEmits<{
   change: [params: { trade_date?: string; start_date?: string; end_date?: string }]
@@ -52,27 +56,45 @@ function toYYYYMMDD(ts: number): string {
   return `${y}${m}${day}`
 }
 
-const todayTs = Date.now()
-const singleDateTs = ref<number | null>(todayTs)
+function yyyymmddToTs(s: string): number {
+  return new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T00:00:00`).getTime()
+}
+
+const singleDateTs = ref<number | null>(
+  props.defaultDate ? yyyymmddToTs(props.defaultDate) : Date.now(),
+)
 const rangeDateTs = ref<[number, number] | null>(null)
 
 const singleYYYYMMDD = computed(() => singleDateTs.value ? toYYYYMMDD(singleDateTs.value) : '')
+
+// 用户主动操作后不再跟随 defaultDate 变化
+let userHasInteracted = false
+
+watch(() => props.defaultDate, (v) => {
+  if (!userHasInteracted && v) {
+    singleDateTs.value = yyyymmddToTs(v)
+    emitCurrent()
+  }
+})
 
 function isFutureDate(ts: number) {
   return ts > Date.now()
 }
 
 function setMode(m: DateMode) {
+  userHasInteracted = true
   mode.value = m
   emitCurrent()
 }
 
 function onSingleChange(ts: number | null) {
+  userHasInteracted = true
   singleDateTs.value = ts
   if (ts) emit('change', { trade_date: toYYYYMMDD(ts) })
 }
 
 function onRangeChange(ts: [number, number] | null) {
+  userHasInteracted = true
   rangeDateTs.value = ts
   if (ts) emit('change', { start_date: toYYYYMMDD(ts[0]), end_date: toYYYYMMDD(ts[1]) })
 }

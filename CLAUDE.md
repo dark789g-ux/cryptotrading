@@ -31,6 +31,7 @@ crtptotrading:加密量化策略
 
 ## NestJS 规范
 - `AuthGuard` 已通过 `APP_GUARD` 注册为全局守卫，Controller 上**禁止**再加 `@UseGuards(AuthGuard)`（会导致 NestJS 在当前模块上下文解析 Guard 依赖，若未导入 `AuthModule` 则启动报 `Can't resolve dependencies`）。
+- **修改 `tsconfig.json` 后必须验证构建入口**：在 `apps/server/tsconfig.json` 中新增/修改 `paths`、`include`、`rootDir` 等影响文件范围的字段后，必须运行 `pnpm --filter @cryptotrading/server build` 并确认 `nest-cli.json` 的 `entryFile` 与实际编译产物路径一致。
 
 ## A 股日期规范
 - A 股 `trade_date` 存储格式为 Tushare 标准 `YYYYMMDD`（如 `'20260506'`），**禁止直接 `new Date(tradeDate)`**（返回 `Invalid Date`）
@@ -42,6 +43,8 @@ crtptotrading:加密量化策略
 - **外部服务返回空数据时必须记 `logger.warn`**：当外部 API 返回 `code=0` 但 `data=null`/空数组时，不得静默返回 `[]`，须 warn 并附带请求参数，以区分「权限不足」与「合法空结果」
 - **Mock 单测不验证第三方契约**：涉及第三方 API 名称、参数格式的测试，mock 永远通过，必须同时有集成测试或人工核对文档的步骤；若暂无集成测试，需在注释中标注 `// TODO: 需集成测试验证 API 契约`
 - **调试第三方 API 返回空的顺序**：① 先查官方文档确认接口名/参数；② 再加日志看真实响应；③ 最后才读内部实现——禁止跳过前两步直接猜
+- **`// TODO: 查文档确认` 的接口调用不得视为完成**：含此类注释的代码块不允许合入主干，必须先查文档兑现注释，再提交
+- **`.catch(() => [])` 静默吞错禁止用于同步任务**：同步服务的 API 调用失败时，错误必须在响应体的 `errors` 字段中明确透出，并在日志中打印具体 API 名称和错误信息；`success: 0` + 无报错的假象会让数据空白问题极难发现
 
 ## NOT DO
 - 原生 SQL 数组参数强转须与列类型匹配：`character varying` 列用 `::text[]`，`uuid` 列用 `::uuid[]`（如 `watchlist_items.watchlist_id` 是 `uuid`，误用 `::text[]` 会 500）
@@ -50,6 +53,7 @@ crtptotrading:加密量化策略
 - TypeORM：`andWhere` 等字符串里禁 `'[]'::jsonb`（误绑 `:jsonb`），用 `CAST('[]' AS jsonb)`
 - 禁同表 `leftJoin` 再 `getManyAndCount`+`orderBy`（0.3 空 metadata）
 - 动态 SQL 构建**禁止**直接将前端字段名拼入 SQL（如 `i.${field}`）；必须经过字段名映射表翻译为实际列名，未命中映射的字段一律跳过并记 `logger.warn`
+- **TypeORM `upsert` 前必须去重**：`repo.upsert(entities, conflictKeys)` 前须按 `conflictKeys` 对 `entities` 去重（保留最后一条）。PostgreSQL `ON CONFLICT DO UPDATE` 在同一批次内遇到两行冲突键相同的记录会直接报 `ON CONFLICT DO UPDATE command cannot affect row a second time`（500）。第三方 API 返回重复行时需记 `logger.warn` 并注明原始条数与去重后条数，以便后续核查 API 数据语义是否需要扩展实体联合主键。
 
 ## Vue 3 watch 规范
 - `watch(source, cb)` 默认**懒执行**，不响应初始值；若逻辑依赖初始值，必须加 `{ immediate: true }` 或在 `onMounted` 中补充调用

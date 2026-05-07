@@ -67,12 +67,11 @@ export interface MoneyFlowSectorRow {
   netAmount: string | null
 }
 
-/** GET /money-flow/market 单行 */
+/** GET /money-flow/market 单行（数据源：moneyflow_mkt_dc，东方财富大盘资金流向） */
 export interface MoneyFlowMarketRow {
   id: string
   tradeDate: string
   netAmount: string | null
   buyLgAmount: string | null
   buySmAmount: string | null
-  hkNetAmount: string | null
 }

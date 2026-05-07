@@ -2,7 +2,7 @@
 <template>
   <div class="industry-flow-panel">
     <div class="panel-controls">
-      <FlowDateControl @change="onDateChange" />
+      <FlowDateControl :default-date="latestDate" @change="onDateChange" />
     </div>
 
     <FlowKpiCards :cards="kpiCards" :loading="loading" />
@@ -33,7 +33,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'SectorFlowPanel' })
 
-import { computed, h, onActivated, ref } from 'vue'
+import { computed, h, onActivated, onMounted, ref } from 'vue'
 import { NDataTable } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowSectorRow } from '@/api/modules/moneyFlow'
@@ -45,6 +45,7 @@ import type { KpiCardItem, BarChartRow } from './money-flow.types'
 const rows = ref<MoneyFlowSectorRow[]>([])
 const loading = ref(false)
 const currentParams = ref<MoneyFlowQueryParams>({})
+const latestDate = ref<string | null>(null)
 
 const kpiCards = computed((): KpiCardItem[] => {
   const sorted = [...rows.value].sort((a, b) => Number(b.netAmount) - Number(a.netAmount))
@@ -87,6 +88,13 @@ function onDateChange(params: MoneyFlowQueryParams) {
   currentParams.value = params
   load()
 }
+
+onMounted(async () => {
+  try {
+    const dates = await moneyFlowApi.getLatestDates()
+    latestDate.value = dates.sector
+  } catch { /* ignore */ }
+})
 
 onActivated(load)
 </script>

@@ -121,8 +121,17 @@ export async function upsertInChunks<Entity extends object>(
   entities: Entity[],
   conflictPaths: string[],
 ): Promise<void> {
+  const map = new Map<string, Entity>();
+  for (const entity of entities) {
+    const key = conflictPaths
+      .map((p) => String((entity as Record<string, unknown>)[p]))
+      .join('|');
+    map.set(key, entity);
+  }
+  const deduped = Array.from(map.values());
+
   const chunkSize = 1000;
-  for (let index = 0; index < entities.length; index += chunkSize) {
-    await repo.upsert(entities.slice(index, index + chunkSize), conflictPaths);
+  for (let index = 0; index < deduped.length; index += chunkSize) {
+    await repo.upsert(deduped.slice(index, index + chunkSize), conflictPaths);
   }
 }

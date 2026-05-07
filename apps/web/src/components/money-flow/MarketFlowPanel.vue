@@ -2,7 +2,7 @@
 <template>
   <div class="market-flow-panel">
     <div class="panel-controls">
-      <FlowDateControl @change="onDateChange" />
+      <FlowDateControl :default-date="latestDate" @change="onDateChange" />
     </div>
 
     <FlowKpiCards :cards="kpiCards" :loading="loading" />
@@ -22,7 +22,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'MarketFlowPanel' })
 
-import { computed, onActivated, ref } from 'vue'
+import { computed, onActivated, onMounted, ref } from 'vue'
 import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowMarketRow } from '@/api/modules/moneyFlow'
 import FlowDateControl from './FlowDateControl.vue'
 import FlowKpiCards from './FlowKpiCards.vue'
@@ -32,6 +32,7 @@ import type { KpiCardItem, BarChartRow } from './money-flow.types'
 const rows = ref<MoneyFlowMarketRow[]>([])
 const loading = ref(false)
 const currentParams = ref<MoneyFlowQueryParams>({})
+const latestDate = ref<string | null>(null)
 
 const latestRow = computed(() => rows.value[rows.value.length - 1] ?? null)
 
@@ -39,7 +40,6 @@ const kpiCards = computed((): KpiCardItem[] => [
   { label: '大盘净流入', value: latestRow.value?.netAmount ?? null, sub: latestRow.value?.tradeDate ?? '' },
   { label: '主力净流入', value: latestRow.value?.buyLgAmount ?? null, sub: '大单' },
   { label: '散户净流入', value: latestRow.value?.buySmAmount ?? null, sub: '小单' },
-  { label: '沪深港通', value: latestRow.value?.hkNetAmount ?? null, sub: '北向资金' },
 ])
 
 const chartRows = computed((): BarChartRow[] =>
@@ -62,6 +62,13 @@ function onDateChange(params: MoneyFlowQueryParams) {
   currentParams.value = params
   load()
 }
+
+onMounted(async () => {
+  try {
+    const dates = await moneyFlowApi.getLatestDates()
+    latestDate.value = dates.market
+  } catch { /* ignore */ }
+})
 
 onActivated(load)
 </script>

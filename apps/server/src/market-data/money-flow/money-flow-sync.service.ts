@@ -9,13 +9,14 @@ import { MoneyFlowMarketEntity } from '../../entities/money-flow/money-flow-mark
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
 import { SyncFlowDto } from './dto/sync-flow.dto';
 
-// TODO: 需集成测试验证 API 契约（行业/板块/大盘接口名以官方文档为准）
+// moneyflow_ths: https://tushare.pro/wctapi/documents/348.md
 const STOCK_FIELDS = 'trade_date,ts_code,name,pct_change,latest,net_amount,net_d5_amount,buy_lg_amount,buy_lg_amount_rate,buy_md_amount,buy_md_amount_rate,buy_sm_amount,buy_sm_amount_rate';
 // moneyflow_ind_ths: https://tushare.pro/document/2?doc_id=343
 const INDUSTRY_FIELDS = 'trade_date,ts_code,industry,pct_change,net_buy_amount,net_sell_amount,net_amount';
 // moneyflow_cnt_ths: https://tushare.pro/document/2?doc_id=371
 const SECTOR_FIELDS = 'trade_date,ts_code,name,pct_change,net_buy_amount,net_sell_amount,net_amount';
-const MARKET_FIELDS = 'trade_date,net_amount,buy_lg_amount,buy_sm_amount,hk_net_amount'; // TODO: 查文档确认
+// moneyflow_mkt_dc: https://tushare.pro/wctapi/documents/345.md
+const MARKET_FIELDS = 'trade_date,net_amount,buy_lg_amount,buy_sm_amount';
 
 export interface MoneyFlowSyncResult {
   success: number;
@@ -170,13 +171,13 @@ export class MoneyFlowSyncService {
   async syncMarket(dto: SyncFlowDto): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
     const rows = await this.tushareClient.query(
-      'moneyflow_dc', // TODO: 查文档确认
+      'moneyflow_mkt_dc',
       { start_date: dto.start_date, end_date: dto.end_date },
       MARKET_FIELDS,
     ).catch((e: unknown) => { errors.push(String(e)); return []; });
 
     if (!rows.length) {
-      this.logger.warn('moneyflow_dc 返回空数据', dto);
+      this.logger.warn('moneyflow_mkt_dc 返回空数据', dto);
       return { success: 0, skipped: 0, errors };
     }
 
@@ -186,7 +187,6 @@ export class MoneyFlowSyncService {
         netAmount: asNullableNumeric(row.net_amount),
         buyLgAmount: asNullableNumeric(row.buy_lg_amount),
         buySmAmount: asNullableNumeric(row.buy_sm_amount),
-        hkNetAmount: asNullableNumeric(row.hk_net_amount),
       }),
     );
 
