@@ -104,6 +104,46 @@
                 </n-button>
               </div>
             </section>
+
+            <section class="data-source-card data-source-card--moneyflow">
+              <div class="data-source-header">
+                <div class="data-source-icon">
+                  <n-icon><swap-horizontal-outline /></n-icon>
+                </div>
+                <div class="data-source-heading">
+                  <span class="data-source-eyebrow">Money Flow</span>
+                  <h3 class="data-source-title">资金流向数据</h3>
+                  <p class="data-source-desc">同花顺/东方财富资金流向，按日期范围同步个股、行业、板块、大盘四个维度。</p>
+                </div>
+              </div>
+
+              <div class="data-source-body">
+                <n-form-item label="同步日期范围">
+                  <n-date-picker
+                    v-model:value="moneyFlowDateRange"
+                    type="daterange"
+                    format="yyyyMMdd"
+                    style="width: 100%"
+                  />
+                </n-form-item>
+                <div v-if="moneyFlowSyncResult" class="source-note">
+                  上次结果：个股 {{ moneyFlowSyncResult.stocks.success }} 条 / 行业 {{ moneyFlowSyncResult.industries.success }} 条 / 板块 {{ moneyFlowSyncResult.sectors.success }} 条 / 大盘 {{ moneyFlowSyncResult.market.success }} 条
+                </div>
+              </div>
+
+              <div class="data-source-actions data-source-actions--single">
+                <n-button
+                  block
+                  secondary
+                  type="primary"
+                  :loading="moneyFlowSyncing"
+                  @click="syncMoneyFlow"
+                >
+                  <template #icon><n-icon><swap-horizontal-outline /></n-icon></template>
+                  同步资金流向
+                </n-button>
+              </div>
+            </section>
           </div>
         </n-form>
       </n-card>
@@ -211,11 +251,13 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import {
   NButton,
   NCard,
   NCheckbox,
   NCheckboxGroup,
+  NDatePicker,
   NForm,
   NFormItem,
   NIcon,
@@ -226,10 +268,11 @@ import {
   NSpace,
   useMessage,
 } from 'naive-ui'
-import { SyncOutline, CheckmarkCircle, CloseCircle, TimeOutline, CloudDownloadOutline } from '@vicons/ionicons5'
+import { SyncOutline, CheckmarkCircle, CloseCircle, TimeOutline, CloudDownloadOutline, SwapHorizontalOutline } from '@vicons/ionicons5'
 import { useSyncView } from '../../composables/hooks/useSyncView'
 import ASharesSyncModal from '../../components/symbols/a-shares/ASharesSyncModal.vue'
 import { useASharesSync } from '../../components/symbols/a-shares/useASharesSync'
+import { moneyFlowApi, type MoneyFlowSyncResult } from '@/api/modules/moneyFlow'
 
 const message = useMessage()
 const noopReload = async () => {}
@@ -268,6 +311,44 @@ const {
   openSyncModal: openASharesSyncModal,
   syncAShares,
 } = useASharesSync(message, noopReload)
+
+const moneyFlowDateRange = ref<[number, number] | null>(null)
+const moneyFlowSyncing = ref(false)
+const moneyFlowSyncResult = ref<{
+  stocks: MoneyFlowSyncResult
+  industries: MoneyFlowSyncResult
+  sectors: MoneyFlowSyncResult
+  market: MoneyFlowSyncResult
+} | null>(null)
+
+async function syncMoneyFlow() {
+  if (!moneyFlowDateRange.value) {
+    message.warning('请选择同步日期范围')
+    return
+  }
+  const [startTs, endTs] = moneyFlowDateRange.value
+  function toYYYYMMDD(ts: number) {
+    const d = new Date(ts)
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+  }
+  const params = { start_date: toYYYYMMDD(startTs), end_date: toYYYYMMDD(endTs) }
+
+  moneyFlowSyncing.value = true
+  try {
+    const [stocks, industries, sectors, market] = await Promise.all([
+      moneyFlowApi.syncStocks(params),
+      moneyFlowApi.syncIndustries(params),
+      moneyFlowApi.syncSectors(params),
+      moneyFlowApi.syncMarket(params),
+    ])
+    moneyFlowSyncResult.value = { stocks, industries, sectors, market }
+    message.success(`同步完成：个股 ${stocks.success} 条`)
+  } catch (e: unknown) {
+    message.error(e instanceof Error ? e.message : '同步失败')
+  } finally {
+    moneyFlowSyncing.value = false
+  }
+}
 </script>
 
 <style scoped src="./SyncView.styles.css"></style>
