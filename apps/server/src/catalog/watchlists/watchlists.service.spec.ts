@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { WatchlistsService, INDEX_ALLOWLIST } from './watchlists.service';
+import { WatchlistsService } from './watchlists.service';
 import { WatchlistEntity } from '../../entities/watchlist/watchlist.entity';
 import { WatchlistItemEntity } from '../../entities/watchlist/watchlist-item.entity';
 import { TushareClientService } from '../../market-data/a-shares/services/tushare-client.service';
@@ -153,16 +153,10 @@ describe('WatchlistsService', () => {
       } as any);
     });
 
-    it('should throw BadRequestException for unknown indexCode', async () => {
-      await expect(
-        service.importFromIndex(userId, watchlistId, 'UNKNOWN.XX'),
-      ).rejects.toThrow('不支持的指数代码');
-    });
-
     it('should throw BadRequestException when Tushare returns empty list', async () => {
       tushareClient.query.mockResolvedValue([]);
       await expect(
-        service.importFromIndex(userId, watchlistId, '399300.SZ'),
+        service.importFromIndex(userId, watchlistId, 'UNKNOWN.XX'),
       ).rejects.toThrow('未找到该指数成分数据');
     });
 
@@ -183,16 +177,25 @@ describe('WatchlistsService', () => {
       const result = await service.importFromIndex(userId, watchlistId, '399300.SZ');
 
       expect(tushareClient.query).toHaveBeenCalledWith(
-        'index_member',
-        { index_code: '399300.SZ' },
+        'index_weight',
+        expect.objectContaining({ index_code: '399300.SZ', start_date: expect.any(String), end_date: expect.any(String) }),
         'con_code',
       );
       expect(dataSource.transaction).toHaveBeenCalled();
       expect(result).toEqual({ imported: 2, replaced: 1 });
     });
 
-    it('INDEX_ALLOWLIST should contain 5 entries', () => {
-      expect(Object.keys(INDEX_ALLOWLIST)).toHaveLength(5);
+    it('should deduplicate con_codes from multiple months of index_weight data', async () => {
+      // index_weight 是月度数据，同一成分会出现多次
+      tushareClient.query.mockResolvedValue([
+        { con_code: '600000.SH' },
+        { con_code: '000001.SZ' },
+        { con_code: '600000.SH' }, // 重复
+        { con_code: '000001.SZ' }, // 重复
+      ]);
+
+      const result = await service.importFromIndex(userId, watchlistId, '399300.SZ');
+      expect(result.imported).toBe(2);
     });
   });
 });

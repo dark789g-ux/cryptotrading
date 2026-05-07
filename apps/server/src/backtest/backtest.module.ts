@@ -9,7 +9,7 @@ import { BacktestRunEntity } from '../entities/backtest/backtest-run.entity';
 import { BacktestTradeEntity } from '../entities/backtest/backtest-trade.entity';
 import { BacktestCandleLogEntity } from '../entities/backtest/backtest-candle-log.entity';
 import { StrategyEntity } from '../entities/strategy/strategy.entity';
-import { KlineEntity } from '../entities/kline.entity';
+import { KlineEntity } from '../entities/symbol/kline.entity';
 
 @Module({
   imports: [

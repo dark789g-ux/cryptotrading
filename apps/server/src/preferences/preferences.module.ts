@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { UserPreferenceEntity } from '../entities/user-preference.entity';
+import { UserPreferenceEntity } from '../entities/config/user-preference.entity';
 import { PreferencesController } from './preferences.controller';
 import { PreferencesService } from './preferences.service';
 

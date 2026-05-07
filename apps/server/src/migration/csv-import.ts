@@ -17,7 +17,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { parse } from 'csv-parse/sync';
 import { DataSource } from 'typeorm';
-import { KlineEntity } from '../entities/kline.entity';
+import { KlineEntity } from '../entities/symbol/kline.entity';
 import { SymbolEntity } from '../entities/symbol/symbol.entity';
 import * as dotenv from 'dotenv';
 

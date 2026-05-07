@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { newId } from '../auth/shared/auth.utils';
-import { UserPreferenceEntity } from '../entities/user-preference.entity';
+import { UserPreferenceEntity } from '../entities/config/user-preference.entity';
 
 export interface ColumnPreferenceItem {
   key: string;

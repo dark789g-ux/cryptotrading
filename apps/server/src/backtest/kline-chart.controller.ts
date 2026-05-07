@@ -12,7 +12,7 @@ import { CurrentUserParam as CurrentUser } from '../auth/decorators/current-user
 import { calcBrickChartPoints, type BrickChartPoint } from '../indicators/brick-chart';
 import { BacktestCandleLogEntity } from '../entities/backtest/backtest-candle-log.entity';
 import { BacktestRunEntity } from '../entities/backtest/backtest-run.entity';
-import { KlineEntity } from '../entities/kline.entity';
+import { KlineEntity } from '../entities/symbol/kline.entity';
 import { fmtTs, parseUTC } from './utils/backtest-ts.util';
 
 type CurrentUserPayload = { id: string };

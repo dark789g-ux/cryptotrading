@@ -1,20 +1,23 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Not, QueryFailedError, Repository } from 'typeorm';
 import { WatchlistEntity } from '../../entities/watchlist/watchlist.entity';
 import { WatchlistItemEntity } from '../../entities/watchlist/watchlist-item.entity';
 import { TushareClientService } from '../../market-data/a-shares/services/tushare-client.service';
 
-export const INDEX_ALLOWLIST: Record<string, string> = {
-  '399300.SZ': '沪深300',
-  '000016.SH': '上证50',
-  '000905.SH': '中证500',
-  '000852.SH': '中证1000',
-  '000010.SH': '上证180',
-};
+export interface IndexOption {
+  value: string;
+  label: string;
+}
+
+const INDEX_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时
 
 @Injectable()
 export class WatchlistsService {
+  private readonly logger = new Logger(WatchlistsService.name);
+  private cachedIndexOptions: IndexOption[] | null = null;
+  private indexCacheExpiresAt = 0;
+
   constructor(
     @InjectRepository(WatchlistEntity)
     private readonly watchlistRepo: Repository<WatchlistEntity>,
@@ -24,6 +27,50 @@ export class WatchlistsService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
+
+  async listIndexOptions(): Promise<IndexOption[]> {
+    if (this.cachedIndexOptions && Date.now() < this.indexCacheExpiresAt) {
+      return this.cachedIndexOptions;
+    }
+
+    const markets = ['SSE', 'SZSE', 'CSI', 'SW'];
+    const results: IndexOption[] = [];
+    let allFailed = true;
+    let firstError: Error | null = null;
+
+    for (const market of markets) {
+      try {
+        const rows = await this.tushareClient.query('index_basic', { market }, 'ts_code,name');
+        allFailed = false;
+        for (const row of rows) {
+          const value = String(row['ts_code'] ?? '').trim();
+          const label = String(row['name'] ?? '').trim();
+          if (value && label) {
+            results.push({ value, label });
+          }
+        }
+      } catch (err: unknown) {
+        this.logger.warn(`获取 ${market} 指数列表失败：${(err as Error).message}`);
+        if (!firstError) firstError = err as Error;
+      }
+    }
+
+    if (allFailed && firstError) {
+      throw firstError;
+    }
+
+    const seen = new Set<string>();
+    const unique = results.filter((o) => {
+      if (seen.has(o.value)) return false;
+      seen.add(o.value);
+      return true;
+    });
+    unique.sort((a, b) => a.label.localeCompare(b.label, 'zh'));
+
+    this.cachedIndexOptions = unique;
+    this.indexCacheExpiresAt = Date.now() + INDEX_CACHE_TTL_MS;
+    return unique;
+  }
 
   listWatchlists(userId: string) {
     return this.watchlistRepo.find({
@@ -265,15 +312,18 @@ export class WatchlistsService {
     return { ok: true };
   }
 
+  private formatDate(date: Date): string {
+    const y = date.getUTCFullYear();
+    const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(date.getUTCDate()).padStart(2, '0');
+    return `${y}${m}${d}`;
+  }
+
   async importFromIndex(
     userId: string,
     watchlistId: string,
     indexCode: string,
   ): Promise<{ imported: number; replaced: number }> {
-    if (!INDEX_ALLOWLIST[indexCode]) {
-      throw new BadRequestException(`不支持的指数代码：${indexCode}`);
-    }
-
     const w = await this.watchlistRepo.findOne({
       where: { id: watchlistId, userId } as any,
       relations: ['items'],
@@ -282,17 +332,27 @@ export class WatchlistsService {
 
     const replaced = w.items?.length ?? 0;
 
+    // index_weight 是月度数据，查近 2 个月以确保能覆盖最新发布的数据
+    const endDate = this.formatDate(new Date());
+    const startTs = new Date();
+    startTs.setUTCDate(startTs.getUTCDate() - 60);
+    const startDate = this.formatDate(startTs);
+
     const rows = await this.tushareClient.query(
-      'index_member',
-      { index_code: indexCode },
+      'index_weight',
+      { index_code: indexCode, start_date: startDate, end_date: endDate },
       'con_code',
     );
 
-    const conCodes = rows
-      .map((r) => String(r['con_code'] ?? '').trim())
-      .filter(Boolean);
+    // 月度数据可能含多行同一成分，去重取唯一 con_code
+    const conCodes = Array.from(
+      new Set(rows.map((r) => String(r['con_code'] ?? '').trim()).filter(Boolean)),
+    );
 
     if (conCodes.length === 0) {
+      this.logger.warn(
+        `index_weight 未返回数据：index_code=${indexCode} start=${startDate} end=${endDate}，rows=${rows.length}`,
+      );
       throw new BadRequestException('未找到该指数成分数据');
     }
 

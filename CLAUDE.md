@@ -4,6 +4,7 @@ crtptotrading:加密量化策略
 ## 背景
 - 开发环境：windows11
 - 编码为 GBK
+- 我目前的TuShare积分为7000分
 
 ## 硬约束
 - 用 `中文` 思考与回答
@@ -36,6 +37,12 @@ crtptotrading:加密量化策略
 - 需要转为 `Date` 对象时，必须先插入分隔符：`` `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T00:00:00Z` ``
 - 仅用于展示时，使用已有的 `formatTradeDate`（前端）或 `formatTradeDateLabel`（后端）工具函数，禁止 `new Date()`
 
+## 第三方 API 集成规范
+- **接口名称必须以官方文档为准**，禁止凭变量名、注释或历史代码推断；每次新增/修改第三方 API 调用前先查文档确认接口名、参数名及必填项
+- **外部服务返回空数据时必须记 `logger.warn`**：当外部 API 返回 `code=0` 但 `data=null`/空数组时，不得静默返回 `[]`，须 warn 并附带请求参数，以区分「权限不足」与「合法空结果」
+- **Mock 单测不验证第三方契约**：涉及第三方 API 名称、参数格式的测试，mock 永远通过，必须同时有集成测试或人工核对文档的步骤；若暂无集成测试，需在注释中标注 `// TODO: 需集成测试验证 API 契约`
+- **调试第三方 API 返回空的顺序**：① 先查官方文档确认接口名/参数；② 再加日志看真实响应；③ 最后才读内部实现——禁止跳过前两步直接猜
+
 ## NOT DO
 - 原生 SQL 数组参数强转须与列类型匹配：`character varying` 列用 `::text[]`，`uuid` 列用 `::uuid[]`（如 `watchlist_items.watchlist_id` 是 `uuid`，误用 `::text[]` 会 500）
 - 500 报错：开 TypeORM `logging: ['error','warn']` 并 `logger.error(err.stack)`，禁静态分析猜
@@ -43,6 +50,12 @@ crtptotrading:加密量化策略
 - TypeORM：`andWhere` 等字符串里禁 `'[]'::jsonb`（误绑 `:jsonb`），用 `CAST('[]' AS jsonb)`
 - 禁同表 `leftJoin` 再 `getManyAndCount`+`orderBy`（0.3 空 metadata）
 - 动态 SQL 构建**禁止**直接将前端字段名拼入 SQL（如 `i.${field}`）；必须经过字段名映射表翻译为实际列名，未命中映射的字段一律跳过并记 `logger.warn`
+
+## Vue 3 watch 规范
+- `watch(source, cb)` 默认**懒执行**，不响应初始值；若逻辑依赖初始值，必须加 `{ immediate: true }` 或在 `onMounted` 中补充调用
+- 凡组件内有"开启时触发异步加载"的逻辑，均须检查父组件是用 `v-if`（挂载即展示）还是 `v-show`（常驻切换），选择正确的触发时机
+- **`<keep-alive>` 组件规范**：被 `<keep-alive>` 包裹的组件，`onMounted` 只在首次挂载时触发一次，切换回来不会重跑；凡依赖"外部 store 可能在其它页面被更新"的异步数据加载（如策略命中结果、用户配置），必须放在 `onActivated` 中——它在首次挂载和每次从缓存激活时都会触发。`onMounted` 仅保留真正的一次性初始化（注册事件、加载用户偏好等）。排查方法：在父组件中搜索 `<keep-alive>`。
+- **keep-alive 响应性陷阱**：`computed` 会响应 store 变化（UI 下拉框等显示正确），而用 `onMounted` 加载的普通 `ref` 不会自动刷新，两者响应性不对称会制造"下拉框有选项但数据不更新"的假象，遇到此类 Bug 优先排查 keep-alive 缓存。
 
 ## DO
 - 单文件不超过 500 行，模块化拆分

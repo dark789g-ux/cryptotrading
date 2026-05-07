@@ -3,8 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { SyncController } from './sync.controller';
 import { SyncService } from './sync.service';
 import { SymbolEntity } from '../../entities/symbol/symbol.entity';
-import { KlineEntity } from '../../entities/kline.entity';
-import { AppConfigEntity } from '../../entities/app-config.entity';
+import { KlineEntity } from '../../entities/symbol/kline.entity';
+import { AppConfigEntity } from '../../entities/config/app-config.entity';
 import { SymbolsModule } from '../../catalog/symbols/symbols.module';
 import { KlinesModule } from '../klines/klines.module';
 

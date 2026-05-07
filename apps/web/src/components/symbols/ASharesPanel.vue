@@ -77,7 +77,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'ASharesPanel' })
 
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onActivated, onMounted, ref } from 'vue'
 import { NButton, NCard, NDataTable, NIcon, NSpace, NTag, useMessage } from 'naive-ui'
 import { RefreshOutline, SettingsOutline } from '@vicons/ionicons5'
 import type { AShareRow } from '@/api'
@@ -136,7 +136,7 @@ const strategyFilterOptions = computed(() => {
     .filter(c => c.targetType === 'a-share')
     .filter(c => {
       const status = strategyStore.runStatuses.get(c.id)
-      return status && (status.freshness === 'fresh' || status.freshness === 'stale')
+      return status && status.freshness === 'fresh'
     })
     .map(c => ({
       label: `${c.name} (${strategyStore.runStatuses.get(c.id)?.totalHits ?? 0} 命中)`,
@@ -149,7 +149,7 @@ async function loadHitLookup() {
   for (const condition of strategyStore.conditions) {
     if (condition.targetType !== 'a-share') continue
     const status = strategyStore.runStatuses.get(condition.id)
-    if (!status || (status.freshness !== 'fresh' && status.freshness !== 'stale')) continue
+    if (!status || status.freshness !== 'fresh') continue
     try {
       const result = await strategyConditionsApi.getRunResult(condition.id)
       for (const hit of result.hits) {
@@ -205,11 +205,16 @@ async function handleSaveColumnPreferences() {
   }
 }
 
-onMounted(async () => {
+onMounted(() => {
   void reload()
   void loadColumnPreferences().catch((err: unknown) => {
     message.error(err instanceof Error ? err.message : String(err))
   })
+})
+
+// keep-alive 场景：onActivated 在首次挂载和每次从缓存激活时都会触发，
+// 确保从策略条件管理切回后 hitLookup 能感知最新运行结果
+onActivated(async () => {
   await strategyStore.fetchConditions('a-share')
   await strategyStore.fetchLastRunStatus()
   await loadHitLookup()

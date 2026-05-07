@@ -60,4 +60,7 @@ export const watchlistApi = {
       `${API_BASE}/watchlists/${id}/import-from-index`,
       { indexCode },
     ),
+
+  listIndexOptions: () =>
+    request<{ value: string; label: string }[]>(`${API_BASE}/watchlists/index-list`),
 }

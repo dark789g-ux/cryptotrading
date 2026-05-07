@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { UserPreferenceEntity } from '../entities/user-preference.entity';
+import { UserPreferenceEntity } from '../entities/config/user-preference.entity';
 import {
   PreferencesService,
   SYMBOLS_VIEW_PREFERENCES_KEY,

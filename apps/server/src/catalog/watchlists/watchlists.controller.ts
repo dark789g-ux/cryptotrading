@@ -14,6 +14,11 @@ export class WatchlistsController {
     return this.watchlistsService.listWatchlists(user.id);
   }
 
+  @Get('index-list')
+  listIndexOptions() {
+    return this.watchlistsService.listIndexOptions();
+  }
+
   @Get(':id')
   get(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.watchlistsService.getWatchlist(user.id, id);

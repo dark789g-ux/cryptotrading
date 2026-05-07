@@ -5,7 +5,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { KlineEntity } from '../../entities/kline.entity';
+import { KlineEntity } from '../../entities/symbol/kline.entity';
 import { KlineBarRow, BacktestConfig } from './models';
 
 @Injectable()

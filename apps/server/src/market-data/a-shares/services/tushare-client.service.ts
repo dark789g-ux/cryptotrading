@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { type AxiosError } from 'axios';
 import pLimit = require('p-limit');
@@ -16,6 +16,7 @@ export type TushareRow = Record<string, string | number | null>;
 
 @Injectable()
 export class TushareClientService {
+  private readonly logger = new Logger(TushareClientService.name);
   private readonly endpoint = 'http://api.tushare.pro';
   private readonly maxAttempts = 3;
   private readonly retryDelaysMs = [1000, 2000, 4000];
@@ -69,7 +70,10 @@ export class TushareClientService {
     }
 
     const data = payload.data;
-    if (!data) return [];
+    if (!data) {
+      this.logger.warn(`TuShare ${apiName} 返回 data=null（code=0），可能积分不足或接口无数据。params=${JSON.stringify(params)}`);
+      return [];
+    }
     return data.items.map((item) => this.toRow(data.fields, item));
   }
 

@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { StrategyConditionEntity } from '../entities/strategy-condition.entity';
-import { StrategyConditionRunEntity } from '../entities/strategy-condition-run.entity';
-import { StrategyConditionHitEntity } from '../entities/strategy-condition-hit.entity';
+import { StrategyConditionEntity } from '../entities/strategy/strategy-condition.entity';
+import { StrategyConditionRunEntity } from '../entities/strategy/strategy-condition-run.entity';
+import { StrategyConditionHitEntity } from '../entities/strategy/strategy-condition-hit.entity';
 import { StrategyConditionsController } from './strategy-conditions.controller';
 import { StrategyConditionsService } from './strategy-conditions.service';
 import { StrategyConditionsRunner } from './strategy-conditions.runner';

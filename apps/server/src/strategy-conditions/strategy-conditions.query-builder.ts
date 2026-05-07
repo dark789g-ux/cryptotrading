@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { StrategyConditionItem } from '../entities/strategy-condition.entity';
+import { StrategyConditionItem } from '../entities/strategy/strategy-condition.entity';
 import {
   ASHARE_BOOLEAN_COLS,
   ASHARE_FIELD_COL_MAP,

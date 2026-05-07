@@ -11,14 +11,21 @@
         <n-select
           v-model:value="selectedCode"
           :options="indexOptions"
-          placeholder="请选择指数"
-          :disabled="loading"
+          :loading="optionsLoading"
+          :disabled="loading || optionsLoading"
+          filterable
+          placeholder="搜索或选择指数"
+          :filter="filterOption"
         />
       </n-form-item>
 
-      <n-alert v-if="selectedCode" type="warning" :show-icon="true" style="margin-top: 12px">
+      <n-alert v-if="optionsError" type="error" :show-icon="true" style="margin-top: 12px">
+        加载指数列表失败，请确认服务端已配置 TUSHARE_TOKEN，然后关闭重试
+      </n-alert>
+
+      <n-alert v-else-if="selectedCode" type="warning" :show-icon="true" style="margin-top: 12px">
         将从 Tushare 拉取
-        <strong>{{ indexOptions.find(o => o.value === selectedCode)?.label }}</strong>
+        <strong>{{ selectedLabel }}</strong>
         最新成分股，并<strong>覆盖</strong>「{{ watchlistName }}」现有的
         <strong>{{ currentMemberCount }} 条成员</strong>。此操作不可撤销。
       </n-alert>
@@ -29,7 +36,7 @@
       <n-button
         type="error"
         :loading="loading"
-        :disabled="!selectedCode"
+        :disabled="!selectedCode || optionsLoading"
         @click="handleConfirm"
       >
         确认导入
@@ -39,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { NAlert, NButton, NFormItem, NSelect, useMessage } from 'naive-ui'
 import AppModal from '@/components/common/AppModal.vue'
 import { watchlistApi } from '@/api'
@@ -64,17 +71,42 @@ const message = useMessage()
 const loading = ref(false)
 const selectedCode = ref<string | null>(null)
 
-const INDEX_OPTIONS = [
-  { label: '沪深300', value: '399300.SZ' },
-  { label: '上证50', value: '000016.SH' },
-  { label: '中证500', value: '000905.SH' },
-  { label: '中证1000', value: '000852.SH' },
-  { label: '上证180', value: '000010.SH' },
-]
-const indexOptions = INDEX_OPTIONS
+const indexOptions = ref<{ value: string; label: string }[]>([])
+const optionsLoading = ref(false)
+const optionsError = ref(false)
+
+const selectedLabel = computed(() =>
+  indexOptions.value.find((o) => o.value === selectedCode.value)?.label ?? selectedCode.value ?? ''
+)
+
+function filterOption(pattern: string, option: { label: string; value: string }) {
+  const q = pattern.toLowerCase()
+  return option.label.toLowerCase().includes(q) || option.value.toLowerCase().includes(q)
+}
+
+async function loadIndexOptions() {
+  if (indexOptions.value.length > 0) return
+  optionsLoading.value = true
+  optionsError.value = false
+  try {
+    indexOptions.value = await watchlistApi.listIndexOptions()
+  } catch {
+    optionsError.value = true
+  } finally {
+    optionsLoading.value = false
+  }
+}
+
+onMounted(() => {
+  if (show.value) loadIndexOptions()
+})
 
 watch(show, (v) => {
-  if (!v) selectedCode.value = null
+  if (v) {
+    loadIndexOptions()
+  } else {
+    selectedCode.value = null
+  }
 })
 
 async function handleConfirm() {
@@ -82,8 +114,7 @@ async function handleConfirm() {
   loading.value = true
   try {
     const result = await watchlistApi.importFromIndex(props.watchlistId, selectedCode.value)
-    const indexName = INDEX_OPTIONS.find(o => o.value === selectedCode.value)?.label ?? selectedCode.value
-    message.success(`已导入 ${result.imported} 支 ${indexName} 成分股`)
+    message.success(`已导入 ${result.imported} 支 ${selectedLabel.value} 成分股`)
     show.value = false
     emit('imported', result.imported)
   } catch (err: any) {

@@ -1,9 +1,9 @@
 import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
-import { StrategyConditionEntity } from '../entities/strategy-condition.entity';
-import { StrategyConditionRunEntity } from '../entities/strategy-condition-run.entity';
-import { StrategyConditionHitEntity } from '../entities/strategy-condition-hit.entity';
+import { StrategyConditionEntity } from '../entities/strategy/strategy-condition.entity';
+import { StrategyConditionRunEntity } from '../entities/strategy/strategy-condition-run.entity';
+import { StrategyConditionHitEntity } from '../entities/strategy/strategy-condition-hit.entity';
 import { CreateStrategyConditionDto } from './dto/create-strategy-condition.dto';
 import { UpdateStrategyConditionDto } from './dto/update-strategy-condition.dto';
 import { StrategyConditionsRunner } from './strategy-conditions.runner';
