@@ -8,9 +8,6 @@
     <FlowKpiCards :cards="kpiCards" :loading="loading" />
 
     <div class="panel-body">
-      <div class="chart-col">
-        <FlowBarChart :rows="chartRows" :max-rows="30" />
-      </div>
       <div class="table-col">
         <n-data-table
           :columns="columns"
@@ -39,8 +36,7 @@ import type { DataTableColumns } from 'naive-ui'
 import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowIndustryRow } from '@/api/modules/moneyFlow'
 import FlowDateControl from './FlowDateControl.vue'
 import FlowKpiCards from './FlowKpiCards.vue'
-import FlowBarChart from './FlowBarChart.vue'
-import type { KpiCardItem, BarChartRow } from './money-flow.types'
+import type { KpiCardItem } from './money-flow.types'
 
 const rows = ref<MoneyFlowIndustryRow[]>([])
 const loading = ref(false)
@@ -59,10 +55,6 @@ const kpiCards = computed((): KpiCardItem[] => {
     { label: '合计净流入', value: rows.value.reduce((s, r) => s + (Number(r.netAmount) || 0), 0).toFixed(0), sub: '万元' },
   ]
 })
-
-const chartRows = computed((): BarChartRow[] =>
-  rows.value.map(r => ({ label: r.industry, value: Number(r.netAmount) || 0 })),
-)
 
 const columns: DataTableColumns<MoneyFlowIndustryRow> = [
   { title: '行业', key: 'industry', width: 120 },
@@ -102,8 +94,8 @@ onActivated(load)
 <style scoped>
 .industry-flow-panel { display: flex; flex-direction: column; gap: 16px; }
 .panel-controls { display: flex; align-items: center; gap: 16px; }
-.panel-body { display: grid; grid-template-columns: 1fr 1.5fr; gap: 20px; }
-.chart-col, .table-col { min-width: 0; }
+.panel-body { display: flex; flex-direction: column; }
+.table-col { min-width: 0; }
 .empty-state { color: var(--color-text-muted); text-align: center; padding: 40px; }
 .empty-state a { color: var(--color-primary); }
 :deep(.positive) { color: #f04747; }

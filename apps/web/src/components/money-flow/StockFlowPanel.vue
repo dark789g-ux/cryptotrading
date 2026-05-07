@@ -14,9 +14,6 @@
     <FlowKpiCards :cards="kpiCards" :loading="loading" />
 
     <div class="panel-body">
-      <div class="chart-col">
-        <FlowBarChart :rows="chartRows" :max-rows="20" />
-      </div>
       <div class="table-col">
         <n-data-table
           :columns="columns"
@@ -46,8 +43,7 @@ import type { DataTableColumns } from 'naive-ui'
 import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowStockRow } from '@/api/modules/moneyFlow'
 import FlowDateControl from './FlowDateControl.vue'
 import FlowKpiCards from './FlowKpiCards.vue'
-import FlowBarChart from './FlowBarChart.vue'
-import type { KpiCardItem, BarChartRow } from './money-flow.types'
+import type { KpiCardItem } from './money-flow.types'
 
 const rows = ref<MoneyFlowStockRow[]>([])
 const loading = ref(false)
@@ -75,10 +71,6 @@ const kpiCards = computed((): KpiCardItem[] => {
     { label: '上榜股票数', value: String(rows.value.length), sub: '当日' },
   ]
 })
-
-const chartRows = computed((): BarChartRow[] =>
-  rows.value.map(r => ({ label: r.name ?? r.tsCode, value: Number(r.netAmount) || 0 })),
-)
 
 const columns: DataTableColumns<MoneyFlowStockRow> = [
   { title: '代码', key: 'tsCode', width: 100, fixed: 'left' },
@@ -166,8 +158,8 @@ onActivated(load)
 <style scoped>
 .stock-flow-panel { display: flex; flex-direction: column; gap: 16px; }
 .panel-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.panel-body { display: grid; grid-template-columns: 1fr 1.5fr; gap: 20px; }
-.chart-col, .table-col { min-width: 0; }
+.panel-body { display: flex; flex-direction: column; }
+.table-col { min-width: 0; }
 .empty-state { color: var(--color-text-muted); text-align: center; padding: 40px; }
 .empty-state a { color: var(--color-primary); }
 :deep(.positive) { color: #f04747; }
