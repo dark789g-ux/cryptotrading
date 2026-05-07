@@ -42,6 +42,11 @@ import { StrategyConditionEntity } from './entities/strategy-condition.entity';
 import { StrategyConditionRunEntity } from './entities/strategy-condition-run.entity';
 import { StrategyConditionHitEntity } from './entities/strategy-condition-hit.entity';
 import { StrategyConditionsModule } from './strategy-conditions/strategy-conditions.module';
+import { MoneyFlowStockEntity } from './entities/money-flow/money-flow-stock.entity';
+import { MoneyFlowIndustryEntity } from './entities/money-flow/money-flow-industry.entity';
+import { MoneyFlowSectorEntity } from './entities/money-flow/money-flow-sector.entity';
+import { MoneyFlowMarketEntity } from './entities/money-flow/money-flow-market.entity';
+import { MoneyFlowModule } from './market-data/money-flow/money-flow.module';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -84,6 +89,10 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           StrategyConditionEntity,
           StrategyConditionRunEntity,
           StrategyConditionHitEntity,
+          MoneyFlowStockEntity,
+          MoneyFlowIndustryEntity,
+          MoneyFlowSectorEntity,
+          MoneyFlowMarketEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],
@@ -103,6 +112,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     AuthModule,
     UsersModule,
     StrategyConditionsModule,
+    MoneyFlowModule,
   ],
 })
 export class AppModule implements OnModuleInit {
