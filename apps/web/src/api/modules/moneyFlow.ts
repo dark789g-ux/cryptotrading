@@ -28,6 +28,7 @@ function buildQs(params: MoneyFlowQueryParams): string {
   if (params.start_date) qs.set('start_date', params.start_date)
   if (params.end_date) qs.set('end_date', params.end_date)
   if (params.ts_code) qs.set('ts_code', params.ts_code)
+  if (params.limit) qs.set('limit', String(params.limit))
   const s = qs.toString()
   return s ? `?${s}` : ''
 }

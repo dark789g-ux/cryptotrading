@@ -1,6 +1,6 @@
 <template>
   <div class="flow-date-control">
-    <div class="mode-toggle">
+    <div v-if="!hideModeToggle" class="mode-toggle">
       <button
         class="mode-btn"
         :class="{ active: mode === 'single' }"
@@ -38,15 +38,21 @@ import { NDatePicker } from 'naive-ui'
 
 type DateMode = 'single' | 'range'
 
-const props = defineProps<{
-  defaultDate?: string | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    defaultDate?: string | null
+    hideModeToggle?: boolean
+    defaultRangeDays?: number
+    defaultMode?: DateMode
+  }>(),
+  { hideModeToggle: false, defaultRangeDays: 0, defaultMode: 'single' },
+)
 
 const emit = defineEmits<{
   change: [params: { trade_date?: string; start_date?: string; end_date?: string }]
 }>()
 
-const mode = ref<DateMode>('single')
+const mode = ref<DateMode>(props.hideModeToggle ? 'range' : props.defaultMode)
 
 function toYYYYMMDD(ts: number): string {
   const d = new Date(ts)
@@ -63,7 +69,11 @@ function yyyymmddToTs(s: string): number {
 const singleDateTs = ref<number | null>(
   props.defaultDate ? yyyymmddToTs(props.defaultDate) : Date.now(),
 )
-const rangeDateTs = ref<[number, number] | null>(null)
+const rangeDateTs = ref<[number, number] | null>(
+  props.defaultRangeDays > 0
+    ? [Date.now() - props.defaultRangeDays * 86400000, Date.now()]
+    : null,
+)
 
 const singleYYYYMMDD = computed(() => singleDateTs.value ? toYYYYMMDD(singleDateTs.value) : '')
 
@@ -82,6 +92,7 @@ function isFutureDate(ts: number) {
 }
 
 function setMode(m: DateMode) {
+  if (props.hideModeToggle) return
   userHasInteracted = true
   mode.value = m
   emitCurrent()

@@ -9,6 +9,7 @@
     <div class="trend-modal-body">
       <FlowDateControl
         :hide-mode-toggle="false"
+        default-mode="range"
         :default-range-days="30"
         @change="onDateChange"
       />
@@ -45,13 +46,24 @@ defineEmits<{
 
 const chartRows = ref<BarChartRow[]>([])
 const loading = ref(false)
-const currentParams = ref<MoneyFlowQueryParams>({})
+let skipNextEmit = false
 
-async function load() {
-  if (!currentParams.value.start_date && !currentParams.value.trade_date) return
+async function loadLatest() {
   loading.value = true
   try {
-    chartRows.value = await props.fetchFn({ ...currentParams.value, ts_code: props.tsCode })
+    const data = await props.fetchFn({ ts_code: props.tsCode, limit: 30 })
+    chartRows.value = [...data].reverse()
+  } catch {
+    chartRows.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadByDate(params: MoneyFlowQueryParams) {
+  loading.value = true
+  try {
+    chartRows.value = await props.fetchFn({ ...params, ts_code: props.tsCode })
   } catch {
     chartRows.value = []
   } finally {
@@ -60,14 +72,18 @@ async function load() {
 }
 
 function onDateChange(params: MoneyFlowQueryParams) {
-  currentParams.value = params
-  load()
+  if (skipNextEmit) {
+    skipNextEmit = false
+    return
+  }
+  loadByDate(params)
 }
 
 watch(() => props.visible, (v) => {
   if (v) {
     chartRows.value = []
-    currentParams.value = {}
+    skipNextEmit = true
+    loadLatest()
   }
 })
 </script>

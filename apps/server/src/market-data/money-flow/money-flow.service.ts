@@ -35,8 +35,12 @@ export class MoneyFlowService {
       qb.where('s.trade_date >= :s AND s.trade_date <= :e', { s: dto.start_date, e: dto.end_date });
     }
     if (dto.ts_code) {
-      qb.orderBy('s.trade_date', 'ASC');
       qb.andWhere('s.ts_code = :ts', { ts: dto.ts_code });
+    }
+    if (dto.limit) {
+      qb.orderBy('s.trade_date', 'DESC').limit(Number(dto.limit));
+    } else if (dto.ts_code) {
+      qb.orderBy('s.trade_date', 'ASC');
     } else {
       qb.orderBy('s.net_amount', 'DESC');
     }
@@ -51,8 +55,12 @@ export class MoneyFlowService {
       qb.where('i.trade_date >= :s AND i.trade_date <= :e', { s: dto.start_date, e: dto.end_date });
     }
     if (dto.ts_code) {
-      qb.orderBy('i.trade_date', 'ASC');
       qb.andWhere('i.ts_code = :ts', { ts: dto.ts_code });
+    }
+    if (dto.limit) {
+      qb.orderBy('i.trade_date', 'DESC').limit(Number(dto.limit));
+    } else if (dto.ts_code) {
+      qb.orderBy('i.trade_date', 'ASC');
     } else {
       qb.orderBy('i.net_amount', 'DESC');
     }
@@ -67,8 +75,12 @@ export class MoneyFlowService {
       qb.where('s.trade_date >= :s AND s.trade_date <= :e', { s: dto.start_date, e: dto.end_date });
     }
     if (dto.ts_code) {
-      qb.orderBy('s.trade_date', 'ASC');
       qb.andWhere('s.ts_code = :ts', { ts: dto.ts_code });
+    }
+    if (dto.limit) {
+      qb.orderBy('s.trade_date', 'DESC').limit(Number(dto.limit));
+    } else if (dto.ts_code) {
+      qb.orderBy('s.trade_date', 'ASC');
     } else {
       qb.orderBy('s.net_amount', 'DESC');
     }
