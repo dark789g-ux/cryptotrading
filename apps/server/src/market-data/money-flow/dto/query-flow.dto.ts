@@ -3,6 +3,6 @@ export class QueryFlowDto {
   trade_date?: string;
   start_date?: string;
   end_date?: string;
-  /** 仅个股查询支持，过滤单只股票 */
+  /** 按实体代码过滤（个股 ts_code、行业 ts_code、板块 ts_code） */
   ts_code?: string;
 }

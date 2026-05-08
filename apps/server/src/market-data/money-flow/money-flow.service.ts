@@ -47,6 +47,9 @@ export class MoneyFlowService {
     } else if (dto.start_date && dto.end_date) {
       qb.where('i.trade_date >= :s AND i.trade_date <= :e', { s: dto.start_date, e: dto.end_date });
     }
+    if (dto.ts_code) {
+      qb.andWhere('i.ts_code = :ts', { ts: dto.ts_code });
+    }
     return qb.getMany();
   }
 
@@ -56,6 +59,9 @@ export class MoneyFlowService {
       qb.where('s.trade_date = :d', { d: dto.trade_date });
     } else if (dto.start_date && dto.end_date) {
       qb.where('s.trade_date >= :s AND s.trade_date <= :e', { s: dto.start_date, e: dto.end_date });
+    }
+    if (dto.ts_code) {
+      qb.andWhere('s.ts_code = :ts', { ts: dto.ts_code });
     }
     return qb.getMany();
   }

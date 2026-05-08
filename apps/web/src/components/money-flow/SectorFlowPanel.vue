@@ -24,6 +24,13 @@
         </div>
       </div>
     </div>
+
+    <FlowTrendModal
+      v-model:visible="trendVisible"
+      :ts-code="trendTsCode"
+      :entity-name="trendEntityName"
+      :fetch-fn="trendFetchFn"
+    />
   </div>
 </template>
 
@@ -31,17 +38,33 @@
 defineOptions({ name: 'SectorFlowPanel' })
 
 import { computed, h, onActivated, onMounted, ref } from 'vue'
-import { NDataTable } from 'naive-ui'
+import { NButton, NDataTable } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowSectorRow } from '@/api/modules/moneyFlow'
 import FlowDateControl from './FlowDateControl.vue'
 import FlowKpiCards from './FlowKpiCards.vue'
-import type { KpiCardItem } from './money-flow.types'
+import FlowTrendModal from './FlowTrendModal.vue'
+import type { BarChartRow, KpiCardItem } from './money-flow.types'
 
 const rows = ref<MoneyFlowSectorRow[]>([])
 const loading = ref(false)
 const currentParams = ref<MoneyFlowQueryParams>({})
 const latestDate = ref<string | null>(null)
+
+const trendVisible = ref(false)
+const trendTsCode = ref('')
+const trendEntityName = ref('')
+
+function openDetail(row: MoneyFlowSectorRow) {
+  trendTsCode.value = row.tsCode
+  trendEntityName.value = row.sector
+  trendVisible.value = true
+}
+
+async function trendFetchFn(params: MoneyFlowQueryParams): Promise<BarChartRow[]> {
+  const data = await moneyFlowApi.querySectors(params)
+  return data.map(r => ({ label: r.tradeDate, value: Number(r.netAmount) || 0 }))
+}
 
 const kpiCards = computed((): KpiCardItem[] => {
   const sorted = [...rows.value].sort((a, b) => Number(b.netAmount) - Number(a.netAmount))
@@ -62,6 +85,12 @@ const columns: DataTableColumns<MoneyFlowSectorRow> = [
   { title: '净流入(万)', key: 'netAmount', width: 110, defaultSortOrder: 'descend' as const, sorter: (a, b) => Number(a.netAmount) - Number(b.netAmount), render: row => { const v = Number(row.netAmount); return h('span', { class: v > 0 ? 'positive' : v < 0 ? 'negative' : '' }, v.toFixed(2)) } },
   { title: '净买入(万)', key: 'netBuyAmount', width: 110, sorter: (a, b) => Number(a.netBuyAmount) - Number(b.netBuyAmount), render: row => { const v = Number(row.netBuyAmount); return h('span', { class: v > 0 ? 'positive' : 'negative' }, v.toFixed(2)) } },
   { title: '净卖出(万)', key: 'netSellAmount', width: 110, render: row => { const v = Number(row.netSellAmount); return h('span', { class: v > 0 ? 'positive' : 'negative' }, v.toFixed(2)) } },
+  {
+    title: '操作',
+    key: 'action',
+    width: 70,
+    render: (row) => h(NButton, { text: true, type: 'primary', onClick: () => openDetail(row) }, () => '详情'),
+  },
 ]
 
 async function load() {

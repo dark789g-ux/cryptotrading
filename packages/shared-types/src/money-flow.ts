@@ -48,6 +48,7 @@ export interface MoneyFlowStockRow {
 /** GET /money-flow/industries 单行（moneyflow_ind_ths，无大中小单拆分） */
 export interface MoneyFlowIndustryRow {
   id: string
+  tsCode: string
   tradeDate: string
   industry: string
   pctChange: string | null
@@ -59,6 +60,7 @@ export interface MoneyFlowIndustryRow {
 /** GET /money-flow/sectors 单行（moneyflow_cnt_ths，无大中小单拆分） */
 export interface MoneyFlowSectorRow {
   id: string
+  tsCode: string
   tradeDate: string
   sector: string
   pctChange: string | null

@@ -31,6 +31,13 @@
         </div>
       </div>
     </div>
+
+    <FlowTrendModal
+      v-model:visible="trendVisible"
+      :ts-code="trendTsCode"
+      :entity-name="trendEntityName"
+      :fetch-fn="trendFetchFn"
+    />
   </div>
 </template>
 
@@ -38,18 +45,34 @@
 defineOptions({ name: 'StockFlowPanel' })
 
 import { computed, h, onActivated, onMounted, ref } from 'vue'
-import { NDataTable, NInput } from 'naive-ui'
+import { NButton, NDataTable, NInput } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowStockRow } from '@/api/modules/moneyFlow'
 import FlowDateControl from './FlowDateControl.vue'
 import FlowKpiCards from './FlowKpiCards.vue'
-import type { KpiCardItem } from './money-flow.types'
+import FlowTrendModal from './FlowTrendModal.vue'
+import type { BarChartRow, KpiCardItem } from './money-flow.types'
 
 const rows = ref<MoneyFlowStockRow[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
 const currentParams = ref<MoneyFlowQueryParams>({})
 const latestDate = ref<string | null>(null)
+
+const trendVisible = ref(false)
+const trendTsCode = ref('')
+const trendEntityName = ref('')
+
+function openDetail(row: MoneyFlowStockRow) {
+  trendTsCode.value = row.tsCode
+  trendEntityName.value = row.name ?? row.tsCode
+  trendVisible.value = true
+}
+
+async function trendFetchFn(params: MoneyFlowQueryParams): Promise<BarChartRow[]> {
+  const data = await moneyFlowApi.queryStocks(params)
+  return data.map(r => ({ label: r.tradeDate, value: Number(r.netAmount) || 0 }))
+}
 
 const filteredRows = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
@@ -125,6 +148,12 @@ const columns: DataTableColumns<MoneyFlowStockRow> = [
       const v = Number(row.buySmAmount)
       return h('span', { class: v > 0 ? 'positive' : v < 0 ? 'negative' : '' }, v.toFixed(2))
     },
+  },
+  {
+    title: '操作',
+    key: 'action',
+    width: 70,
+    render: (row) => h(NButton, { text: true, type: 'primary', onClick: () => openDetail(row) }, () => '详情'),
   },
 ]
 
