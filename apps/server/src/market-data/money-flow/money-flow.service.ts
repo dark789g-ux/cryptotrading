@@ -28,40 +28,49 @@ export class MoneyFlowService {
   ) {}
 
   async queryStocks(dto: QueryFlowDto): Promise<MoneyFlowStockRow[]> {
-    const qb = this.stockRepo.createQueryBuilder('s').orderBy('s.net_amount', 'DESC');
+    const qb = this.stockRepo.createQueryBuilder('s');
     if (dto.trade_date) {
       qb.where('s.trade_date = :d', { d: dto.trade_date });
     } else if (dto.start_date && dto.end_date) {
       qb.where('s.trade_date >= :s AND s.trade_date <= :e', { s: dto.start_date, e: dto.end_date });
     }
     if (dto.ts_code) {
+      qb.orderBy('s.trade_date', 'ASC');
       qb.andWhere('s.ts_code = :ts', { ts: dto.ts_code });
+    } else {
+      qb.orderBy('s.net_amount', 'DESC');
     }
     return qb.getMany();
   }
 
   async queryIndustries(dto: QueryFlowDto): Promise<MoneyFlowIndustryRow[]> {
-    const qb = this.industryRepo.createQueryBuilder('i').orderBy('i.net_amount', 'DESC');
+    const qb = this.industryRepo.createQueryBuilder('i');
     if (dto.trade_date) {
       qb.where('i.trade_date = :d', { d: dto.trade_date });
     } else if (dto.start_date && dto.end_date) {
       qb.where('i.trade_date >= :s AND i.trade_date <= :e', { s: dto.start_date, e: dto.end_date });
     }
     if (dto.ts_code) {
+      qb.orderBy('i.trade_date', 'ASC');
       qb.andWhere('i.ts_code = :ts', { ts: dto.ts_code });
+    } else {
+      qb.orderBy('i.net_amount', 'DESC');
     }
     return qb.getMany();
   }
 
   async querySectors(dto: QueryFlowDto): Promise<MoneyFlowSectorRow[]> {
-    const qb = this.sectorRepo.createQueryBuilder('s').orderBy('s.net_amount', 'DESC');
+    const qb = this.sectorRepo.createQueryBuilder('s');
     if (dto.trade_date) {
       qb.where('s.trade_date = :d', { d: dto.trade_date });
     } else if (dto.start_date && dto.end_date) {
       qb.where('s.trade_date >= :s AND s.trade_date <= :e', { s: dto.start_date, e: dto.end_date });
     }
     if (dto.ts_code) {
+      qb.orderBy('s.trade_date', 'ASC');
       qb.andWhere('s.ts_code = :ts', { ts: dto.ts_code });
+    } else {
+      qb.orderBy('s.net_amount', 'DESC');
     }
     return qb.getMany();
   }
