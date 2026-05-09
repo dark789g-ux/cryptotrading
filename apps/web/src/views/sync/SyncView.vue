@@ -144,6 +144,38 @@
                 </n-button>
               </div>
             </section>
+
+            <section class="data-source-card data-source-card--oamv">
+              <div class="data-source-header">
+                <div class="data-source-icon">
+                  <n-icon><trending-up-outline /></n-icon>
+                </div>
+                <div class="data-source-heading">
+                  <span class="data-source-eyebrow">Active Market Value</span>
+                  <h3 class="data-source-title">活跃市值（0AMV）</h3>
+                  <p class="data-source-desc">中证A股指数 930903.CSI 的活跃市值指标，用于衡量 A 股市场活跃度。</p>
+                </div>
+              </div>
+
+              <div class="data-source-body">
+                <div class="source-note">
+                  点击按钮从 Tushare 同步最近 60 天数据并计算 0AMV 指标。
+                </div>
+              </div>
+
+              <div class="data-source-actions data-source-actions--single">
+                <n-button
+                  block
+                  secondary
+                  type="primary"
+                  :loading="oamvSyncing"
+                  @click="syncOamv"
+                >
+                  <template #icon><n-icon><trending-up-outline /></n-icon></template>
+                  同步 0AMV
+                </n-button>
+              </div>
+            </section>
           </div>
         </n-form>
       </n-card>
@@ -268,11 +300,12 @@ import {
   NSpace,
   useMessage,
 } from 'naive-ui'
-import { SyncOutline, CheckmarkCircle, CloseCircle, TimeOutline, CloudDownloadOutline, SwapHorizontalOutline } from '@vicons/ionicons5'
+import { SyncOutline, CheckmarkCircle, CloseCircle, TimeOutline, CloudDownloadOutline, SwapHorizontalOutline, TrendingUpOutline } from '@vicons/ionicons5'
 import { useSyncView } from '../../composables/hooks/useSyncView'
 import ASharesSyncModal from '../../components/symbols/a-shares/ASharesSyncModal.vue'
 import { useASharesSync } from '../../components/symbols/a-shares/useASharesSync'
 import { moneyFlowApi, type MoneyFlowSyncResult } from '@/api/modules/moneyFlow'
+import { oamvApi } from '@/api/modules/oamv'
 
 const message = useMessage()
 const noopReload = async () => {}
@@ -314,6 +347,7 @@ const {
 
 const moneyFlowDateRange = ref<[number, number] | null>(null)
 const moneyFlowSyncing = ref(false)
+const oamvSyncing = ref(false)
 const moneyFlowSyncResult = ref<{
   stocks: MoneyFlowSyncResult
   industries: MoneyFlowSyncResult
@@ -347,6 +381,18 @@ async function syncMoneyFlow() {
     message.error(e instanceof Error ? e.message : '同步失败')
   } finally {
     moneyFlowSyncing.value = false
+  }
+}
+
+async function syncOamv() {
+  oamvSyncing.value = true
+  try {
+    const result = await oamvApi.sync()
+    message.success(`0AMV 同步完成，共 ${result.synced} 条数据`)
+  } catch (e: unknown) {
+    message.error(e instanceof Error ? e.message : '0AMV 同步失败')
+  } finally {
+    oamvSyncing.value = false
   }
 }
 </script>

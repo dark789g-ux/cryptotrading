@@ -47,6 +47,8 @@ import { MoneyFlowIndustryEntity } from './entities/money-flow/money-flow-indust
 import { MoneyFlowSectorEntity } from './entities/money-flow/money-flow-sector.entity';
 import { MoneyFlowMarketEntity } from './entities/money-flow/money-flow-market.entity';
 import { MoneyFlowModule } from './market-data/money-flow/money-flow.module';
+import { OamvModule } from './market-data/oamv/oamv.module';
+import { OamvDailyEntity } from './entities/oamv/oamv-daily.entity';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -93,6 +95,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           MoneyFlowIndustryEntity,
           MoneyFlowSectorEntity,
           MoneyFlowMarketEntity,
+          OamvDailyEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],
@@ -113,6 +116,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     UsersModule,
     StrategyConditionsModule,
     MoneyFlowModule,
+    OamvModule,
   ],
 })
 export class AppModule implements OnModuleInit {
