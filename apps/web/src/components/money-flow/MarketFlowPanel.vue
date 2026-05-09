@@ -2,13 +2,18 @@
 <template>
   <div class="market-flow-panel">
     <div class="panel-controls">
-      <FlowDateControl :default-date="latestDate" @change="onDateChange" />
+      <FlowDateControl
+        :default-date="latestDate"
+        :hide-mode-toggle="true"
+        :default-range-days="30"
+        @change="onDateChange"
+      />
     </div>
 
     <FlowKpiCards :cards="kpiCards" :loading="loading" />
 
     <div class="chart-area">
-      <FlowBarChart :rows="chartRows" />
+      <FlowTrendChart :rows="chartRows" />
     </div>
 
     <div v-if="!loading && !rows.length" class="empty-state">
@@ -26,7 +31,7 @@ import { computed, onActivated, onMounted, ref } from 'vue'
 import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowMarketRow } from '@/api/modules/moneyFlow'
 import FlowDateControl from './FlowDateControl.vue'
 import FlowKpiCards from './FlowKpiCards.vue'
-import FlowBarChart from './FlowBarChart.vue'
+import FlowTrendChart from './FlowTrendChart.vue'
 import type { KpiCardItem, BarChartRow } from './money-flow.types'
 
 const rows = ref<MoneyFlowMarketRow[]>([])
@@ -37,9 +42,9 @@ const latestDate = ref<string | null>(null)
 const latestRow = computed(() => rows.value[rows.value.length - 1] ?? null)
 
 const kpiCards = computed((): KpiCardItem[] => [
-  { label: '大盘净流入', value: latestRow.value?.netAmount ?? null, sub: latestRow.value?.tradeDate ?? '' },
-  { label: '主力净流入', value: latestRow.value?.buyLgAmount ?? null, sub: '大单' },
-  { label: '散户净流入', value: latestRow.value?.buySmAmount ?? null, sub: '小单' },
+  { label: '主力净流入', value: latestRow.value?.netAmount ?? null, sub: latestRow.value?.tradeDate ?? '' },
+  { label: '大单净流入', value: latestRow.value?.buyLgAmount ?? null, sub: '大单' },
+  { label: '小单净流入', value: latestRow.value?.buySmAmount ?? null, sub: '小单' },
 ])
 
 const chartRows = computed((): BarChartRow[] =>
@@ -47,7 +52,7 @@ const chartRows = computed((): BarChartRow[] =>
 )
 
 async function load() {
-  if (!currentParams.value.trade_date && !currentParams.value.start_date) return
+  if (!currentParams.value.start_date && !currentParams.value.trade_date) return
   loading.value = true
   try {
     rows.value = await moneyFlowApi.queryMarket(currentParams.value)

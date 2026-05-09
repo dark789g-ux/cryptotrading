@@ -111,7 +111,7 @@ export class MoneyFlowSyncService {
         allEntities.push(this.stockRepo.create({
           tsCode: asString(row.ts_code),
           tradeDate: asString(row.trade_date),
-          name: asNullableNumeric(row.name),
+          name: asString(row.name),
           pctChange: asNullableNumeric(row.pct_change),
           latest: asNullableNumeric(row.latest),
           netAmount: asNullableNumeric(row.net_amount),

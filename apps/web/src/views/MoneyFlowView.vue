@@ -16,7 +16,8 @@
           :class="{ 'flow-tabs__tab--active': activeTab === tab.key }"
           @click="activeTab = tab.key"
         >
-          {{ tab.label }}
+          <span class="flow-tabs__label">{{ tab.label }}</span>
+          <span class="flow-tabs__source">{{ tab.source }}</span>
         </button>
       </div>
     </div>
@@ -41,11 +42,11 @@ import StockFlowPanel from '../components/money-flow/StockFlowPanel.vue'
 
 type TabKey = 'market' | 'industry' | 'sector' | 'stock'
 
-const tabs: { key: TabKey; label: string }[] = [
-  { key: 'market', label: '大盘' },
-  { key: 'industry', label: '行业' },
-  { key: 'sector', label: '板块' },
-  { key: 'stock', label: '个股' },
+const tabs: { key: TabKey; label: string; source: string }[] = [
+  { key: 'market', label: '大盘', source: '东方财富' },
+  { key: 'industry', label: '行业', source: '同花顺' },
+  { key: 'sector', label: '板块', source: '同花顺' },
+  { key: 'stock', label: '个股', source: '同花顺' },
 ]
 
 const activeTab = ref<TabKey>('market')
@@ -66,21 +67,36 @@ const activeTab = ref<TabKey>('market')
 .flow-tabs__tab {
   position: relative;
   margin: 0;
-  padding: 10px 16px 12px;
+  padding: 8px 16px 10px;
   border: none;
   background: transparent;
   font: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.flow-tabs__label {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--color-text-secondary);
-  cursor: pointer;
   transition: color 0.2s ease;
 }
 
-.flow-tabs__tab:hover { color: var(--color-text); }
+.flow-tabs__source {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
 
-.flow-tabs__tab--active { color: var(--color-text); }
+.flow-tabs__tab:hover .flow-tabs__label { color: var(--color-text); }
+.flow-tabs__tab:hover .flow-tabs__source { color: var(--color-text-muted); }
+
+.flow-tabs__tab--active .flow-tabs__label { color: var(--color-text); }
 
 .flow-tabs__tab--active::after {
   content: '';
