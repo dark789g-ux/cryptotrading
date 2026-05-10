@@ -126,7 +126,25 @@ export class IndexCatalogSyncService {
   }
 
   async cleanupOrphans(): Promise<MoneyFlowSyncResult> {
-    return { success: 0, skipped: 0, errors: [] };
+    const errors: string[] = [];
+    try {
+      const result = await this.memberRepo
+        .createQueryBuilder()
+        .delete()
+        .from(ThsMemberStockEntity)
+        .where('ts_code NOT IN (SELECT ts_code FROM ths_index_catalog)')
+        .execute();
+      const affected = result.affected ?? 0;
+      if (affected > 0) {
+        this.logger.log(`cleanupOrphans 删除 ${affected} 条孤儿成分股`);
+      }
+      return { success: affected, skipped: 0, errors };
+    } catch (e: unknown) {
+      const msg = `cleanupOrphans 失败: ${e instanceof Error ? e.message : String(e)}`;
+      this.logger.error(msg, e instanceof Error ? e.stack : undefined);
+      errors.push(msg);
+      return { success: 0, skipped: 0, errors };
+    }
   }
 
   startSync(): Subject<MoneyFlowSyncEvent> {

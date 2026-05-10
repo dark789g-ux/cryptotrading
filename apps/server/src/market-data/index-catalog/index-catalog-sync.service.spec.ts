@@ -167,4 +167,39 @@ describe('IndexCatalogSyncService', () => {
       expect(tushare.query).not.toHaveBeenCalled();
     });
   });
+
+  describe('cleanupOrphans', () => {
+    it('执行 NOT IN 子查询并返回受影响行数', async () => {
+      const qb = {
+        delete: jest.fn().mockReturnThis(),
+        from: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 17 }),
+      };
+      memberRepo.createQueryBuilder = jest.fn().mockReturnValue(qb) as never;
+
+      const result = await service.cleanupOrphans();
+
+      expect(qb.where).toHaveBeenCalledWith(
+        expect.stringContaining('ts_code NOT IN'),
+      );
+      expect(result.success).toBe(17);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('SQL 失败时 errors 透出', async () => {
+      const qb = {
+        delete: jest.fn().mockReturnThis(),
+        from: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockRejectedValue(new Error('boom')),
+      };
+      memberRepo.createQueryBuilder = jest.fn().mockReturnValue(qb) as never;
+
+      const result = await service.cleanupOrphans();
+
+      expect(result.success).toBe(0);
+      expect(result.errors[0]).toContain('cleanupOrphans');
+    });
+  });
 });
