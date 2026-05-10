@@ -11,6 +11,9 @@ import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
 import { resolveOpenTradeDates } from '../a-shares/sync/a-shares-sync-utils';
 import { SyncFlowDto } from './dto/sync-flow.dto';
+import type { MoneyFlowSyncEvent, MoneyFlowSyncResult } from '@cryptotrading/shared-types';
+
+export type { MoneyFlowSyncResult };
 
 // moneyflow_ths: https://tushare.pro/wctapi/documents/348.md
 const STOCK_FIELDS = 'trade_date,ts_code,name,pct_change,latest,net_amount,net_d5_amount,buy_lg_amount,buy_lg_amount_rate,buy_md_amount,buy_md_amount_rate,buy_sm_amount,buy_sm_amount_rate';
@@ -23,10 +26,20 @@ const MARKET_FIELDS = 'trade_date,net_amount,buy_lg_amount,buy_sm_amount';
 // ths_member: https://tushare.pro/wctapi/documents/261.md
 const MEMBER_FIELDS = 'ts_code,con_code,con_name,is_new';
 
-export interface MoneyFlowSyncResult {
-  success: number;
-  skipped: number;
-  errors: string[];
+type SyncCtx = {
+  phase: string;
+  baseCurrent: number;
+  total: number;
+  grandTotal: number;
+  emit: (e: MoneyFlowSyncEvent) => void;
+};
+
+function pctOf(c: number, g: number): number {
+  return Math.round((c / Math.max(g, 1)) * 100);
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n) + '…' : s;
 }
 
 function asNullableNumeric(v: unknown, divisor?: number): string | null {
@@ -127,7 +140,7 @@ export class MoneyFlowSyncService {
     return deduped.length;
   }
 
-  async syncStocks(dto: SyncFlowDto): Promise<MoneyFlowSyncResult> {
+  async syncStocks(dto: SyncFlowDto, ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
     const allTradeDates = await this.getTradeDates(dto)
       .catch((e: unknown) => { errors.push(String(e)); return []; });
@@ -148,12 +161,24 @@ export class MoneyFlowSyncService {
 
     const allEntities: MoneyFlowStockEntity[] = [];
 
-    for (const date of tradeDates) {
-      const rows = await this.tushareClient.query(
-        'moneyflow_ths',
-        { start_date: date, end_date: date },
-        STOCK_FIELDS,
-      ).catch((e: unknown) => { errors.push(`[${date}] ${String(e)}`); return []; });
+    for (let i = 0; i < tradeDates.length; i++) {
+      const date = tradeDates[i];
+      let rows: any[] = [];
+      try {
+        rows = await this.runWithRetry(
+          () => this.tushareClient.query('moneyflow_ths', { start_date: date, end_date: date }, STOCK_FIELDS),
+          (attempt, err) => ctx?.emit({
+            type: 'progress',
+            phase: ctx.phase,
+            current: ctx.baseCurrent + i,
+            total: ctx.total,
+            percent: pctOf(ctx.baseCurrent + i, ctx.grandTotal),
+            message: `重试中：${date}（第 ${attempt}/2 次） ${truncate(String(err), 60)}`,
+          }),
+        );
+      } catch (e) {
+        errors.push(`[${date}] ${String(e)}`);
+      }
 
       if (rows.length >= 6000) {
         this.logger.warn(`moneyflow_ths ${date} 返回 ${rows.length} 条，可能截断`);
@@ -176,6 +201,15 @@ export class MoneyFlowSyncService {
           buySmAmountRate: asNullableNumeric(row.buy_sm_amount_rate),
         }));
       }
+
+      ctx?.emit({
+        type: 'progress',
+        phase: ctx.phase,
+        current: ctx.baseCurrent + i + 1,
+        total: ctx.total,
+        percent: pctOf(ctx.baseCurrent + i + 1, ctx.grandTotal),
+        message: date,
+      });
     }
 
     // Tushare moneyflow_ths 可能不返回 name 字段，从 a_share_symbols 补充
@@ -202,7 +236,7 @@ export class MoneyFlowSyncService {
     return { success, skipped, errors };
   }
 
-  async syncIndustries(dto: SyncFlowDto): Promise<MoneyFlowSyncResult> {
+  async syncIndustries(dto: SyncFlowDto, ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
     const allTradeDates = await this.getTradeDates(dto)
       .catch((e: unknown) => { errors.push(String(e)); return []; });
@@ -225,12 +259,24 @@ export class MoneyFlowSyncService {
     const toWanYuan = (v: unknown) => asNullableNumeric(v != null ? Number(v) * 10000 : v);
     const allEntities: MoneyFlowIndustryEntity[] = [];
 
-    for (const date of tradeDates) {
-      const rows = await this.tushareClient.query(
-        'moneyflow_ind_ths',
-        { start_date: date, end_date: date },
-        INDUSTRY_FIELDS,
-      ).catch((e: unknown) => { errors.push(`[${date}] ${String(e)}`); return []; });
+    for (let i = 0; i < tradeDates.length; i++) {
+      const date = tradeDates[i];
+      let rows: any[] = [];
+      try {
+        rows = await this.runWithRetry(
+          () => this.tushareClient.query('moneyflow_ind_ths', { start_date: date, end_date: date }, INDUSTRY_FIELDS),
+          (attempt, err) => ctx?.emit({
+            type: 'progress',
+            phase: ctx.phase,
+            current: ctx.baseCurrent + i,
+            total: ctx.total,
+            percent: pctOf(ctx.baseCurrent + i, ctx.grandTotal),
+            message: `重试中：${date}（第 ${attempt}/2 次） ${truncate(String(err), 60)}`,
+          }),
+        );
+      } catch (e) {
+        errors.push(`[${date}] ${String(e)}`);
+      }
 
       if (rows.length >= 6000) {
         this.logger.warn(`moneyflow_ind_ths ${date} 返回 ${rows.length} 条，可能截断`);
@@ -247,6 +293,15 @@ export class MoneyFlowSyncService {
           netAmount: toWanYuan(row.net_amount),
         }));
       }
+
+      ctx?.emit({
+        type: 'progress',
+        phase: ctx.phase,
+        current: ctx.baseCurrent + i + 1,
+        total: ctx.total,
+        percent: pctOf(ctx.baseCurrent + i + 1, ctx.grandTotal),
+        message: date,
+      });
     }
 
     const success = await this.batchUpsert(this.industryRepo, allEntities, ['tsCode', 'tradeDate']);
@@ -261,7 +316,7 @@ export class MoneyFlowSyncService {
     return { success, skipped, errors };
   }
 
-  async syncSectors(dto: SyncFlowDto): Promise<MoneyFlowSyncResult> {
+  async syncSectors(dto: SyncFlowDto, ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
     const allTradeDates = await this.getTradeDates(dto)
       .catch((e: unknown) => { errors.push(String(e)); return []; });
@@ -284,12 +339,24 @@ export class MoneyFlowSyncService {
     const toWanYuan = (v: unknown) => asNullableNumeric(v != null ? Number(v) * 10000 : v);
     const allEntities: MoneyFlowSectorEntity[] = [];
 
-    for (const date of tradeDates) {
-      const rows = await this.tushareClient.query(
-        'moneyflow_cnt_ths',
-        { start_date: date, end_date: date },
-        SECTOR_FIELDS,
-      ).catch((e: unknown) => { errors.push(`[${date}] ${String(e)}`); return []; });
+    for (let i = 0; i < tradeDates.length; i++) {
+      const date = tradeDates[i];
+      let rows: any[] = [];
+      try {
+        rows = await this.runWithRetry(
+          () => this.tushareClient.query('moneyflow_cnt_ths', { start_date: date, end_date: date }, SECTOR_FIELDS),
+          (attempt, err) => ctx?.emit({
+            type: 'progress',
+            phase: ctx.phase,
+            current: ctx.baseCurrent + i,
+            total: ctx.total,
+            percent: pctOf(ctx.baseCurrent + i, ctx.grandTotal),
+            message: `重试中：${date}（第 ${attempt}/2 次） ${truncate(String(err), 60)}`,
+          }),
+        );
+      } catch (e) {
+        errors.push(`[${date}] ${String(e)}`);
+      }
 
       if (rows.length >= 6000) {
         this.logger.warn(`moneyflow_cnt_ths ${date} 返回 ${rows.length} 条，可能截断`);
@@ -306,6 +373,15 @@ export class MoneyFlowSyncService {
           netAmount: toWanYuan(row.net_amount),
         }));
       }
+
+      ctx?.emit({
+        type: 'progress',
+        phase: ctx.phase,
+        current: ctx.baseCurrent + i + 1,
+        total: ctx.total,
+        percent: pctOf(ctx.baseCurrent + i + 1, ctx.grandTotal),
+        message: date,
+      });
     }
 
     const success = await this.batchUpsert(this.sectorRepo, allEntities, ['tsCode', 'tradeDate']);
@@ -320,7 +396,7 @@ export class MoneyFlowSyncService {
     return { success, skipped, errors };
   }
 
-  async syncMarket(dto: SyncFlowDto): Promise<MoneyFlowSyncResult> {
+  async syncMarket(dto: SyncFlowDto, ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
     const allTradeDates = await this.getTradeDates(dto)
       .catch((e: unknown) => { errors.push(String(e)); return []; });
@@ -343,12 +419,24 @@ export class MoneyFlowSyncService {
     const amountDivisor = 10000;
     const allEntities: MoneyFlowMarketEntity[] = [];
 
-    for (const date of tradeDates) {
-      const rows = await this.tushareClient.query(
-        'moneyflow_mkt_dc',
-        { start_date: date, end_date: date },
-        MARKET_FIELDS,
-      ).catch((e: unknown) => { errors.push(`[${date}] ${String(e)}`); return []; });
+    for (let i = 0; i < tradeDates.length; i++) {
+      const date = tradeDates[i];
+      let rows: any[] = [];
+      try {
+        rows = await this.runWithRetry(
+          () => this.tushareClient.query('moneyflow_mkt_dc', { start_date: date, end_date: date }, MARKET_FIELDS),
+          (attempt, err) => ctx?.emit({
+            type: 'progress',
+            phase: ctx.phase,
+            current: ctx.baseCurrent + i,
+            total: ctx.total,
+            percent: pctOf(ctx.baseCurrent + i, ctx.grandTotal),
+            message: `重试中：${date}（第 ${attempt}/2 次） ${truncate(String(err), 60)}`,
+          }),
+        );
+      } catch (e) {
+        errors.push(`[${date}] ${String(e)}`);
+      }
 
       if (rows.length >= 6000) {
         this.logger.warn(`moneyflow_mkt_dc ${date} 返回 ${rows.length} 条，可能截断`);
@@ -362,6 +450,15 @@ export class MoneyFlowSyncService {
           buySmAmount: asNullableNumeric(row.buy_sm_amount, amountDivisor),
         }));
       }
+
+      ctx?.emit({
+        type: 'progress',
+        phase: ctx.phase,
+        current: ctx.baseCurrent + i + 1,
+        total: ctx.total,
+        percent: pctOf(ctx.baseCurrent + i + 1, ctx.grandTotal),
+        message: date,
+      });
     }
 
     const success = await this.batchUpsert(this.marketRepo, allEntities, ['tradeDate']);
