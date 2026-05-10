@@ -87,3 +87,30 @@ export interface MoneyFlowMemberRow {
   conName: string | null
   isNew: string | null
 }
+
+/** SSE 事件 —— GET /money-flow/sync/run */
+export type MoneyFlowSyncEvent =
+  | {
+      type: 'progress'
+      percent: number
+      phase: string
+      current: number
+      total: number
+      message: string
+    }
+  | {
+      type: 'done'
+      message: string
+      summary: MoneyFlowSyncSummary
+    }
+  | {
+      type: 'error'
+      message: string
+    }
+
+export interface MoneyFlowSyncSummary {
+  stocks: MoneyFlowSyncResult
+  industries: MoneyFlowSyncResult
+  sectors: MoneyFlowSyncResult
+  market: MoneyFlowSyncResult
+}
