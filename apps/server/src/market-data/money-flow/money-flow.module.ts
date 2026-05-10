@@ -5,6 +5,7 @@ import { MoneyFlowStockEntity } from '../../entities/money-flow/money-flow-stock
 import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-industry.entity';
 import { MoneyFlowSectorEntity } from '../../entities/money-flow/money-flow-sector.entity';
 import { MoneyFlowMarketEntity } from '../../entities/money-flow/money-flow-market.entity';
+import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock.entity';
 import { MoneyFlowController } from './money-flow.controller';
 import { MoneyFlowSyncController } from './money-flow-sync.controller';
 import { MoneyFlowService } from './money-flow.service';
@@ -18,6 +19,7 @@ import { TushareClientService } from '../a-shares/services/tushare-client.servic
     MoneyFlowIndustryEntity,
     MoneyFlowSectorEntity,
     MoneyFlowMarketEntity,
+    ThsMemberStockEntity,
   ])],
   controllers: [MoneyFlowController, MoneyFlowSyncController],
   providers: [MoneyFlowService, MoneyFlowSyncService, TushareClientService],

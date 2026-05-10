@@ -2,6 +2,7 @@ import { Body, Controller, Post } from '@nestjs/common';
 import { AdminOnly } from '../../auth/decorators/admin-only.decorator';
 import { MoneyFlowSyncService } from './money-flow-sync.service';
 import { SyncFlowDto } from './dto/sync-flow.dto';
+import { QueryMemberDto } from './dto/query-member.dto';
 
 @Controller('money-flow/sync')
 export class MoneyFlowSyncController {
@@ -29,5 +30,12 @@ export class MoneyFlowSyncController {
   @AdminOnly()
   syncMarket(@Body() dto: SyncFlowDto) {
     return this.syncService.syncMarket(dto);
+  }
+
+  @Post('members')
+  @AdminOnly()
+  syncMembers(@Body() dto: QueryMemberDto) {
+    const dimension = dto.ts_code === 'sector' ? 'sector' : 'industry';
+    return this.syncService.syncMembers(dimension);
   }
 }

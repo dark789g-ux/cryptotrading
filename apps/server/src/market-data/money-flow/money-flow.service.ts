@@ -5,6 +5,7 @@ import { MoneyFlowStockEntity } from '../../entities/money-flow/money-flow-stock
 import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-industry.entity';
 import { MoneyFlowSectorEntity } from '../../entities/money-flow/money-flow-sector.entity';
 import { MoneyFlowMarketEntity } from '../../entities/money-flow/money-flow-market.entity';
+import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock.entity';
 import { QueryFlowDto } from './dto/query-flow.dto';
 import type {
   MoneyFlowStockRow,
@@ -12,7 +13,22 @@ import type {
   MoneyFlowSectorRow,
   MoneyFlowMarketRow,
   MoneyFlowLatestDates,
+  MoneyFlowMemberRow,
 } from '@cryptotrading/shared-types';
+
+/** 将金额字段从万元转换为亿元（÷10000），百分比字段保持不变 */
+function toYi(row: Record<string, unknown>, amountKeys: string[]): Record<string, unknown> {
+  for (const key of amountKeys) {
+    const v = row[key];
+    if (v != null && v !== '') row[key] = String(Number(v) / 10000);
+  }
+  return row;
+}
+
+const STOCK_AMOUNT_KEYS = ['netAmount', 'buyLgAmount', 'buyMdAmount', 'buySmAmount', 'netD5Amount'];
+const INDUSTRY_AMOUNT_KEYS = ['netAmount', 'netBuyAmount', 'netSellAmount'];
+const SECTOR_AMOUNT_KEYS = ['netAmount', 'netBuyAmount', 'netSellAmount'];
+const MARKET_AMOUNT_KEYS = ['netAmount', 'buyLgAmount', 'buySmAmount'];
 
 @Injectable()
 export class MoneyFlowService {
@@ -25,6 +41,8 @@ export class MoneyFlowService {
     private readonly sectorRepo: Repository<MoneyFlowSectorEntity>,
     @InjectRepository(MoneyFlowMarketEntity)
     private readonly marketRepo: Repository<MoneyFlowMarketEntity>,
+    @InjectRepository(ThsMemberStockEntity)
+    private readonly memberRepo: Repository<ThsMemberStockEntity>,
   ) {}
 
   async queryStocks(dto: QueryFlowDto): Promise<MoneyFlowStockRow[]> {
@@ -44,7 +62,7 @@ export class MoneyFlowService {
     } else {
       qb.orderBy('s.net_amount', 'DESC');
     }
-    return qb.getMany();
+    return qb.getMany().then(rows => rows.map(r => toYi(r as unknown as Record<string, unknown>, STOCK_AMOUNT_KEYS) as unknown as MoneyFlowStockRow));
   }
 
   async queryIndustries(dto: QueryFlowDto): Promise<MoneyFlowIndustryRow[]> {
@@ -64,7 +82,7 @@ export class MoneyFlowService {
     } else {
       qb.orderBy('i.net_amount', 'DESC');
     }
-    return qb.getMany();
+    return qb.getMany().then(rows => rows.map(r => toYi(r as unknown as Record<string, unknown>, INDUSTRY_AMOUNT_KEYS) as unknown as MoneyFlowIndustryRow));
   }
 
   async querySectors(dto: QueryFlowDto): Promise<MoneyFlowSectorRow[]> {
@@ -84,7 +102,7 @@ export class MoneyFlowService {
     } else {
       qb.orderBy('s.net_amount', 'DESC');
     }
-    return qb.getMany();
+    return qb.getMany().then(rows => rows.map(r => toYi(r as unknown as Record<string, unknown>, SECTOR_AMOUNT_KEYS) as unknown as MoneyFlowSectorRow));
   }
 
   async queryMarket(dto: QueryFlowDto): Promise<MoneyFlowMarketRow[]> {
@@ -94,7 +112,7 @@ export class MoneyFlowService {
     } else if (dto.start_date && dto.end_date) {
       qb.where('m.trade_date >= :s AND m.trade_date <= :e', { s: dto.start_date, e: dto.end_date });
     }
-    return qb.getMany();
+    return qb.getMany().then(rows => rows.map(r => toYi(r as unknown as Record<string, unknown>, MARKET_AMOUNT_KEYS) as unknown as MoneyFlowMarketRow));
   }
 
   /** 个股维度的数据日期范围（min/max trade_date） */
@@ -121,5 +139,13 @@ export class MoneyFlowService {
       sector: sector?.max ?? null,
       market: market?.max ?? null,
     };
+  }
+
+  async queryMembers(tsCode: string): Promise<MoneyFlowMemberRow[]> {
+    return this.memberRepo
+      .createQueryBuilder('m')
+      .where('m.ts_code = :tsCode', { tsCode })
+      .orderBy('m.con_code', 'ASC')
+      .getMany();
   }
 }

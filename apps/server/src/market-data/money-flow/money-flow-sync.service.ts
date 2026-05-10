@@ -7,6 +7,7 @@ import { MoneyFlowStockEntity } from '../../entities/money-flow/money-flow-stock
 import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-industry.entity';
 import { MoneyFlowSectorEntity } from '../../entities/money-flow/money-flow-sector.entity';
 import { MoneyFlowMarketEntity } from '../../entities/money-flow/money-flow-market.entity';
+import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock.entity';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
 import { resolveOpenTradeDates } from '../a-shares/sync/a-shares-sync-utils';
 import { SyncFlowDto } from './dto/sync-flow.dto';
@@ -19,6 +20,8 @@ const INDUSTRY_FIELDS = 'trade_date,ts_code,industry,pct_change,net_buy_amount,n
 const SECTOR_FIELDS = 'trade_date,ts_code,name,pct_change,net_buy_amount,net_sell_amount,net_amount';
 // moneyflow_mkt_dc: https://tushare.pro/wctapi/documents/345.md
 const MARKET_FIELDS = 'trade_date,net_amount,buy_lg_amount,buy_sm_amount';
+// ths_member: https://tushare.pro/wctapi/documents/261.md
+const MEMBER_FIELDS = 'ts_code,con_code,con_name,is_new';
 
 export interface MoneyFlowSyncResult {
   success: number;
@@ -64,6 +67,8 @@ export class MoneyFlowSyncService {
     private readonly marketRepo: Repository<MoneyFlowMarketEntity>,
     @InjectRepository(AShareSymbolEntity)
     private readonly symbolRepo: Repository<AShareSymbolEntity>,
+    @InjectRepository(ThsMemberStockEntity)
+    private readonly memberRepo: Repository<ThsMemberStockEntity>,
     private readonly tushareClient: TushareClientService,
   ) {}
 
@@ -196,6 +201,8 @@ export class MoneyFlowSyncService {
       if (!tradeDates.length) return { success: 0, skipped, errors };
     }
 
+    // moneyflow_ind_ths 金额单位为亿元，乘以 10000 统一为万元
+    const toWanYuan = (v: unknown) => asNullableNumeric(v != null ? Number(v) * 10000 : v);
     const allEntities: MoneyFlowIndustryEntity[] = [];
 
     for (const date of tradeDates) {
@@ -215,14 +222,22 @@ export class MoneyFlowSyncService {
           tsCode: asString(row.ts_code),
           industry: asString(row.industry),
           pctChange: asNullableNumeric(row.pct_change),
-          netBuyAmount: asNullableNumeric(row.net_buy_amount),
-          netSellAmount: asNullableNumeric(row.net_sell_amount),
-          netAmount: asNullableNumeric(row.net_amount),
+          netBuyAmount: toWanYuan(row.net_buy_amount),
+          netSellAmount: toWanYuan(row.net_sell_amount),
+          netAmount: toWanYuan(row.net_amount),
         }));
       }
     }
 
     const success = await this.batchUpsert(this.industryRepo, allEntities, ['tsCode', 'tradeDate']);
+
+    // 行业资金流同步完成后，自动同步成分股映射
+    const memberResult = await this.syncMembers('industry');
+    if (memberResult.errors.length) {
+      errors.push(...memberResult.errors);
+    }
+    this.logger.log(`syncIndustries 完成: 资金流 ${success} 条, 成分股 ${memberResult.success} 条`);
+
     return { success, skipped, errors };
   }
 
@@ -245,6 +260,8 @@ export class MoneyFlowSyncService {
       if (!tradeDates.length) return { success: 0, skipped, errors };
     }
 
+    // moneyflow_cnt_ths 金额单位为亿元，乘以 10000 统一为万元
+    const toWanYuan = (v: unknown) => asNullableNumeric(v != null ? Number(v) * 10000 : v);
     const allEntities: MoneyFlowSectorEntity[] = [];
 
     for (const date of tradeDates) {
@@ -264,14 +281,22 @@ export class MoneyFlowSyncService {
           tsCode: asString(row.ts_code),
           sector: asString(row.name),
           pctChange: asNullableNumeric(row.pct_change),
-          netBuyAmount: asNullableNumeric(row.net_buy_amount),
-          netSellAmount: asNullableNumeric(row.net_sell_amount),
-          netAmount: asNullableNumeric(row.net_amount),
+          netBuyAmount: toWanYuan(row.net_buy_amount),
+          netSellAmount: toWanYuan(row.net_sell_amount),
+          netAmount: toWanYuan(row.net_amount),
         }));
       }
     }
 
     const success = await this.batchUpsert(this.sectorRepo, allEntities, ['tsCode', 'tradeDate']);
+
+    // 板块资金流同步完成后，自动同步成分股映射
+    const memberResult = await this.syncMembers('sector');
+    if (memberResult.errors.length) {
+      errors.push(...memberResult.errors);
+    }
+    this.logger.log(`syncSectors 完成: 资金流 ${success} 条, 成分股 ${memberResult.success} 条`);
+
     return { success, skipped, errors };
   }
 
@@ -321,5 +346,68 @@ export class MoneyFlowSyncService {
 
     const success = await this.batchUpsert(this.marketRepo, allEntities, ['tradeDate']);
     return { success, skipped, errors };
+  }
+
+  /**
+   * 同步行业/板块成分股映射。
+   * @param dimension 'industry' | 'sector' — 决定从哪张表取 ts_code 列表
+   */
+  async syncMembers(dimension: 'industry' | 'sector'): Promise<MoneyFlowSyncResult> {
+    const errors: string[] = [];
+    const repo = dimension === 'industry' ? this.industryRepo : this.sectorRepo;
+
+    // 从已同步的资金流表中取 DISTINCT ts_code
+    const rows = await repo
+      .createQueryBuilder('e')
+      .select('DISTINCT e.ts_code', 'tsCode')
+      .getRawMany<{ tsCode: string }>();
+    const tsCodes = rows.map(r => r.tsCode).filter(Boolean);
+
+    if (!tsCodes.length) {
+      this.logger.warn(`syncMembers(${dimension}): 无 ts_code，请先同步${dimension === 'industry' ? '行业' : '板块'}资金流数据`);
+      return { success: 0, skipped: 0, errors };
+    }
+
+    let success = 0;
+    for (const tsCode of tsCodes) {
+      try {
+        const memberRows = await this.tushareClient.query(
+          'ths_member',
+          { ts_code: tsCode },
+          MEMBER_FIELDS,
+        );
+
+        if (!memberRows.length) {
+          this.logger.warn(`ths_member(${tsCode}) 返回空数据`);
+          continue;
+        }
+
+        // 先删除该 ts_code 的旧数据，再批量插入
+        await this.memberRepo.createQueryBuilder()
+          .delete()
+          .where('ts_code = :tsCode', { tsCode })
+          .execute();
+
+        const entities = memberRows.map(r => this.memberRepo.create({
+          tsCode: asString(r.ts_code),
+          conCode: asString(r.con_code),
+          conName: asString(r.con_name) || null,
+          isNew: asString(r.is_new) || null,
+        }));
+
+        const deduped = deduplicateBy(entities, ['tsCode', 'conCode']);
+        const chunkSize = 1000;
+        for (let i = 0; i < deduped.length; i += chunkSize) {
+          await this.memberRepo.upsert(deduped.slice(i, i + chunkSize) as any, ['tsCode', 'conCode']);
+        }
+        success += deduped.length;
+      } catch (e: unknown) {
+        const msg = `[${tsCode}] ${String(e)}`;
+        this.logger.warn(`syncMembers(${dimension}) 失败: ${msg}`);
+        errors.push(msg);
+      }
+    }
+
+    return { success, skipped: 0, errors };
   }
 }

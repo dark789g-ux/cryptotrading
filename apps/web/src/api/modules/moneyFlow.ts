@@ -9,6 +9,7 @@ export type {
   MoneyFlowIndustryRow,
   MoneyFlowSectorRow,
   MoneyFlowMarketRow,
+  MoneyFlowMemberRow,
 } from '@cryptotrading/shared-types'
 
 import type {
@@ -20,6 +21,7 @@ import type {
   MoneyFlowIndustryRow,
   MoneyFlowSectorRow,
   MoneyFlowMarketRow,
+  MoneyFlowMemberRow,
 } from '@cryptotrading/shared-types'
 
 export interface MoneyFlowDateRange {
@@ -68,4 +70,7 @@ export const moneyFlowApi = {
 
   syncMarket: (params: MoneyFlowSyncParams) =>
     post<MoneyFlowSyncResult>(`${API_BASE}/money-flow/sync/market`, params),
+
+  getMembers: (tsCode: string) =>
+    request<MoneyFlowMemberRow[]>(`${API_BASE}/money-flow/members?ts_code=${encodeURIComponent(tsCode)}`),
 }

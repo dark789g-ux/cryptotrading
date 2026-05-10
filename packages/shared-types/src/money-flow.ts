@@ -79,3 +79,11 @@ export interface MoneyFlowMarketRow {
   buyLgAmount: string | null
   buySmAmount: string | null
 }
+
+/** GET /money-flow/members 单行（ths_member_stocks 成分股映射） */
+export interface MoneyFlowMemberRow {
+  tsCode: string
+  conCode: string
+  conName: string | null
+  isNew: string | null
+}

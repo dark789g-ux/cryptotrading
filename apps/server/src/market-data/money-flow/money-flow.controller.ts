@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { MoneyFlowService } from './money-flow.service';
 import { QueryFlowDto } from './dto/query-flow.dto';
+import { QueryMemberDto } from './dto/query-member.dto';
 
 @Controller('money-flow')
 export class MoneyFlowController {
@@ -34,5 +35,10 @@ export class MoneyFlowController {
   @Get('market')
   queryMarket(@Query() dto: QueryFlowDto) {
     return this.moneyFlowService.queryMarket(dto);
+  }
+
+  @Get('members')
+  queryMembers(@Query() dto: QueryMemberDto) {
+    return this.moneyFlowService.queryMembers(dto.ts_code);
   }
 }

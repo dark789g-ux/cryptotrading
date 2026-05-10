@@ -30,6 +30,7 @@
       :ts-code="trendTsCode"
       :entity-name="trendEntityName"
       :fetch-fn="trendFetchFn"
+      :show-members-tab="true"
     />
   </div>
 </template>
@@ -72,19 +73,19 @@ const kpiCards = computed((): KpiCardItem[] => {
   const top1Out = sorted[sorted.length - 1]
   const inCount = rows.value.filter(r => Number(r.netAmount) > 0).length
   return [
-    { label: '净流入最多', value: top1In?.netAmount ?? null, sub: top1In?.sector ?? '' },
-    { label: '净流出最多', value: top1Out?.netAmount ?? null, sub: top1Out?.sector ?? '' },
-    { label: '净流入板块数', value: String(inCount), sub: `共${rows.value.length}个板块` },
-    { label: '合计净流入', value: rows.value.reduce((s, r) => s + (Number(r.netAmount) || 0), 0).toFixed(0), sub: '万元' },
+    { label: '净流入最多', value: top1In?.netAmount ?? null, sub: top1In?.sector ?? '', format: 'amount' },
+    { label: '净流出最多', value: top1Out?.netAmount ?? null, sub: top1Out?.sector ?? '', format: 'amount' },
+    { label: '净流入板块数', value: String(inCount), sub: `共${rows.value.length}个板块`, format: 'count' },
+    { label: '合计净流入', value: rows.value.reduce((s, r) => s + (Number(r.netAmount) || 0), 0).toFixed(2), sub: '', format: 'amount' },
   ]
 })
 
 const columns: DataTableColumns<MoneyFlowSectorRow> = [
   { title: '板块', key: 'sector', width: 120 },
   { title: '涨跌幅%', key: 'pctChange', width: 90, sorter: (a, b) => Number(a.pctChange) - Number(b.pctChange), render: row => { const v = Number(row.pctChange); return h('span', { class: v > 0 ? 'positive' : v < 0 ? 'negative' : '' }, `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`) } },
-  { title: '净流入(万)', key: 'netAmount', width: 110, defaultSortOrder: 'descend' as const, sorter: (a, b) => Number(a.netAmount) - Number(b.netAmount), render: row => { const v = Number(row.netAmount); return h('span', { class: v > 0 ? 'positive' : v < 0 ? 'negative' : '' }, v.toFixed(2)) } },
-  { title: '净买入(万)', key: 'netBuyAmount', width: 110, sorter: (a, b) => Number(a.netBuyAmount) - Number(b.netBuyAmount), render: row => { const v = Number(row.netBuyAmount); return h('span', { class: v > 0 ? 'positive' : 'negative' }, v.toFixed(2)) } },
-  { title: '净卖出(万)', key: 'netSellAmount', width: 110, render: row => { const v = Number(row.netSellAmount); return h('span', { class: v > 0 ? 'positive' : 'negative' }, v.toFixed(2)) } },
+  { title: '净流入(亿)', key: 'netAmount', width: 110, defaultSortOrder: 'descend' as const, sorter: (a, b) => Number(a.netAmount) - Number(b.netAmount), render: row => { const v = Number(row.netAmount); return h('span', { class: v > 0 ? 'positive' : v < 0 ? 'negative' : '' }, v.toFixed(2)) } },
+  { title: '净买入(亿)', key: 'netBuyAmount', width: 110, sorter: (a, b) => Number(a.netBuyAmount) - Number(b.netBuyAmount), render: row => { const v = Number(row.netBuyAmount); return h('span', { class: v > 0 ? 'positive' : 'negative' }, v.toFixed(2)) } },
+  { title: '净卖出(亿)', key: 'netSellAmount', width: 110, render: row => { const v = Number(row.netSellAmount); return h('span', { class: v > 0 ? 'positive' : 'negative' }, v.toFixed(2)) } },
   {
     title: '操作',
     key: 'action',
