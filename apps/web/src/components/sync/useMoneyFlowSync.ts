@@ -1,8 +1,14 @@
 import { computed, ref } from 'vue'
 import { moneyFlowApi } from '@/api/modules/moneyFlow'
-import type { MoneyFlowSyncResult } from '@/api/modules/moneyFlow'
+import type { MoneyFlowSyncSummary, MoneyFlowSyncResult } from '@/api/modules/moneyFlow'
+import { useSSE } from '@/composables/hooks/useSSE'
 
 type SyncMode = 'incremental' | 'overwrite'
+
+interface FinishedState {
+  summary: MoneyFlowSyncSummary
+  errors: Array<{ phase: string; error: string }>
+}
 
 function buildDefaultDateRange(): [number, number] {
   const end = Date.now()
@@ -20,27 +26,34 @@ function formatDateLabel(yyyymmdd: string | null): string {
   return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`
 }
 
+const PHASE_LABEL_MAP: Record<keyof MoneyFlowSyncSummary, string> = {
+  stocks: '个股',
+  industries: '行业',
+  sectors: '板块',
+  market: '大盘',
+}
+
 export function useMoneyFlowSync(message: {
   error: (msg: string) => void
   success: (msg: string) => void
 }) {
+  const sse = useSSE()
   const show = ref(false)
   const syncing = ref(false)
   const syncMode = ref<SyncMode>('incremental')
   const syncDateRange = ref<[number, number] | null>(buildDefaultDateRange())
   const dateRangeLabel = ref('读取中...')
   const dateRangeLoading = ref(false)
-  const lastResult = ref<{
-    stocks: MoneyFlowSyncResult
-    industries: MoneyFlowSyncResult
-    sectors: MoneyFlowSyncResult
-    market: MoneyFlowSyncResult
-  } | null>(null)
+  const finished = ref<FinishedState | null>(null)
 
   const canConfirm = computed(() => {
     const r = syncDateRange.value
-    return Boolean(r && r[0] && r[1]) && !syncing.value
+    return Boolean(r && r[0] && r[1]) && !syncing.value && !finished.value
   })
+
+  const syncProgressVisible = computed(
+    () => sse.status.value !== 'idle' || finished.value !== null,
+  )
 
   async function loadDateRange() {
     dateRangeLoading.value = true
@@ -60,6 +73,10 @@ export function useMoneyFlowSync(message: {
 
   function openModal() {
     if (!syncDateRange.value) syncDateRange.value = buildDefaultDateRange()
+    if (!syncing.value) {
+      sse.reset()
+      finished.value = null
+    }
     show.value = true
     void loadDateRange()
   }
@@ -67,27 +84,34 @@ export function useMoneyFlowSync(message: {
   async function confirmSync() {
     if (!syncDateRange.value) return
     syncing.value = true
-    const params = {
-      start_date: toYYYYMMDD(syncDateRange.value[0]),
-      end_date: toYYYYMMDD(syncDateRange.value[1]),
-      syncMode: syncMode.value,
-    }
-    try {
-      const [stocks, industries, sectors, market] = await Promise.all([
-        moneyFlowApi.syncStocks(params),
-        moneyFlowApi.syncIndustries(params),
-        moneyFlowApi.syncSectors(params),
-        moneyFlowApi.syncMarket(params),
-      ])
-      lastResult.value = { stocks, industries, sectors, market }
-      message.success(`同步完成：个股 ${stocks.success} 条`)
-      show.value = false
-      void loadDateRange()
-    } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : '同步失败')
-    } finally {
-      syncing.value = false
-    }
+    finished.value = null
+    await sse.start(
+      moneyFlowApi.syncRunUrl({
+        start_date: toYYYYMMDD(syncDateRange.value[0]),
+        end_date: toYYYYMMDD(syncDateRange.value[1]),
+        syncMode: syncMode.value,
+      }),
+      {
+        method: 'GET',
+        onDone: (data?: { summary?: MoneyFlowSyncSummary; message?: string }) => {
+          if (data?.summary) {
+            const errs = (Object.entries(data.summary) as Array<[keyof MoneyFlowSyncSummary, MoneyFlowSyncResult]>)
+              .flatMap(([key, r]) =>
+                (r?.errors ?? []).map(error => ({ phase: PHASE_LABEL_MAP[key], error })),
+              )
+            finished.value = { summary: data.summary, errors: errs }
+            if (errs.length) message.error(`同步完成，${errs.length} 个交易日失败`)
+            else message.success('资金流向同步完成')
+          }
+          syncing.value = false
+          void loadDateRange()
+        },
+        onError: (msg) => {
+          message.error(msg)
+          syncing.value = false
+        },
+      },
+    )
   }
 
   return {
@@ -98,7 +122,9 @@ export function useMoneyFlowSync(message: {
     dateRangeLabel,
     dateRangeLoading,
     canConfirm,
-    lastResult,
+    syncProgressVisible,
+    sse,
+    finished,
     openModal,
     confirmSync,
   }
