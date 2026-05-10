@@ -65,52 +65,50 @@
 
 ## 5. SSE 事件协议
 
-**端点**：`GET /money-flow/sync/stream?start_date=YYYYMMDD&end_date=YYYYMMDD&syncMode=incremental|overwrite`
+**端点**：`GET /money-flow/sync/run?start_date=YYYYMMDD&end_date=YYYYMMDD&syncMode=incremental|overwrite`（路径与 a-shares 对齐：`/sync/run`）
 
 **响应**：`text/event-stream`，每条 `data: <json>\n\n`，事件类型由 JSON `type` 字段标识。
 
+为复用前端已有的 `apps/web/src/composables/hooks/useSSE.ts` 基础设施（已识别 `progress`/`done`/`error` 三种事件），事件协议合并多余维度，直接对齐其字段：
+
 ```ts
-type SyncEvent =
-  | {
-      type: 'phase';
-      dimension: 'stocks' | 'industries' | 'sectors' | 'market';
-      totalInDim: number;          // 该维度需处理的 tradeDate 数（含已跳过的不计入）
-    }
+export type MoneyFlowSyncEvent =
   | {
       type: 'progress';
-      dimension: 'stocks' | 'industries' | 'sectors' | 'market';
-      date: string;                // YYYYMMDD
-      currentInDim: number;        // 该维度内已完成（含 skipped 与 success）
-      totalInDim: number;
-      overallPct: number;          // 0~100，由后端计算
-    }
-  | {
-      type: 'retry';
-      dimension; date: string;
-      attempt: 1 | 2;              // 第几次重试
-      error: string;
-    }
-  | {
-      type: 'error';               // 重试耗尽后才推送
-      dimension; date: string;
-      error: string;
+      percent: number;        // 整体 0-100，后端计算
+      phase: string;          // 如 "同步个股资金流" / "同步行业资金流" / "同步板块资金流" / "同步大盘资金流"
+      current: number;        // 当前 phase 内已完成（含 skipped）
+      total: number;          // 当前 phase 总数（filterMissingDates 后的 tradeDates 长度，全跳过仍计入）
+      message: string;        // 当前 tradeDate 或 "重试中：YYYYMMDD（第 N/2 次）"
     }
   | {
       type: 'done';
-      summary: {
-        stocks: MoneyFlowSyncResult;
-        industries: MoneyFlowSyncResult;
-        sectors: MoneyFlowSyncResult;
-        market: MoneyFlowSyncResult;
-      };
+      message: string;        // "同步完成" 或 "同步完成，N 个交易日失败"
+      summary: MoneyFlowSyncSummary;
+    }
+  | {
+      type: 'error';
+      message: string;        // 流级错误（如鉴权失败、获取交易日列表失败）
     };
+
+export interface MoneyFlowSyncSummary {
+  stocks: MoneyFlowSyncResult;
+  industries: MoneyFlowSyncResult;
+  sectors: MoneyFlowSyncResult;
+  market: MoneyFlowSyncResult;
+}
 ```
 
-**`overallPct` 计算公式**：
+**`percent` 计算公式**：
 ```
-overallPct = ((已完成维度的 totalInDim 累加 + 当前维度内 currentInDim) / 4 维 totalInDim 累加) * 100
+percent = ((已完成维度的 total 累加 + 当前维度内 current) / 4 维 total 累加) * 100
 ```
-若某维度 `incremental` 模式下全部 `skipped`，仍计入总数（避免分母变化导致进度回退）。
+若某维度 `incremental` 模式下全部 `skipped`，仍计入分母（避免维度间切换导致进度跳动）；若全部 4 维均无待处理 tradeDate（4 维全跳过），分母兜底为 1，`percent` 直接置 100。
+
+**重试与失败的表达**：
+- 单 tradeDate 重试中：发 `progress` 事件，`current/total/percent` 不变，`message` 为「重试中：YYYYMMDD（第 N/2 次）」。
+- 重试耗尽后视为该 tradeDate 失败：累加到该维度 `MoneyFlowSyncResult.errors`，`current` 推进 1（继续下一天）。
+- 所有维度跑完后 `done.summary` 汇总 4 维 `errors`，前端按需渲染折叠列表。
 
 ## 6. 后端改动详情
 
@@ -118,25 +116,39 @@ overallPct = ((已完成维度的 totalInDim 累加 + 当前维度内 currentInD
 
 - **删除** 4 个 `@Post('stocks'|'industries'|'sectors'|'market')` 处理器及对应方法。
 - **保留** `@Post('members')`。
-- **新增**：
+- **新增** `GET /money-flow/sync/run` SSE 端点（与 `a-shares.controller.ts:76-96` 同形）：
   ```ts
-  @Sse('stream')
+  @Get('run')
   @AdminOnly()
-  streamSync(@Query() dto: SyncFlowDto): Observable<MessageEvent> {
-    return this.syncService.runStream(dto);
+  @Header('Content-Type', 'text/event-stream')
+  @Header('Cache-Control', 'no-cache')
+  @Header('Connection', 'keep-alive')
+  runSync(@Query() query: SyncFlowDto, @Res() res: Response) {
+    res.flushHeaders();
+    const subject = this.syncService.startSync(query);
+    const subscription = subject.subscribe({
+      next: (event) => res.write(`data: ${JSON.stringify(event)}\n\n`),
+      complete: () => res.end(),
+      error: () => res.end(),
+    });
+    res.on('close', () => subscription.unsubscribe());
   }
   ```
 
-> 注：`@nestjs/common` 的 `@Sse()` 装饰器自动设置 `Content-Type: text/event-stream`，无需手写 `@Header(...)`；`a-shares.controller.ts` 是裸 `@Header` + `Response.write` 写法，本设计采用 `@Sse + Observable` 更符合 Nest 范式。
+> 选择沿用 a-shares 的 `Subject + res.write` 模式而非 `@Sse + Observable`，目的是与项目内现有 SSE 范式（a-shares、crypto sync）保持一致，便于运维与故障排查。
 
 ### 6.2 `money-flow-sync.service.ts`
 
-**6.2.1 重试工具（私有方法）**
+**6.2.1 类型与重试工具**
+
+在文件顶部声明事件类型（与 `packages/shared-types/src/money-flow.ts` 中导出的 `MoneyFlowSyncEvent` / `MoneyFlowSyncSummary` 保持字段一致；后端就地 import shared-types 即可）。
+
+新增私有方法 `runWithRetry`（仅捕获异常并按 `[1000, 2000]` 退避重试，重试中通过 `emit` 推送 `progress` 事件携带「重试中…」message，但不变更 `current/total/percent`）：
+
 ```ts
-private async retryWithBackoff<T>(
+private async runWithRetry<T>(
   fn: () => Promise<T>,
-  ctx: { dimension; date: string },
-  onProgress?: (e: SyncEvent) => void,
+  onRetry: (attempt: number, err: unknown) => void,
 ): Promise<T> {
   const backoffs = [1000, 2000];
   let lastErr: unknown;
@@ -144,7 +156,7 @@ private async retryWithBackoff<T>(
     try { return await fn(); } catch (e) {
       lastErr = e;
       if (attempt < backoffs.length) {
-        onProgress?.({ type: 'retry', ...ctx, attempt: attempt + 1, error: String(e) });
+        onRetry(attempt + 1, e);
         await new Promise(r => setTimeout(r, backoffs[attempt]));
       }
     }
@@ -154,174 +166,254 @@ private async retryWithBackoff<T>(
 ```
 
 **6.2.2 4 个 sync 方法签名扩展**
+
 ```ts
-async syncStocks(dto: SyncFlowDto, onProgress?: (e: SyncEvent) => void): Promise<MoneyFlowSyncResult>
+async syncStocks(
+  dto: SyncFlowDto,
+  ctx?: { phase: string; baseCurrent: number; total: number; grandTotal: number; emit: (e: MoneyFlowSyncEvent) => void },
+): Promise<MoneyFlowSyncResult>
 // industries / sectors / market 同理
 ```
-- 内层 `for (const date of tradeDates)` 循环里：
-  - 用 `retryWithBackoff` 包裹原本的 fetch+upsert 逻辑；
-  - 成功后 emit 「内部 progress 事件」（不含 `overallPct`）：`onProgress?.({type:'progress', dimension, date, currentInDim: i+1, totalInDim})`；
-  - 重试耗尽后 `errors.push(...)` + `onProgress?.({type:'error', ...})`，**不抛出**。
-- `overallPct` 字段由 `runStream` 在 wrapper 中拦截 `progress` 事件后注入（参见 6.2.3）。inner 方法签名上 `onProgress` 接受的 `progress` 事件**不含** `overallPct`，对外暴露的 `SyncEvent`（第 5 节）才是带 `overallPct` 的最终形态。
-- 为避免 `computeTotalsPerDim` 与各 sync 方法内部 `filterMissingDates` 重复查询，可将 totals 计算与 dates 列表透传到 sync 方法：sync 方法新增可选参数 `precomputedDates?: string[]`，存在时跳过内部 `filterMissingDates`。具体由实施 plan 决定。
+- `ctx` 为可选，**不传则保持原有行为**（向后兼容，便于单测独立调用）。
+- 内层 `for (const date of tradeDates)` 循环改为：
+  ```ts
+  for (let i = 0; i < tradeDates.length; i++) {
+    const date = tradeDates[i];
+    try {
+      const rows = await this.runWithRetry(
+        () => this.tushareClient.query(API_NAME, { start_date: date, end_date: date }, FIELDS),
+        (attempt, err) => ctx?.emit({
+          type: 'progress',
+          phase: ctx.phase,
+          current: ctx.baseCurrent + i,
+          total: ctx.total,
+          percent: pctOf(ctx.baseCurrent + i, ctx.grandTotal),
+          message: `重试中：${date}（第 ${attempt}/2 次） ${truncate(String(err), 60)}`,
+        }),
+      );
+      // ... 原有 rows → entities 累加逻辑保持不变 ...
+    } catch (e) {
+      errors.push(`[${date}] ${String(e)}`);
+    }
+    ctx?.emit({
+      type: 'progress',
+      phase: ctx.phase,
+      current: ctx.baseCurrent + i + 1,
+      total: ctx.total,
+      percent: pctOf(ctx.baseCurrent + i + 1, ctx.grandTotal),
+      message: date,
+    });
+  }
+  ```
+- 移除原本散落在 `tushareClient.query(...).catch(...)` 里的吞错逻辑（已由 `runWithRetry` 重试 + `try/catch` 累加 errors 替代）。
+- `pctOf(c, g) = Math.round((c / Math.max(g, 1)) * 100)`。
 
-**6.2.3 新增 `runStream(dto): Observable<MessageEvent>`**
+**6.2.3 新增 `startSync(dto): Subject<MoneyFlowSyncEvent>`**
+
 ```ts
-runStream(dto: SyncFlowDto): Observable<MessageEvent> {
-  return new Observable<MessageEvent>((subscriber) => {
-    (async () => {
-      const summary = {} as Record<string, MoneyFlowSyncResult>;
-      const dims = ['stocks','industries','sectors','market'] as const;
-      const totals = await this.computeTotalsPerDim(dto, dims); // 预计算 4 维 totalInDim
-      const grandTotal = totals.reduce((a,b) => a+b, 0) || 1;
-      let completed = 0;
-
-      for (const [i, dim] of dims.entries()) {
-        subscriber.next({ data: JSON.stringify({ type:'phase', dimension: dim, totalInDim: totals[i] }) });
-        const onProgress = (e: SyncEvent) => {
-          if (e.type === 'progress') {
-            const overallPct = Math.round(((completed + e.currentInDim) / grandTotal) * 100);
-            subscriber.next({ data: JSON.stringify({ ...e, overallPct }) });
-          } else {
-            subscriber.next({ data: JSON.stringify(e) });
-          }
-        };
-        summary[dim] = await this[`sync${capitalize(dim)}`](dto, onProgress);
-        completed += totals[i];
+startSync(dto: SyncFlowDto): Subject<MoneyFlowSyncEvent> {
+  const subject = new Subject<MoneyFlowSyncEvent>();
+  setTimeout(async () => {
+    try {
+      const allTradeDates = await this.getTradeDates(dto);
+      if (!allTradeDates.length) {
+        subject.next({ type: 'error', message: '未获取到交易日列表' });
+        subject.complete();
+        return;
       }
-      subscriber.next({ data: JSON.stringify({ type:'done', summary }) });
-      subscriber.complete();
-    })().catch((e) => subscriber.error(e));
-  });
+      const dims = [
+        { key: 'stocks',     label: '同步个股资金流', repo: this.stockRepo,    method: 'syncStocks' },
+        { key: 'industries', label: '同步行业资金流', repo: this.industryRepo, method: 'syncIndustries' },
+        { key: 'sectors',    label: '同步板块资金流', repo: this.sectorRepo,   method: 'syncSectors' },
+        { key: 'market',     label: '同步大盘资金流', repo: this.marketRepo,   method: 'syncMarket' },
+      ] as const;
+      // 预计算每维 total
+      const totals: number[] = [];
+      for (const d of dims) {
+        if (dto.syncMode === 'overwrite') totals.push(allTradeDates.length);
+        else {
+          const f = await this.filterExistingDates(d.repo as Repository<{ tradeDate: string }>, allTradeDates);
+          totals.push(allTradeDates.length); // 保持分母含 skipped，避免维度切换百分比跳变
+        }
+      }
+      const grandTotal = totals.reduce((a, b) => a + b, 0) || 1;
+      const summary: Partial<MoneyFlowSyncSummary> = {};
+      let baseCurrent = 0;
+      for (let i = 0; i < dims.length; i++) {
+        summary[dims[i].key] = await (this as any)[dims[i].method](dto, {
+          phase: dims[i].label,
+          baseCurrent,
+          total: totals[i],
+          grandTotal,
+          emit: (e: MoneyFlowSyncEvent) => subject.next(e),
+        });
+        baseCurrent += totals[i];
+      }
+      const failedCount = Object.values(summary).reduce((n, r) => n + (r?.errors.length ?? 0), 0);
+      subject.next({
+        type: 'done',
+        message: failedCount ? `同步完成，${failedCount} 个交易日失败` : '同步完成',
+        summary: summary as MoneyFlowSyncSummary,
+      });
+      subject.complete();
+    } catch (err) {
+      subject.next({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+      subject.complete();
+    }
+  }, 0);
+  return subject;
 }
 ```
 
-**6.2.4 `computeTotalsPerDim`**：在不实际拉取数据的前提下，复用现有 `filterMissingDates` 逻辑算出每个维度的 `tradeDates.length`。`overwrite` 模式下 = 全部交易日数；`incremental` 模式下 = 缺失日数。
+**注**：`baseCurrent` 累加每维 `total`（含 skipped），即使维度内 `incremental` 跳过全部 tradeDate 也保持单调推进。`total = allTradeDates.length` 是有意为之，配合 `current` 在每个 tradeDate 末尾加 1（无论 success/skipped/failed），保证 `current` 单调到 `total` 而不超出。
 
-### 6.3 现有 `industries`/`sectors` 内部 `memberResult` 逻辑保留不动；`logger.log` 保留。
+### 6.3 现有 `industries`/`sectors` 内部 `memberResult` 逻辑保留不动；`logger.log` 保留。`syncMembers` 不接入进度（成员同步在 ths_member 接口内部循环 ts_code，与 tradeDate 进度模型不同），由日志兜底。
+
+### 6.4 单一职责：`syncStocks/syncIndustries/syncSectors/syncMarket` 内部仍负责 tradeDate 列表获取与 `incremental` 过滤；`startSync` 仅做编排与 `total` 预计算。两者重复调用 `getTradeDates`/`filterExistingDates` 一次，单测独立可跑。性能损耗可接受（`getTradeDates` 是单次 Tushare 调用，`filterExistingDates` 是单次 SQL）。
 
 ## 7. 前端改动详情
 
-### 7.1 `apps/web/src/api/modules/moneyFlow.ts`
+### 7.1 `packages/shared-types/src/money-flow.ts`
+
+新增 `MoneyFlowSyncEvent` 与 `MoneyFlowSyncSummary` 导出（见第 5 节），与后端 `money-flow-sync.service.ts` 共享。前后端 import 同一个类型源，单点维护。
+
+### 7.2 `apps/web/src/api/modules/moneyFlow.ts`
 
 - **删除** `syncStocks/syncIndustries/syncSectors/syncMarket` 4 个方法。
 - **新增**：
   ```ts
-  buildSyncStreamUrl: (params: MoneyFlowSyncParams) =>
-    `${API_BASE}/money-flow/sync/stream?${new URLSearchParams({
+  syncRunUrl: (params: MoneyFlowSyncParams) => {
+    const qs = new URLSearchParams({
       start_date: params.start_date,
       end_date: params.end_date,
-      syncMode: params.syncMode,
-    })}`,
+    })
+    if (params.syncMode) qs.set('syncMode', params.syncMode)
+    return `${API_BASE}/money-flow/sync/run?${qs}`
+  },
   ```
-- 导出 `SyncEvent` 类型：前端在 `apps/web/src/api/modules/moneyFlow.ts` 中就地定义（项目当前无 shared types 包），后端在 `money-flow-sync.service.ts` 中独立定义同名类型，两边手动保持一致；如未来 PR 引入 shared types 包再统一收敛。
+- 在 `export type { ... }` 块中追加 `MoneyFlowSyncEvent`、`MoneyFlowSyncSummary` 转出。
 
-### 7.2 `apps/web/src/components/sync/useMoneyFlowSync.ts`
+### 7.3 `apps/web/src/components/sync/useMoneyFlowSync.ts`
+
+复用现有 `useSSE()` composable（与 `useCryptoSync.ts` 同模式）：
 
 ```ts
-const progress = ref({ percent: 0, phase: '', subText: '' })
-const finished = ref<null | { summary: MoneyFlowSyncSummary; errors: ErrorItem[] }>(null)
-const errors = ref<ErrorItem[]>([])
-let es: EventSource | null = null
+const sse = useSSE()
+const finished = ref<null | { summary: MoneyFlowSyncSummary; errors: Array<{ phase: string; error: string }> }>(null)
+
+const syncProgressVisible = computed(() => sse.status.value !== 'idle' || finished.value !== null)
+
+function openModal() {
+  if (!syncDateRange.value) syncDateRange.value = buildDefaultDateRange()
+  if (!syncing.value) { sse.reset(); finished.value = null }
+  show.value = true
+  void loadDateRange()
+}
 
 async function confirmSync() {
   if (!syncDateRange.value) return
   syncing.value = true
   finished.value = null
-  errors.value = []
-  progress.value = { percent: 0, phase: '准备中', subText: '' }
-
-  const url = moneyFlowApi.buildSyncStreamUrl({...})
-  es = new EventSource(url, { withCredentials: true })
-
-  es.onmessage = (ev) => {
-    const e: SyncEvent = JSON.parse(ev.data)
-    handleEvent(e)
-  }
-  es.onerror = () => {
-    message.error('同步连接中断')
-    syncing.value = false
-    es?.close()
-  }
-}
-
-function handleEvent(e: SyncEvent) {
-  switch (e.type) {
-    case 'phase':
-      progress.value.phase = phaseLabel(e.dimension)
-      progress.value.subText = ''
-      break
-    case 'progress':
-      progress.value.percent = e.overallPct
-      progress.value.subText = `${e.dimension} ${e.date} (${e.currentInDim}/${e.totalInDim})`
-      break
-    case 'retry':
-      progress.value.subText = `重试中：${e.dimension} ${e.date}（第 ${e.attempt}/2 次）`
-      break
-    case 'error':
-      errors.value.push({ dimension: e.dimension, date: e.date, error: e.error })
-      break
-    case 'done':
-      progress.value.percent = 100
-      progress.value.phase = '完成'
-      finished.value = { summary: e.summary, errors: errors.value }
-      syncing.value = false
-      es?.close()
-      void loadDateRange()
-      break
-  }
-}
-
-function closeModal() {
-  show.value = false
-  es?.close()
-  es = null
-  finished.value = null
+  await sse.start(
+    moneyFlowApi.syncRunUrl({
+      start_date: toYYYYMMDD(syncDateRange.value[0]),
+      end_date:   toYYYYMMDD(syncDateRange.value[1]),
+      syncMode:   syncMode.value,
+    }),
+    {
+      method: 'GET',
+      onDone: (data?: { summary?: MoneyFlowSyncSummary }) => {
+        if (data?.summary) {
+          const errs = Object.entries(data.summary).flatMap(([phase, r]) =>
+            (r?.errors ?? []).map(error => ({ phase, error })),
+          )
+          finished.value = { summary: data.summary, errors: errs }
+          if (errs.length) message.error(`同步完成，${errs.length} 个交易日失败`)
+          else message.success('资金流向同步完成')
+        }
+        syncing.value = false
+        void loadDateRange()
+      },
+      onError: (msg) => {
+        message.error(msg)
+        syncing.value = false
+      },
+    },
+  )
 }
 ```
 
-- 移除原本的 `Promise.all` + `lastResult` 实现。
-- `closeModal` 暴露给 `DataSyncModal` 的 `update:show=false` 路径。
+- 不再导出 `lastResult`，由 `finished` 取代。
+- 关闭 Modal（`show.value = false`）时由调用方触发；本 composable 只负责状态管理。
+- `useSSE.start()` 内部使用 `fetch + ReadableStream` 而非原生 `EventSource`，自动携带 cookie，鉴权一致；事件 shape `{type:'progress', percent, phase, current, total, message}` 已与后端协议对齐。
 
-### 7.3 新建 `apps/web/src/components/sync/MoneyFlowSyncProgress.vue`（约 80 行）
+### 7.4 新建 `apps/web/src/components/sync/MoneyFlowSyncProgress.vue`（约 90 行）
 
-- props：`progress: { percent, phase, subText }`、`finished: { summary, errors } | null`
+- props：
+  ```ts
+  defineProps<{
+    visible: boolean
+    sse: ReturnType<typeof useSSE>
+    finished: { summary: MoneyFlowSyncSummary; errors: Array<{phase, error}> } | null
+  }>()
+  ```
 - 模板结构：
-  - 进行中：`n-progress` + `.progress-head`（phase + percent）+ `.progress-sub`（subText）
-  - 完成后：进度条变绿；显示「写入 X / 跳过 Y / 失败 Z」；如 `errors.length > 0`，`n-collapse` 折叠展示前 10 条
-- 样式参考 `ASharesSyncModal.vue` 的 `.sync-progress-panel`。
+  - 顶部：`n-progress`（line）+ phase + percent 行，参照 `ASharesSyncModal.vue:78-93` 与 `SyncView.vue:212-223` 的样式
+  - 中部：`sse.message.value` 灰色小字（重试时显示「重试中：…」）
+  - `finished` 非空时追加汇总区块：
+    - 一行：`✓ 同步完成` + 4 列 `phase: 写入 X / 跳过 Y / 失败 Z`
+    - `errors.length > 0` 时 `n-collapse` 折叠展示前 10 条 `[phase] error`，超过 10 条显示 `还有 N 条…`
+- 样式延用 `.sync-progress-panel` 设计语言。
 
-### 7.4 `DataSyncModal.vue`
+### 7.5 `DataSyncModal.vue`
 
 - 新增 prop：`finished: boolean`（默认 `false`）。
-- 当 `finished=true`：
-  - 「确认同步」按钮文案改为「关闭」，`type="default"`；
-  - 点击改为 emit `update:show=false` 而非 `confirm`；
-  - 「取消」按钮隐藏；
-  - `mask-closable=true`，`closable=true`。
-- `:disabled="syncing"` 等现有逻辑不动。
+- 渲染逻辑修改：
+  - 当 `finished=true`：
+    - 「取消」按钮 `v-if="!finished"` 隐藏；
+    - 「确认同步」按钮文案改为「关闭」，`type="default"`、`:loading="false"`、`:disabled="false"`；点击触发 `emit('update:show', false)` 而非 `emit('confirm')`；
+    - `mask-closable=true`、`closable=true`（覆盖 `!syncing` 默认值）。
+- 现有 `:disabled="syncing"`、各表单 `:disabled="syncing"` 不动。
 
-### 7.5 `SyncView.vue`
+### 7.6 `SyncView.vue`
 
-- 在 `<DataSyncModal>` 内插入：
-  ```vue
-  <template #extra>
-    <MoneyFlowSyncProgress
-      v-if="moneyFlowSyncing || moneyFlowFinished"
-      :progress="moneyFlowProgress"
-      :finished="moneyFlowFinished"
-    />
-  </template>
+- 解构新增字段：
+  ```ts
+  const {
+    show: moneyFlowShow, syncing: moneyFlowSyncing,
+    syncMode: moneyFlowSyncMode, syncDateRange: moneyFlowSyncDateRange,
+    dateRangeLabel: moneyFlowDateRangeLabel, dateRangeLoading: moneyFlowDateRangeLoading,
+    canConfirm: moneyFlowCanConfirm,
+    sse: moneyFlowSse,
+    finished: moneyFlowFinished,
+    syncProgressVisible: moneyFlowProgressVisible,
+    openModal: openMoneyFlowModal, confirmSync: confirmMoneyFlowSync,
+  } = useMoneyFlowSync(message)
   ```
-- 把 `useMoneyFlowSync` 暴露的 `progress`、`finished` 解构出来传入。
+- 资金流向 `<DataSyncModal>` 增加 `:finished="!!moneyFlowFinished"` 与 `<template #extra>`：
+  ```vue
+  <data-sync-modal ... :finished="!!moneyFlowFinished">
+    <template #extra>
+      <MoneyFlowSyncProgress
+        :visible="moneyFlowProgressVisible"
+        :sse="moneyFlowSse"
+        :finished="moneyFlowFinished"
+      />
+    </template>
+  </data-sync-modal>
+  ```
 
 ## 8. 测试
 
 ### 8.1 后端单测（`money-flow-sync.service.spec.ts`）
 
-- **重试成功**：mock Tushare 失败 1 次后成功，断言 `onProgress` 被推送 1 个 `retry` + 1 个 `progress` 事件，最终 `errors` 为空。
-- **重试耗尽**：mock Tushare 连续失败 3 次，断言累积到 `errors` 且 `onProgress` 推送 2 个 `retry` + 1 个 `error` 事件，**方法不抛异常**。
-- **runStream 串行**：mock 4 个维度各 2 个 tradeDate，断言 SSE 事件序列为 `phase(stocks) → progress×2 → phase(industries) → progress×2 → ... → done`。
+- **重试成功**：mock `tushareClient.query` 第一次抛错后第二次成功，断言 `emit` 收到 1 个「重试中」`progress` 事件 + 1 个正常 `progress` 事件，最终 `errors` 为空。
+- **重试耗尽**：mock `tushareClient.query` 连续 3 次抛错，断言 `MoneyFlowSyncResult.errors` 累计 1 条，`emit` 收到 2 个「重试中」`progress` 事件 + 1 个正常 `progress`（`current` 推进），**方法不抛异常**。
+- **startSync 串行 + done summary**：mock 4 维各 2 个 tradeDate（每维 1 成功 1 失败 mock），断言：
+  - 事件序列以 `progress(phase=同步个股资金流, current=1)` 开始，每个 tradeDate 对应一次 `current` 推进的 `progress`；
+  - 每个 phase 切换时 `phase` 字段同步切换；
+  - 最后一个事件为 `done`，其 `summary.stocks.errors.length === 1` ... 4 维同理；
+  - `done.message === '同步完成，4 个交易日失败'`。
 
 ### 8.2 前端
 
@@ -346,7 +438,7 @@ function closeModal() {
 
 | 风险 | 缓解 |
 |---|---|
-| EventSource 在反向代理（Nginx）下被缓冲，进度不实时 | 现有 a-shares SSE 已在生产验证；保留 `Cache-Control: no-cache` 与 `X-Accel-Buffering: no` header（`@Sse` 默认包含） |
+| SSE 在反向代理（Nginx）下被缓冲，进度不实时 | 现有 a-shares SSE 已在生产验证；控制器手写 `Cache-Control: no-cache`、`Connection: keep-alive` header（与 a-shares 一致） |
 | 长连接超时（如反代默认 60s 空闲断开） | 每个 `progress` 事件即心跳；30 天范围下事件密度足够（每天 1 事件 × 4 维 ≥ 120 事件，间隔 < 1s） |
 | 同步过程中浏览器 Tab 切到后台，EventSource 继续工作但 UI 不更新 | Naive UI/Vue 响应式自动恢复；无需特殊处理 |
 | 旧 POST 接口删除后，若有未发现的外部脚本依赖 → 404 | 已 grep 确认仅本 Modal 调用；如需进一步保险可保留旧接口标 `@Deprecated` 一个版本 → **本设计采用 D2 直接删除**，由 PR review 兜底 |
