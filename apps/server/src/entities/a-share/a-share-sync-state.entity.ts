@@ -14,6 +14,6 @@ export class AShareSyncStateEntity {
   @Column({ name: 'indicator_calculated_to_date', length: 8, nullable: true })
   indicatorCalculatedToDate: string;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

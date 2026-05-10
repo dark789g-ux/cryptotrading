@@ -47,6 +47,6 @@ export class MoneyFlowStockEntity {
   @Column({ name: 'buy_sm_amount_rate', type: 'numeric', precision: 10, scale: 4, nullable: true })
   buySmAmountRate: string | null;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

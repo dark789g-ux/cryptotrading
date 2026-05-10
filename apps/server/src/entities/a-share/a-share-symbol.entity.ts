@@ -35,6 +35,6 @@ export class AShareSymbolEntity {
   @Column({ name: 'is_hs', nullable: true })
   isHs: string;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

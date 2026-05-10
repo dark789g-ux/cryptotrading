@@ -28,6 +28,6 @@ export class MoneyFlowSectorEntity {
   @Column({ name: 'net_amount', type: 'numeric', precision: 20, scale: 4, nullable: true })
   netAmount: string | null;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

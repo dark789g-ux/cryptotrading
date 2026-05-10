@@ -36,9 +36,9 @@ export class StrategyEntity {
   @Column({ name: 'last_backtest_return', type: 'double precision', nullable: true })
   lastBacktestReturn: number;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

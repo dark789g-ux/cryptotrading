@@ -15,6 +15,6 @@ export class StrategyTypeEntity {
   @Column({ name: 'param_schema', type: 'jsonb' })
   paramSchema: object;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

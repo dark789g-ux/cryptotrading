@@ -8,6 +8,6 @@ export class AppConfigEntity {
   @Column({ type: 'jsonb' })
   value: any;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

@@ -62,6 +62,6 @@ export class AShareDailyQuoteEntity {
   @Column({ name: 'qfq_pct_chg', type: 'numeric', precision: 30, scale: 10, nullable: true })
   qfqPctChg: string;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

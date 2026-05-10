@@ -80,6 +80,6 @@ export class AShareDailyIndicatorEntity {
   @Column({ name: 'brick_xg', type: 'boolean', nullable: true })
   brickXg: boolean;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

@@ -17,6 +17,6 @@ export class AShareAdjFactorEntity {
   @Column({ name: 'adj_factor', type: 'numeric', precision: 30, scale: 10, nullable: true })
   adjFactor: string;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

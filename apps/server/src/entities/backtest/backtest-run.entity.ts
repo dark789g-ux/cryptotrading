@@ -40,6 +40,6 @@ export class BacktestRunEntity {
   @Column({ name: 'config_snapshot', type: 'jsonb', nullable: true })
   configSnapshot: Record<string, unknown>;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

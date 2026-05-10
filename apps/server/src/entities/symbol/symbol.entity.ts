@@ -20,6 +20,6 @@ export class SymbolEntity {
   @Column({ name: 'is_excluded', default: false })
   isExcluded: boolean;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

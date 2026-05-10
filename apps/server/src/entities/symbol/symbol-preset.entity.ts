@@ -15,6 +15,6 @@ export class SymbolPresetEntity {
   @OneToMany(() => SymbolPresetItemEntity, (item) => item.preset, { cascade: true })
   items: SymbolPresetItemEntity[];
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

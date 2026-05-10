@@ -17,6 +17,6 @@ export class AShareIndicatorCalcStateEntity {
   @Column({ type: 'jsonb' })
   state: Record<string, unknown>;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }
