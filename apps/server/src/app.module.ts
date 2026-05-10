@@ -46,7 +46,10 @@ import { MoneyFlowStockEntity } from './entities/money-flow/money-flow-stock.ent
 import { MoneyFlowIndustryEntity } from './entities/money-flow/money-flow-industry.entity';
 import { MoneyFlowSectorEntity } from './entities/money-flow/money-flow-sector.entity';
 import { MoneyFlowMarketEntity } from './entities/money-flow/money-flow-market.entity';
+import { ThsMemberStockEntity } from './entities/money-flow/ths-member-stock.entity';
+import { ThsIndexCatalogEntity } from './entities/index-catalog/ths-index-catalog.entity';
 import { MoneyFlowModule } from './market-data/money-flow/money-flow.module';
+import { IndexCatalogModule } from './market-data/index-catalog/index-catalog.module';
 import { OamvModule } from './market-data/oamv/oamv.module';
 import { OamvDailyEntity } from './entities/oamv/oamv-daily.entity';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
@@ -95,6 +98,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           MoneyFlowIndustryEntity,
           MoneyFlowSectorEntity,
           MoneyFlowMarketEntity,
+          ThsMemberStockEntity,
+          ThsIndexCatalogEntity,
           OamvDailyEntity,
         ],
         synchronize: false,
@@ -116,6 +121,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     UsersModule,
     StrategyConditionsModule,
     MoneyFlowModule,
+    IndexCatalogModule,
     OamvModule,
   ],
 })
