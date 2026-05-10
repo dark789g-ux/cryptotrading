@@ -66,8 +66,63 @@ export class IndexCatalogSyncService {
     return { success, skipped: 0, errors };
   }
 
-  async syncMembers(_type: 'I' | 'N', _ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
-    return { success: 0, skipped: 0, errors: [] };
+  async syncMembers(type: 'I' | 'N', _ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
+    const errors: string[] = [];
+
+    const rows = await this.catalogRepo
+      .createQueryBuilder('c')
+      .select('c.ts_code', 'tsCode')
+      .where('c.type = :type', { type })
+      .getRawMany<{ tsCode: string }>();
+    const tsCodes = rows.map((r) => r.tsCode).filter(Boolean);
+
+    if (!tsCodes.length) {
+      this.logger.warn(`syncMembers(type=${type}): ths_index_catalog 中无对应记录，请先同步目录`);
+      return { success: 0, skipped: 0, errors };
+    }
+
+    let success = 0;
+    for (const tsCode of tsCodes) {
+      try {
+        const memberRows = (await this.tushareClient.query(
+          'ths_member',
+          { ts_code: tsCode },
+          MEMBER_FIELDS,
+        )) as RawRow[];
+
+        if (!memberRows.length) {
+          this.logger.warn(`ths_member(${tsCode}) 返回空数据`);
+          continue;
+        }
+
+        const entities = memberRows.map((r) => this.memberRepo.create({
+          tsCode: asString(r.ts_code),
+          conCode: asString(r.con_code),
+          conName: asString(r.con_name) || null,
+          isNew: asString(r.is_new) || null,
+        }));
+        const deduped = deduplicateBy(entities, ['tsCode', 'conCode']);
+
+        await this.dataSource.transaction(async (manager) => {
+          await manager.delete(ThsMemberStockEntity, { tsCode });
+          const chunkSize = 1000;
+          for (let i = 0; i < deduped.length; i += chunkSize) {
+            await manager.upsert(
+              ThsMemberStockEntity,
+              deduped.slice(i, i + chunkSize),
+              ['tsCode', 'conCode'],
+            );
+          }
+        });
+        success += 1;
+      } catch (e: unknown) {
+        const msg = `ths_member(${tsCode}) 失败: ${e instanceof Error ? e.message : String(e)}`;
+        this.logger.error(msg, e instanceof Error ? e.stack : undefined);
+        errors.push(`[${tsCode}] ${msg}`);
+      }
+    }
+
+    return { success, skipped: 0, errors };
   }
 
   async cleanupOrphans(): Promise<MoneyFlowSyncResult> {

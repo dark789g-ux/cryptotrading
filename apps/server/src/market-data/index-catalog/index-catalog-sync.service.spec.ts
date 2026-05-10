@@ -98,4 +98,73 @@ describe('IndexCatalogSyncService', () => {
       expect(result.errors[0]).toContain('ths_index type=I');
     });
   });
+
+  describe('syncMembers', () => {
+    function setupCatalogQuery(tsCodes: string[]) {
+      const qb = {
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getRawMany: jest.fn().mockResolvedValue(tsCodes.map((t) => ({ tsCode: t }))),
+      };
+      catalogRepo.createQueryBuilder = jest.fn().mockReturnValue(qb) as never;
+    }
+
+    it('对每个 ts_code 各调一次 ths_member 并事务式写入', async () => {
+      setupCatalogQuery(['881101.TI', '881102.TI']);
+      tushare.query.mockResolvedValue([
+        { ts_code: '881101.TI', con_code: '000001.SZ', con_name: '平安银行', is_new: 'Y' },
+      ]);
+
+      const result = await service.syncMembers('I');
+
+      expect(tushare.query).toHaveBeenCalledTimes(2);
+      expect(tushare.query).toHaveBeenNthCalledWith(
+        1,
+        'ths_member',
+        { ts_code: '881101.TI' },
+        'ts_code,con_code,con_name,is_new',
+      );
+      expect(dataSource.transaction).toHaveBeenCalledTimes(2);
+      expect(result.success).toBe(2);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('某个 ts_code 调用失败时记 errors 但继续后续', async () => {
+      setupCatalogQuery(['A.TI', 'B.TI']);
+      tushare.query
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValueOnce([
+          { ts_code: 'B.TI', con_code: '000001.SZ', con_name: 'X', is_new: 'Y' },
+        ]);
+
+      const result = await service.syncMembers('I');
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain('A.TI');
+      expect(result.success).toBe(1);
+    });
+
+    it('某个 ts_code 返回空数据时记 warn 跳过', async () => {
+      setupCatalogQuery(['EMPTY.TI']);
+      tushare.query.mockResolvedValue([]);
+      const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
+
+      const result = await service.syncMembers('I');
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('EMPTY.TI'));
+      expect(result.success).toBe(0);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('目录中无指定 type 的 ts_code 时记 warn 并 success=0', async () => {
+      setupCatalogQuery([]);
+      const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
+
+      const result = await service.syncMembers('N');
+
+      expect(result.success).toBe(0);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('type=N'));
+      expect(tushare.query).not.toHaveBeenCalled();
+    });
+  });
 });
