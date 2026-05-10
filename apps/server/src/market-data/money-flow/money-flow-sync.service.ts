@@ -2,6 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Subject } from 'rxjs';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
 import { MoneyFlowStockEntity } from '../../entities/money-flow/money-flow-stock.entity';
 import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-industry.entity';
@@ -11,7 +12,7 @@ import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
 import { resolveOpenTradeDates } from '../a-shares/sync/a-shares-sync-utils';
 import { SyncFlowDto } from './dto/sync-flow.dto';
-import type { MoneyFlowSyncEvent, MoneyFlowSyncResult } from '@cryptotrading/shared-types';
+import type { MoneyFlowSyncEvent, MoneyFlowSyncResult, MoneyFlowSyncSummary } from '@cryptotrading/shared-types';
 
 export type { MoneyFlowSyncResult };
 
@@ -526,5 +527,60 @@ export class MoneyFlowSyncService {
     }
 
     return { success, skipped: 0, errors };
+  }
+
+  startSync(dto: SyncFlowDto): Subject<MoneyFlowSyncEvent> {
+    const subject = new Subject<MoneyFlowSyncEvent>();
+
+    setTimeout(async () => {
+      try {
+        const allTradeDates = await this.getTradeDates(dto);
+        if (!allTradeDates.length) {
+          subject.next({ type: 'error', message: '未获取到交易日列表' });
+          subject.complete();
+          return;
+        }
+
+        const dims = [
+          { key: 'stocks' as const,     label: '同步个股资金流', method: 'syncStocks' as const },
+          { key: 'industries' as const, label: '同步行业资金流', method: 'syncIndustries' as const },
+          { key: 'sectors' as const,    label: '同步板块资金流', method: 'syncSectors' as const },
+          { key: 'market' as const,     label: '同步大盘资金流', method: 'syncMarket' as const },
+        ];
+
+        const totals = dims.map(() => allTradeDates.length);
+        const grandTotal = totals.reduce((a, b) => a + b, 0) || 1;
+
+        const summary: Partial<MoneyFlowSyncSummary> = {};
+        let baseCurrent = 0;
+        for (let i = 0; i < dims.length; i++) {
+          const ctx: SyncCtx = {
+            phase: dims[i].label,
+            baseCurrent,
+            total: totals[i],
+            grandTotal,
+            emit: (e) => subject.next(e),
+          };
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          summary[dims[i].key] = await (this[dims[i].method] as any).call(this, dto, ctx);
+          baseCurrent += totals[i];
+        }
+
+        const failedCount = (Object.values(summary) as MoneyFlowSyncResult[])
+          .reduce((n, r) => n + (r?.errors.length ?? 0), 0);
+        subject.next({
+          type: 'done',
+          message: failedCount ? `同步完成，${failedCount} 个交易日失败` : '同步完成',
+          summary: summary as MoneyFlowSyncSummary,
+        });
+        subject.complete();
+      } catch (err) {
+        this.logger.error(`startSync 失败: ${err instanceof Error ? err.stack : String(err)}`);
+        subject.next({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+        subject.complete();
+      }
+    }, 0);
+
+    return subject;
   }
 }
