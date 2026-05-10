@@ -1,9 +1,11 @@
-import { API_BASE, post, request } from '../client'
+import { API_BASE, request } from '../client'
 
 export type {
   MoneyFlowQueryParams,
   MoneyFlowSyncParams,
   MoneyFlowSyncResult,
+  MoneyFlowSyncEvent,
+  MoneyFlowSyncSummary,
   MoneyFlowLatestDates,
   MoneyFlowStockRow,
   MoneyFlowIndustryRow,
@@ -15,7 +17,6 @@ export type {
 import type {
   MoneyFlowQueryParams,
   MoneyFlowSyncParams,
-  MoneyFlowSyncResult,
   MoneyFlowLatestDates,
   MoneyFlowStockRow,
   MoneyFlowIndustryRow,
@@ -59,17 +60,14 @@ export const moneyFlowApi = {
   queryMarket: (params: MoneyFlowQueryParams) =>
     request<MoneyFlowMarketRow[]>(`${API_BASE}/money-flow/market${buildQs(params)}`),
 
-  syncStocks: (params: MoneyFlowSyncParams) =>
-    post<MoneyFlowSyncResult>(`${API_BASE}/money-flow/sync/stocks`, params),
-
-  syncIndustries: (params: MoneyFlowSyncParams) =>
-    post<MoneyFlowSyncResult>(`${API_BASE}/money-flow/sync/industries`, params),
-
-  syncSectors: (params: MoneyFlowSyncParams) =>
-    post<MoneyFlowSyncResult>(`${API_BASE}/money-flow/sync/sectors`, params),
-
-  syncMarket: (params: MoneyFlowSyncParams) =>
-    post<MoneyFlowSyncResult>(`${API_BASE}/money-flow/sync/market`, params),
+  syncRunUrl: (params: MoneyFlowSyncParams) => {
+    const qs = new URLSearchParams({
+      start_date: params.start_date,
+      end_date: params.end_date,
+    })
+    if (params.syncMode) qs.set('syncMode', params.syncMode)
+    return `${API_BASE}/money-flow/sync/run?${qs.toString()}`
+  },
 
   getMembers: (tsCode: string) =>
     request<MoneyFlowMemberRow[]>(`${API_BASE}/money-flow/members?ts_code=${encodeURIComponent(tsCode)}`),
