@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { CurrentUserParam as CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { WatchlistsService } from './watchlists.service';
 
@@ -76,7 +76,11 @@ export class WatchlistsController {
     @Query('page_size') pageSize: string = '20',
     @Query('sort') sortJson?: string,
   ) {
-    const sort = sortJson ? JSON.parse(sortJson) : undefined;
+    let sort: unknown = undefined;
+    if (sortJson) {
+      try { sort = JSON.parse(sortJson); }
+      catch { throw new BadRequestException('sort 参数不是合法 JSON'); }
+    }
     return this.watchlistsService.getWatchlistQuotes(
       user.id,
       id,

@@ -94,6 +94,7 @@ export class AuthService {
     const email = normalizeEmail(dto.email || '');
     const user = await this.usersRepo
       .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
       .where('LOWER(user.email) = :email', { email })
       .getOne();
     const passwordOk = user
@@ -123,7 +124,11 @@ export class AuthService {
     currentUser: AuthUserDto,
     dto: ChangePasswordDto,
   ): Promise<{ ok: true }> {
-    const user = await this.usersRepo.findOne({ where: { id: currentUser.id } });
+    const user = await this.usersRepo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.id = :id', { id: currentUser.id })
+      .getOne();
     if (!user || !user.isActive) {
       throw new UnauthorizedException('未登录或登录已过期');
     }

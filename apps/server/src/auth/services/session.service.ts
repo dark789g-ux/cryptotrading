@@ -69,7 +69,13 @@ export class SessionService {
       return null;
     }
 
-    await this.sessionsRepo.update(session.id, { lastSeenAt: new Date() });
+    // last_seen_at 写放大节流：仅当上次写入 ≥ 60s 前才更新；并且 fire-and-forget
+    // 不阻塞热路径（每个 API 调用都会进入此处）
+    const now = Date.now();
+    const lastMs = session.lastSeenAt ? session.lastSeenAt.getTime() : 0;
+    if (now - lastMs >= 60_000) {
+      void this.sessionsRepo.update(session.id, { lastSeenAt: new Date(now) }).catch(() => {});
+    }
     return toAuthUser(session.user);
   }
 

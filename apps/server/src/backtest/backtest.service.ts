@@ -29,7 +29,8 @@ export type { BacktestProgress, RunSymbolMetricsQueryDto, RunSymbolMetricRow } f
 @Injectable()
 export class BacktestService {
   private readonly logger = new Logger(BacktestService.name);
-  private isRunning = false;
+  /** 按 progressKey(userId:strategyId) 粒度的运行集合，避免一个回测阻塞所有用户 */
+  private readonly runningKeys = new Set<string>();
   private readonly progressMap = new Map<string, BacktestProgress>();
 
   constructor(
@@ -154,16 +155,16 @@ export class BacktestService {
 
   /** 启动回测，立即返回；通过 getProgress 轮询进度 */
   async startBacktest(userId: string, strategyId: string, symbols: string[]): Promise<{ ok: boolean; message?: string }> {
-    if (this.isRunning) {
-      return { ok: false, message: '回测任务已在运行中，请稍后再试' };
+    const key = this.progressKey(userId, strategyId);
+    if (this.runningKeys.has(key)) {
+      return { ok: false, message: '该策略的回测任务已在运行中，请稍后再试' };
     }
     const strategy = await this.strategyRepo.findOneBy({ id: strategyId, userId } as any);
     if (!strategy) {
       throw new NotFoundException(`策略 ${strategyId} 不存在`);
     }
 
-    this.isRunning = true;
-    const key = this.progressKey(userId, strategyId);
+    this.runningKeys.add(key);
     this.progressMap.set(key, {
       status: 'running',
       phase: '初始化',
@@ -176,7 +177,7 @@ export class BacktestService {
       etaMs: null,
     });
     this.doBacktest(userId, strategyId, symbols, key).finally(() => {
-      this.isRunning = false;
+      this.runningKeys.delete(key);
     });
     return { ok: true };
   }

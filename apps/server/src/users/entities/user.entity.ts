@@ -19,7 +19,7 @@ export class UserEntity {
   @Column({ name: 'display_name', type: 'varchar', length: 120 })
   displayName: string;
 
-  @Column({ name: 'password_hash', type: 'text' })
+  @Column({ name: 'password_hash', type: 'text', select: false })
   passwordHash: string;
 
   @Column({ type: 'varchar', length: 20 })

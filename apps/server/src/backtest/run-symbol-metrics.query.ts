@@ -93,7 +93,7 @@ export function buildRunSymbolMetricsInnerSql(opts: {
         ( ${sellBarPredicate} ) AS "sellOnBar",
         ( ${openAtClosePredicate} ) AS "holdAtClose"
       FROM (
-        SELECT DISTINCT unnest($3::varchar[]) AS symbol
+        SELECT DISTINCT unnest($3::text[]) AS symbol
       ) p
       LEFT JOIN klines k
         ON k.symbol = p.symbol AND k.interval = $1 AND k.open_time = $2::timestamptz`;

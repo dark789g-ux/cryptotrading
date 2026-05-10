@@ -148,12 +148,14 @@ export class WatchlistsService {
   }
 
   private async setSymbols(watchlistId: string, symbols: string[]) {
-    await this.itemRepo.delete({ watchlistId });
     const unique = Array.from(new Set(symbols.map((symbol) => symbol.trim()).filter(Boolean)));
-    if (unique.length) {
-      const items = unique.map((symbol) => this.itemRepo.create({ watchlistId, symbol }));
-      await this.itemRepo.save(items);
-    }
+    await this.dataSource.transaction(async (manager) => {
+      await manager.delete(WatchlistItemEntity, { watchlistId });
+      if (unique.length) {
+        const items = unique.map((symbol) => manager.create(WatchlistItemEntity, { watchlistId, symbol }));
+        await manager.save(WatchlistItemEntity, items);
+      }
+    });
   }
 
   async addSymbol(userId: string, id: string, symbol: string) {

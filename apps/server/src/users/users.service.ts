@@ -80,10 +80,18 @@ export class UsersService {
       user.displayName = this.parseDisplayName(dto.displayName, user.email);
     }
     if (dto.role !== undefined) {
-      user.role = this.parseRole(dto.role);
+      const nextRole = this.parseRole(dto.role);
+      if (user.role === 'admin' && nextRole !== 'admin') {
+        await this.assertNotLastActiveAdmin(user.id);
+      }
+      user.role = nextRole;
     }
     if (dto.isActive !== undefined) {
-      user.isActive = Boolean(dto.isActive);
+      const nextActive = Boolean(dto.isActive);
+      if (user.role === 'admin' && user.isActive && !nextActive) {
+        await this.assertNotLastActiveAdmin(user.id);
+      }
+      user.isActive = nextActive;
     }
 
     const saved = await this.usersRepo.save(user);
@@ -115,6 +123,19 @@ export class UsersService {
       .createQueryBuilder('user')
       .where('LOWER(user.email) = :email', { email: normalizeEmail(email) })
       .getOne();
+  }
+
+  /** 防止"最后一个 active admin 被降级/停用"导致系统失去管理员入口 */
+  private async assertNotLastActiveAdmin(userId: string): Promise<void> {
+    const otherActiveAdmins = await this.usersRepo
+      .createQueryBuilder('user')
+      .where('user.role = :role', { role: 'admin' })
+      .andWhere('user.is_active = true')
+      .andWhere('user.id <> :id', { id: userId })
+      .getCount();
+    if (otherActiveAdmins === 0) {
+      throw new BadRequestException('系统至少需要一个启用状态的管理员');
+    }
   }
 
   private async ensureEmailAvailable(email: string, exceptUserId?: string): Promise<void> {
