@@ -2,6 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
 import { MoneyFlowStockEntity } from '../../entities/money-flow/money-flow-stock.entity';
 import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-industry.entity';
 import { MoneyFlowSectorEntity } from '../../entities/money-flow/money-flow-sector.entity';
@@ -61,6 +62,8 @@ export class MoneyFlowSyncService {
     private readonly sectorRepo: Repository<MoneyFlowSectorEntity>,
     @InjectRepository(MoneyFlowMarketEntity)
     private readonly marketRepo: Repository<MoneyFlowMarketEntity>,
+    @InjectRepository(AShareSymbolEntity)
+    private readonly symbolRepo: Repository<AShareSymbolEntity>,
     private readonly tushareClient: TushareClientService,
   ) {}
 
@@ -135,7 +138,7 @@ export class MoneyFlowSyncService {
         allEntities.push(this.stockRepo.create({
           tsCode: asString(row.ts_code),
           tradeDate: asString(row.trade_date),
-          name: asString(row.name),
+          name: asString(row.name) || null,
           pctChange: asNullableNumeric(row.pct_change),
           latest: asNullableNumeric(row.latest),
           netAmount: asNullableNumeric(row.net_amount),
@@ -147,6 +150,26 @@ export class MoneyFlowSyncService {
           buySmAmount: asNullableNumeric(row.buy_sm_amount),
           buySmAmountRate: asNullableNumeric(row.buy_sm_amount_rate),
         }));
+      }
+    }
+
+    // Tushare moneyflow_ths 可能不返回 name 字段，从 a_share_symbols 补充
+    const missingNameEntities = allEntities.filter((e) => !e.name);
+    if (missingNameEntities.length) {
+      const tsCodes = [...new Set(missingNameEntities.map((e) => e.tsCode))];
+      const symbols = await this.symbolRepo
+        .createQueryBuilder('s')
+        .select(['s.tsCode', 's.name'])
+        .where('s.tsCode IN (:...codes)', { codes: tsCodes })
+        .getMany();
+      const nameMap = new Map(symbols.map((s) => [s.tsCode, s.name]));
+      for (const entity of missingNameEntities) {
+        entity.name = nameMap.get(entity.tsCode) ?? null;
+      }
+      if (symbols.length < tsCodes.length) {
+        this.logger.warn(
+          `[moneyflow_ths] ${tsCodes.length - symbols.length} 个 ts_code 在 a_share_symbols 中未找到名称`,
+        );
       }
     }
 

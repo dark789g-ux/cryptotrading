@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
 import { MoneyFlowStockEntity } from '../../entities/money-flow/money-flow-stock.entity';
 import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-industry.entity';
 import { MoneyFlowSectorEntity } from '../../entities/money-flow/money-flow-sector.entity';
@@ -12,6 +13,7 @@ import { TushareClientService } from '../a-shares/services/tushare-client.servic
 
 @Module({
   imports: [TypeOrmModule.forFeature([
+    AShareSymbolEntity,
     MoneyFlowStockEntity,
     MoneyFlowIndustryEntity,
     MoneyFlowSectorEntity,

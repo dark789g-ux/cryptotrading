@@ -197,7 +197,7 @@ export class OamvService {
       .insert()
       .into(OamvDailyEntity)
       .values(entities)
-      .orUpdate(['open', 'high', 'low', 'close'], ['tradeDate'])
+      .orUpdate(['open', 'high', 'low', 'close'], ['trade_date'])
       .execute()
 
     this.logger.log(`同步完成，保存 ${entities.length} 条数据`)
