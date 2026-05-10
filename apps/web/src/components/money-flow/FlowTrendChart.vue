@@ -22,9 +22,7 @@ function formatDateLabel(raw: string): string {
 }
 
 function formatAmount(v: number): string {
-  const abs = Math.abs(v)
-  if (abs >= 10000) return `${(v / 10000).toFixed(2)}亿`
-  return `${v.toFixed(2)}万`
+  return `${v.toFixed(2)}亿`
 }
 
 function disposeChart() {
@@ -79,10 +77,7 @@ function renderChart() {
     yAxis: {
       type: 'value',
       axisLabel: {
-        formatter: (v: number) => {
-          if (Math.abs(v) >= 10000) return `${(v / 10000).toFixed(0)}亿`
-          return `${v}`
-        },
+        formatter: (v: number) => `${v}亿`,
       },
       splitLine: { lineStyle: { type: 'dashed' } },
     },

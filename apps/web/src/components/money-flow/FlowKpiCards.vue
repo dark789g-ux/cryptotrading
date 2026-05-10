@@ -4,7 +4,7 @@
       <div class="kpi-label">{{ card.label }}</div>
       <div class="kpi-value" :class="valueClass(card.value)">
         <n-skeleton v-if="loading" text :width="80" />
-        <template v-else>{{ formatValue(card.value) }}</template>
+        <template v-else>{{ formatValue(card.value, card.format) }}</template>
       </div>
       <div v-if="card.sub" class="kpi-sub">{{ card.sub }}</div>
     </div>
@@ -17,12 +17,13 @@ import type { KpiCardItem } from './money-flow.types'
 
 const props = defineProps<{ cards: KpiCardItem[]; loading?: boolean }>()
 
-function formatValue(v: string | null | undefined): string {
+function formatValue(v: string | null | undefined, format?: 'amount' | 'percent' | 'count'): string {
   if (v == null || v === '') return '—'
   const n = Number(v)
   if (isNaN(n)) return v
-  if (Math.abs(n) >= 10000) return `${(n / 10000).toFixed(2)}亿`
-  return `${n.toFixed(2)}万`
+  if (format === 'count') return String(Math.round(n))
+  if (format === 'percent') return `${n.toFixed(2)}%`
+  return `${n.toFixed(2)}亿`
 }
 
 function valueClass(v: string | null | undefined) {

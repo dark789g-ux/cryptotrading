@@ -38,8 +38,7 @@ function barWidth(v: number): string {
 }
 
 function formatAmount(v: number): string {
-  if (Math.abs(v) >= 10000) return `${(v / 10000).toFixed(2)}亿`
-  return `${v.toFixed(2)}万`
+  return `${v.toFixed(2)}亿`
 }
 </script>
 

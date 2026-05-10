@@ -42,9 +42,9 @@ const latestDate = ref<string | null>(null)
 const latestRow = computed(() => rows.value[rows.value.length - 1] ?? null)
 
 const kpiCards = computed((): KpiCardItem[] => [
-  { label: '主力净流入', value: latestRow.value?.netAmount ?? null, sub: latestRow.value?.tradeDate ?? '' },
-  { label: '大单净流入', value: latestRow.value?.buyLgAmount ?? null, sub: '大单' },
-  { label: '小单净流入', value: latestRow.value?.buySmAmount ?? null, sub: '小单' },
+  { label: '主力净流入', value: latestRow.value?.netAmount ?? null, sub: latestRow.value?.tradeDate ?? '', format: 'amount' },
+  { label: '大单净流入', value: latestRow.value?.buyLgAmount ?? null, sub: '大单', format: 'amount' },
+  { label: '小单净流入', value: latestRow.value?.buySmAmount ?? null, sub: '小单', format: 'amount' },
 ])
 
 const chartRows = computed((): BarChartRow[] =>

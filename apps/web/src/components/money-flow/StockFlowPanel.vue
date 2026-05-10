@@ -88,10 +88,10 @@ const kpiCards = computed((): KpiCardItem[] => {
   const topPct = [...rows.value].sort((a, b) => Number(b.pctChange) - Number(a.pctChange))[0]
   const topLg = [...rows.value].sort((a, b) => Number(b.buyLgAmount) - Number(a.buyLgAmount))[0]
   return [
-    { label: '净流入最多', value: top1?.netAmount ?? null, sub: top1 ? `${top1.name}(${top1.tsCode})` : '' },
-    { label: '涨幅最高', value: topPct?.pctChange ?? null, sub: topPct ? topPct.name ?? '' : '' },
-    { label: '大单净流入', value: topLg?.buyLgAmount ?? null, sub: topLg ? topLg.name ?? '' : '' },
-    { label: '上榜股票数', value: String(rows.value.length), sub: '当日' },
+    { label: '净流入最多', value: top1?.netAmount ?? null, sub: top1 ? `${top1.name}(${top1.tsCode})` : '', format: 'amount' },
+    { label: '涨幅最高', value: topPct?.pctChange ?? null, sub: topPct ? topPct.name ?? '' : '', format: 'percent' },
+    { label: '大单净流入', value: topLg?.buyLgAmount ?? null, sub: topLg ? topLg.name ?? '' : '', format: 'amount' },
+    { label: '上榜股票数', value: String(rows.value.length), sub: '当日', format: 'count' },
   ]
 })
 
@@ -110,7 +110,7 @@ const columns: DataTableColumns<MoneyFlowStockRow> = [
     },
   },
   {
-    title: '净流入(万)',
+    title: '净流入(亿)',
     key: 'netAmount',
     width: 110,
     sorter: (a, b) => Number(a.netAmount) - Number(b.netAmount),
@@ -121,7 +121,7 @@ const columns: DataTableColumns<MoneyFlowStockRow> = [
     },
   },
   {
-    title: '大单净额(万)',
+    title: '大单净额(亿)',
     key: 'buyLgAmount',
     width: 115,
     sorter: (a, b) => Number(a.buyLgAmount) - Number(b.buyLgAmount),
@@ -132,7 +132,7 @@ const columns: DataTableColumns<MoneyFlowStockRow> = [
   },
   { title: '大单占比%', key: 'buyLgAmountRate', width: 100, render: (row) => `${Number(row.buyLgAmountRate).toFixed(2)}%` },
   {
-    title: '中单净额(万)',
+    title: '中单净额(亿)',
     key: 'buyMdAmount',
     width: 115,
     render: (row) => {
@@ -141,7 +141,7 @@ const columns: DataTableColumns<MoneyFlowStockRow> = [
     },
   },
   {
-    title: '小单净额(万)',
+    title: '小单净额(亿)',
     key: 'buySmAmount',
     width: 115,
     render: (row) => {
