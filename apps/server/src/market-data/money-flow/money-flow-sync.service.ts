@@ -72,6 +72,26 @@ export class MoneyFlowSyncService {
     private readonly tushareClient: TushareClientService,
   ) {}
 
+  private async runWithRetry<T>(
+    fn: () => Promise<T>,
+    onRetry: (attempt: number, err: unknown) => void,
+  ): Promise<T> {
+    const backoffs = [1000, 2000];
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= backoffs.length; attempt++) {
+      try {
+        return await fn();
+      } catch (e) {
+        lastErr = e;
+        if (attempt < backoffs.length) {
+          onRetry(attempt + 1, e);
+          await new Promise((r) => setTimeout(r, backoffs[attempt]));
+        }
+      }
+    }
+    throw lastErr;
+  }
+
   private async getTradeDates(dto: SyncFlowDto): Promise<string[]> {
     return resolveOpenTradeDates(this.tushareClient, {
       startDate: dto.start_date,
