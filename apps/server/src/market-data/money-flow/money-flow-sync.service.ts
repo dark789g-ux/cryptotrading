@@ -1,7 +1,7 @@
 // apps/server/src/market-data/money-flow/money-flow-sync.service.ts
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Subject } from 'rxjs';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
 import { MoneyFlowStockEntity } from '../../entities/money-flow/money-flow-stock.entity';
@@ -13,6 +13,15 @@ import { TushareClientService } from '../a-shares/services/tushare-client.servic
 import { resolveOpenTradeDates } from '../a-shares/sync/a-shares-sync-utils';
 import { SyncFlowDto } from './dto/sync-flow.dto';
 import type { MoneyFlowSyncEvent, MoneyFlowSyncResult, MoneyFlowSyncSummary } from '@cryptotrading/shared-types';
+import {
+  SyncCtx,
+  asNullableNumeric,
+  asString,
+  batchUpsert,
+  deduplicateBy,
+  fetchByDates,
+  filterExistingDates,
+} from './money-flow-sync.helpers';
 
 export type { MoneyFlowSyncResult };
 
@@ -27,48 +36,14 @@ const MARKET_FIELDS = 'trade_date,net_amount,buy_lg_amount,buy_sm_amount';
 // ths_member: https://tushare.pro/wctapi/documents/261.md
 const MEMBER_FIELDS = 'ts_code,con_code,con_name,is_new';
 
-type SyncCtx = {
-  phase: string;
-  baseCurrent: number;
-  total: number;
-  grandTotal: number;
-  emit: (e: MoneyFlowSyncEvent) => void;
-};
-
-function pctOf(c: number, g: number): number {
-  return Math.round((c / Math.max(g, 1)) * 100);
-}
-
-function truncate(s: string, n: number): string {
-  return s.length > n ? s.slice(0, n) + '…' : s;
-}
-
-function asNullableNumeric(v: unknown, divisor?: number): string | null {
-  if (v === null || v === undefined || v === '') return null;
-  const n = Number(v);
-  if (isNaN(n)) return null;
-  return String(divisor ? n / divisor : n);
-}
-
-function asString(v: unknown): string {
-  return v == null ? '' : String(v);
-}
-
-/**
- * 按一组字段对实体数组去重，保留每组最后一条，防止 ON CONFLICT DO UPDATE 同批次重复键报错。
- */
-function deduplicateBy<T extends object>(entities: T[], keys: (keyof T)[]): T[] {
-  const map = new Map<string, T>();
-  for (const entity of entities) {
-    const conflictKey = keys.map((k) => String(entity[k])).join('|');
-    map.set(conflictKey, entity);
-  }
-  return Array.from(map.values());
+interface RawRow {
+  [k: string]: unknown;
 }
 
 @Injectable()
 export class MoneyFlowSyncService {
   private readonly logger = new Logger(MoneyFlowSyncService.name);
+  private isSyncing = false;
 
   constructor(
     @InjectRepository(MoneyFlowStockEntity)
@@ -83,108 +58,68 @@ export class MoneyFlowSyncService {
     private readonly symbolRepo: Repository<AShareSymbolEntity>,
     @InjectRepository(ThsMemberStockEntity)
     private readonly memberRepo: Repository<ThsMemberStockEntity>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     private readonly tushareClient: TushareClientService,
   ) {}
 
-  private async runWithRetry<T>(
-    fn: () => Promise<T>,
-    onRetry: (attempt: number, err: unknown) => void,
-  ): Promise<T> {
-    const backoffs = [1000, 2000];
-    let lastErr: unknown;
-    for (let attempt = 0; attempt <= backoffs.length; attempt++) {
-      try {
-        return await fn();
-      } catch (e) {
-        lastErr = e;
-        if (attempt < backoffs.length) {
-          onRetry(attempt + 1, e);
-          await new Promise((r) => setTimeout(r, backoffs[attempt]));
-        }
-      }
-    }
-    throw lastErr;
-  }
-
   private async getTradeDates(dto: SyncFlowDto): Promise<string[]> {
-    return resolveOpenTradeDates(this.tushareClient, {
-      startDate: dto.start_date,
-      endDate: dto.end_date,
-    });
-  }
-
-  /** 增量模式：从交易日列表中过滤掉指定 repo 中已有数据的日期 */
-  private async filterExistingDates<T extends { tradeDate: string }>(
-    repo: Repository<T>,
-    tradeDates: string[],
-  ): Promise<{ dates: string[]; skipped: number }> {
-    const existing = await repo
-      .createQueryBuilder('e')
-      .select('DISTINCT e.trade_date', 'tradeDate')
-      .where('e.trade_date IN (:...dates)', { dates: tradeDates })
-      .getRawMany<{ tradeDate: string }>();
-    const existingSet = new Set(existing.map((r) => r.tradeDate));
-    const dates = tradeDates.filter((d) => !existingSet.has(d));
-    return { dates, skipped: tradeDates.length - dates.length };
-  }
-
-  private async batchUpsert<T extends object>(
-    repo: Repository<T>,
-    entities: T[],
-    conflictKeys: (keyof T)[],
-  ): Promise<number> {
-    const deduped = deduplicateBy(entities, conflictKeys);
-    const chunkSize = 1000;
-    for (let i = 0; i < deduped.length; i += chunkSize) {
-      await repo.upsert(deduped.slice(i, i + chunkSize) as any, conflictKeys as string[]);
+    try {
+      return await resolveOpenTradeDates(this.tushareClient, {
+        startDate: dto.start_date,
+        endDate: dto.end_date,
+      });
+    } catch (e: unknown) {
+      this.logger.error(
+        `trade_cal 调用失败 start=${dto.start_date} end=${dto.end_date}: ${e instanceof Error ? e.message : String(e)}`,
+        e instanceof Error ? e.stack : undefined,
+      );
+      throw e;
     }
-    return deduped.length;
+  }
+
+  private async resolveDates<T extends { tradeDate: string }>(
+    dto: SyncFlowDto,
+    repo: Repository<T>,
+    errors: string[],
+  ): Promise<{ dates: string[]; skipped: number; allDates: string[] } | null> {
+    let allDates: string[];
+    try {
+      allDates = await this.getTradeDates(dto);
+    } catch (e: unknown) {
+      errors.push(`trade_cal: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+    if (!allDates.length) {
+      this.logger.warn(`trade_cal 返回 0 个交易日，参数 start=${dto.start_date} end=${dto.end_date}`);
+      return null;
+    }
+    if (dto.syncMode === 'overwrite') {
+      this.logger.log(`overwrite 模式：跳过增量过滤，全量重拉 ${allDates.length} 个交易日`);
+      return { dates: allDates, skipped: 0, allDates };
+    }
+    const filtered = await filterExistingDates(repo, allDates);
+    return { dates: filtered.dates, skipped: filtered.skipped, allDates };
   }
 
   async syncStocks(dto: SyncFlowDto, ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
-    const allTradeDates = await this.getTradeDates(dto)
-      .catch((e: unknown) => { errors.push(String(e)); return []; });
+    const resolved = await this.resolveDates(dto, this.stockRepo, errors);
+    if (!resolved) return { success: 0, skipped: 0, errors };
+    if (!resolved.dates.length) return { success: 0, skipped: resolved.skipped, errors };
 
-    if (!allTradeDates.length) {
-      this.logger.warn('未获取到交易日', dto);
-      return { success: 0, skipped: 0, errors };
-    }
-
-    let tradeDates = allTradeDates;
-    let skipped = 0;
-    if (dto.syncMode !== 'overwrite') {
-      const filtered = await this.filterExistingDates(this.stockRepo, allTradeDates);
-      tradeDates = filtered.dates;
-      skipped = filtered.skipped;
-      if (!tradeDates.length) return { success: 0, skipped, errors };
-    }
+    const { rowsByDate, errors: fetchErrors } = await fetchByDates<RawRow>({
+      apiName: 'moneyflow_ths',
+      fields: STOCK_FIELDS,
+      dates: resolved.dates,
+      ctx,
+      logger: this.logger,
+      client: this.tushareClient,
+    });
+    errors.push(...fetchErrors);
 
     const allEntities: MoneyFlowStockEntity[] = [];
-
-    for (let i = 0; i < tradeDates.length; i++) {
-      const date = tradeDates[i];
-      let rows: any[] = [];
-      try {
-        rows = await this.runWithRetry(
-          () => this.tushareClient.query('moneyflow_ths', { start_date: date, end_date: date }, STOCK_FIELDS),
-          (attempt, err) => ctx?.emit({
-            type: 'progress',
-            phase: ctx.phase,
-            current: ctx.baseCurrent + i,
-            total: ctx.total,
-            percent: pctOf(ctx.baseCurrent + i, ctx.grandTotal),
-            message: `重试中：${date}（第 ${attempt}/2 次） ${truncate(String(err), 60)}`,
-          }),
-        );
-      } catch (e) {
-        errors.push(`[${date}] ${String(e)}`);
-      }
-
-      if (rows.length >= 6000) {
-        this.logger.warn(`moneyflow_ths ${date} 返回 ${rows.length} 条，可能截断`);
-      }
-
+    for (const { rows } of rowsByDate) {
       for (const row of rows) {
         allEntities.push(this.stockRepo.create({
           tsCode: asString(row.ts_code),
@@ -202,30 +137,19 @@ export class MoneyFlowSyncService {
           buySmAmountRate: asNullableNumeric(row.buy_sm_amount_rate),
         }));
       }
-
-      ctx?.emit({
-        type: 'progress',
-        phase: ctx.phase,
-        current: ctx.baseCurrent + i + 1,
-        total: ctx.total,
-        percent: pctOf(ctx.baseCurrent + i + 1, ctx.grandTotal),
-        message: date,
-      });
     }
 
-    // Tushare moneyflow_ths 可能不返回 name 字段，从 a_share_symbols 补充
-    const missingNameEntities = allEntities.filter((e) => !e.name);
-    if (missingNameEntities.length) {
-      const tsCodes = [...new Set(missingNameEntities.map((e) => e.tsCode))];
+    // moneyflow_ths 可能不返回 name，从 a_share_symbols 补充
+    const missing = allEntities.filter((e) => !e.name);
+    if (missing.length) {
+      const tsCodes = [...new Set(missing.map((e) => e.tsCode))];
       const symbols = await this.symbolRepo
         .createQueryBuilder('s')
         .select(['s.tsCode', 's.name'])
         .where('s.tsCode IN (:...codes)', { codes: tsCodes })
         .getMany();
       const nameMap = new Map(symbols.map((s) => [s.tsCode, s.name]));
-      for (const entity of missingNameEntities) {
-        entity.name = nameMap.get(entity.tsCode) ?? null;
-      }
+      for (const entity of missing) entity.name = nameMap.get(entity.tsCode) ?? null;
       if (symbols.length < tsCodes.length) {
         this.logger.warn(
           `[moneyflow_ths] ${tsCodes.length - symbols.length} 个 ts_code 在 a_share_symbols 中未找到名称`,
@@ -233,56 +157,35 @@ export class MoneyFlowSyncService {
       }
     }
 
-    const success = await this.batchUpsert(this.stockRepo, allEntities, ['tsCode', 'tradeDate']);
-    return { success, skipped, errors };
+    const success = await batchUpsert(this.stockRepo, allEntities, ['tsCode', 'tradeDate']);
+    return { success, skipped: resolved.skipped, errors };
   }
 
   async syncIndustries(dto: SyncFlowDto, ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
-    const allTradeDates = await this.getTradeDates(dto)
-      .catch((e: unknown) => { errors.push(String(e)); return []; });
-
-    if (!allTradeDates.length) {
-      this.logger.warn('未获取到交易日', dto);
-      return { success: 0, skipped: 0, errors };
+    const resolved = await this.resolveDates(dto, this.industryRepo, errors);
+    if (!resolved) return { success: 0, skipped: 0, errors };
+    if (!resolved.dates.length) {
+      // 即使资金流没有新增，仍可触发 member 同步保持成分股最新
+      const memberResult = await this.syncMembers('industry');
+      errors.push(...memberResult.errors);
+      return { success: 0, skipped: resolved.skipped, errors };
     }
 
-    let tradeDates = allTradeDates;
-    let skipped = 0;
-    if (dto.syncMode !== 'overwrite') {
-      const filtered = await this.filterExistingDates(this.industryRepo, allTradeDates);
-      tradeDates = filtered.dates;
-      skipped = filtered.skipped;
-      if (!tradeDates.length) return { success: 0, skipped, errors };
-    }
+    const { rowsByDate, errors: fetchErrors } = await fetchByDates<RawRow>({
+      apiName: 'moneyflow_ind_ths',
+      fields: INDUSTRY_FIELDS,
+      dates: resolved.dates,
+      ctx,
+      logger: this.logger,
+      client: this.tushareClient,
+    });
+    errors.push(...fetchErrors);
 
     // moneyflow_ind_ths 金额单位为亿元，乘以 10000 统一为万元
     const toWanYuan = (v: unknown) => asNullableNumeric(v != null ? Number(v) * 10000 : v);
     const allEntities: MoneyFlowIndustryEntity[] = [];
-
-    for (let i = 0; i < tradeDates.length; i++) {
-      const date = tradeDates[i];
-      let rows: any[] = [];
-      try {
-        rows = await this.runWithRetry(
-          () => this.tushareClient.query('moneyflow_ind_ths', { start_date: date, end_date: date }, INDUSTRY_FIELDS),
-          (attempt, err) => ctx?.emit({
-            type: 'progress',
-            phase: ctx.phase,
-            current: ctx.baseCurrent + i,
-            total: ctx.total,
-            percent: pctOf(ctx.baseCurrent + i, ctx.grandTotal),
-            message: `重试中：${date}（第 ${attempt}/2 次） ${truncate(String(err), 60)}`,
-          }),
-        );
-      } catch (e) {
-        errors.push(`[${date}] ${String(e)}`);
-      }
-
-      if (rows.length >= 6000) {
-        this.logger.warn(`moneyflow_ind_ths ${date} 返回 ${rows.length} 条，可能截断`);
-      }
-
+    for (const { rows } of rowsByDate) {
       for (const row of rows) {
         allEntities.push(this.industryRepo.create({
           tradeDate: asString(row.trade_date),
@@ -294,75 +197,38 @@ export class MoneyFlowSyncService {
           netAmount: toWanYuan(row.net_amount),
         }));
       }
-
-      ctx?.emit({
-        type: 'progress',
-        phase: ctx.phase,
-        current: ctx.baseCurrent + i + 1,
-        total: ctx.total,
-        percent: pctOf(ctx.baseCurrent + i + 1, ctx.grandTotal),
-        message: date,
-      });
     }
+    const success = await batchUpsert(this.industryRepo, allEntities, ['tsCode', 'tradeDate']);
 
-    const success = await this.batchUpsert(this.industryRepo, allEntities, ['tsCode', 'tradeDate']);
-
-    // 行业资金流同步完成后，自动同步成分股映射
     const memberResult = await this.syncMembers('industry');
-    if (memberResult.errors.length) {
-      errors.push(...memberResult.errors);
-    }
+    errors.push(...memberResult.errors);
     this.logger.log(`syncIndustries 完成: 资金流 ${success} 条, 成分股 ${memberResult.success} 条`);
-
-    return { success, skipped, errors };
+    return { success, skipped: resolved.skipped, errors };
   }
 
   async syncSectors(dto: SyncFlowDto, ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
-    const allTradeDates = await this.getTradeDates(dto)
-      .catch((e: unknown) => { errors.push(String(e)); return []; });
-
-    if (!allTradeDates.length) {
-      this.logger.warn('未获取到交易日', dto);
-      return { success: 0, skipped: 0, errors };
+    const resolved = await this.resolveDates(dto, this.sectorRepo, errors);
+    if (!resolved) return { success: 0, skipped: 0, errors };
+    if (!resolved.dates.length) {
+      const memberResult = await this.syncMembers('sector');
+      errors.push(...memberResult.errors);
+      return { success: 0, skipped: resolved.skipped, errors };
     }
 
-    let tradeDates = allTradeDates;
-    let skipped = 0;
-    if (dto.syncMode !== 'overwrite') {
-      const filtered = await this.filterExistingDates(this.sectorRepo, allTradeDates);
-      tradeDates = filtered.dates;
-      skipped = filtered.skipped;
-      if (!tradeDates.length) return { success: 0, skipped, errors };
-    }
+    const { rowsByDate, errors: fetchErrors } = await fetchByDates<RawRow>({
+      apiName: 'moneyflow_cnt_ths',
+      fields: SECTOR_FIELDS,
+      dates: resolved.dates,
+      ctx,
+      logger: this.logger,
+      client: this.tushareClient,
+    });
+    errors.push(...fetchErrors);
 
-    // moneyflow_cnt_ths 金额单位为亿元，乘以 10000 统一为万元
     const toWanYuan = (v: unknown) => asNullableNumeric(v != null ? Number(v) * 10000 : v);
     const allEntities: MoneyFlowSectorEntity[] = [];
-
-    for (let i = 0; i < tradeDates.length; i++) {
-      const date = tradeDates[i];
-      let rows: any[] = [];
-      try {
-        rows = await this.runWithRetry(
-          () => this.tushareClient.query('moneyflow_cnt_ths', { start_date: date, end_date: date }, SECTOR_FIELDS),
-          (attempt, err) => ctx?.emit({
-            type: 'progress',
-            phase: ctx.phase,
-            current: ctx.baseCurrent + i,
-            total: ctx.total,
-            percent: pctOf(ctx.baseCurrent + i, ctx.grandTotal),
-            message: `重试中：${date}（第 ${attempt}/2 次） ${truncate(String(err), 60)}`,
-          }),
-        );
-      } catch (e) {
-        errors.push(`[${date}] ${String(e)}`);
-      }
-
-      if (rows.length >= 6000) {
-        this.logger.warn(`moneyflow_cnt_ths ${date} 返回 ${rows.length} 条，可能截断`);
-      }
-
+    for (const { rows } of rowsByDate) {
       for (const row of rows) {
         allEntities.push(this.sectorRepo.create({
           tradeDate: asString(row.trade_date),
@@ -374,75 +240,35 @@ export class MoneyFlowSyncService {
           netAmount: toWanYuan(row.net_amount),
         }));
       }
-
-      ctx?.emit({
-        type: 'progress',
-        phase: ctx.phase,
-        current: ctx.baseCurrent + i + 1,
-        total: ctx.total,
-        percent: pctOf(ctx.baseCurrent + i + 1, ctx.grandTotal),
-        message: date,
-      });
     }
+    const success = await batchUpsert(this.sectorRepo, allEntities, ['tsCode', 'tradeDate']);
 
-    const success = await this.batchUpsert(this.sectorRepo, allEntities, ['tsCode', 'tradeDate']);
-
-    // 板块资金流同步完成后，自动同步成分股映射
     const memberResult = await this.syncMembers('sector');
-    if (memberResult.errors.length) {
-      errors.push(...memberResult.errors);
-    }
+    errors.push(...memberResult.errors);
     this.logger.log(`syncSectors 完成: 资金流 ${success} 条, 成分股 ${memberResult.success} 条`);
-
-    return { success, skipped, errors };
+    return { success, skipped: resolved.skipped, errors };
   }
 
   async syncMarket(dto: SyncFlowDto, ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
-    const allTradeDates = await this.getTradeDates(dto)
-      .catch((e: unknown) => { errors.push(String(e)); return []; });
+    const resolved = await this.resolveDates(dto, this.marketRepo, errors);
+    if (!resolved) return { success: 0, skipped: 0, errors };
+    if (!resolved.dates.length) return { success: 0, skipped: resolved.skipped, errors };
 
-    if (!allTradeDates.length) {
-      this.logger.warn('未获取到交易日', dto);
-      return { success: 0, skipped: 0, errors };
-    }
+    const { rowsByDate, errors: fetchErrors } = await fetchByDates<RawRow>({
+      apiName: 'moneyflow_mkt_dc',
+      fields: MARKET_FIELDS,
+      dates: resolved.dates,
+      ctx,
+      logger: this.logger,
+      client: this.tushareClient,
+    });
+    errors.push(...fetchErrors);
 
-    let tradeDates = allTradeDates;
-    let skipped = 0;
-    if (dto.syncMode !== 'overwrite') {
-      const filtered = await this.filterExistingDates(this.marketRepo, allTradeDates);
-      tradeDates = filtered.dates;
-      skipped = filtered.skipped;
-      if (!tradeDates.length) return { success: 0, skipped, errors };
-    }
-
-    // moneyflow_mkt_dc returns amounts in 元; divide by 10000 to unify with other money-flow tables (万元)
+    // moneyflow_mkt_dc 金额单位为元，除以 10000 统一为万元
     const amountDivisor = 10000;
     const allEntities: MoneyFlowMarketEntity[] = [];
-
-    for (let i = 0; i < tradeDates.length; i++) {
-      const date = tradeDates[i];
-      let rows: any[] = [];
-      try {
-        rows = await this.runWithRetry(
-          () => this.tushareClient.query('moneyflow_mkt_dc', { start_date: date, end_date: date }, MARKET_FIELDS),
-          (attempt, err) => ctx?.emit({
-            type: 'progress',
-            phase: ctx.phase,
-            current: ctx.baseCurrent + i,
-            total: ctx.total,
-            percent: pctOf(ctx.baseCurrent + i, ctx.grandTotal),
-            message: `重试中：${date}（第 ${attempt}/2 次） ${truncate(String(err), 60)}`,
-          }),
-        );
-      } catch (e) {
-        errors.push(`[${date}] ${String(e)}`);
-      }
-
-      if (rows.length >= 6000) {
-        this.logger.warn(`moneyflow_mkt_dc ${date} 返回 ${rows.length} 条，可能截断`);
-      }
-
+    for (const { rows } of rowsByDate) {
       for (const row of rows) {
         allEntities.push(this.marketRepo.create({
           tradeDate: asString(row.trade_date),
@@ -451,35 +277,24 @@ export class MoneyFlowSyncService {
           buySmAmount: asNullableNumeric(row.buy_sm_amount, amountDivisor),
         }));
       }
-
-      ctx?.emit({
-        type: 'progress',
-        phase: ctx.phase,
-        current: ctx.baseCurrent + i + 1,
-        total: ctx.total,
-        percent: pctOf(ctx.baseCurrent + i + 1, ctx.grandTotal),
-        message: date,
-      });
     }
 
-    const success = await this.batchUpsert(this.marketRepo, allEntities, ['tradeDate']);
-    return { success, skipped, errors };
+    const success = await batchUpsert(this.marketRepo, allEntities, ['tradeDate']);
+    return { success, skipped: resolved.skipped, errors };
   }
 
   /**
-   * 同步行业/板块成分股映射。
-   * @param dimension 'industry' | 'sector' — 决定从哪张表取 ts_code 列表
+   * 同步行业/板块成分股映射。每个 ts_code 的 delete + upsert 在事务内执行，避免中途失败丢成分股。
    */
   async syncMembers(dimension: 'industry' | 'sector'): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
     const repo = dimension === 'industry' ? this.industryRepo : this.sectorRepo;
 
-    // 从已同步的资金流表中取 DISTINCT ts_code
     const rows = await repo
       .createQueryBuilder('e')
       .select('DISTINCT e.ts_code', 'tsCode')
       .getRawMany<{ tsCode: string }>();
-    const tsCodes = rows.map(r => r.tsCode).filter(Boolean);
+    const tsCodes = rows.map((r) => r.tsCode).filter(Boolean);
 
     if (!tsCodes.length) {
       this.logger.warn(`syncMembers(${dimension}): 无 ts_code，请先同步${dimension === 'industry' ? '行业' : '板块'}资金流数据`);
@@ -489,40 +304,41 @@ export class MoneyFlowSyncService {
     let success = 0;
     for (const tsCode of tsCodes) {
       try {
-        const memberRows = await this.tushareClient.query(
+        const memberRows = (await this.tushareClient.query(
           'ths_member',
           { ts_code: tsCode },
           MEMBER_FIELDS,
-        );
+        )) as RawRow[];
 
         if (!memberRows.length) {
           this.logger.warn(`ths_member(${tsCode}) 返回空数据`);
           continue;
         }
 
-        // 先删除该 ts_code 的旧数据，再批量插入
-        await this.memberRepo.createQueryBuilder()
-          .delete()
-          .where('ts_code = :tsCode', { tsCode })
-          .execute();
-
-        const entities = memberRows.map(r => this.memberRepo.create({
+        const entities = memberRows.map((r) => this.memberRepo.create({
           tsCode: asString(r.ts_code),
           conCode: asString(r.con_code),
           conName: asString(r.con_name) || null,
           isNew: asString(r.is_new) || null,
         }));
-
         const deduped = deduplicateBy(entities, ['tsCode', 'conCode']);
-        const chunkSize = 1000;
-        for (let i = 0; i < deduped.length; i += chunkSize) {
-          await this.memberRepo.upsert(deduped.slice(i, i + chunkSize) as any, ['tsCode', 'conCode']);
-        }
+
+        await this.dataSource.transaction(async (manager) => {
+          await manager.delete(ThsMemberStockEntity, { tsCode });
+          const chunkSize = 1000;
+          for (let i = 0; i < deduped.length; i += chunkSize) {
+            await manager.upsert(
+              ThsMemberStockEntity,
+              deduped.slice(i, i + chunkSize),
+              ['tsCode', 'conCode'],
+            );
+          }
+        });
         success += deduped.length;
       } catch (e: unknown) {
-        const msg = `[${tsCode}] ${String(e)}`;
-        this.logger.warn(`syncMembers(${dimension}) 失败: ${msg}`);
-        errors.push(msg);
+        const msg = `ths_member(${tsCode}) 失败: ${e instanceof Error ? e.message : String(e)}`;
+        this.logger.error(msg, e instanceof Error ? e.stack : undefined);
+        errors.push(`[${tsCode}] ${msg}`);
       }
     }
 
@@ -532,9 +348,27 @@ export class MoneyFlowSyncService {
   startSync(dto: SyncFlowDto): Subject<MoneyFlowSyncEvent> {
     const subject = new Subject<MoneyFlowSyncEvent>();
 
+    if (this.isSyncing) {
+      subject.next({ type: 'error', message: '资金流同步任务已在运行中，请稍后再试' });
+      subject.complete();
+      return subject;
+    }
+    this.isSyncing = true;
+
     setTimeout(async () => {
+      const summary: Partial<MoneyFlowSyncSummary> = {};
       try {
-        const allTradeDates = await this.getTradeDates(dto);
+        let allTradeDates: string[];
+        try {
+          allTradeDates = await this.getTradeDates(dto);
+        } catch (e: unknown) {
+          subject.next({
+            type: 'error',
+            message: `获取交易日列表失败: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          subject.complete();
+          return;
+        }
         if (!allTradeDates.length) {
           subject.next({ type: 'error', message: '未获取到交易日列表' });
           subject.complete();
@@ -542,16 +376,15 @@ export class MoneyFlowSyncService {
         }
 
         const dims = [
-          { key: 'stocks' as const,     label: '同步个股资金流', method: 'syncStocks' as const },
-          { key: 'industries' as const, label: '同步行业资金流', method: 'syncIndustries' as const },
-          { key: 'sectors' as const,    label: '同步板块资金流', method: 'syncSectors' as const },
-          { key: 'market' as const,     label: '同步大盘资金流', method: 'syncMarket' as const },
+          { key: 'stocks' as const,     label: '同步个股资金流' },
+          { key: 'industries' as const, label: '同步行业资金流' },
+          { key: 'sectors' as const,    label: '同步板块资金流' },
+          { key: 'market' as const,     label: '同步大盘资金流' },
         ];
 
         const totals = dims.map(() => allTradeDates.length);
         const grandTotal = totals.reduce((a, b) => a + b, 0) || 1;
 
-        const summary: Partial<MoneyFlowSyncSummary> = {};
         let baseCurrent = 0;
         for (let i = 0; i < dims.length; i++) {
           const ctx: SyncCtx = {
@@ -561,8 +394,7 @@ export class MoneyFlowSyncService {
             grandTotal,
             emit: (e) => subject.next(e),
           };
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          summary[dims[i].key] = await (this[dims[i].method] as any).call(this, dto, ctx);
+          summary[dims[i].key] = await this.runDimension(dims[i].key, dto, ctx);
           baseCurrent += totals[i];
         }
 
@@ -576,11 +408,30 @@ export class MoneyFlowSyncService {
         subject.complete();
       } catch (err) {
         this.logger.error(`startSync 失败: ${err instanceof Error ? err.stack : String(err)}`);
-        subject.next({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+        subject.next({
+          type: 'error',
+          message: err instanceof Error ? err.message : String(err),
+          summary: summary as MoneyFlowSyncSummary,
+        });
         subject.complete();
+      } finally {
+        this.isSyncing = false;
       }
     }, 0);
 
     return subject;
+  }
+
+  private runDimension(
+    key: 'stocks' | 'industries' | 'sectors' | 'market',
+    dto: SyncFlowDto,
+    ctx: SyncCtx,
+  ): Promise<MoneyFlowSyncResult> {
+    switch (key) {
+      case 'stocks':     return this.syncStocks(dto, ctx);
+      case 'industries': return this.syncIndustries(dto, ctx);
+      case 'sectors':    return this.syncSectors(dto, ctx);
+      case 'market':     return this.syncMarket(dto, ctx);
+    }
   }
 }

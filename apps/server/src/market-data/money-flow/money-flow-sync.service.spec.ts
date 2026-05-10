@@ -1,7 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { getDataSourceToken } from '@nestjs/typeorm';
 import { firstValueFrom, toArray } from 'rxjs';
 import { MoneyFlowSyncService } from './money-flow-sync.service';
+import { runWithRetry } from './money-flow-sync.helpers';
 import { MoneyFlowStockEntity } from '../../entities/money-flow/money-flow-stock.entity';
 import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-industry.entity';
 import { MoneyFlowSectorEntity } from '../../entities/money-flow/money-flow-sector.entity';
@@ -29,6 +31,14 @@ describe('MoneyFlowSyncService - SSE & retry', () => {
       create: jest.fn().mockImplementation((x: any) => x),
     };
   };
+  const mockDataSource = {
+    transaction: jest.fn().mockImplementation(async (cb: (m: any) => Promise<unknown>) => {
+      return cb({
+        delete: jest.fn().mockResolvedValue({}),
+        upsert: jest.fn().mockResolvedValue({}),
+      });
+    }),
+  };
 
   beforeEach(async () => {
     tushareClient = { query: jest.fn() };
@@ -43,6 +53,7 @@ describe('MoneyFlowSyncService - SSE & retry', () => {
         { provide: getRepositoryToken(MoneyFlowMarketEntity), useValue: mockRepo() },
         { provide: getRepositoryToken(AShareSymbolEntity), useValue: mockRepo() },
         { provide: getRepositoryToken(ThsMemberStockEntity), useValue: mockRepo() },
+        { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: TushareClientService, useValue: tushareClient },
       ],
     }).compile();
@@ -61,7 +72,7 @@ describe('MoneyFlowSyncService - SSE & retry', () => {
       .mockRejectedValueOnce(new Error('limit'))
       .mockResolvedValueOnce([]);
     const events: any[] = [];
-    const promise = (service as any).runWithRetry(
+    const promise = runWithRetry(
       () => tushareClient.query('x', {}, ''),
       (attempt: number, err: unknown) => events.push({ attempt, err: String(err) }),
     );
@@ -76,7 +87,7 @@ describe('MoneyFlowSyncService - SSE & retry', () => {
     tushareClient.query
       .mockRejectedValue(new Error('limit'));
     const events: any[] = [];
-    const promise = (service as any).runWithRetry(
+    const promise = runWithRetry(
       () => tushareClient.query('x', {}, ''),
       (attempt: number, err: unknown) => events.push({ attempt, err: String(err) }),
     ).catch((e: Error) => e);

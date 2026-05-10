@@ -106,6 +106,8 @@ export type MoneyFlowSyncEvent =
   | {
       type: 'error'
       message: string
+      /** 错误发生时的部分进度摘要，便于前端展示已完成的维度 */
+      summary?: Partial<MoneyFlowSyncSummary>
     }
 
 export interface MoneyFlowSyncSummary {

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -35,8 +35,10 @@ const UPDATE_LOOKBACK_DAYS = 30;
 
 @Injectable()
 export class SyncService {
+  private readonly logger = new Logger(SyncService.name);
   private isSyncing = false;
   private syncSubject: Subject<SseEvent> | null = null;
+  private syncErrors: string[] = [];
 
   constructor(
     @InjectRepository(SymbolEntity)
@@ -127,6 +129,7 @@ export class SyncService {
     syncMode?: 'incremental' | 'overwrite'
   } = {}) {
     try {
+      this.syncErrors = [];
       this.emit(sub, { type: 'start' });
 
       // 1. 获取交易对列表
@@ -162,8 +165,11 @@ export class SyncService {
         for (const symbol of targetSymbols) {
           try {
             await this.syncSymbolKlines(symbol, interval, options.startDate, options.endDate, options.syncMode);
-          } catch (e) {
-            // 单个失败不中止全部
+          } catch (e: unknown) {
+            // 单个失败不中止全部，但必须打印 API 名 + symbol + interval + 错误信息，并收集到 errors
+            const msg = `binance/klines ${symbol} ${interval} 调用失败: ${e instanceof Error ? e.message : String(e)}`;
+            this.logger.error(msg, e instanceof Error ? e.stack : undefined);
+            this.syncErrors.push(msg);
           }
           done++;
           const percent = 2 + (done / totalTasks) * 96;
@@ -179,10 +185,15 @@ export class SyncService {
         }
       }
 
-      this.emit(sub, { type: 'done', message: '数据同步完成' });
+      const failedCount = this.syncErrors.length;
+      this.emit(sub, {
+        type: 'done',
+        message: failedCount ? `数据同步完成（${failedCount} 个标的失败）` : '数据同步完成',
+      });
       sub.complete();
-    } catch (err) {
-      this.emit(sub, { type: 'error', message: String(err?.message || err) });
+    } catch (err: unknown) {
+      this.logger.error(`runSync 失败: ${err instanceof Error ? err.stack : String(err)}`);
+      this.emit(sub, { type: 'error', message: err instanceof Error ? err.message : String(err) });
       sub.complete();
     }
   }
