@@ -1,9 +1,8 @@
-import { Body, Controller, Get, Header, Post, Query, Res } from '@nestjs/common';
+import { Controller, Get, Header, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { AdminOnly } from '../../auth/decorators/admin-only.decorator';
 import { MoneyFlowSyncService } from './money-flow-sync.service';
 import { SyncFlowDto } from './dto/sync-flow.dto';
-import { QueryMemberDto } from './dto/query-member.dto';
 
 @Controller('money-flow/sync')
 export class MoneyFlowSyncController {
@@ -23,12 +22,5 @@ export class MoneyFlowSyncController {
       error: () => res.end(),
     });
     res.on('close', () => subscription.unsubscribe());
-  }
-
-  @Post('members')
-  @AdminOnly()
-  syncMembers(@Body() dto: QueryMemberDto) {
-    const dimension = dto.ts_code === 'sector' ? 'sector' : 'industry';
-    return this.syncService.syncMembers(dimension);
   }
 }

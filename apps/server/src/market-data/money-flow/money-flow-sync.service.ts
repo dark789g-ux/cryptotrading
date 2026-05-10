@@ -1,14 +1,13 @@
 // apps/server/src/market-data/money-flow/money-flow-sync.service.ts
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { Subject } from 'rxjs';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
 import { MoneyFlowStockEntity } from '../../entities/money-flow/money-flow-stock.entity';
 import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-industry.entity';
 import { MoneyFlowSectorEntity } from '../../entities/money-flow/money-flow-sector.entity';
 import { MoneyFlowMarketEntity } from '../../entities/money-flow/money-flow-market.entity';
-import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock.entity';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
 import { resolveOpenTradeDates } from '../a-shares/sync/a-shares-sync-utils';
 import { SyncFlowDto } from './dto/sync-flow.dto';
@@ -18,7 +17,6 @@ import {
   asNullableNumeric,
   asString,
   batchUpsert,
-  deduplicateBy,
   fetchByDates,
   filterExistingDates,
 } from './money-flow-sync.helpers';
@@ -33,8 +31,6 @@ const INDUSTRY_FIELDS = 'trade_date,ts_code,industry,pct_change,net_buy_amount,n
 const SECTOR_FIELDS = 'trade_date,ts_code,name,pct_change,net_buy_amount,net_sell_amount,net_amount';
 // moneyflow_mkt_dc: https://tushare.pro/wctapi/documents/345.md
 const MARKET_FIELDS = 'trade_date,net_amount,buy_lg_amount,buy_sm_amount';
-// ths_member: https://tushare.pro/wctapi/documents/261.md
-const MEMBER_FIELDS = 'ts_code,con_code,con_name,is_new';
 
 interface RawRow {
   [k: string]: unknown;
@@ -56,10 +52,6 @@ export class MoneyFlowSyncService {
     private readonly marketRepo: Repository<MoneyFlowMarketEntity>,
     @InjectRepository(AShareSymbolEntity)
     private readonly symbolRepo: Repository<AShareSymbolEntity>,
-    @InjectRepository(ThsMemberStockEntity)
-    private readonly memberRepo: Repository<ThsMemberStockEntity>,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
     private readonly tushareClient: TushareClientService,
   ) {}
 
@@ -166,9 +158,6 @@ export class MoneyFlowSyncService {
     const resolved = await this.resolveDates(dto, this.industryRepo, errors);
     if (!resolved) return { success: 0, skipped: 0, errors };
     if (!resolved.dates.length) {
-      // 即使资金流没有新增，仍可触发 member 同步保持成分股最新
-      const memberResult = await this.syncMembers('industry');
-      errors.push(...memberResult.errors);
       return { success: 0, skipped: resolved.skipped, errors };
     }
 
@@ -199,10 +188,6 @@ export class MoneyFlowSyncService {
       }
     }
     const success = await batchUpsert(this.industryRepo, allEntities, ['tsCode', 'tradeDate']);
-
-    const memberResult = await this.syncMembers('industry');
-    errors.push(...memberResult.errors);
-    this.logger.log(`syncIndustries 完成: 资金流 ${success} 条, 成分股 ${memberResult.success} 条`);
     return { success, skipped: resolved.skipped, errors };
   }
 
@@ -211,8 +196,6 @@ export class MoneyFlowSyncService {
     const resolved = await this.resolveDates(dto, this.sectorRepo, errors);
     if (!resolved) return { success: 0, skipped: 0, errors };
     if (!resolved.dates.length) {
-      const memberResult = await this.syncMembers('sector');
-      errors.push(...memberResult.errors);
       return { success: 0, skipped: resolved.skipped, errors };
     }
 
@@ -242,10 +225,6 @@ export class MoneyFlowSyncService {
       }
     }
     const success = await batchUpsert(this.sectorRepo, allEntities, ['tsCode', 'tradeDate']);
-
-    const memberResult = await this.syncMembers('sector');
-    errors.push(...memberResult.errors);
-    this.logger.log(`syncSectors 完成: 资金流 ${success} 条, 成分股 ${memberResult.success} 条`);
     return { success, skipped: resolved.skipped, errors };
   }
 
@@ -281,68 +260,6 @@ export class MoneyFlowSyncService {
 
     const success = await batchUpsert(this.marketRepo, allEntities, ['tradeDate']);
     return { success, skipped: resolved.skipped, errors };
-  }
-
-  /**
-   * 同步行业/板块成分股映射。每个 ts_code 的 delete + upsert 在事务内执行，避免中途失败丢成分股。
-   */
-  async syncMembers(dimension: 'industry' | 'sector'): Promise<MoneyFlowSyncResult> {
-    const errors: string[] = [];
-    const repo = dimension === 'industry' ? this.industryRepo : this.sectorRepo;
-
-    const rows = await repo
-      .createQueryBuilder('e')
-      .select('DISTINCT e.ts_code', 'tsCode')
-      .getRawMany<{ tsCode: string }>();
-    const tsCodes = rows.map((r) => r.tsCode).filter(Boolean);
-
-    if (!tsCodes.length) {
-      this.logger.warn(`syncMembers(${dimension}): 无 ts_code，请先同步${dimension === 'industry' ? '行业' : '板块'}资金流数据`);
-      return { success: 0, skipped: 0, errors };
-    }
-
-    let success = 0;
-    for (const tsCode of tsCodes) {
-      try {
-        const memberRows = (await this.tushareClient.query(
-          'ths_member',
-          { ts_code: tsCode },
-          MEMBER_FIELDS,
-        )) as RawRow[];
-
-        if (!memberRows.length) {
-          this.logger.warn(`ths_member(${tsCode}) 返回空数据`);
-          continue;
-        }
-
-        const entities = memberRows.map((r) => this.memberRepo.create({
-          tsCode: asString(r.ts_code),
-          conCode: asString(r.con_code),
-          conName: asString(r.con_name) || null,
-          isNew: asString(r.is_new) || null,
-        }));
-        const deduped = deduplicateBy(entities, ['tsCode', 'conCode']);
-
-        await this.dataSource.transaction(async (manager) => {
-          await manager.delete(ThsMemberStockEntity, { tsCode });
-          const chunkSize = 1000;
-          for (let i = 0; i < deduped.length; i += chunkSize) {
-            await manager.upsert(
-              ThsMemberStockEntity,
-              deduped.slice(i, i + chunkSize),
-              ['tsCode', 'conCode'],
-            );
-          }
-        });
-        success += deduped.length;
-      } catch (e: unknown) {
-        const msg = `ths_member(${tsCode}) 失败: ${e instanceof Error ? e.message : String(e)}`;
-        this.logger.error(msg, e instanceof Error ? e.stack : undefined);
-        errors.push(`[${tsCode}] ${msg}`);
-      }
-    }
-
-    return { success, skipped: 0, errors };
   }
 
   startSync(dto: SyncFlowDto): Subject<MoneyFlowSyncEvent> {
