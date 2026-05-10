@@ -236,8 +236,17 @@
       :data-date-range-label="moneyFlowDateRangeLabel"
       :data-date-range-loading="moneyFlowDateRangeLoading"
       :can-confirm="moneyFlowCanConfirm"
+      :finished="!!moneyFlowFinished"
       @confirm="confirmMoneyFlowSync"
-    />
+    >
+      <template #extra>
+        <MoneyFlowSyncProgress
+          :visible="moneyFlowProgressVisible"
+          :sse="moneyFlowSse"
+          :finished="moneyFlowFinished"
+        />
+      </template>
+    </data-sync-modal>
 
     <!-- 0AMV 同步 Modal -->
     <data-sync-modal
@@ -263,6 +272,7 @@ import { useSyncView } from '../../composables/hooks/useSyncView'
 import ASharesSyncModal from '../../components/symbols/a-shares/ASharesSyncModal.vue'
 import { useASharesSync } from '../../components/symbols/a-shares/useASharesSync'
 import DataSyncModal from '../../components/sync/DataSyncModal.vue'
+import MoneyFlowSyncProgress from '../../components/sync/MoneyFlowSyncProgress.vue'
 import { useCryptoSync } from '../../components/sync/useCryptoSync'
 import { useOamvSync } from '../../components/sync/useOamvSync'
 import { useMoneyFlowSync } from '../../components/sync/useMoneyFlowSync'
@@ -325,6 +335,9 @@ const {
   dateRangeLabel: moneyFlowDateRangeLabel,
   dateRangeLoading: moneyFlowDateRangeLoading,
   canConfirm: moneyFlowCanConfirm,
+  syncProgressVisible: moneyFlowProgressVisible,
+  sse: moneyFlowSse,
+  finished: moneyFlowFinished,
   openModal: openMoneyFlowModal,
   confirmSync: confirmMoneyFlowSync,
 } = useMoneyFlowSync(message)
