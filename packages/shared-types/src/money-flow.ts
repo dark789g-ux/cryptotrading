@@ -101,13 +101,13 @@ export type MoneyFlowSyncEvent =
   | {
       type: 'done'
       message: string
-      summary: MoneyFlowSyncSummary
+      summary: MoneyFlowSyncSummary | IndexCatalogSyncSummary
     }
   | {
       type: 'error'
       message: string
       /** 错误发生时的部分进度摘要，便于前端展示已完成的维度 */
-      summary?: Partial<MoneyFlowSyncSummary>
+      summary?: Partial<MoneyFlowSyncSummary> | Partial<IndexCatalogSyncSummary>
     }
 
 export interface MoneyFlowSyncSummary {
@@ -115,4 +115,12 @@ export interface MoneyFlowSyncSummary {
   industries: MoneyFlowSyncResult
   sectors: MoneyFlowSyncResult
   market: MoneyFlowSyncResult
+}
+
+export interface IndexCatalogSyncSummary {
+  industryCatalog: MoneyFlowSyncResult
+  conceptCatalog:  MoneyFlowSyncResult
+  industryMembers: MoneyFlowSyncResult
+  conceptMembers:  MoneyFlowSyncResult
+  cleanup:         MoneyFlowSyncResult
 }
