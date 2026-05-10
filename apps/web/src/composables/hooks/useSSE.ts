@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, getCurrentScope, onScopeDispose } from 'vue'
 import { ApiError } from '../api/apiClient'
 import { useAuth } from './useAuth'
 
@@ -11,6 +11,10 @@ export function useSSE() {
   const total = ref(0)
 
   let _abortCtrl: AbortController | null = null
+
+  // 在父组件销毁时自动 abort，避免 SSE / fetch reader 泄漏。
+  // getCurrentScope() 仅在 setup 内非空；其它环境（如 Pinia store）下用户需自行调用 reset()
+  if (getCurrentScope()) onScopeDispose(() => { _abortCtrl?.abort(); _abortCtrl = null })
 
   async function start(
     url: string,

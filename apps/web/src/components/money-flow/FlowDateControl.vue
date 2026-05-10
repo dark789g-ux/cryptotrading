@@ -54,16 +54,17 @@ const emit = defineEmits<{
 
 const mode = ref<DateMode>(props.hideModeToggle ? 'range' : props.defaultMode)
 
+// 时间规范：UTC 墙钟，禁止使用 getFullYear/getMonth/getDate 等本地方法
 function toYYYYMMDD(ts: number): string {
   const d = new Date(ts)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
   return `${y}${m}${day}`
 }
 
 function yyyymmddToTs(s: string): number {
-  return new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T00:00:00`).getTime()
+  return new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T00:00:00Z`).getTime()
 }
 
 const singleDateTs = ref<number | null>(

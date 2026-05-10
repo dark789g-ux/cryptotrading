@@ -74,6 +74,16 @@ import { aSharesApi, klinesApi, watchlistApi, type KlineChartBar } from '@/api'
 import WatchlistTableSettings from './WatchlistTableSettings.vue'
 import KlineChart from '@/components/kline/KlineChart.vue'
 
+function formatUTCDate(input: string | number | Date | null | undefined): string {
+  if (input == null) return '-'
+  const d = input instanceof Date ? input : new Date(input)
+  if (isNaN(d.getTime())) return '-'
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 const store = useWatchlistStore()
 const showSettings = ref(false)
 const showChartDrawer = ref(false)
@@ -167,7 +177,7 @@ const columns = computed<DataTableColumns<any>>(() => {
     kdjJ: { title: 'KDJ.J', key: 'kdjJ', width: 90, sorter: true, render: (row: any) => formatFixed(row.kdjJ, 2) },
     riskRewardRatio: { title: 'RR', key: 'riskRewardRatio', width: 90, sorter: true, render: (row: any) => formatFixed(row.riskRewardRatio, 2) },
     stopLossPct: { title: 'Stop %', key: 'stopLossPct', width: 90, sorter: true, render: (row: any) => (row.stopLossPct == null ? '-' : `${row.stopLossPct.toFixed(2)}%`) },
-    openTime: { title: 'Updated', key: 'openTime', width: 110, sorter: true, render: (row: any) => (row.openTime ? new Date(row.openTime).toISOString().slice(0, 10) : '-') },
+    openTime: { title: 'Updated', key: 'openTime', width: 110, sorter: true, render: (row: any) => formatUTCDate(row.openTime) },
   }
 
   for (const key of store.columns) {

@@ -48,6 +48,7 @@ import { useStrategyConditionsStore } from '../stores/strategyConditions';
 import type { StrategyCondition } from '../api/modules/strategyConditions';
 import AppModal from '../components/common/AppModal.vue';
 import StrategyConditionBuilder from '../components/strategy-conditions/StrategyConditionBuilder.vue';
+import { formatUTCDateTime } from '../components/symbols/a-shares/aSharesFormatters';
 
 const message = useMessage()
 const router = useRouter()
@@ -119,7 +120,7 @@ const columns = [
     title: '创建时间',
     key: 'createdAt',
     render(row: StrategyCondition) {
-      return new Date(row.createdAt).toLocaleString();
+      return formatUTCDateTime(row.createdAt);
     },
   },
   {

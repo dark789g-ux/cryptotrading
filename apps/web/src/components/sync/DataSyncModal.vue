@@ -1,26 +1,14 @@
 <template>
-  <n-modal
+  <AppModal
     :show="show"
-    preset="card"
-    class="data-sync-modal"
-    :style="{ width: 'min(92vw, 520px)' }"
-    :bordered="false"
+    :title="title"
+    :description="description"
+    :header-icon="icon"
+    width="min(92vw, 520px)"
     :mask-closable="!syncing || !!finished"
     :closable="!syncing || !!finished"
     @update:show="emit('update:show', $event)"
   >
-    <template #header>
-      <div class="dsm-header">
-        <div class="dsm-icon">
-          <n-icon :component="icon" />
-        </div>
-        <div>
-          <h3 class="dsm-title">{{ title }}</h3>
-          <p class="dsm-desc">{{ description }}</p>
-        </div>
-      </div>
-    </template>
-
     <div class="dsm-form">
       <!-- 当前库存范围 -->
       <div class="dsm-field-block">
@@ -77,30 +65,29 @@
       <slot name="extra" />
     </div>
 
-    <template #footer>
-      <div class="dsm-actions">
-        <template v-if="!finished">
-          <n-button :disabled="syncing" @click="emit('update:show', false)">取消</n-button>
-          <n-button
-            type="primary"
-            :loading="syncing"
-            :disabled="!canConfirm"
-            @click="emit('confirm')"
-          >
-            确认同步
-          </n-button>
-        </template>
-        <n-button v-else type="primary" @click="emit('update:show', false)">关闭</n-button>
-      </div>
+    <template #actions>
+      <template v-if="!finished">
+        <n-button :disabled="syncing" @click="emit('update:show', false)">取消</n-button>
+        <n-button
+          type="primary"
+          :loading="syncing"
+          :disabled="!canConfirm"
+          @click="emit('confirm')"
+        >
+          确认同步
+        </n-button>
+      </template>
+      <n-button v-else type="primary" @click="emit('update:show', false)">关闭</n-button>
     </template>
-  </n-modal>
+  </AppModal>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Component } from 'vue'
-import { NButton, NDatePicker, NIcon, NModal, NRadioButton, NRadioGroup, NSpin } from 'naive-ui'
+import { NButton, NDatePicker, NIcon, NRadioButton, NRadioGroup, NSpin } from 'naive-ui'
 import { CalendarOutline, SwapHorizontalOutline } from '@vicons/ionicons5'
+import AppModal from '../common/AppModal.vue'
 
 type SyncMode = 'incremental' | 'overwrite'
 
