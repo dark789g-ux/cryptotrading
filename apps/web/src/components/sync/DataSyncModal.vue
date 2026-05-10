@@ -5,8 +5,8 @@
     class="data-sync-modal"
     :style="{ width: 'min(92vw, 520px)' }"
     :bordered="false"
-    :mask-closable="!syncing"
-    :closable="!syncing"
+    :mask-closable="!syncing || !!finished"
+    :closable="!syncing || !!finished"
     @update:show="emit('update:show', $event)"
   >
     <template #header>
@@ -79,15 +79,18 @@
 
     <template #footer>
       <div class="dsm-actions">
-        <n-button :disabled="syncing" @click="emit('update:show', false)">取消</n-button>
-        <n-button
-          type="primary"
-          :loading="syncing"
-          :disabled="!canConfirm"
-          @click="emit('confirm')"
-        >
-          确认同步
-        </n-button>
+        <template v-if="!finished">
+          <n-button :disabled="syncing" @click="emit('update:show', false)">取消</n-button>
+          <n-button
+            type="primary"
+            :loading="syncing"
+            :disabled="!canConfirm"
+            @click="emit('confirm')"
+          >
+            确认同步
+          </n-button>
+        </template>
+        <n-button v-else type="primary" @click="emit('update:show', false)">关闭</n-button>
       </div>
     </template>
   </n-modal>
@@ -112,6 +115,7 @@ const props = defineProps<{
   dataDateRangeLabel: string
   dataDateRangeLoading: boolean
   canConfirm: boolean
+  finished?: boolean
 }>()
 
 const emit = defineEmits<{
