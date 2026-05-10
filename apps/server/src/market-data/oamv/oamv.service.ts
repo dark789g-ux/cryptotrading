@@ -104,14 +104,32 @@ export class OamvService {
   }
 
   /**
+   * 查询 0AMV 数据的日期范围（已落库的最早和最晚交易日）
+   */
+  async getDateRange(): Promise<{ min: string | null; max: string | null }> {
+    const result = await this.repo
+      .createQueryBuilder('o')
+      .select('MIN(o.tradeDate)', 'min')
+      .addSelect('MAX(o.tradeDate)', 'max')
+      .getRawOne<{ min: string | null; max: string | null }>()
+    return result ?? { min: null, max: null }
+  }
+
+  /**
    * 从 Tushare 同步 0AMV 数据
    */
-  async sync0amv(days: number = 60): Promise<{ synced: number }> {
-    this.logger.log(`开始同步 0AMV 数据，天数: ${days}`)
+  async sync0amv(options: {
+    startDate?: string
+    endDate?: string
+    syncMode?: 'incremental' | 'overwrite'
+  } = {}): Promise<{ synced: number }> {
+    this.logger.log(`开始同步 0AMV 数据，参数: ${JSON.stringify(options)}`)
 
     // 计算日期范围
-    const endDate = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-    const startDate = new Date(Date.now() - (days + 20) * 86400000).toISOString().slice(0, 10).replace(/-/g, '')
+    const endDate = options.endDate
+      ?? new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const startDate = options.startDate
+      ?? new Date(Date.now() - 80 * 86400000).toISOString().slice(0, 10).replace(/-/g, '')
 
     // 从 Tushare 拉取 930903.CSI 数据
     const fields = 'trade_date,open,high,low,close,amount'
@@ -149,6 +167,20 @@ export class OamvService {
     if (validResults.length === 0) {
       this.logger.warn('计算结果为空')
       return { synced: 0 }
+    }
+
+    // 增量模式：跳过已有日期
+    if (options.syncMode !== 'overwrite') {
+      const existing = await this.repo.find({ select: ['tradeDate'] })
+      const existingSet = new Set(existing.map((e) => e.tradeDate))
+      const before = validResults.length
+      const newResults = validResults.filter((r) => !existingSet.has(r.tradeDate))
+      if (newResults.length === 0) {
+        this.logger.log(`增量同步：无新数据（已有 ${before} 条）`)
+        return { synced: 0 }
+      }
+      validResults.splice(0, validResults.length, ...newResults)
+      this.logger.log(`增量同步：跳过 ${before - validResults.length} 条已有数据，新增 ${validResults.length} 条`)
     }
 
     // 使用 upsert 去重保存

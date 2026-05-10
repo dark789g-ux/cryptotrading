@@ -86,8 +86,23 @@ export class SyncService {
     return { ok: true };
   }
 
+  /** 查询 K 线数据的日期范围（1d 周期） */
+  async getKlineDateRange(): Promise<{ min: string | null; max: string | null }> {
+    const result = await this.klineRepo
+      .createQueryBuilder('k')
+      .select("TO_CHAR(MIN(k.openTime AT TIME ZONE 'UTC'), 'YYYYMMDD')", 'min')
+      .addSelect("TO_CHAR(MAX(k.openTime AT TIME ZONE 'UTC'), 'YYYYMMDD')", 'max')
+      .where("k.interval = '1d'")
+      .getRawOne<{ min: string | null; max: string | null }>()
+    return result ?? { min: null, max: null }
+  }
+
   /** 启动同步，返回 Observable<SseEvent> */
-  startSync(): Subject<SseEvent> {
+  startSync(options: {
+    startDate?: string
+    endDate?: string
+    syncMode?: 'incremental' | 'overwrite'
+  } = {}): Subject<SseEvent> {
     if (this.isSyncing) {
       const sub = new Subject<SseEvent>();
       sub.next({ type: 'error', message: '同步任务已在运行中，请稍后再试' });
@@ -96,7 +111,7 @@ export class SyncService {
     }
     this.syncSubject = new Subject<SseEvent>();
     this.isSyncing = true;
-    this.runSync(this.syncSubject).finally(() => {
+    this.runSync(this.syncSubject, options).finally(() => {
       this.isSyncing = false;
     });
     return this.syncSubject;
@@ -106,7 +121,11 @@ export class SyncService {
     sub.next(event);
   }
 
-  private async runSync(sub: Subject<SseEvent>) {
+  private async runSync(sub: Subject<SseEvent>, options: {
+    startDate?: string
+    endDate?: string
+    syncMode?: 'incremental' | 'overwrite'
+  } = {}) {
     try {
       this.emit(sub, { type: 'start' });
 
@@ -142,7 +161,7 @@ export class SyncService {
       for (const interval of intervals) {
         for (const symbol of targetSymbols) {
           try {
-            await this.syncSymbolKlines(symbol, interval);
+            await this.syncSymbolKlines(symbol, interval, options.startDate, options.endDate, options.syncMode);
           } catch (e) {
             // 单个失败不中止全部
           }
@@ -169,26 +188,44 @@ export class SyncService {
   }
 
   /** 同步单个 symbol 的单个 interval K 线 */
-  private async syncSymbolKlines(symbol: string, interval: string) {
-    // 找最新一根 K 线时间，决定从哪里开始拉
-    const latest = await this.klineRepo.findOne({
-      where: { symbol, interval },
-      order: { openTime: 'DESC' },
-    });
-
+  private async syncSymbolKlines(
+    symbol: string,
+    interval: string,
+    startDate?: string,
+    endDate?: string,
+    syncMode?: 'incremental' | 'overwrite',
+  ) {
     let startMs: number;
-    if (latest) {
-      // 回溯 UPDATE_LOOKBACK_DAYS 天
-      const lookbackMs = UPDATE_LOOKBACK_DAYS * 24 * 3600 * 1000;
-      startMs = latest.openTime.getTime() - lookbackMs;
+
+    if (startDate) {
+      // 用户明确指定起始日期
+      const s = `${startDate.slice(0, 4)}-${startDate.slice(4, 6)}-${startDate.slice(6, 8)}T00:00:00Z`
+      startMs = new Date(s).getTime()
+    } else if (syncMode !== 'overwrite') {
+      // 增量模式：从最新 K 线往前回溯 UPDATE_LOOKBACK_DAYS
+      const latest = await this.klineRepo.findOne({
+        where: { symbol, interval },
+        order: { openTime: 'DESC' },
+      });
+      if (latest) {
+        const lookbackMs = UPDATE_LOOKBACK_DAYS * 24 * 3600 * 1000;
+        startMs = latest.openTime.getTime() - lookbackMs;
+      } else {
+        startMs = new Date(DEFAULT_START_TIME).getTime();
+      }
     } else {
       startMs = new Date(DEFAULT_START_TIME).getTime();
     }
 
+    const endMs = endDate
+      ? new Date(`${endDate.slice(0, 4)}-${endDate.slice(4, 6)}-${endDate.slice(6, 8)}T23:59:59Z`).getTime()
+      : undefined;
+
     const klineRows: KlineRow[] = [];
 
     while (true) {
-      const url = `${this.baseUrl}/api/v3/klines?symbol=${symbol}&interval=${interval}&startTime=${startMs}&limit=${KLINE_LIMIT}`;
+      const urlParams = `symbol=${symbol}&interval=${interval}&startTime=${startMs}&limit=${KLINE_LIMIT}${endMs ? `&endTime=${endMs}` : ''}`
+      const url = `${this.baseUrl}/api/v3/klines?${urlParams}`;
       const resp = await axios.get(url, { timeout: 15000 });
       const data: any[][] = resp.data;
       if (!data || !data.length) break;

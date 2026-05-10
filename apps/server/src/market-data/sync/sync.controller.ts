@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Body, Res, Header } from '@nestjs/common';
+import { Controller, Get, Put, Body, Res, Header, Query } from '@nestjs/common';
 import { Response } from 'express';
 import { AdminOnly } from '../../auth/decorators/admin-only.decorator';
 import { SyncService } from './sync.service';
@@ -20,15 +20,26 @@ export class SyncController {
     return this.syncService.savePreferences(body);
   }
 
+  /** GET /api/sync/date-range — 已同步 K 线的日期范围 */
+  @Get('date-range')
+  getDateRange() {
+    return this.syncService.getKlineDateRange();
+  }
+
   /** GET /api/sync/run — SSE 推送同步进度 */
   @Get('run')
   @AdminOnly()
   @Header('Content-Type', 'text/event-stream')
   @Header('Cache-Control', 'no-cache')
   @Header('Connection', 'keep-alive')
-  runSync(@Res() res: Response) {
+  runSync(
+    @Query('startDate') startDate: string | undefined,
+    @Query('endDate') endDate: string | undefined,
+    @Query('syncMode') syncMode: 'incremental' | 'overwrite' | undefined,
+    @Res() res: Response,
+  ) {
     res.flushHeaders();
-    const subject = this.syncService.startSync();
+    const subject = this.syncService.startSync({ startDate, endDate, syncMode });
     const subscription = subject.subscribe({
       next: (event) => {
         res.write(`data: ${JSON.stringify(event)}\n\n`);

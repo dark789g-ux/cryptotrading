@@ -22,6 +22,11 @@ import type {
   MoneyFlowMarketRow,
 } from '@cryptotrading/shared-types'
 
+export interface MoneyFlowDateRange {
+  min: string | null
+  max: string | null
+}
+
 function buildQs(params: MoneyFlowQueryParams): string {
   const qs = new URLSearchParams()
   if (params.trade_date) qs.set('trade_date', params.trade_date)
@@ -34,6 +39,9 @@ function buildQs(params: MoneyFlowQueryParams): string {
 }
 
 export const moneyFlowApi = {
+  getDateRange: () =>
+    request<MoneyFlowDateRange>(`${API_BASE}/money-flow/date-range`),
+
   getLatestDates: () =>
     request<MoneyFlowLatestDates>(`${API_BASE}/money-flow/latest-dates`),
 

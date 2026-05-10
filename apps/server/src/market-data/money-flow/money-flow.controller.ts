@@ -6,6 +6,11 @@ import { QueryFlowDto } from './dto/query-flow.dto';
 export class MoneyFlowController {
   constructor(private readonly moneyFlowService: MoneyFlowService) {}
 
+  @Get('date-range')
+  getDateRange() {
+    return this.moneyFlowService.getDateRange();
+  }
+
   @Get('latest-dates')
   getLatestDates() {
     return this.moneyFlowService.getLatestDates();

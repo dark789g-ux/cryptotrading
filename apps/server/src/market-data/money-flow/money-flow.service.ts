@@ -97,6 +97,16 @@ export class MoneyFlowService {
     return qb.getMany();
   }
 
+  /** 个股维度的数据日期范围（min/max trade_date） */
+  async getDateRange(): Promise<{ min: string | null; max: string | null }> {
+    const result = await this.stockRepo
+      .createQueryBuilder('s')
+      .select('MIN(s.trade_date)', 'min')
+      .addSelect('MAX(s.trade_date)', 'max')
+      .getRawOne<{ min: string | null; max: string | null }>()
+    return result ?? { min: null, max: null }
+  }
+
   /** 各维度最新已同步的交易日 */
   async getLatestDates(): Promise<MoneyFlowLatestDates> {
     const [stock, industry, sector, market] = await Promise.all([

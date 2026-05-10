@@ -71,6 +71,21 @@ export class MoneyFlowSyncService {
     });
   }
 
+  /** 增量模式：从交易日列表中过滤掉指定 repo 中已有数据的日期 */
+  private async filterExistingDates<T extends { tradeDate: string }>(
+    repo: Repository<T>,
+    tradeDates: string[],
+  ): Promise<{ dates: string[]; skipped: number }> {
+    const existing = await repo
+      .createQueryBuilder('e')
+      .select('DISTINCT e.trade_date', 'tradeDate')
+      .where('e.trade_date IN (:...dates)', { dates: tradeDates })
+      .getRawMany<{ tradeDate: string }>();
+    const existingSet = new Set(existing.map((r) => r.tradeDate));
+    const dates = tradeDates.filter((d) => !existingSet.has(d));
+    return { dates, skipped: tradeDates.length - dates.length };
+  }
+
   private async batchUpsert<T extends object>(
     repo: Repository<T>,
     entities: T[],
@@ -86,12 +101,21 @@ export class MoneyFlowSyncService {
 
   async syncStocks(dto: SyncFlowDto): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
-    const tradeDates = await this.getTradeDates(dto)
+    const allTradeDates = await this.getTradeDates(dto)
       .catch((e: unknown) => { errors.push(String(e)); return []; });
 
-    if (!tradeDates.length) {
+    if (!allTradeDates.length) {
       this.logger.warn('未获取到交易日', dto);
       return { success: 0, skipped: 0, errors };
+    }
+
+    let tradeDates = allTradeDates;
+    let skipped = 0;
+    if (dto.syncMode !== 'overwrite') {
+      const filtered = await this.filterExistingDates(this.stockRepo, allTradeDates);
+      tradeDates = filtered.dates;
+      skipped = filtered.skipped;
+      if (!tradeDates.length) return { success: 0, skipped, errors };
     }
 
     const allEntities: MoneyFlowStockEntity[] = [];
@@ -127,17 +151,26 @@ export class MoneyFlowSyncService {
     }
 
     const success = await this.batchUpsert(this.stockRepo, allEntities, ['tsCode', 'tradeDate']);
-    return { success, skipped: 0, errors };
+    return { success, skipped, errors };
   }
 
   async syncIndustries(dto: SyncFlowDto): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
-    const tradeDates = await this.getTradeDates(dto)
+    const allTradeDates = await this.getTradeDates(dto)
       .catch((e: unknown) => { errors.push(String(e)); return []; });
 
-    if (!tradeDates.length) {
+    if (!allTradeDates.length) {
       this.logger.warn('未获取到交易日', dto);
       return { success: 0, skipped: 0, errors };
+    }
+
+    let tradeDates = allTradeDates;
+    let skipped = 0;
+    if (dto.syncMode !== 'overwrite') {
+      const filtered = await this.filterExistingDates(this.industryRepo, allTradeDates);
+      tradeDates = filtered.dates;
+      skipped = filtered.skipped;
+      if (!tradeDates.length) return { success: 0, skipped, errors };
     }
 
     const allEntities: MoneyFlowIndustryEntity[] = [];
@@ -167,17 +200,26 @@ export class MoneyFlowSyncService {
     }
 
     const success = await this.batchUpsert(this.industryRepo, allEntities, ['tsCode', 'tradeDate']);
-    return { success, skipped: 0, errors };
+    return { success, skipped, errors };
   }
 
   async syncSectors(dto: SyncFlowDto): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
-    const tradeDates = await this.getTradeDates(dto)
+    const allTradeDates = await this.getTradeDates(dto)
       .catch((e: unknown) => { errors.push(String(e)); return []; });
 
-    if (!tradeDates.length) {
+    if (!allTradeDates.length) {
       this.logger.warn('未获取到交易日', dto);
       return { success: 0, skipped: 0, errors };
+    }
+
+    let tradeDates = allTradeDates;
+    let skipped = 0;
+    if (dto.syncMode !== 'overwrite') {
+      const filtered = await this.filterExistingDates(this.sectorRepo, allTradeDates);
+      tradeDates = filtered.dates;
+      skipped = filtered.skipped;
+      if (!tradeDates.length) return { success: 0, skipped, errors };
     }
 
     const allEntities: MoneyFlowSectorEntity[] = [];
@@ -207,17 +249,26 @@ export class MoneyFlowSyncService {
     }
 
     const success = await this.batchUpsert(this.sectorRepo, allEntities, ['tsCode', 'tradeDate']);
-    return { success, skipped: 0, errors };
+    return { success, skipped, errors };
   }
 
   async syncMarket(dto: SyncFlowDto): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
-    const tradeDates = await this.getTradeDates(dto)
+    const allTradeDates = await this.getTradeDates(dto)
       .catch((e: unknown) => { errors.push(String(e)); return []; });
 
-    if (!tradeDates.length) {
+    if (!allTradeDates.length) {
       this.logger.warn('未获取到交易日', dto);
       return { success: 0, skipped: 0, errors };
+    }
+
+    let tradeDates = allTradeDates;
+    let skipped = 0;
+    if (dto.syncMode !== 'overwrite') {
+      const filtered = await this.filterExistingDates(this.marketRepo, allTradeDates);
+      tradeDates = filtered.dates;
+      skipped = filtered.skipped;
+      if (!tradeDates.length) return { success: 0, skipped, errors };
     }
 
     // moneyflow_mkt_dc returns amounts in 元; divide by 10000 to unify with other money-flow tables (万元)
@@ -246,6 +297,6 @@ export class MoneyFlowSyncService {
     }
 
     const success = await this.batchUpsert(this.marketRepo, allEntities, ['tradeDate']);
-    return { success, skipped: 0, errors };
+    return { success, skipped, errors };
   }
 }

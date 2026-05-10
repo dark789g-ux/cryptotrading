@@ -11,6 +11,7 @@ export interface MoneyFlowQueryParams {
 export interface MoneyFlowSyncParams {
   start_date: string
   end_date: string
+  syncMode?: 'incremental' | 'overwrite'
 }
 
 /** 同步任务返回结果 */

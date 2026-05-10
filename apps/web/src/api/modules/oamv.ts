@@ -1,5 +1,21 @@
 import { API_BASE, post, request } from '../client'
 
+export interface OamvDateRange {
+  min: string | null
+  max: string | null
+}
+
+export interface OamvSyncParams {
+  startDate?: string
+  endDate?: string
+  syncMode?: 'incremental' | 'overwrite'
+}
+
+export interface OamvSyncResult {
+  success: boolean
+  synced: number
+}
+
 export interface OamvData {
   id: string
   tradeDate: string
@@ -10,22 +26,15 @@ export interface OamvData {
   createdAt: string
 }
 
-export interface OamvSyncResult {
-  success: boolean
-  synced: number
-}
-
 export const oamvApi = {
-  /**
-   * 同步 0AMV 数据
-   */
-  sync(): Promise<OamvSyncResult> {
-    return post<OamvSyncResult>(`${API_BASE}/oamv/sync`)
+  getDateRange(): Promise<OamvDateRange> {
+    return request<OamvDateRange>(`${API_BASE}/oamv/date-range`)
   },
 
-  /**
-   * 获取 0AMV 数据
-   */
+  sync(params: OamvSyncParams = {}): Promise<OamvSyncResult> {
+    return post<OamvSyncResult>(`${API_BASE}/oamv/sync`, params)
+  },
+
   getData(days: number = 250): Promise<OamvData[]> {
     return request<OamvData[]>(`${API_BASE}/oamv/data?days=${days}`)
   },

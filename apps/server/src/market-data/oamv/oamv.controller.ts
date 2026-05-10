@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query } from '@nestjs/common'
+import { Body, Controller, Get, Post, Query } from '@nestjs/common'
 import { OamvService } from './oamv.service'
 import { AdminOnly } from '../../auth/decorators/admin-only.decorator'
 
@@ -6,10 +6,17 @@ import { AdminOnly } from '../../auth/decorators/admin-only.decorator'
 export class OamvController {
   constructor(private readonly oamvService: OamvService) {}
 
+  @Get('date-range')
+  getDateRange() {
+    return this.oamvService.getDateRange()
+  }
+
   @Post('sync')
   @AdminOnly()
-  async sync0amv() {
-    const result = await this.oamvService.sync0amv()
+  async sync0amv(
+    @Body() body: { startDate?: string; endDate?: string; syncMode?: 'incremental' | 'overwrite' } = {},
+  ) {
+    const result = await this.oamvService.sync0amv(body)
     return { success: true, ...result }
   }
 
