@@ -89,8 +89,13 @@ export class StrategyConditionsRunner {
     });
 
     let query: string;
+    let params: unknown[];
     if (targetType === 'a-share') {
-      const whereClause = this.queryBuilder.buildAShareQuery(conditions);
+      const where = this.queryBuilder.buildAShareQuery(conditions);
+      params = [...where.params];
+      const limitPh = `$${params.length + 1}`;
+      const offsetPh = `$${params.length + 2}`;
+      params.push(limit, offset);
       query = `
         SELECT s.ts_code as "tsCode", s.name
         FROM a_share_symbols s
@@ -102,12 +107,16 @@ export class StrategyConditionsRunner {
         LEFT JOIN a_share_daily_metrics m
           ON m.ts_code = s.ts_code AND m.trade_date = i.trade_date
         WHERE s.list_status = 'L'
-          AND ${whereClause}
+          AND ${where.sql}
         ORDER BY s.ts_code
-        LIMIT ${limit} OFFSET ${offset}
+        LIMIT ${limitPh} OFFSET ${offsetPh}
       `;
     } else {
-      const whereClause = this.queryBuilder.buildCryptoQuery(conditions);
+      const where = this.queryBuilder.buildCryptoQuery(conditions);
+      params = [...where.params];
+      const limitPh = `$${params.length + 1}`;
+      const offsetPh = `$${params.length + 2}`;
+      params.push(limit, offset);
       query = `
         SELECT k.symbol as "tsCode", k.symbol as name
         FROM klines k
@@ -115,13 +124,13 @@ export class StrategyConditionsRunner {
           AND k.open_time = (
             SELECT MAX(open_time) FROM klines WHERE symbol = k.symbol AND interval = '1d'
           )
-          AND ${whereClause}
+          AND ${where.sql}
         ORDER BY k.symbol
-        LIMIT ${limit} OFFSET ${offset}
+        LIMIT ${limitPh} OFFSET ${offsetPh}
       `;
     }
 
-    const result = await this.dataSource.query(query);
+    const result = await this.dataSource.query(query, params);
     return (result as Array<Record<string, unknown>>).map(row => ({
       tsCode: row.tsCode as string,
       name: row.name as string,

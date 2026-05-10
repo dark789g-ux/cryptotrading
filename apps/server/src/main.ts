@@ -5,6 +5,9 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api');
+  const trustProxy = process.env.TRUST_PROXY ?? 'loopback';
+  const httpAdapter = app.getHttpAdapter().getInstance() as { set?: (k: string, v: unknown) => void };
+  httpAdapter.set?.('trust proxy', trustProxy === 'true' ? true : trustProxy === 'false' ? false : trustProxy);
   app.use(cookieParser());
   const configuredOrigins = (process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || '')
     .split(',')

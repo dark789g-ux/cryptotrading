@@ -30,10 +30,11 @@ export class SessionService {
     const ttl = rememberMe ? REMEMBER_SESSION_TTL_MS : SESSION_TTL_MS;
     const expiresAt = new Date(Date.now() + ttl);
     const userAgent = String(request.headers['user-agent'] ?? '').slice(0, 1000) || null;
-    const forwardedFor = request.headers['x-forwarded-for'];
-    const ip = Array.isArray(forwardedFor)
-      ? forwardedFor[0]
-      : String(forwardedFor || request.ip || '').split(',')[0].trim() || null;
+    const forwardedForRaw = request.headers['x-forwarded-for'];
+    const forwardedForStr = Array.isArray(forwardedForRaw)
+      ? forwardedForRaw[0]
+      : forwardedForRaw;
+    const ip = String(forwardedForStr || request.ip || '').split(',')[0].trim() || null;
 
     await this.sessionsRepo.save({
       id: newId(),

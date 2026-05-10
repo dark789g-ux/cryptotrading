@@ -43,7 +43,7 @@ async function main() {
     password: process.env.DB_PASS ?? 'cryptopass',
     database: process.env.DB_NAME ?? 'cryptodb',
     entities: [KlineEntity, SymbolEntity],
-    synchronize: true,
+    synchronize: false,
     logging: false,
   });
 

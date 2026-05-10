@@ -29,6 +29,14 @@ export class WatchlistsController {
     return this.watchlistsService.createWatchlist(user.id, body);
   }
 
+  @Put('reorder')
+  reorderWatchlists(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: { ids: string[] },
+  ) {
+    return this.watchlistsService.reorderWatchlists(user.id, body.ids);
+  }
+
   @Put(':id')
   update(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string, @Body() body: { name?: string; symbols?: string[] }) {
     return this.watchlistsService.updateWatchlist(user.id, id, body);
@@ -77,14 +85,6 @@ export class WatchlistsController {
       parseInt(pageSize, 10),
       sort,
     );
-  }
-
-  @Put('reorder')
-  reorderWatchlists(
-    @CurrentUser() user: CurrentUserPayload,
-    @Body() body: { ids: string[] },
-  ) {
-    return this.watchlistsService.reorderWatchlists(user.id, body.ids);
   }
 
   @Put(':id/reorder')
