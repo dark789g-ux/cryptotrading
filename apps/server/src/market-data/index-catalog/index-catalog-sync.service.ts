@@ -32,8 +32,38 @@ export class IndexCatalogSyncService {
     private readonly tushareClient: TushareClientService,
   ) {}
 
-  async syncCatalog(_type: 'I' | 'N', _ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
-    return { success: 0, skipped: 0, errors: [] };
+  async syncCatalog(type: 'I' | 'N', _ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
+    const errors: string[] = [];
+    let rows: RawRow[] = [];
+    try {
+      rows = (await this.tushareClient.query(
+        'ths_index',
+        { type, exchange: 'A' },
+        CATALOG_FIELDS,
+      )) as RawRow[];
+    } catch (e: unknown) {
+      const msg = `ths_index type=${type} 调用失败: ${e instanceof Error ? e.message : String(e)}`;
+      this.logger.error(msg, e instanceof Error ? e.stack : undefined);
+      errors.push(msg);
+      return { success: 0, skipped: 0, errors };
+    }
+
+    if (!rows.length) {
+      this.logger.warn(`[ths_index type=${type}] 返回空数据，参数={type:'${type}',exchange:'A'}`);
+      return { success: 0, skipped: 0, errors };
+    }
+
+    const entities = rows.map((r) => this.catalogRepo.create({
+      tsCode: asString(r.ts_code),
+      name: asString(r.name),
+      count: r.count != null ? Number(r.count) : null,
+      exchange: asString(r.exchange),
+      listDate: r.list_date != null ? asString(r.list_date) : null,
+      type,
+    }));
+
+    const success = await batchUpsert(this.catalogRepo, entities, ['tsCode']);
+    return { success, skipped: 0, errors };
   }
 
   async syncMembers(_type: 'I' | 'N', _ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
