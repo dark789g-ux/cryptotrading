@@ -174,14 +174,19 @@ function onDateChange(params: MoneyFlowQueryParams) {
   load()
 }
 
-onMounted(async () => {
+async function loadLatestDate() {
   try {
     const dates = await moneyFlowApi.getLatestDates()
     latestDate.value = dates.stock
   } catch { /* ignore */ }
-})
+}
 
-onActivated(load)
+onMounted(loadLatestDate)
+// keep-alive 切回时同步刷新最新日期，避免外部完成同步后日期仍是旧值
+onActivated(async () => {
+  await loadLatestDate()
+  load()
+})
 </script>
 
 <style scoped>

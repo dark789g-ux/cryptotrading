@@ -52,8 +52,11 @@ export const useStrategyConditionsStore = defineStore('strategyConditions', () =
     runProgress.value.delete(id);
   }
 
+  const lastPollError = ref<string | null>(null);
+
   async function startRun(id: string) {
     runningId.value = id;
+    lastPollError.value = null;
     try {
       const { runId } = await strategyConditionsApi.startRun(id);
 
@@ -67,7 +70,12 @@ export const useStrategyConditionsStore = defineStore('strategyConditions', () =
             runningId.value = null;
             await fetchLastRunStatus();
           }
-        } catch {
+        } catch (err: unknown) {
+          // 不再静默吞错：记录错误供 UI 展示
+          const msg = err instanceof Error ? err.message : '轮询进度失败';
+          lastPollError.value = msg;
+          // eslint-disable-next-line no-console
+          console.warn(`[strategyConditions] poll progress failed for ${id}: ${msg}`);
           clearInterval(poll);
           runningId.value = null;
         }
@@ -76,7 +84,10 @@ export const useStrategyConditionsStore = defineStore('strategyConditions', () =
       // 30s timeout safety
       setTimeout(() => {
         clearInterval(poll);
-        if (runningId.value === id) runningId.value = null;
+        if (runningId.value === id) {
+          runningId.value = null;
+          if (!lastPollError.value) lastPollError.value = '运行轮询超时（30s）';
+        }
       }, 30000);
 
       return { runId };
@@ -92,6 +103,7 @@ export const useStrategyConditionsStore = defineStore('strategyConditions', () =
     runProgress,
     loading,
     runningId,
+    lastPollError,
     getConditionsByTargetType,
     fetchConditions,
     fetchLastRunStatus,
