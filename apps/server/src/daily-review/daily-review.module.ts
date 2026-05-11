@@ -8,6 +8,7 @@ import { DailyReviewService } from './daily-review.service';
 import { SnapshotBuilderService } from './snapshot-builder.service';
 import { TushareClientService } from '../market-data/a-shares/services/tushare-client.service';
 import { DeepseekService } from './deepseek.service';
+import { DailyReviewProgressGateway } from './daily-review-progress.gateway';
 
 const DEEPSEEK_CLIENT = 'DEEPSEEK_CLIENT';
 
@@ -38,6 +39,7 @@ const deepseekServiceProvider = {
     DailyReviewService,
     SnapshotBuilderService,
     TushareClientService,
+    DailyReviewProgressGateway,
     deepseekClientProvider,
     deepseekServiceProvider,
   ],
