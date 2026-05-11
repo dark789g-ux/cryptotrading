@@ -1,0 +1,491 @@
+{
+  "trade_date": "20260511",
+  "recent_3d_top": [
+    {
+      "ts_code": "300736.SZ",
+      "name": "百邦科技",
+      "chg_3d": 39.2,
+      "latest_close": 40.16
+    },
+    {
+      "ts_code": "688260.SH",
+      "name": "昀冢科技",
+      "chg_3d": 33.04,
+      "latest_close": 50.69
+    },
+    {
+      "ts_code": "688693.SH",
+      "name": "锴威特",
+      "chg_3d": 29.49,
+      "latest_close": 123.53
+    },
+    {
+      "ts_code": "688818.SH",
+      "name": "电科蓝天",
+      "chg_3d": 29.12,
+      "latest_close": 92.15
+    },
+    {
+      "ts_code": "688350.SH",
+      "name": "富淼科技",
+      "chg_3d": 29.02,
+      "latest_close": 39.08
+    },
+    {
+      "ts_code": "920699.BJ",
+      "name": "海达尔",
+      "chg_3d": 28.93,
+      "latest_close": 56.6
+    },
+    {
+      "ts_code": "688096.SH",
+      "name": "京源环保",
+      "chg_3d": 28.66,
+      "latest_close": 10.91
+    },
+    {
+      "ts_code": "688545.SH",
+      "name": "兴福电子",
+      "chg_3d": 28.14,
+      "latest_close": 75.6
+    },
+    {
+      "ts_code": "688655.SH",
+      "name": "迅捷兴",
+      "chg_3d": 27.4,
+      "latest_close": 59.24
+    },
+    {
+      "ts_code": "300302.SZ",
+      "name": "同有科技",
+      "chg_3d": 26.67,
+      "latest_close": 42.6
+    },
+    {
+      "ts_code": "300536.SZ",
+      "name": "农尚环境",
+      "chg_3d": 25.64,
+      "latest_close": 13.33
+    },
+    {
+      "ts_code": "301188.SZ",
+      "name": "力诺药包",
+      "chg_3d": 25.57,
+      "latest_close": 33.0
+    },
+    {
+      "ts_code": "920028.BJ",
+      "name": "新恒泰",
+      "chg_3d": 25.47,
+      "latest_close": 21.18
+    },
+    {
+      "ts_code": "300449.SZ",
+      "name": "汉邦高科",
+      "chg_3d": 24.97,
+      "latest_close": 9.56
+    },
+    {
+      "ts_code": "688783.SH",
+      "name": "西安奕材-U",
+      "chg_3d": 23.59,
+      "latest_close": 34.05
+    },
+    {
+      "ts_code": "688146.SH",
+      "name": "中船特气",
+      "chg_3d": 22.83,
+      "latest_close": 95.81
+    },
+    {
+      "ts_code": "688189.SH",
+      "name": "南新制药",
+      "chg_3d": 22.53,
+      "latest_close": 10.55
+    },
+    {
+      "ts_code": "688618.SH",
+      "name": "三旺通信",
+      "chg_3d": 22.51,
+      "latest_close": 46.8
+    },
+    {
+      "ts_code": "300905.SZ",
+      "name": "宝丽迪",
+      "chg_3d": 22.43,
+      "latest_close": 78.32
+    },
+    {
+      "ts_code": "688523.SH",
+      "name": "航天环宇",
+      "chg_3d": 22.33,
+      "latest_close": 88.26
+    }
+  ],
+  "recent_5d_top": [
+    {
+      "ts_code": "920438.BJ",
+      "name": "戈碧迦",
+      "chg_5d": 61.05,
+      "latest_close": 69.88
+    },
+    {
+      "ts_code": "301666.SZ",
+      "name": "大普微-UW",
+      "chg_5d": 57.6,
+      "latest_close": 501.17
+    },
+    {
+      "ts_code": "300302.SZ",
+      "name": "同有科技",
+      "chg_5d": 53.68,
+      "latest_close": 42.6
+    },
+    {
+      "ts_code": "300819.SZ",
+      "name": "聚杰微纤",
+      "chg_5d": 50.58,
+      "latest_close": 85.74
+    },
+    {
+      "ts_code": "301319.SZ",
+      "name": "唯特偶",
+      "chg_5d": 47.94,
+      "latest_close": 104.7
+    },
+    {
+      "ts_code": "603045.SH",
+      "name": "福达合金",
+      "chg_5d": 46.42,
+      "latest_close": 68.35
+    },
+    {
+      "ts_code": "601991.SH",
+      "name": "大唐发电",
+      "chg_5d": 46.39,
+      "latest_close": 6.09
+    },
+    {
+      "ts_code": "300736.SZ",
+      "name": "百邦科技",
+      "chg_5d": 45.51,
+      "latest_close": 40.16
+    },
+    {
+      "ts_code": "603459.SH",
+      "name": "红板科技",
+      "chg_5d": 44.44,
+      "latest_close": 89.16
+    },
+    {
+      "ts_code": "002491.SZ",
+      "name": "通鼎互联",
+      "chg_5d": 43.86,
+      "latest_close": 22.73
+    },
+    {
+      "ts_code": "688008.SH",
+      "name": "澜起科技",
+      "chg_5d": 43.81,
+      "latest_close": 249.22
+    },
+    {
+      "ts_code": "688783.SH",
+      "name": "西安奕材-U",
+      "chg_5d": 43.67,
+      "latest_close": 34.05
+    },
+    {
+      "ts_code": "688260.SH",
+      "name": "昀冢科技",
+      "chg_5d": 41.59,
+      "latest_close": 50.69
+    },
+    {
+      "ts_code": "688069.SH",
+      "name": "德林海",
+      "chg_5d": 40.9,
+      "latest_close": 54.95
+    },
+    {
+      "ts_code": "688766.SH",
+      "name": "普冉股份",
+      "chg_5d": 40.54,
+      "latest_close": 381.0
+    },
+    {
+      "ts_code": "688820.SH",
+      "name": "盛合晶微",
+      "chg_5d": 40.29,
+      "latest_close": 144.5
+    },
+    {
+      "ts_code": "600130.SH",
+      "name": "波导股份",
+      "chg_5d": 40.26,
+      "latest_close": 6.48
+    },
+    {
+      "ts_code": "605006.SH",
+      "name": "山东玻纤",
+      "chg_5d": 39.95,
+      "latest_close": 16.36
+    },
+    {
+      "ts_code": "301308.SZ",
+      "name": "江波龙",
+      "chg_5d": 38.78,
+      "latest_close": 556.66
+    },
+    {
+      "ts_code": "600396.SH",
+      "name": "华电辽能",
+      "chg_5d": 37.9,
+      "latest_close": 13.68
+    }
+  ],
+  "recent_10d_top": [
+    {
+      "ts_code": "301666.SZ",
+      "name": "大普微-UW",
+      "chg_10d": 125.76,
+      "latest_close": 501.17
+    },
+    {
+      "ts_code": "603045.SH",
+      "name": "福达合金",
+      "chg_10d": 88.24,
+      "latest_close": 68.35
+    },
+    {
+      "ts_code": "603399.SH",
+      "name": "永杉锂业",
+      "chg_10d": 81.66,
+      "latest_close": 24.56
+    },
+    {
+      "ts_code": "300302.SZ",
+      "name": "同有科技",
+      "chg_10d": 81.28,
+      "latest_close": 42.6
+    },
+    {
+      "ts_code": "301217.SZ",
+      "name": "铜冠铜箔",
+      "chg_10d": 80.41,
+      "latest_close": 87.1
+    },
+    {
+      "ts_code": "300209.SZ",
+      "name": "行云科技",
+      "chg_10d": 76.02,
+      "latest_close": 23.2
+    },
+    {
+      "ts_code": "688328.SH",
+      "name": "深科达",
+      "chg_10d": 70.57,
+      "latest_close": 70.31
+    },
+    {
+      "ts_code": "300745.SZ",
+      "name": "欣锐科技",
+      "chg_10d": 64.53,
+      "latest_close": 44.39
+    },
+    {
+      "ts_code": "688655.SH",
+      "name": "迅捷兴",
+      "chg_10d": 64.1,
+      "latest_close": 59.24
+    },
+    {
+      "ts_code": "688820.SH",
+      "name": "盛合晶微",
+      "chg_10d": 63.09,
+      "latest_close": 144.5
+    },
+    {
+      "ts_code": "688260.SH",
+      "name": "昀冢科技",
+      "chg_10d": 62.99,
+      "latest_close": 50.69
+    },
+    {
+      "ts_code": "688515.SH",
+      "name": "裕太微-U",
+      "chg_10d": 62.76,
+      "latest_close": 210.55
+    },
+    {
+      "ts_code": "300283.SZ",
+      "name": "温州宏丰",
+      "chg_10d": 62.21,
+      "latest_close": 15.88
+    },
+    {
+      "ts_code": "688530.SH",
+      "name": "欧莱新材",
+      "chg_10d": 61.78,
+      "latest_close": 59.31
+    },
+    {
+      "ts_code": "300769.SZ",
+      "name": "德方纳米",
+      "chg_10d": 61.03,
+      "latest_close": 80.29
+    },
+    {
+      "ts_code": "920438.BJ",
+      "name": "戈碧迦",
+      "chg_10d": 60.28,
+      "latest_close": 69.88
+    },
+    {
+      "ts_code": "688371.SH",
+      "name": "菲沃泰",
+      "chg_10d": 59.53,
+      "latest_close": 33.66
+    },
+    {
+      "ts_code": "688813.SH",
+      "name": "泰金新能",
+      "chg_10d": 57.36,
+      "latest_close": 118.3
+    },
+    {
+      "ts_code": "300571.SZ",
+      "name": "平治信息",
+      "chg_10d": 56.23,
+      "latest_close": 57.65
+    },
+    {
+      "ts_code": "688008.SH",
+      "name": "澜起科技",
+      "chg_10d": 56.06,
+      "latest_close": 249.22
+    }
+  ],
+  "continuous_up": [
+    {
+      "ts_code": "000547.SZ",
+      "name": "航天发展",
+      "days_up": 3,
+      "total_chg": 14.95
+    },
+    {
+      "ts_code": "000029.SZ",
+      "name": "深深房Ａ",
+      "days_up": 3,
+      "total_chg": 13.52
+    },
+    {
+      "ts_code": "000026.SZ",
+      "name": "飞亚达",
+      "days_up": 3,
+      "total_chg": 12.38
+    },
+    {
+      "ts_code": "000559.SZ",
+      "name": "万向钱潮",
+      "days_up": 3,
+      "total_chg": 6.96
+    },
+    {
+      "ts_code": "000032.SZ",
+      "name": "深桑达Ａ",
+      "days_up": 3,
+      "total_chg": 6.72
+    },
+    {
+      "ts_code": "000411.SZ",
+      "name": "英特集团",
+      "days_up": 3,
+      "total_chg": 6.4
+    },
+    {
+      "ts_code": "000520.SZ",
+      "name": "凤凰航运",
+      "days_up": 3,
+      "total_chg": 5.21
+    },
+    {
+      "ts_code": "000400.SZ",
+      "name": "许继电气",
+      "days_up": 3,
+      "total_chg": 4.77
+    },
+    {
+      "ts_code": "000570.SZ",
+      "name": "苏常柴Ａ",
+      "days_up": 3,
+      "total_chg": 4.38
+    },
+    {
+      "ts_code": "000551.SZ",
+      "name": "创元科技",
+      "days_up": 3,
+      "total_chg": 4.21
+    },
+    {
+      "ts_code": "000555.SZ",
+      "name": "神州信息",
+      "days_up": 3,
+      "total_chg": 4.02
+    },
+    {
+      "ts_code": "000567.SZ",
+      "name": "海德股份",
+      "days_up": 3,
+      "total_chg": 3.72
+    },
+    {
+      "ts_code": "000048.SZ",
+      "name": "京基智农",
+      "days_up": 3,
+      "total_chg": 3.31
+    },
+    {
+      "ts_code": "000504.SZ",
+      "name": "*ST生物",
+      "days_up": 3,
+      "total_chg": 3.12
+    },
+    {
+      "ts_code": "000561.SZ",
+      "name": "烽火电子",
+      "days_up": 3,
+      "total_chg": 3.1
+    },
+    {
+      "ts_code": "000050.SZ",
+      "name": "深天马Ａ",
+      "days_up": 3,
+      "total_chg": 3.0
+    },
+    {
+      "ts_code": "000591.SZ",
+      "name": "太阳能",
+      "days_up": 3,
+      "total_chg": 2.88
+    },
+    {
+      "ts_code": "000151.SZ",
+      "name": "中成股份",
+      "days_up": 3,
+      "total_chg": 1.75
+    },
+    {
+      "ts_code": "000532.SZ",
+      "name": "华金资本",
+      "days_up": 3,
+      "total_chg": 1.5
+    },
+    {
+      "ts_code": "000423.SZ",
+      "name": "东阿阿胶",
+      "days_up": 3,
+      "total_chg": 1.37
+    }
+  ]
+}

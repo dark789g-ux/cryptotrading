@@ -1,0 +1,405 @@
+{
+  "trade_date": "20260511",
+  "up_limit_count": 201,
+  "down_limit_count": 28,
+  "up_limit_normal": 152,
+  "up_limit_st": 49,
+  "down_limit_normal": 6,
+  "down_limit_st": 22,
+  "up_limit_details": [
+    {
+      "ts_code": "000029.SZ",
+      "name": "深深房Ａ",
+      "pct_chg": 10.0,
+      "close": 24.08,
+      "amount": 308810.99
+    },
+    {
+      "ts_code": "000062.SZ",
+      "name": "深圳华强",
+      "pct_chg": 9.99,
+      "close": 39.09,
+      "amount": 3282618.78
+    },
+    {
+      "ts_code": "000425.SZ",
+      "name": "徐工机械",
+      "pct_chg": 10.03,
+      "close": 10.97,
+      "amount": 2470390.94
+    },
+    {
+      "ts_code": "000636.SZ",
+      "name": "风华高科",
+      "pct_chg": 10.01,
+      "close": 28.46,
+      "amount": 2034184.73
+    },
+    {
+      "ts_code": "000672.SZ",
+      "name": "上峰水泥",
+      "pct_chg": 10.0,
+      "close": 15.62,
+      "amount": 617929.93
+    },
+    {
+      "ts_code": "000712.SZ",
+      "name": "锦龙股份",
+      "pct_chg": 10.03,
+      "close": 11.41,
+      "amount": 773525.97
+    },
+    {
+      "ts_code": "000739.SZ",
+      "name": "普洛药业",
+      "pct_chg": 9.99,
+      "close": 19.27,
+      "amount": 518307.4
+    },
+    {
+      "ts_code": "000791.SZ",
+      "name": "甘肃能源",
+      "pct_chg": 10.0,
+      "close": 10.12,
+      "amount": 1577540.09
+    },
+    {
+      "ts_code": "000811.SZ",
+      "name": "冰轮环境",
+      "pct_chg": 10.01,
+      "close": 28.91,
+      "amount": 1021666.74
+    },
+    {
+      "ts_code": "000922.SZ",
+      "name": "佳电股份",
+      "pct_chg": 9.98,
+      "close": 17.08,
+      "amount": 522121.56
+    },
+    {
+      "ts_code": "001207.SZ",
+      "name": "联科科技",
+      "pct_chg": 9.98,
+      "close": 19.84,
+      "amount": 318224.58
+    },
+    {
+      "ts_code": "001211.SZ",
+      "name": "双枪科技",
+      "pct_chg": 10.01,
+      "close": 48.68,
+      "amount": 291084.04
+    },
+    {
+      "ts_code": "001221.SZ",
+      "name": "悍高集团",
+      "pct_chg": 10.01,
+      "close": 63.53,
+      "amount": 229125.26
+    },
+    {
+      "ts_code": "001259.SZ",
+      "name": "利仁科技",
+      "pct_chg": 10.01,
+      "close": 41.32,
+      "amount": 102110.22
+    },
+    {
+      "ts_code": "001331.SZ",
+      "name": "胜通能源",
+      "pct_chg": 10.0,
+      "close": 54.99,
+      "amount": 329979.98
+    },
+    {
+      "ts_code": "001389.SZ",
+      "name": "广合科技",
+      "pct_chg": 10.0,
+      "close": 190.3,
+      "amount": 2521261.19
+    },
+    {
+      "ts_code": "002008.SZ",
+      "name": "大族激光",
+      "pct_chg": 10.0,
+      "close": 134.27,
+      "amount": 8736127.41
+    },
+    {
+      "ts_code": "002030.SZ",
+      "name": "达安基因",
+      "pct_chg": 9.94,
+      "close": 7.3,
+      "amount": 1176601.12
+    },
+    {
+      "ts_code": "002066.SZ",
+      "name": "瑞泰科技",
+      "pct_chg": 9.99,
+      "close": 25.66,
+      "amount": 162175.97
+    },
+    {
+      "ts_code": "002108.SZ",
+      "name": "沧州明珠",
+      "pct_chg": 10.09,
+      "close": 6.44,
+      "amount": 513482.68
+    },
+    {
+      "ts_code": "002124.SZ",
+      "name": "天邦食品",
+      "pct_chg": 10.08,
+      "close": 2.84,
+      "amount": 772986.26
+    },
+    {
+      "ts_code": "002179.SZ",
+      "name": "中航光电",
+      "pct_chg": 9.99,
+      "close": 40.61,
+      "amount": 4429385.72
+    },
+    {
+      "ts_code": "002281.SZ",
+      "name": "光迅科技",
+      "pct_chg": 10.0,
+      "close": 198.79,
+      "amount": 14766375.56
+    },
+    {
+      "ts_code": "002334.SZ",
+      "name": "英威腾",
+      "pct_chg": 9.98,
+      "close": 9.15,
+      "amount": 1267768.08
+    },
+    {
+      "ts_code": "002396.SZ",
+      "name": "星网锐捷",
+      "pct_chg": 9.99,
+      "close": 31.81,
+      "amount": 2019715.09
+    },
+    {
+      "ts_code": "002491.SZ",
+      "name": "通鼎互联",
+      "pct_chg": 10.02,
+      "close": 22.73,
+      "amount": 1981928.92
+    },
+    {
+      "ts_code": "002552.SZ",
+      "name": "宝鼎科技",
+      "pct_chg": 10.02,
+      "close": 30.42,
+      "amount": 1220817.6
+    },
+    {
+      "ts_code": "002585.SZ",
+      "name": "双星新材",
+      "pct_chg": 10.01,
+      "close": 8.68,
+      "amount": 520057.89
+    },
+    {
+      "ts_code": "002623.SZ",
+      "name": "亚玛顿",
+      "pct_chg": 9.99,
+      "close": 24.33,
+      "amount": 287871.95
+    },
+    {
+      "ts_code": "002640.SZ",
+      "name": "跨境通",
+      "pct_chg": 9.93,
+      "close": 4.54,
+      "amount": 1803195.37
+    },
+    {
+      "ts_code": "002718.SZ",
+      "name": "友邦吊顶",
+      "pct_chg": 10.0,
+      "close": 78.45,
+      "amount": 176648.89
+    },
+    {
+      "ts_code": "002865.SZ",
+      "name": "钧达股份",
+      "pct_chg": 10.0,
+      "close": 106.18,
+      "amount": 2767724.19
+    },
+    {
+      "ts_code": "002918.SZ",
+      "name": "蒙娜丽莎",
+      "pct_chg": 10.03,
+      "close": 12.73,
+      "amount": 97689.76
+    },
+    {
+      "ts_code": "002943.SZ",
+      "name": "宇晶股份",
+      "pct_chg": 10.0,
+      "close": 81.95,
+      "amount": 925094.6
+    },
+    {
+      "ts_code": "002971.SZ",
+      "name": "和远气体",
+      "pct_chg": 10.02,
+      "close": 34.27,
+      "amount": 460466.26
+    },
+    {
+      "ts_code": "002975.SZ",
+      "name": "博杰股份",
+      "pct_chg": 10.01,
+      "close": 105.44,
+      "amount": 707220.97
+    },
+    {
+      "ts_code": "003031.SZ",
+      "name": "中瓷电子",
+      "pct_chg": 10.0,
+      "close": 154.08,
+      "amount": 2601094.11
+    },
+    {
+      "ts_code": "300136.SZ",
+      "name": "信维通信",
+      "pct_chg": 14.03,
+      "close": 115.57,
+      "amount": 12238415.59
+    },
+    {
+      "ts_code": "300142.SZ",
+      "name": "沃森生物",
+      "pct_chg": 19.85,
+      "close": 16.0,
+      "amount": 4023329.77
+    },
+    {
+      "ts_code": "300246.SZ",
+      "name": "宝莱特",
+      "pct_chg": 10.1,
+      "close": 20.6,
+      "amount": 410739.78
+    },
+    {
+      "ts_code": "300292.SZ",
+      "name": "吴通控股",
+      "pct_chg": 11.07,
+      "close": 6.12,
+      "amount": 1639275.0
+    },
+    {
+      "ts_code": "300302.SZ",
+      "name": "同有科技",
+      "pct_chg": 20.0,
+      "close": 42.6,
+      "amount": 2773628.0
+    },
+    {
+      "ts_code": "300420.SZ",
+      "name": "五洋自控",
+      "pct_chg": 12.33,
+      "close": 4.19,
+      "amount": 473670.9
+    },
+    {
+      "ts_code": "300449.SZ",
+      "name": "汉邦高科",
+      "pct_chg": 19.95,
+      "close": 9.56,
+      "amount": 81023.22
+    },
+    {
+      "ts_code": "300489.SZ",
+      "name": "光智科技",
+      "pct_chg": 11.02,
+      "close": 127.9,
+      "amount": 1931209.13
+    },
+    {
+      "ts_code": "300536.SZ",
+      "name": "农尚环境",
+      "pct_chg": 19.23,
+      "close": 13.33,
+      "amount": 772536.96
+    },
+    {
+      "ts_code": "300546.SZ",
+      "name": "雄帝科技",
+      "pct_chg": 12.29,
+      "close": 22.85,
+      "amount": 496490.9
+    },
+    {
+      "ts_code": "300570.SZ",
+      "name": "太辰光",
+      "pct_chg": 10.3,
+      "close": 178.8,
+      "amount": 7126362.18
+    },
+    {
+      "ts_code": "300604.SZ",
+      "name": "长川科技",
+      "pct_chg": 20.0,
+      "close": 218.41,
+      "amount": 9729833.58
+    },
+    {
+      "ts_code": "300616.SZ",
+      "name": "尚品宅配",
+      "pct_chg": 19.99,
+      "close": 17.59,
+      "amount": 360413.59
+    }
+  ],
+  "down_limit_details": [
+    {
+      "ts_code": "001313.SZ",
+      "name": "粤海饲料",
+      "pct_chg": -10.01,
+      "close": 8.63,
+      "amount": 467970.42
+    },
+    {
+      "ts_code": "002294.SZ",
+      "name": "信立泰",
+      "pct_chg": -10.0,
+      "close": 43.11,
+      "amount": 569160.48
+    },
+    {
+      "ts_code": "002950.SZ",
+      "name": "奥美医疗",
+      "pct_chg": -10.02,
+      "close": 12.75,
+      "amount": 557193.19
+    },
+    {
+      "ts_code": "603538.SH",
+      "name": "美诺华",
+      "pct_chg": -10.0,
+      "close": 57.33,
+      "amount": 3708269.24
+    },
+    {
+      "ts_code": "603778.SH",
+      "name": "国晟科技",
+      "pct_chg": -10.0,
+      "close": 24.29,
+      "amount": 2563299.52
+    },
+    {
+      "ts_code": "688227.SH",
+      "name": "品高股份",
+      "pct_chg": -12.45,
+      "close": 116.43,
+      "amount": 2344332.74
+    }
+  ]
+}

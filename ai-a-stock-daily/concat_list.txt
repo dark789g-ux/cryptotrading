@@ -1,0 +1,3 @@
+file 'audio_wechat_part1.mp3'
+file 'audio_wechat_part2.mp3'
+file 'audio_wechat_part3.mp3'
