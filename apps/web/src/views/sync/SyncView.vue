@@ -136,7 +136,67 @@
               </div>
             </section>
 
-            <!-- Card 4：0AMV -->
+            <!-- Card 4：行业/概念目录 -->
+            <section class="data-source-card data-source-card--index-catalog">
+              <div class="data-source-header">
+                <div class="data-source-icon">
+                  <n-icon><cloud-download-outline /></n-icon>
+                </div>
+                <div class="data-source-heading">
+                  <span class="data-source-eyebrow">Index Catalog</span>
+                  <h3 class="data-source-title">行业/概念目录与成分股</h3>
+                  <p class="data-source-desc">同步同花顺行业指数（type=I）和概念指数（type=N）目录，并刷新各板块的成分股关系。</p>
+                </div>
+              </div>
+
+              <div class="data-source-body">
+                <!-- 进度区（同步中显示） -->
+                <div v-if="indexCatalogProgressVisible && !indexCatalogFinished" class="source-progress">
+                  <div class="source-progress-head">
+                    <span>{{ indexCatalogSse.phase.value || '准备中' }}</span>
+                    <span>{{ Math.round(indexCatalogSse.percent.value) }}%</span>
+                  </div>
+                  <n-progress
+                    type="line"
+                    :percentage="Math.round(indexCatalogSse.percent.value)"
+                    :status="indexCatalogSse.status.value === 'error' ? 'error' : 'default'"
+                    indicator-placement="inside"
+                  />
+                  <div class="source-progress-msg">{{ indexCatalogSse.message.value }}</div>
+                </div>
+
+                <!-- summary 区（完成后显示） -->
+                <div v-if="indexCatalogFinished" class="source-summary">
+                  <div class="source-summary-row">
+                    <span class="source-summary-item">行业目录：写入 {{ indexCatalogFinished.summary.industryCatalog?.success ?? 0 }} / 失败 {{ indexCatalogFinished.summary.industryCatalog?.errors?.length ?? 0 }}</span>
+                    <span class="source-summary-item">概念目录：写入 {{ indexCatalogFinished.summary.conceptCatalog?.success ?? 0 }} / 失败 {{ indexCatalogFinished.summary.conceptCatalog?.errors?.length ?? 0 }}</span>
+                    <span class="source-summary-item">行业成员：写入 {{ indexCatalogFinished.summary.industryMembers?.success ?? 0 }} / 失败 {{ indexCatalogFinished.summary.industryMembers?.errors?.length ?? 0 }}</span>
+                    <span class="source-summary-item">概念成员：写入 {{ indexCatalogFinished.summary.conceptMembers?.success ?? 0 }} / 失败 {{ indexCatalogFinished.summary.conceptMembers?.errors?.length ?? 0 }}</span>
+                    <span class="source-summary-item">清理：删除 {{ indexCatalogFinished.summary.cleanup?.success ?? 0 }} / 失败 {{ indexCatalogFinished.summary.cleanup?.errors?.length ?? 0 }}</span>
+                  </div>
+                </div>
+
+                <div v-if="!indexCatalogProgressVisible && !indexCatalogFinished" class="source-note">
+                  点击按钮开始同步行业/概念目录及成分股数据。
+                </div>
+              </div>
+
+              <div class="data-source-actions">
+                <n-button
+                  block
+                  secondary
+                  type="primary"
+                  :loading="indexCatalogSyncing"
+                  :disabled="indexCatalogSyncing"
+                  @click="startIndexCatalogSync()"
+                >
+                  <template #icon><n-icon><cloud-download-outline /></n-icon></template>
+                  开始同步
+                </n-button>
+              </div>
+            </section>
+
+            <!-- Card 5：0AMV -->
             <section class="data-source-card data-source-card--oamv">
               <div class="data-source-header">
                 <div class="data-source-icon">
@@ -276,6 +336,7 @@ import MoneyFlowSyncProgress from '../../components/sync/MoneyFlowSyncProgress.v
 import { useCryptoSync } from '../../components/sync/useCryptoSync'
 import { useOamvSync } from '../../components/sync/useOamvSync'
 import { useMoneyFlowSync } from '../../components/sync/useMoneyFlowSync'
+import { useIndexCatalogSync } from '../../components/sync/useIndexCatalogSync'
 
 const message = useMessage()
 const noopReload = async () => {}
@@ -341,6 +402,15 @@ const {
   openModal: openMoneyFlowModal,
   confirmSync: confirmMoneyFlowSync,
 } = useMoneyFlowSync(message)
+
+// 行业/概念目录同步
+const {
+  syncing: indexCatalogSyncing,
+  syncProgressVisible: indexCatalogProgressVisible,
+  sse: indexCatalogSse,
+  finished: indexCatalogFinished,
+  confirmSync: startIndexCatalogSync,
+} = useIndexCatalogSync(message)
 
 // 0AMV Modal
 const {
