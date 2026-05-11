@@ -167,6 +167,53 @@ describe('IndexCatalogSyncService', () => {
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('type=N'));
       expect(tushare.query).not.toHaveBeenCalled();
     });
+
+    it('传入 progress opts 时每个 ts_code 后发一次 progress 事件且 percent 单调映射', async () => {
+      setupCatalogQuery(['A.TI', 'B.TI', 'C.TI', 'D.TI']);
+      tushare.query.mockResolvedValue([
+        { ts_code: 'X', con_code: '000001.SZ', con_name: 'X', is_new: 'Y' },
+      ]);
+
+      const events: MoneyFlowSyncEvent[] = [];
+      const { Subject } = await import('rxjs');
+      const subject = new Subject<MoneyFlowSyncEvent>();
+      subject.subscribe((e) => events.push(e));
+
+      await service.syncMembers('I', {
+        subject,
+        phase: '同步行业成分股',
+        percentFrom: 40,
+        percentTo: 60,
+      });
+
+      const progress = events.filter((e) => e.type === 'progress');
+      expect(progress).toHaveLength(4);
+      expect(progress.map((e) => (e as { current: number }).current)).toEqual([1, 2, 3, 4]);
+      expect(progress.map((e) => (e as { total: number }).total)).toEqual([4, 4, 4, 4]);
+
+      const percents = progress.map((e) => (e as { percent: number }).percent);
+      expect(percents[0]).toBeCloseTo(45, 5);
+      expect(percents[1]).toBeCloseTo(50, 5);
+      expect(percents[2]).toBeCloseTo(55, 5);
+      expect(percents[3]).toBeCloseTo(60, 5);
+      for (let i = 1; i < percents.length; i++) {
+        expect(percents[i]).toBeGreaterThan(percents[i - 1]);
+      }
+
+      for (const e of progress) {
+        expect((e as { phase: string }).phase).toBe('同步行业成分股');
+      }
+    });
+
+    it('不传 opts 时不发 progress 事件（向后兼容）', async () => {
+      setupCatalogQuery(['A.TI']);
+      tushare.query.mockResolvedValue([
+        { ts_code: 'X', con_code: '000001.SZ', con_name: 'X', is_new: 'Y' },
+      ]);
+
+      const result = await service.syncMembers('I');
+      expect(result.success).toBe(1);
+    });
   });
 
   describe('cleanupOrphans', () => {

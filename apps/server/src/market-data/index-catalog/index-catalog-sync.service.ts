@@ -66,7 +66,15 @@ export class IndexCatalogSyncService {
     return { success, skipped: 0, errors };
   }
 
-  async syncMembers(type: 'I' | 'N', _ctx?: SyncCtx): Promise<MoneyFlowSyncResult> {
+  async syncMembers(
+    type: 'I' | 'N',
+    opts?: {
+      subject: Subject<MoneyFlowSyncEvent>;
+      phase: string;
+      percentFrom: number;
+      percentTo: number;
+    },
+  ): Promise<MoneyFlowSyncResult> {
     const errors: string[] = [];
 
     const rows = await this.catalogRepo
@@ -82,7 +90,8 @@ export class IndexCatalogSyncService {
     }
 
     let success = 0;
-    for (const tsCode of tsCodes) {
+    for (let i = 0; i < tsCodes.length; i++) {
+      const tsCode = tsCodes[i];
       try {
         const memberRows = (await this.tushareClient.query(
           'ths_member',
@@ -92,33 +101,46 @@ export class IndexCatalogSyncService {
 
         if (!memberRows.length) {
           this.logger.warn(`ths_member(${tsCode}) 返回空数据`);
-          continue;
+        } else {
+          const entities = memberRows.map((r) => this.memberRepo.create({
+            tsCode: asString(r.ts_code),
+            conCode: asString(r.con_code),
+            conName: asString(r.con_name) || null,
+            isNew: asString(r.is_new) || null,
+          }));
+          const deduped = deduplicateBy(entities, ['tsCode', 'conCode']);
+
+          await this.dataSource.transaction(async (manager) => {
+            await manager.delete(ThsMemberStockEntity, { tsCode });
+            const chunkSize = 1000;
+            for (let j = 0; j < deduped.length; j += chunkSize) {
+              await manager.upsert(
+                ThsMemberStockEntity,
+                deduped.slice(j, j + chunkSize),
+                ['tsCode', 'conCode'],
+              );
+            }
+          });
+          success += 1;
         }
-
-        const entities = memberRows.map((r) => this.memberRepo.create({
-          tsCode: asString(r.ts_code),
-          conCode: asString(r.con_code),
-          conName: asString(r.con_name) || null,
-          isNew: asString(r.is_new) || null,
-        }));
-        const deduped = deduplicateBy(entities, ['tsCode', 'conCode']);
-
-        await this.dataSource.transaction(async (manager) => {
-          await manager.delete(ThsMemberStockEntity, { tsCode });
-          const chunkSize = 1000;
-          for (let i = 0; i < deduped.length; i += chunkSize) {
-            await manager.upsert(
-              ThsMemberStockEntity,
-              deduped.slice(i, i + chunkSize),
-              ['tsCode', 'conCode'],
-            );
-          }
-        });
-        success += 1;
       } catch (e: unknown) {
         const msg = `ths_member(${tsCode}) 失败: ${e instanceof Error ? e.message : String(e)}`;
         this.logger.error(msg, e instanceof Error ? e.stack : undefined);
         errors.push(`[${tsCode}] ${msg}`);
+      }
+
+      if (opts) {
+        const done = i + 1;
+        const percent =
+          opts.percentFrom + (opts.percentTo - opts.percentFrom) * (done / tsCodes.length);
+        opts.subject.next({
+          type: 'progress',
+          phase: opts.phase,
+          current: done,
+          total: tsCodes.length,
+          percent,
+          message: `${tsCode}（成功 ${success} / 失败 ${errors.length}）`,
+        });
       }
     }
 
