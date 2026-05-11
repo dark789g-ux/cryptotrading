@@ -206,13 +206,21 @@ export class IndexCatalogSyncService {
 
         // Stage 3: 行业成分股
         subject.next({ type: 'progress', phase: '同步行业成分股', current: 0, total: 1, percent: 40, message: '开始' });
-        summary.industryMembers = await this.syncMembers('I');
-        subject.next({ type: 'progress', phase: '同步行业成分股', current: 1, total: 1, percent: 60, message: `成功 ${summary.industryMembers.success}` });
+        summary.industryMembers = await this.syncMembers('I', {
+          subject,
+          phase: '同步行业成分股',
+          percentFrom: 40,
+          percentTo: 60,
+        });
 
         // Stage 4: 概念成分股
         subject.next({ type: 'progress', phase: '同步概念成分股', current: 0, total: 1, percent: 60, message: '开始' });
-        summary.conceptMembers = await this.syncMembers('N');
-        subject.next({ type: 'progress', phase: '同步概念成分股', current: 1, total: 1, percent: 80, message: `成功 ${summary.conceptMembers.success}` });
+        summary.conceptMembers = await this.syncMembers('N', {
+          subject,
+          phase: '同步概念成分股',
+          percentFrom: 60,
+          percentTo: 80,
+        });
 
         // Stage 5: 清理孤儿
         subject.next({ type: 'progress', phase: '清理孤儿成分股', current: 0, total: 1, percent: 80, message: '开始' });

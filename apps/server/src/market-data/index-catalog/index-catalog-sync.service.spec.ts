@@ -285,6 +285,68 @@ describe('IndexCatalogSyncService', () => {
       expect(summary.cleanup.success).toBe(3);
     });
 
+    it('Stage 3/4 通过 syncMembers 在 [40,60]/[60,80] 区间内逐 ts_code 推 progress', async () => {
+      jest.spyOn(service, 'syncCatalog')
+        .mockResolvedValueOnce({ success: 2, skipped: 0, errors: [] })
+        .mockResolvedValueOnce({ success: 3, skipped: 0, errors: [] });
+
+      jest.spyOn(service, 'syncMembers').mockImplementation(async (
+        _type,
+        opts?: {
+          subject: { next: (e: MoneyFlowSyncEvent) => void };
+          phase: string;
+          percentFrom: number;
+          percentTo: number;
+        },
+      ) => {
+        if (opts) {
+          const total = 4;
+          for (let i = 1; i <= total; i++) {
+            const percent =
+              opts.percentFrom + (opts.percentTo - opts.percentFrom) * (i / total);
+            opts.subject.next({
+              type: 'progress',
+              phase: opts.phase,
+              current: i,
+              total,
+              percent,
+              message: `mock-${i}`,
+            });
+          }
+        }
+        return { success: 4, skipped: 0, errors: [] };
+      });
+      jest.spyOn(service, 'cleanupOrphans')
+        .mockResolvedValue({ success: 0, skipped: 0, errors: [] });
+
+      const events = await collect(service.startSync());
+
+      const stage3 = events.filter(
+        (e) => e.type === 'progress' && (e as { phase: string }).phase === '同步行业成分股',
+      );
+      const stage4 = events.filter(
+        (e) => e.type === 'progress' && (e as { phase: string }).phase === '同步概念成分股',
+      );
+
+      expect(stage3.length).toBeGreaterThanOrEqual(4);
+      expect(stage4.length).toBeGreaterThanOrEqual(4);
+
+      for (const e of stage3) {
+        const p = (e as { percent: number }).percent;
+        expect(p).toBeGreaterThanOrEqual(40);
+        expect(p).toBeLessThanOrEqual(60);
+      }
+      for (const e of stage4) {
+        const p = (e as { percent: number }).percent;
+        expect(p).toBeGreaterThanOrEqual(60);
+        expect(p).toBeLessThanOrEqual(80);
+      }
+
+      const memberCalls = (service.syncMembers as jest.Mock).mock.calls;
+      expect(memberCalls[0][1]).toMatchObject({ phase: '同步行业成分股', percentFrom: 40, percentTo: 60 });
+      expect(memberCalls[1][1]).toMatchObject({ phase: '同步概念成分股', percentFrom: 60, percentTo: 80 });
+    });
+
     it('industryCatalog 失败时立即 error 不进入下一阶段', async () => {
       jest.spyOn(service, 'syncCatalog').mockResolvedValueOnce({
         success: 0, skipped: 0, errors: ['ths_index type=I 调用失败: boom'],
