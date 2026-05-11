@@ -21,6 +21,16 @@ export class OamvService {
   ) {}
 
   /**
+   * 在 YYYYMMDD 字符串上加减自然日（按 UTC 计算，避免本地 TZ 漂移）
+   */
+  private shiftYyyymmdd(yyyymmdd: string, deltaDays: number): string {
+    const iso = `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}T00:00:00Z`
+    const t = new Date(iso).getTime() + deltaDays * 86400000
+    const d = new Date(t)
+    return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`
+  }
+
+  /**
    * 通达信风格 SMA 递推计算
    */
   private tdSma(values: number[], n: number = 10, m: number = 1): number[] {
@@ -131,11 +141,17 @@ export class OamvService {
     const startDate = options.startDate
       ?? new Date(Date.now() - 80 * 86400000).toISOString().slice(0, 10).replace(/-/g, '')
 
+    // SMA 类指标需要前置历史数据热身（oamvv1 用 10 日 SMA，oamvv3 用 REF(CLOSE,1) 的 5 日均线），
+    // Tushare 查询窗口必须比保存窗口向前扩展，否则首行 refClose1=NaN 会让整段计算结果为 NaN。
+    // 30 自然日（约 20 交易日）足够使 oamvv3/oamvv1 在 startDate 之前完成预热。
+    const WARMUP_DAYS = 30
+    const fetchStartDate = this.shiftYyyymmdd(startDate, -WARMUP_DAYS)
+
     // 从 Tushare 拉取 930903.CSI 数据
     const fields = 'trade_date,open,high,low,close,amount'
     const rows = await this.tushareClient.query('index_daily', {
       ts_code: '930903.CSI',
-      start_date: startDate,
+      start_date: fetchStartDate,
       end_date: endDate,
     }, fields)
 
@@ -159,13 +175,14 @@ export class OamvService {
     // 计算 0AMV
     const calcResults = this.calc0amv(indexData)
 
-    // 过滤无效值并保存
+    // 过滤无效值；并截掉用于热身但不属于用户请求范围的早期日期
     const validResults = calcResults.filter(r =>
-      !isNaN(r.open) && !isNaN(r.high) && !isNaN(r.low) && !isNaN(r.close)
+      r.tradeDate >= startDate
+      && !isNaN(r.open) && !isNaN(r.high) && !isNaN(r.low) && !isNaN(r.close)
     )
 
     if (validResults.length === 0) {
-      this.logger.warn('计算结果为空')
+      this.logger.warn(`计算结果为空（Tushare 返回 ${rows.length} 行，含热身窗口 ${fetchStartDate}~${endDate}，用户范围 ${startDate}~${endDate}）`)
       return { synced: 0 }
     }
 
@@ -208,9 +225,10 @@ export class OamvService {
    * 查询 0AMV 数据
    */
   async get0amvData(days: number = 250): Promise<OamvDailyEntity[]> {
-    return this.repo.find({
-      order: { tradeDate: 'ASC' },
+    const rows = await this.repo.find({
+      order: { tradeDate: 'DESC' },
       take: days,
     })
+    return rows.reverse()
   }
 }

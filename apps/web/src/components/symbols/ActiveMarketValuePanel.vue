@@ -23,7 +23,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'ActiveMarketValuePanel' })
 
-import { computed, onMounted, ref } from 'vue'
+import { computed, onActivated, ref } from 'vue'
 import { NButton, NCard, NEmpty, NIcon, NSpin, useMessage } from 'naive-ui'
 import { SyncOutline } from '@vicons/ionicons5'
 import KlineChart from '@/components/kline/KlineChart.vue'
@@ -91,7 +91,7 @@ async function handleSync() {
   }
 }
 
-onMounted(() => {
+onActivated(() => {
   void loadData()
 })
 </script>
