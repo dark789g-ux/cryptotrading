@@ -69,6 +69,18 @@ const routes: any[] = [
     component: () => import('../views/MoneyFlowView.vue'),
     meta: { title: '资金流向' },
   },
+  {
+    path: '/daily-review',
+    name: 'daily-review',
+    component: () => import('../views/DailyReviewView.vue'),
+    meta: { title: '每日复盘' },
+  },
+  {
+    path: '/daily-review/:tradeDate',
+    name: 'daily-review-detail',
+    component: () => import('../views/DailyReviewDetailView.vue'),
+    meta: { title: '复盘详情' },
+  },
 ]
 
 const router = createRouter({
