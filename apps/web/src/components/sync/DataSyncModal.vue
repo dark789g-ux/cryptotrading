@@ -125,9 +125,10 @@ const syncModeNote = computed(() =>
 const rangeLabel = computed(() => {
   const r = props.syncDateRange
   if (!r) return { start: '未选择', end: '未选择' }
+  // 与各 sync composables 的 toYYYYMMDD 保持本地 TZ 一致，否则 CST 用户选的日期会被推前 1 天
   const fmt = (ts: number) => {
     const d = new Date(ts)
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   }
   return { start: fmt(r[0]), end: fmt(r[1]) }
 })

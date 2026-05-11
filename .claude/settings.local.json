@@ -22,7 +22,8 @@
       "Bash(git pull *)",
       "Bash(git merge *)",
       "Bash(git branch *)",
-      "Bash(pnpm --filter @cryptotrading/web type-check)"
+      "Bash(pnpm --filter @cryptotrading/web type-check)",
+      "Bash(pnpm --filter @cryptotrading/server build)"
     ]
   }
 }

@@ -54,12 +54,13 @@ const emit = defineEmits<{
 
 const mode = ref<DateMode>(props.hideModeToggle ? 'range' : props.defaultMode)
 
-// 时间规范：UTC 墙钟，禁止使用 getFullYear/getMonth/getDate 等本地方法
+// 用户从 n-date-picker 选的是本地"日历日"，必须用本地方法提取；
+// CLAUDE.md 的"DB 入库瞬时禁用本地方法"约束不适用于此处的日期参数。
 function toYYYYMMDD(ts: number): string {
   const d = new Date(ts)
-  const y = d.getUTCFullYear()
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(d.getUTCDate()).padStart(2, '0')
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
   return `${y}${m}${day}`
 }
 

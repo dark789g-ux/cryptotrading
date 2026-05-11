@@ -1,5 +1,5 @@
 -- 将所有 created_at / updated_at 等时间列从 timestamp without time zone 转为 timestamptz
--- 历史数据按 UTC 解释，避免按 Node 本地 TZ 重新解析
+-- 历史数据按 Asia/Shanghai (UTC+8) 解释——服务进程历史上一直跑在 +08 时区
 -- 执行：docker exec -i crypto-postgres psql -U cryptouser -d cryptodb < timestamptz-fix.sql
 
 BEGIN;
@@ -18,10 +18,10 @@ BEGIN
                           'entry_time', 'exit_time', 'open_time', 'close_time')
   LOOP
     EXECUTE format(
-      'ALTER TABLE %I.%I ALTER COLUMN %I TYPE timestamptz USING %I AT TIME ZONE ''UTC''',
+      'ALTER TABLE %I.%I ALTER COLUMN %I TYPE timestamptz USING %I AT TIME ZONE ''Asia/Shanghai''',
       rec.table_schema, rec.table_name, rec.column_name, rec.column_name
     );
-    RAISE NOTICE '已转换 %.% -> timestamptz', rec.table_name, rec.column_name;
+    RAISE NOTICE '已转换 %.% -> timestamptz (按 Asia/Shanghai 解释)', rec.table_name, rec.column_name;
   END LOOP;
 END $$;
 

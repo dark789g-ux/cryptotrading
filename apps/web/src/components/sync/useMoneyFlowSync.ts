@@ -16,9 +16,11 @@ function buildDefaultDateRange(): [number, number] {
   return [start, end]
 }
 
+// 用户从日期选择器选的"日历日"用本地 TZ 提取——naive-ui n-date-picker 返回的是本地午夜 ms，
+// 用 UTC 方法会把 CST 用户选的日期整体推前 1 天。
 function toYYYYMMDD(ts: number): string {
   const d = new Date(ts)
-  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
 }
 
 function formatDateLabel(yyyymmdd: string | null): string {

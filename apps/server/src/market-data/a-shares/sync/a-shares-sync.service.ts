@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AShareAdjFactorEntity } from '../../../entities/a-share/a-share-adj-factor.entity';
@@ -35,6 +35,8 @@ import { TushareClientService } from '../services/tushare-client.service';
 
 @Injectable()
 export class ASharesSyncService {
+  private readonly logger = new Logger(ASharesSyncService.name);
+
   constructor(
     @InjectRepository(AShareSymbolEntity)
     private readonly symbolRepo: Repository<AShareSymbolEntity>,
@@ -83,7 +85,15 @@ export class ASharesSyncService {
     const failedItems: ASharesSyncFailedItem[] = [];
 
     if (!total) {
-      return createResult('done', symbols, quotes, metrics, adjFactors, indicators, failedItems, range, skippedDates, skippedDatasets);
+      this.logger.warn(
+        `resolveOpenTradeDates 在 ${range.startDate}-${range.endDate} 范围内未返回任何开市日，` +
+        `请确认日期参数是否被前端错误转换（曾因 UTC 漂移导致整段日期推前 1 天）`,
+      );
+      failedItems.push({
+        apiName: 'no_open_trade_dates',
+        message: `${range.startDate} - ${range.endDate} 范围内无开市日，未执行任何数据同步`,
+      });
+      return createResult('partial', symbols, quotes, metrics, adjFactors, indicators, failedItems, range, skippedDates, skippedDatasets);
     }
 
     await Promise.all(tradeDates.map(async (tradeDate) => {
@@ -96,6 +106,13 @@ export class ASharesSyncService {
           quotes += result.count;
           syncedDatasetsForDate++;
           mergeChangedDates(changedRanges, result.tsCodes, tradeDate);
+          if (result.count === 0) {
+            failedItems.push({
+              tradeDate,
+              apiName: 'daily_empty',
+              message: 'TuShare daily 返回 0 行，可能日期参数错误或当日数据未发布',
+            });
+          }
         } else {
           skippedDatasets++;
           skippedDatasetsForDate++;
@@ -106,8 +123,16 @@ export class ASharesSyncService {
 
       try {
         if (await shouldSyncDataset(this.quoteRepo, syncMode, 'daily_basic', tradeDate)) {
-          metrics += await syncDailyMetricsByTradeDate(this.fetcherDeps, tradeDate);
+          const count = await syncDailyMetricsByTradeDate(this.fetcherDeps, tradeDate);
+          metrics += count;
           syncedDatasetsForDate++;
+          if (count === 0) {
+            failedItems.push({
+              tradeDate,
+              apiName: 'daily_basic_empty',
+              message: 'TuShare daily_basic 返回 0 行，可能日期参数错误或当日数据未发布',
+            });
+          }
         } else {
           skippedDatasets++;
           skippedDatasetsForDate++;
@@ -123,6 +148,13 @@ export class ASharesSyncService {
           syncedDatasetsForDate++;
           mergeChangedDates(changedRanges, result.tsCodes, tradeDate);
           result.latestChangedTsCodes.forEach((tsCode) => latestAdjFactorChanged.add(tsCode));
+          if (result.count === 0) {
+            failedItems.push({
+              tradeDate,
+              apiName: 'adj_factor_empty',
+              message: 'TuShare adj_factor 返回 0 行，可能日期参数错误或当日数据未发布',
+            });
+          }
         } else {
           skippedDatasets++;
           skippedDatasetsForDate++;

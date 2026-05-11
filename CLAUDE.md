@@ -40,11 +40,12 @@ crtptotrading:加密量化策略
 
 ## 第三方 API 集成规范
 - **接口名称必须以官方文档为准**，禁止凭变量名、注释或历史代码推断；每次新增/修改第三方 API 调用前先查文档确认接口名、参数名及必填项
-- **外部服务返回空数据时必须记 `logger.warn`**：当外部 API 返回 `code=0` 但 `data=null`/空数组时，不得静默返回 `[]`，须 warn 并附带请求参数，以区分「权限不足」与「合法空结果」
+- **外部服务返回空数据时必须记 `logger.warn`**：`payload.data === null` 与 `payload.data.items.length === 0` 是两条独立路径，**实现时都要单独 warn**，附带 apiName + 完整 params——曾因只 warn 了 `data=null`、漏掉 `items=[]`，让 Tushare 当日数据未发布或日期参数错误的情况伪装成"同步完成"。用于区分「权限不足/接口名错误」与「合法空结果/日期参数错误」
 - **Mock 单测不验证第三方契约**：涉及第三方 API 名称、参数格式的测试，mock 永远通过，必须同时有集成测试或人工核对文档的步骤；若暂无集成测试，需在注释中标注 `// TODO: 需集成测试验证 API 契约`
 - **调试第三方 API 返回空的顺序**：① 先查官方文档确认接口名/参数；② 再加日志看真实响应；③ 最后才读内部实现——禁止跳过前两步直接猜
 - **`// TODO: 查文档确认` 的接口调用不得视为完成**：含此类注释的代码块不允许合入主干，必须先查文档兑现注释，再提交
 - **`.catch(() => [])` 静默吞错禁止用于同步任务**：同步服务的 API 调用失败时，错误必须在响应体的 `errors` 字段中明确透出，并在日志中打印具体 API 名称和错误信息；`success: 0` + 无报错的假象会让数据空白问题极难发现
+- **同步任务的 fetcher 返回 0 行必须显式 failedItems**：除 `.catch(()=>[])` 外，"`code=0` + 0 行"是另一种伪装成功——orchestrator **不得**把它当作"数据集已同步"。fetcher 返回空时必须 push 到响应体的 `errors`/`failedItems`（apiName 标 `xxx_empty`，例 `daily_empty`/`adj_factor_empty`/`no_open_trade_dates`），让"日期参数错误"和"当日数据未发布"在 UI 上立即可见——曾因 fetcher 0 行被计为"已同步"，导致前端显示 `同步完成：标的 5515，日线 0，每日指标 0，复权因子 0，技术指标 0` 这种"伪装成功"形态，用户无法判断是参数错了还是数据没发布
 
 ## NOT DO
 - 原生 SQL 数组参数强转须与列类型匹配：`character varying` 列用 `::text[]`，`uuid` 列用 `::uuid[]`（如 `watchlist_items.watchlist_id` 是 `uuid`，误用 `::text[]` 会 500）
@@ -54,6 +55,10 @@ crtptotrading:加密量化策略
 - 禁同表 `leftJoin` 再 `getManyAndCount`+`orderBy`（0.3 空 metadata）
 - 动态 SQL 构建**禁止**直接将前端字段名拼入 SQL（如 `i.${field}`）；必须经过字段名映射表翻译为实际列名，未命中映射的字段一律跳过并记 `logger.warn`
 - **TypeORM `upsert` 前必须去重**：`repo.upsert(entities, conflictKeys)` 前须按 `conflictKeys` 对 `entities` 去重（保留最后一条）。PostgreSQL `ON CONFLICT DO UPDATE` 在同一批次内遇到两行冲突键相同的记录会直接报 `ON CONFLICT DO UPDATE command cannot affect row a second time`（500）。第三方 API 返回重复行时需记 `logger.warn` 并注明原始条数与去重后条数，以便后续核查 API 数据语义是否需要扩展实体联合主键。
+- **数据集完整性检查的最弱可接受标准**：判断"某日数据集是否完整"必须满足以下两条，缺一不可：
+  1. **行级硬约束**：所有业务上不允许 NULL 的列在该日**每一行**都非空（如 daily 的 OHLC、adj_factor 的 `adj_factor`）；合法 NULL 列（如 PE/PB 对亏损股、turnover_rate 对停牌股）不得放进硬约束
+  2. **跨表行数对齐**：派生数据集的当日行数必须 `>=` 基础数据集（如 `count(adj_factor for date) >= count(daily_quotes for date)`，`count(daily_metrics for date) >= count(daily_quotes for date)`）
+  "至少一行非空"（`COUNT(*) FILTER (WHERE col IS NOT NULL) > 0`）是无意义的最弱约束——曾让 A 股增量同步在数据残缺时仍判为完整、跳过补齐。
 
 ## Vue 3 watch 规范
 - `watch(source, cb)` 默认**懒执行**，不响应初始值；若逻辑依赖初始值，必须加 `{ immediate: true }` 或在 `onMounted` 中补充调用
@@ -76,3 +81,4 @@ crtptotrading:加密量化策略
 - 出参一律 UTC 墙钟字符串：`getUTCxxx` 拼装，禁 `toLocaleString`/`toISOString().slice`。
 - 裸 SQL 比对 `timestamptz` 列：`col = $n::timestamptz`，禁 `AT TIME ZONE`、禁 `::timestamp` 中转。
 - 跨进程/容器假设 Node TZ 不可控，绝不用 `getHours/getMonth` 等本地方法落库或入 SQL。
+- **日期选择器是本地 TZ 例外**：上述 UTC 要求**只约束 DB 入库瞬时与裸 SQL 比对**，不适用于"用户从日期选择器选的日历日"。naive-ui `n-date-picker` 的 `[number, number]` 值是**本地午夜 ms**——把它用 `getUTCFullYear/getUTCMonth/getUTCDate` 提取年月日，会让 CST 用户选的日期整体漂前 1 天（曾因此把 `20260509-20260511` 在传给后端时压成 `20260508-20260510`，导致整次同步看似完成实则一行未写）。日历日提取一律用 `getFullYear/getMonth/getDate`；`buildDefaultDateRange` 类工具同样用 `new Date(y,m,d).getTime()` 取本地午夜，不要 `Date.UTC(...)`。后端 `timestamptz` 展示函数（如 `formatUTCDate`/`formatUTCDateTime`）仍按 UTC 规则。

@@ -74,6 +74,10 @@ export class TushareClientService {
       this.logger.warn(`TuShare ${apiName} 返回 data=null（code=0），可能积分不足或接口无数据。params=${JSON.stringify(params)}`);
       return [];
     }
+    if (!data.items || data.items.length === 0) {
+      this.logger.warn(`TuShare ${apiName} 返回 items=[]（code=0），可能日期参数不在数据覆盖范围内或当日数据未发布。params=${JSON.stringify(params)}`);
+      return [];
+    }
     return data.items.map((item) => this.toRow(data.fields, item));
   }
 

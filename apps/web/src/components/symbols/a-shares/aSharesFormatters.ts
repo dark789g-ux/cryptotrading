@@ -30,27 +30,30 @@ export function trendClass(value: string | null) {
   return ''
 }
 
-// 时间规范：UTC 墙钟，禁止使用 getFullYear/getMonth 等本地方法
+// 日期选择器是"用户在日历上指了哪一天"的本地语义——naive-ui n-date-picker
+// 返回的就是本地午夜 ms。这里必须用本地方法取年月日，否则 CST 用户选的日期会被
+// UTC 化函数整体推前 1 天（曾经因此导致 20260509-20260511 被压成 20260508-20260510）。
+// CLAUDE.md "时间规范"约束的是 DB 入库瞬时，跟此处的日历日语义不冲突。
 export function buildDefaultDateRange(): [number, number] {
   const now = new Date()
-  const endUTCMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  const startUTCMs = endUTCMs - 6 * 24 * 3600 * 1000
-  return [startUTCMs, endUTCMs]
+  const endMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startMs = endMs - 6 * 24 * 3600 * 1000
+  return [startMs, endMs]
 }
 
 export function formatTushareDate(ms: number) {
   const date = new Date(ms)
-  const year = date.getUTCFullYear()
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(date.getUTCDate()).padStart(2, '0')
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
   return `${year}${month}${day}`
 }
 
 export function formatDisplayDate(ms: number) {
   const date = new Date(ms)
-  const year = date.getUTCFullYear()
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(date.getUTCDate()).padStart(2, '0')
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
 
