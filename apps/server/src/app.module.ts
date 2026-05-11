@@ -52,6 +52,8 @@ import { MoneyFlowModule } from './market-data/money-flow/money-flow.module';
 import { IndexCatalogModule } from './market-data/index-catalog/index-catalog.module';
 import { OamvModule } from './market-data/oamv/oamv.module';
 import { OamvDailyEntity } from './entities/oamv/oamv-daily.entity';
+import { DailyReviewEntity } from './entities/daily-review/daily-review.entity';
+import { DailyReviewModule } from './daily-review/daily-review.module';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -101,6 +103,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           ThsMemberStockEntity,
           ThsIndexCatalogEntity,
           OamvDailyEntity,
+          DailyReviewEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],
@@ -123,6 +126,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     MoneyFlowModule,
     IndexCatalogModule,
     OamvModule,
+    DailyReviewModule,
   ],
 })
 export class AppModule implements OnModuleInit {
