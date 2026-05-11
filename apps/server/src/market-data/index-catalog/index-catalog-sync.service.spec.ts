@@ -6,6 +6,7 @@ import { IndexCatalogSyncService } from './index-catalog-sync.service';
 import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-catalog.entity';
 import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock.entity';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
+import type { IndexCatalogSyncSummary, MoneyFlowSyncEvent } from '@cryptotrading/shared-types';
 
 function makeRepoMock<T extends object>(): jest.Mocked<Repository<T>> {
   return {
@@ -200,6 +201,70 @@ describe('IndexCatalogSyncService', () => {
 
       expect(result.success).toBe(0);
       expect(result.errors[0]).toContain('cleanupOrphans');
+    });
+  });
+
+  describe('startSync', () => {
+    function collect(subject: ReturnType<typeof service.startSync>) {
+      const events: MoneyFlowSyncEvent[] = [];
+      return new Promise<MoneyFlowSyncEvent[]>((resolve, reject) => {
+        subject.subscribe({
+          next: (e) => events.push(e),
+          complete: () => resolve(events),
+          error: reject,
+        });
+      });
+    }
+
+    it('正常流程：发出 progress + done，summary 含五个字段', async () => {
+      jest.spyOn(service, 'syncCatalog')
+        .mockResolvedValueOnce({ success: 100, skipped: 0, errors: [] })
+        .mockResolvedValueOnce({ success: 200, skipped: 0, errors: [] });
+      jest.spyOn(service, 'syncMembers')
+        .mockResolvedValueOnce({ success: 50, skipped: 0, errors: [] })
+        .mockResolvedValueOnce({ success: 80, skipped: 0, errors: [] });
+      jest.spyOn(service, 'cleanupOrphans')
+        .mockResolvedValue({ success: 3, skipped: 0, errors: [] });
+
+      const events = await collect(service.startSync());
+
+      const done = events.find((e) => e.type === 'done');
+      expect(done).toBeDefined();
+      const summary = (done as { type: string; summary: IndexCatalogSyncSummary }).summary;
+      expect(summary.industryCatalog.success).toBe(100);
+      expect(summary.conceptCatalog.success).toBe(200);
+      expect(summary.industryMembers.success).toBe(50);
+      expect(summary.conceptMembers.success).toBe(80);
+      expect(summary.cleanup.success).toBe(3);
+    });
+
+    it('industryCatalog 失败时立即 error 不进入下一阶段', async () => {
+      jest.spyOn(service, 'syncCatalog').mockResolvedValueOnce({
+        success: 0, skipped: 0, errors: ['ths_index type=I 调用失败: boom'],
+      });
+      const memberSpy = jest.spyOn(service, 'syncMembers');
+
+      const events = await collect(service.startSync());
+
+      expect(events.some((e) => e.type === 'error')).toBe(true);
+      expect(memberSpy).not.toHaveBeenCalled();
+    });
+
+    it('并发 startSync 第二次返回 error', async () => {
+      jest.spyOn(service, 'syncCatalog').mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        return { success: 1, skipped: 0, errors: [] };
+      });
+      jest.spyOn(service, 'syncMembers').mockResolvedValue({ success: 0, skipped: 0, errors: [] });
+      jest.spyOn(service, 'cleanupOrphans').mockResolvedValue({ success: 0, skipped: 0, errors: [] });
+
+      const first = collect(service.startSync());
+      const second = collect(service.startSync());
+      const [, secondEvents] = await Promise.all([first, second]);
+
+      expect(secondEvents.some(
+        (e) => e.type === 'error' && /已在运行中/.test(e.message ?? ''),
+      )).toBe(true);
     });
   });
 });

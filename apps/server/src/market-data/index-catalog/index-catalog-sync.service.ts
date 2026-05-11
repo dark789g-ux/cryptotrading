@@ -149,8 +149,75 @@ export class IndexCatalogSyncService {
 
   startSync(): Subject<MoneyFlowSyncEvent> {
     const subject = new Subject<MoneyFlowSyncEvent>();
-    subject.next({ type: 'error', message: 'startSync 尚未实现' });
-    subject.complete();
+
+    if (this.isSyncing) {
+      setTimeout(() => {
+        subject.next({ type: 'error', message: '行业/概念目录同步任务已在运行中，请稍后再试' });
+        subject.complete();
+      }, 0);
+      return subject;
+    }
+    this.isSyncing = true;
+
+    setTimeout(async () => {
+      const summary: Partial<IndexCatalogSyncSummary> = {};
+      try {
+        // Stage 1: 行业目录
+        subject.next({ type: 'progress', phase: '同步行业目录', current: 0, total: 1, percent: 0, message: '开始' });
+        summary.industryCatalog = await this.syncCatalog('I');
+        subject.next({ type: 'progress', phase: '同步行业目录', current: 1, total: 1, percent: 20, message: `成功 ${summary.industryCatalog.success}` });
+        if (summary.industryCatalog.errors.length) {
+          subject.next({ type: 'error', message: '行业目录拉取失败：' + summary.industryCatalog.errors.join('; '), summary: summary as IndexCatalogSyncSummary });
+          subject.complete();
+          return;
+        }
+
+        // Stage 2: 概念目录
+        subject.next({ type: 'progress', phase: '同步概念目录', current: 0, total: 1, percent: 20, message: '开始' });
+        summary.conceptCatalog = await this.syncCatalog('N');
+        subject.next({ type: 'progress', phase: '同步概念目录', current: 1, total: 1, percent: 40, message: `成功 ${summary.conceptCatalog.success}` });
+        if (summary.conceptCatalog.errors.length) {
+          subject.next({ type: 'error', message: '概念目录拉取失败：' + summary.conceptCatalog.errors.join('; '), summary: summary as IndexCatalogSyncSummary });
+          subject.complete();
+          return;
+        }
+
+        // Stage 3: 行业成分股
+        subject.next({ type: 'progress', phase: '同步行业成分股', current: 0, total: 1, percent: 40, message: '开始' });
+        summary.industryMembers = await this.syncMembers('I');
+        subject.next({ type: 'progress', phase: '同步行业成分股', current: 1, total: 1, percent: 60, message: `成功 ${summary.industryMembers.success}` });
+
+        // Stage 4: 概念成分股
+        subject.next({ type: 'progress', phase: '同步概念成分股', current: 0, total: 1, percent: 60, message: '开始' });
+        summary.conceptMembers = await this.syncMembers('N');
+        subject.next({ type: 'progress', phase: '同步概念成分股', current: 1, total: 1, percent: 80, message: `成功 ${summary.conceptMembers.success}` });
+
+        // Stage 5: 清理孤儿
+        subject.next({ type: 'progress', phase: '清理孤儿成分股', current: 0, total: 1, percent: 80, message: '开始' });
+        summary.cleanup = await this.cleanupOrphans();
+        subject.next({ type: 'progress', phase: '清理孤儿成分股', current: 1, total: 1, percent: 100, message: `删除 ${summary.cleanup.success}` });
+
+        const failedCount = (Object.values(summary) as MoneyFlowSyncResult[])
+          .reduce((n, r) => n + (r?.errors.length ?? 0), 0);
+        subject.next({
+          type: 'done',
+          message: failedCount ? `同步完成，${failedCount} 项有错误` : '同步完成',
+          summary: summary as IndexCatalogSyncSummary,
+        });
+        subject.complete();
+      } catch (err) {
+        this.logger.error(`startSync 失败: ${err instanceof Error ? err.stack : String(err)}`);
+        subject.next({
+          type: 'error',
+          message: err instanceof Error ? err.message : String(err),
+          summary: summary as IndexCatalogSyncSummary,
+        });
+        subject.complete();
+      } finally {
+        this.isSyncing = false;
+      }
+    }, 0);
+
     return subject;
   }
 }
