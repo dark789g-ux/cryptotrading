@@ -150,31 +150,11 @@
               </div>
 
               <div class="data-source-body">
-                <!-- 进度区（同步中显示） -->
-                <div v-if="indexCatalogProgressVisible && !indexCatalogFinished" class="source-progress">
-                  <div class="source-progress-head">
-                    <span>{{ indexCatalogSse.phase.value || '准备中' }}</span>
-                    <span>{{ Math.round(indexCatalogSse.percent.value) }}%</span>
-                  </div>
-                  <n-progress
-                    type="line"
-                    :percentage="Math.round(indexCatalogSse.percent.value)"
-                    :status="indexCatalogSse.status.value === 'error' ? 'error' : 'default'"
-                    indicator-placement="inside"
-                  />
-                  <div class="source-progress-msg">{{ indexCatalogSse.message.value }}</div>
-                </div>
-
-                <!-- summary 区（完成后显示） -->
-                <div v-if="indexCatalogFinished" class="source-summary">
-                  <div class="source-summary-row">
-                    <span class="source-summary-item">行业目录：写入 {{ indexCatalogFinished.summary.industryCatalog?.success ?? 0 }} / 失败 {{ indexCatalogFinished.summary.industryCatalog?.errors?.length ?? 0 }}</span>
-                    <span class="source-summary-item">概念目录：写入 {{ indexCatalogFinished.summary.conceptCatalog?.success ?? 0 }} / 失败 {{ indexCatalogFinished.summary.conceptCatalog?.errors?.length ?? 0 }}</span>
-                    <span class="source-summary-item">行业成员：写入 {{ indexCatalogFinished.summary.industryMembers?.success ?? 0 }} / 失败 {{ indexCatalogFinished.summary.industryMembers?.errors?.length ?? 0 }}</span>
-                    <span class="source-summary-item">概念成员：写入 {{ indexCatalogFinished.summary.conceptMembers?.success ?? 0 }} / 失败 {{ indexCatalogFinished.summary.conceptMembers?.errors?.length ?? 0 }}</span>
-                    <span class="source-summary-item">清理：删除 {{ indexCatalogFinished.summary.cleanup?.success ?? 0 }} / 失败 {{ indexCatalogFinished.summary.cleanup?.errors?.length ?? 0 }}</span>
-                  </div>
-                </div>
+                <IndexCatalogSyncProgress
+                  :visible="indexCatalogProgressVisible"
+                  :sse="indexCatalogSse"
+                  :finished="indexCatalogFinished"
+                />
 
                 <div v-if="!indexCatalogProgressVisible && !indexCatalogFinished" class="source-note">
                   点击按钮开始同步行业/概念目录及成分股数据。
@@ -333,6 +313,7 @@ import ASharesSyncModal from '../../components/symbols/a-shares/ASharesSyncModal
 import { useASharesSync } from '../../components/symbols/a-shares/useASharesSync'
 import DataSyncModal from '../../components/sync/DataSyncModal.vue'
 import MoneyFlowSyncProgress from '../../components/sync/MoneyFlowSyncProgress.vue'
+import IndexCatalogSyncProgress from '../../components/sync/IndexCatalogSyncProgress.vue'
 import { useCryptoSync } from '../../components/sync/useCryptoSync'
 import { useOamvSync } from '../../components/sync/useOamvSync'
 import { useMoneyFlowSync } from '../../components/sync/useMoneyFlowSync'
