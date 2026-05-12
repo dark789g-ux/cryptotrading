@@ -56,9 +56,10 @@ describe('SnapshotBuilderService', () => {
         .mockResolvedValueOnce([{ ts_code: '688256.SH', name: '寒武纪', main_net_in: '4000000000' }])
         .mockResolvedValueOnce([{ ts_code: '601318.SH', name: '中国平安', main_net_in: '-2500000000' }]);
       const r = await svc.aggregateMoneyFlow('20260512');
-      expect(r.market.mainNetIn).toBe(12345600);
-      expect(r.stocksTopIn[0].mainNetIn).toBe(4000000000);
-      expect(r.stocksTopOut[0].mainNetIn).toBe(-2500000000);
+      // DB 单位「万元」→ snapshot 单位「元」，乘 10000
+      expect(r.market.mainNetIn).toBe(123456000000);
+      expect(r.stocksTopIn[0].mainNetIn).toBe(40000000000000);
+      expect(r.stocksTopOut[0].mainNetIn).toBe(-25000000000000);
     });
   });
 
@@ -69,7 +70,8 @@ describe('SnapshotBuilderService', () => {
         .mockResolvedValueOnce([{ ts_code: '600519.SH', name: '贵州茅台', amount: '4500000000', pct_chg: '0.5' }]);
       const r = await svc.aggregateStrongAndVolume('20260512');
       expect(r.strongStocks[0].pctChg).toBe(20.0);
-      expect(r.volumeTop[0].amount).toBe(4500000000);
+      // DB 单位「千元」→ snapshot 单位「元」，乘 1000
+      expect(r.volumeTop[0].amount).toBe(4500000000000);
     });
   });
 
@@ -82,7 +84,8 @@ describe('SnapshotBuilderService', () => {
         .mockResolvedValueOnce([{ ts_code: '000688.SH', close: '1430', pct_chg: '4.65', amount: '90000000' }]);
       const r = await svc.fetchIndices('20260512');
       expect(r).toHaveLength(4);
-      expect(r[0]).toMatchObject({ tsCode: '000001.SH', name: '上证指数', close: 4225.02, pctChg: 1.08 });
+      // Tushare index_daily.amount 单位「千元」→ snapshot 单位「元」，乘 1000
+      expect(r[0]).toMatchObject({ tsCode: '000001.SH', name: '上证指数', close: 4225.02, pctChg: 1.08, amount: 450000000000 });
     });
   });
 

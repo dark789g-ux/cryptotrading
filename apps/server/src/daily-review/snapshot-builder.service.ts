@@ -99,9 +99,10 @@ export class SnapshotBuilderService {
     if (!market) {
       this.logger.warn(`[moneyflow_market_empty] trade_date=${tradeDate}`);
     }
-    const map = (r: any) => ({ tsCode: r.ts_code, name: r.name, mainNetIn: +r.main_net_in });
+    // DB 中 net_amount 单位为「万元」，统一换算为「元」交给 LLM（prompt 已约定单位为元）
+    const map = (r: any) => ({ tsCode: r.ts_code, name: r.name, mainNetIn: +r.main_net_in * 10000 });
     return {
-      market: { mainNetIn: +(market?.main_net_in ?? 0) },
+      market: { mainNetIn: +(market?.main_net_in ?? 0) * 10000 },
       stocksTopIn: topIn.map(map),
       stocksTopOut: topOut.map(map),
     };
@@ -134,7 +135,8 @@ export class SnapshotBuilderService {
         tsCode: r.ts_code, name: r.name, pctChg: +r.pct_chg,
         turnoverRate: r.turnover_rate != null ? +r.turnover_rate : undefined,
       })),
-      volumeTop: vol.map((r: any) => ({ tsCode: r.ts_code, name: r.name, amount: +r.amount, pctChg: +r.pct_chg })),
+      // a_share_daily_quotes.amount 单位为「千元」（Tushare daily.amount 原值），统一换算为「元」
+      volumeTop: vol.map((r: any) => ({ tsCode: r.ts_code, name: r.name, amount: +r.amount * 1000, pctChg: +r.pct_chg })),
     };
   }
 
@@ -149,9 +151,10 @@ export class SnapshotBuilderService {
         this.logger.warn(`[index_daily_empty] ts_code=${idx.tsCode} trade_date=${tradeDate}`);
         return { tsCode: idx.tsCode, name: idx.name, close: 0, pctChg: 0, amount: 0 };
       }
+      // Tushare index_daily.amount 单位为「千元」，统一换算为「元」
       return {
         tsCode: idx.tsCode, name: idx.name,
-        close: +row.close, pctChg: +row.pct_chg, amount: +row.amount,
+        close: +row.close, pctChg: +row.pct_chg, amount: +row.amount * 1000,
       };
     }));
     return results;

@@ -64,6 +64,7 @@ export class DailyReviewService {
     row.tokenUsage = null;
     row.stageTimings = null;
     row.errorMessage = null;
+    row.llmModel = null;
     await this.repo.save(row);
 
     // 异步触发，不 await
