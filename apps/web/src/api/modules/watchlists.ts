@@ -24,10 +24,20 @@ export interface WatchlistQuotesResult {
   page_size: number
 }
 
+export interface UpsertByNameResult {
+  watchlistId: string
+  name: string
+  created: boolean
+  added: number
+  skipped: number
+}
+
 export const watchlistApi = {
   list: () => request<Watchlist[]>(`${API_BASE}/watchlists`),
   get: (id: string) => request<Watchlist>(`${API_BASE}/watchlists/${id}`),
   create: (body: WatchlistPayload) => post<Watchlist>(`${API_BASE}/watchlists`, body),
+  upsertByName: (body: { name: string; symbols: string[] }) =>
+    post<UpsertByNameResult>(`${API_BASE}/watchlists/upsert-by-name`, body),
   update: (id: string, body: Partial<WatchlistPayload>) => put<Watchlist>(`${API_BASE}/watchlists/${id}`, body),
   delete: (id: string) => del<{ ok: true }>(`${API_BASE}/watchlists/${id}`),
   addSymbol: (id: string, symbol: string) => post<Watchlist>(`${API_BASE}/watchlists/${id}/symbols`, { symbol }),

@@ -141,11 +141,54 @@ export class MoneyFlowService {
     };
   }
 
-  async queryMembers(tsCode: string): Promise<MoneyFlowMemberRow[]> {
-    return this.memberRepo
+  async queryMembers(tsCode: string, tradeDate?: string): Promise<MoneyFlowMemberRow[]> {
+    const qb = this.memberRepo
       .createQueryBuilder('m')
-      .where('m.ts_code = :tsCode', { tsCode })
-      .orderBy('m.con_code', 'ASC')
-      .getMany();
+      .select('m.id', 'id')
+      .addSelect('m.ts_code', 'tsCode')
+      .addSelect('m.con_code', 'conCode')
+      .addSelect('m.con_name', 'conName')
+      .addSelect('m.is_new', 'isNew')
+      .where('m.ts_code = :tsCode', { tsCode });
+
+    if (tradeDate) {
+      qb.leftJoin(
+        'money_flow_stocks',
+        'mfs',
+        'mfs.ts_code = m.con_code AND mfs.trade_date = :tradeDate',
+        { tradeDate },
+      )
+        .addSelect('mfs.pct_change', 'pctChange')
+        .addSelect('mfs.net_amount', 'netAmount');
+    }
+
+    qb.orderBy('m.con_code', 'ASC');
+
+    const rows = await qb.getRawMany<{
+      tsCode: string;
+      conCode: string;
+      conName: string | null;
+      isNew: string | null;
+      pctChange?: string | null;
+      netAmount?: string | null;
+    }>();
+
+    return rows.map<MoneyFlowMemberRow>((r) => {
+      const pctRaw = tradeDate ? r.pctChange : null;
+      const netRaw = tradeDate ? r.netAmount : null;
+      const pctChange =
+        pctRaw == null || pctRaw === '' ? null : Number(pctRaw);
+      // net_amount 单位为"万元"，÷10000 转为"亿元"
+      const netAmount =
+        netRaw == null || netRaw === '' ? null : Number(netRaw) / 10000;
+      return {
+        tsCode: r.tsCode,
+        conCode: r.conCode,
+        conName: r.conName,
+        isNew: r.isNew,
+        pctChange: pctChange != null && Number.isFinite(pctChange) ? pctChange : null,
+        netAmount: netAmount != null && Number.isFinite(netAmount) ? netAmount : null,
+      };
+    });
   }
 }

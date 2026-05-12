@@ -1,7 +1,7 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { MoneyFlowService } from './money-flow.service';
 import { QueryFlowDto } from './dto/query-flow.dto';
-import { QueryMemberDto } from './dto/query-member.dto';
+import { QueryMemberDto, TRADE_DATE_PATTERN } from './dto/query-member.dto';
 
 @Controller('money-flow')
 export class MoneyFlowController {
@@ -39,6 +39,9 @@ export class MoneyFlowController {
 
   @Get('members')
   queryMembers(@Query() dto: QueryMemberDto) {
-    return this.moneyFlowService.queryMembers(dto.ts_code);
+    if (dto.trade_date !== undefined && !TRADE_DATE_PATTERN.test(dto.trade_date)) {
+      throw new BadRequestException('trade_date 必须为 8 位 YYYYMMDD');
+    }
+    return this.moneyFlowService.queryMembers(dto.ts_code, dto.trade_date);
   }
 }

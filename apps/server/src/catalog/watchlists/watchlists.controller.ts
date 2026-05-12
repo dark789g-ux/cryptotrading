@@ -2,6 +2,7 @@ import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { CurrentUserParam as CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { WatchlistsService } from './watchlists.service';
+import { UpsertByNameDto } from './dto/upsert-by-name.dto';
 
 type CurrentUserPayload = { id: string };
 
@@ -17,6 +18,14 @@ export class WatchlistsController {
   @Get('index-list')
   listIndexOptions() {
     return this.watchlistsService.listIndexOptions();
+  }
+
+  @Post('upsert-by-name')
+  upsertByName(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: UpsertByNameDto,
+  ) {
+    return this.watchlistsService.upsertByName(user.id, body);
   }
 
   @Get(':id')

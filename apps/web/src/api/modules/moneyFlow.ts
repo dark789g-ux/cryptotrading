@@ -69,6 +69,9 @@ export const moneyFlowApi = {
     return `${API_BASE}/money-flow/sync/run?${qs.toString()}`
   },
 
-  getMembers: (tsCode: string) =>
-    request<MoneyFlowMemberRow[]>(`${API_BASE}/money-flow/members?ts_code=${encodeURIComponent(tsCode)}`),
+  getMembers: (tsCode: string, tradeDate?: string | null) => {
+    const qs = new URLSearchParams({ ts_code: tsCode })
+    if (tradeDate) qs.set('trade_date', tradeDate)
+    return request<MoneyFlowMemberRow[]>(`${API_BASE}/money-flow/members?${qs.toString()}`)
+  },
 }

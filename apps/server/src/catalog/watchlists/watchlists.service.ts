@@ -4,6 +4,7 @@ import { DataSource, Not, QueryFailedError, Repository } from 'typeorm';
 import { WatchlistEntity } from '../../entities/watchlist/watchlist.entity';
 import { WatchlistItemEntity } from '../../entities/watchlist/watchlist-item.entity';
 import { TushareClientService } from '../../market-data/a-shares/services/tushare-client.service';
+import { UpsertByNameDto, UpsertByNameResult } from './dto/upsert-by-name.dto';
 
 export interface IndexOption {
   value: string;
@@ -156,6 +157,82 @@ export class WatchlistsService {
         await manager.save(WatchlistItemEntity, items);
       }
     });
+  }
+
+  /**
+   * 按 (userId, name) upsert 一个 watchlist，并把入参 symbols 增量加入 items。
+   *
+   * - 入参 symbols 按原序去重（保留首次），压缩时记 logger.warn，但**不**计入 skipped；
+   * - watchlist 不存在则按 (userId, name) 新建，复用现有 normalize/ensureNameAvailable/handleUniqueError 流程；
+   * - items 通过 `INSERT ... SELECT $1, unnest($2::text[]) ON CONFLICT (watchlist_id, symbol) DO NOTHING`
+   *   写入，依赖 uq_watchlist_items_watchlist_symbol；
+   * - 返回值中：
+   *   - `added`  = 实际新增（去重后入参且不在现有 items 内的）；
+   *   - `skipped` = 去重后入参中已在 items 内的；
+   *   - 入参重复"压缩"不计入 skipped。
+   */
+  async upsertByName(userId: string, dto: UpsertByNameDto): Promise<UpsertByNameResult> {
+    if (!Array.isArray(dto?.symbols)) {
+      throw new BadRequestException('symbols 必须是字符串数组');
+    }
+    const rawSymbols = dto.symbols.map((s) => (s ?? '').toString().trim()).filter(Boolean);
+    if (rawSymbols.length === 0) {
+      throw new BadRequestException('symbols 不能为空');
+    }
+
+    // 原序去重（保留首次）
+    const dedupSet = new Set<string>();
+    const deduped: string[] = [];
+    for (const s of rawSymbols) {
+      if (!dedupSet.has(s)) {
+        dedupSet.add(s);
+        deduped.push(s);
+      }
+    }
+    if (deduped.length !== rawSymbols.length) {
+      this.logger.warn(
+        `[upsertByName] symbols 含重复：original=${rawSymbols.length} deduped=${deduped.length}`,
+      );
+    }
+
+    const name = this.normalizeName(dto.name);
+
+    // 查找或创建 watchlist
+    let watchlist = await this.watchlistRepo.findOne({
+      where: { userId, name } as any,
+      relations: ['items'],
+    });
+    let created = false;
+    if (!watchlist) {
+      await this.ensureNameAvailable(userId, name);
+      const entity = this.watchlistRepo.create({ userId, name } as Partial<WatchlistEntity>) as WatchlistEntity;
+      watchlist = await this.watchlistRepo.save(entity).catch((e) => this.handleUniqueError(e));
+      created = true;
+    }
+
+    const existingSymbols = new Set((watchlist.items ?? []).map((it) => it.symbol));
+    const toInsert = deduped.filter((s) => !existingSymbols.has(s));
+    const skipped = deduped.length - toInsert.length;
+
+    if (toInsert.length > 0) {
+      await this.dataSource.transaction(async (manager) => {
+        // watchlist_id 是 uuid 单标量；symbols 是 text 数组 → ::text[]
+        await manager.query(
+          `INSERT INTO watchlist_items (watchlist_id, symbol)
+           SELECT $1::uuid, unnest($2::text[])
+           ON CONFLICT (watchlist_id, symbol) DO NOTHING`,
+          [watchlist.id, toInsert],
+        );
+      });
+    }
+
+    return {
+      watchlistId: watchlist.id,
+      name: watchlist.name,
+      created,
+      added: toInsert.length,
+      skipped,
+    };
   }
 
   async addSymbol(userId: string, id: string, symbol: string) {

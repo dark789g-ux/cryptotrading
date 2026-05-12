@@ -29,7 +29,7 @@ You MUST create a task for each of these items and complete them in order:
 6. **Write design doc** — save to `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` and commit
 7. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
 8. **User reviews written spec** — ask user to review the spec file before proceeding
-9. **Transition to implementation** — invoke writing-plans skill to create implementation plan
+9. **询问是否使用 dispatching-parallel-agents** — 用户批准 spec 后，询问是否基于该 spec 文档使用 `dispatching-parallel-agents` 进行后续开发；如用户确认，则调用 `dispatching-parallel-agents` 进行开发
 
 ## Process Flow
 
@@ -45,7 +45,9 @@ digraph brainstorming {
     "Write design doc" [shape=box];
     "Spec self-review\n(fix inline)" [shape=box];
     "User reviews spec?" [shape=diamond];
-    "Invoke writing-plans skill" [shape=doublecircle];
+    "Ask: use dispatching-parallel-agents?" [shape=diamond];
+    "Invoke dispatching-parallel-agents" [shape=doublecircle];
+    "End (user declines)" [shape=doublecircle];
 
     "Explore project context" -> "Visual questions ahead?";
     "Visual questions ahead?" -> "Offer Visual Companion\n(own message, no other content)" [label="yes"];
@@ -59,11 +61,13 @@ digraph brainstorming {
     "Write design doc" -> "Spec self-review\n(fix inline)";
     "Spec self-review\n(fix inline)" -> "User reviews spec?";
     "User reviews spec?" -> "Write design doc" [label="changes requested"];
-    "User reviews spec?" -> "Invoke writing-plans skill" [label="approved"];
+    "User reviews spec?" -> "Ask: use dispatching-parallel-agents?" [label="approved"];
+    "Ask: use dispatching-parallel-agents?" -> "Invoke dispatching-parallel-agents" [label="yes"];
+    "Ask: use dispatching-parallel-agents?" -> "End (user declines)" [label="no"];
 }
 ```
 
-**The terminal state is invoking writing-plans.** Do NOT invoke frontend-design, mcp-builder, or any other implementation skill. The ONLY skill you invoke after brainstorming is writing-plans.
+**完成 spec 并经用户批准后，须询问是否基于该 spec 使用 `dispatching-parallel-agents` 进行后续开发。** 未经用户确认前，不得调用 `dispatching-parallel-agents` 或任何其它实现类 skill（如 frontend-design、mcp-builder 等）。
 
 ## The Process
 
@@ -126,14 +130,24 @@ Fix any issues inline. No need to re-review — just fix and move on.
 **User Review Gate:**
 After the spec review loop passes, ask the user to review the written spec before proceeding:
 
-> "Spec written and committed to `<path>`. Please review it and let me know if you want to make any changes before we start writing out the implementation plan."
+> "Spec 已写入并提交到 `<path>`。请审阅，告诉我是否需要修改后再进入后续开发。"
 
 Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves.
 
-**Implementation:**
+**询问是否使用 dispatching-parallel-agents：**
 
-- Invoke the writing-plans skill to create a detailed implementation plan
-- Do NOT invoke any other skill. writing-plans is the next step.
+用户批准 spec 后，必须明确询问是否基于该 spec 文档使用 `dispatching-parallel-agents` 进行后续开发：
+
+> "Spec 已通过。是否基于该 spec 使用 `dispatching-parallel-agents` 拆分独立任务并并行开发？（是 / 否）"
+
+- 如用户确认（"是"/"用"/"go" 等），立即调用 `dispatching-parallel-agents` skill，并将 spec 路径作为输入传递，进入并行任务派发与执行流程
+- 如用户拒绝或希望另行处理，停在此处不再自动调用任何实现类 skill，由用户决定后续动作
+- 在用户明确回复之前，**不得**调用 `dispatching-parallel-agents` 或任何其它实现类 skill
+
+**派发 agent 时禁止使用 git worktree 隔离**：调用 `Agent` 工具时**不要**传 `isolation: "worktree"`；让所有 agent 直接在主工作目录内修改文件，由当前会话统一负责合并与提交。
+- **原因**：worktree 子目录在 Windows 上会被 `node_modules` 等文件锁占用，`git worktree remove` 经常失败，导致 `.claude/worktrees/` 留下顽固残留；且需要额外把 worktree 改动 patch 回 main，徒增协调成本。
+- **冲突管理由 spec 负责**：spec 应预先按"独立文件域 / 互不相交的修改范围"切分任务，让多个 agent 各自处理不同目录或文件，从源头避免相互覆盖，而不是依赖 worktree 物理隔离。
+- **唯一例外**：当 agent 必须执行破坏性操作（如 `git reset --hard`、大范围分支重写）时才考虑 worktree；普通的并行实现任务一律不用。
 
 ## Key Principles
 

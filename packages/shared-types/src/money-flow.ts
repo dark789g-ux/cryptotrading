@@ -80,12 +80,16 @@ export interface MoneyFlowMarketRow {
   buySmAmount: string | null
 }
 
-/** GET /money-flow/members 单行（ths_member_stocks 成分股映射） */
+/** GET /money-flow/members 单行（ths_member_stocks 成分股映射，可选附加当日资金流字段） */
 export interface MoneyFlowMemberRow {
   tsCode: string
   conCode: string
   conName: string | null
   isNew: string | null
+  /** 当日涨跌幅（百分比原值），未传 trade_date 或停牌为 null */
+  pctChange: number | null
+  /** 当日净流入（亿元，已 ÷10000），未传 trade_date 或停牌为 null */
+  netAmount: number | null
 }
 
 /** SSE 事件 —— GET /money-flow/sync/run */

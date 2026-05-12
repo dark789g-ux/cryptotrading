@@ -31,6 +31,7 @@
       :entity-name="trendEntityName"
       :fetch-fn="trendFetchFn"
       :show-members-tab="true"
+      :members-trade-date="trendMembersTradeDate"
     />
   </div>
 </template>
@@ -55,10 +56,12 @@ const latestDate = ref<string | null>(null)
 const trendVisible = ref(false)
 const trendTsCode = ref('')
 const trendEntityName = ref('')
+const trendMembersTradeDate = ref<string | null>(null)
 
 function openDetail(row: MoneyFlowIndustryRow) {
   trendTsCode.value = row.tsCode
   trendEntityName.value = row.industry
+  trendMembersTradeDate.value = currentParams.value.trade_date ?? latestDate.value
   trendVisible.value = true
 }
 

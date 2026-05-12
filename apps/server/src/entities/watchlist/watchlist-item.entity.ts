@@ -1,10 +1,11 @@
 import {
   Entity, Column, PrimaryGeneratedColumn,
-  ManyToOne, JoinColumn,
+  ManyToOne, JoinColumn, Unique,
 } from 'typeorm';
 import { WatchlistEntity } from './watchlist.entity';
 
 @Entity('watchlist_items')
+@Unique('uq_watchlist_items_watchlist_symbol', ['watchlistId', 'symbol'])
 export class WatchlistItemEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

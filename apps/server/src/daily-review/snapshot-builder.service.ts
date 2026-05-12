@@ -1,6 +1,6 @@
 import { Injectable, Logger, UnprocessableEntityException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import type { TushareClientService } from '../market-data/a-shares/services/tushare-client.service';
+import { TushareClientService } from '../market-data/a-shares/services/tushare-client.service';
 import type { IndexQuote, SnapshotPayload } from './daily-review.types';
 
 const INDEX_LIST = [
