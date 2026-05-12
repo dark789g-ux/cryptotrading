@@ -10,6 +10,7 @@ import { DeepseekService } from './deepseek.service';
 import { DailyReviewProgressGateway } from './daily-review-progress.gateway';
 import type { CreateReviewDto } from './dto/create-review.dto';
 import type { ListQueryDto } from './dto/list-query.dto';
+import type { ProgressEvent, Stage, StageTiming } from './daily-review.types';
 
 @Injectable()
 export class DailyReviewService {
@@ -40,6 +41,7 @@ export class DailyReviewService {
     const row = await this.repo.findOne({ where: { tradeDate } });
     if (!row) throw new NotFoundException(`复盘 ${tradeDate} 不存在`);
     if (user?.role !== 'admin') {
+      // stageTimings 不属敏感数据（仅耗时），对所有用户可见
       const { reasoningContent, tokenUsage, llmModel, ...rest } = row;
       return rest;
     }
@@ -60,6 +62,7 @@ export class DailyReviewService {
     row.articleMd = null;
     row.reasoningContent = null;
     row.tokenUsage = null;
+    row.stageTimings = null;
     row.errorMessage = null;
     await this.repo.save(row);
 
@@ -78,35 +81,83 @@ export class DailyReviewService {
   }
 
   private async runPipeline(id: string, tradeDate: string) {
-    try {
-      this.gateway.emit(tradeDate, { stage: 'validate', percent: 1 });
+    const stageTimings: StageTiming[] = [];
+    let currentStage: Stage = 'validate';
+    // UTC 墙钟字符串（CLAUDE.md 时间规范）
+    let currentStageStartedAt: string = new Date().toISOString();
+    let currentStageStartMs = Date.now();
+    let partialReasoning = '';
 
-      this.gateway.emit(tradeDate, { stage: 'fetch', percent: 10 });
+    const finishCurrent = (now: number) => {
+      const durationMs = now - currentStageStartMs;
+      stageTimings.push({ stage: currentStage, startedAt: currentStageStartedAt, durationMs });
+      return durationMs;
+    };
+
+    const transitionStage = (next: Stage, percent: number) => {
+      const now = Date.now();
+      const durationMs = finishCurrent(now);
+      this.gateway.emit(tradeDate, { type: 'stage_done', stage: currentStage, durationMs, ts: now });
+      currentStage = next;
+      currentStageStartedAt = new Date(now).toISOString();
+      currentStageStartMs = now;
+      this.gateway.emit(tradeDate, { type: 'stage', stage: next, percent, ts: now });
+    };
+
+    // DeepSeek 在收到首个 content 时会自行发 stage_done(reasoning)+stage(writing)；pipeline 监听后同步累计 timings
+    const onDeepseekProgress = (e: ProgressEvent) => {
+      if (e.type === 'reasoning_delta') partialReasoning += e.text;
+      if (e.type === 'stage_done' && e.stage === 'reasoning' && currentStage === 'reasoning') {
+        stageTimings.push({ stage: 'reasoning', startedAt: currentStageStartedAt, durationMs: e.durationMs });
+        currentStage = 'writing';
+        currentStageStartedAt = new Date(e.ts).toISOString();
+        currentStageStartMs = e.ts;
+      }
+      this.gateway.emit(tradeDate, e);
+    };
+
+    try {
+      this.gateway.emit(tradeDate, { type: 'stage', stage: 'validate', percent: 1, ts: Date.now() });
+
+      transitionStage('fetch', 10);
       const snapshot = await this.builder.buildSnapshot(tradeDate);
 
-      this.gateway.emit(tradeDate, { stage: 'build', percent: 35 });
+      transitionStage('build', 35);
       await this.repo.update(id, { snapshot, status: 'generating' });
 
+      transitionStage('reasoning', 45);
       const { article, reasoning, tokenUsage } = await this.deepseek.generateArticle(
         JSON.stringify(snapshot),
-        (e) => this.gateway.emit(tradeDate, e),
+        onDeepseekProgress,
       );
 
-      this.gateway.emit(tradeDate, { stage: 'finalize', percent: 97 });
+      transitionStage('finalize', 97);
       if (article.length < 2000) {
         throw new Error(`文章长度异常 (${article.length} chars)`);
       }
+      const finalizeNow = Date.now();
+      finishCurrent(finalizeNow);
+      this.gateway.emit(tradeDate, { type: 'stage_done', stage: 'finalize', durationMs: finalizeNow - currentStageStartMs, ts: finalizeNow });
+
       await this.repo.update(id, {
         articleMd: article,
         reasoningContent: reasoning,
         tokenUsage,
         llmModel: this.deepseek.modelName,
+        stageTimings,
         status: 'completed',
       });
-      this.gateway.emit(tradeDate, { stage: 'completed', percent: 100 });
+      this.gateway.emit(tradeDate, { type: 'completed', ts: Date.now() });
     } catch (err: any) {
-      await this.repo.update(id, { status: 'failed', errorMessage: err.message });
-      this.gateway.emit(tradeDate, { stage: 'failed', percent: 0, error: err.message });
+      // 失败时仍把已收集的 reasoning 残段与 stageTimings 落库，便于 admin 排错 prompt
+      finishCurrent(Date.now());
+      await this.repo.update(id, {
+        status: 'failed',
+        errorMessage: err.message,
+        reasoningContent: partialReasoning || null,
+        stageTimings,
+      });
+      this.gateway.emit(tradeDate, { type: 'failed', error: err.message, ts: Date.now() });
     }
   }
 

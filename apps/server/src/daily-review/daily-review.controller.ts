@@ -9,7 +9,7 @@ import type { CreateReviewDto } from './dto/create-review.dto';
 import type { ListQueryDto } from './dto/list-query.dto';
 import type { RequestWithUser } from '../auth/shared/auth.types';
 
-@Controller('api/daily-review')
+@Controller('daily-review')
 export class DailyReviewController {
   constructor(
     private readonly svc: DailyReviewService,
@@ -39,8 +39,9 @@ export class DailyReviewController {
   }
 
   @Sse(':tradeDate/stream')
-  stream(@Param('tradeDate') tradeDate: string): Observable<MessageEvent> {
-    return this.gateway.observe(tradeDate).pipe(
+  stream(@Param('tradeDate') tradeDate: string, @Req() req: RequestWithUser): Observable<MessageEvent> {
+    const isAdmin = req.user?.role === 'admin';
+    return this.gateway.observe(tradeDate, isAdmin).pipe(
       map((e) => ({ data: e } as MessageEvent)),
     );
   }

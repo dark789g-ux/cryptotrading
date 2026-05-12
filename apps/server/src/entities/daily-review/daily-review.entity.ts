@@ -2,6 +2,7 @@ import {
   Column, CreateDateColumn, Entity, Index,
   PrimaryGeneratedColumn, Unique, UpdateDateColumn,
 } from 'typeorm';
+import type { StageTiming } from '../../daily-review/daily-review.types';
 
 export type DailyReviewStatus = 'pending' | 'fetching' | 'generating' | 'completed' | 'failed';
 
@@ -33,6 +34,9 @@ export class DailyReviewEntity {
 
   @Column({ name: 'token_usage', type: 'jsonb', nullable: true })
   tokenUsage: { prompt: number; completion: number; reasoning: number; total: number } | null;
+
+  @Column({ name: 'stage_timings', type: 'jsonb', nullable: true })
+  stageTimings: StageTiming[] | null;
 
   @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage: string | null;
