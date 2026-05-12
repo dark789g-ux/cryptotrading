@@ -1,9 +1,22 @@
-import { DeepseekService } from './deepseek.service';
-import type { ProgressEvent } from './daily-review.types';
+import OpenAI from 'openai';
+import { OpenAiCompatLlmProvider } from './openai-compat-base.provider';
+import type { ProgressEvent } from '../daily-review.types';
 
-// TODO: 需集成测试验证 DeepSeek 真实 reasoning_content 字段名（Mock 单测不验证第三方契约）
+// 测试基类共享逻辑：在测试文件内部声明最小子类，避免依赖任何已废弃的 provider 实现
+class TestProvider extends OpenAiCompatLlmProvider {
+  constructor(
+    client: OpenAI,
+    model: string,
+    private readonly _extra: Record<string, unknown> = {},
+  ) {
+    super(client, model);
+  }
+  protected buildExtraBody(): Record<string, unknown> {
+    return this._extra;
+  }
+}
 
-describe('DeepseekService.generateArticle', () => {
+describe('OpenAiCompatLlmProvider (via TestProvider)', () => {
   it('reasoning_delta / content_delta / stage_done(reasoning) / stage(writing) / usage 事件序列正确', async () => {
     const fakeStream = (async function* () {
       yield { choices: [{ delta: { reasoning_content: '思考A' } }] };
@@ -17,10 +30,10 @@ describe('DeepseekService.generateArticle', () => {
     })();
 
     const client = { chat: { completions: { create: jest.fn().mockResolvedValue(fakeStream) } } };
-    const svc = new DeepseekService(client as any, { model: 'deepseek-test' });
+    const p = new TestProvider(client as unknown as OpenAI, 'test-model');
 
     const events: ProgressEvent[] = [];
-    const r = await svc.generateArticle('{"generatedAt":"2026-05-12T00:00:00Z"}', (e) => events.push(e));
+    const r = await p.generateArticle('{"generatedAt":"2026-05-12T00:00:00Z"}', (e) => events.push(e));
 
     expect(r.article).toBe('正文A正文B');
     expect(r.reasoning).toBe('思考A思考B');
@@ -56,23 +69,42 @@ describe('DeepseekService.generateArticle', () => {
       yield { choices: [{ delta: { content: 'X' } }] };
     })();
     const client = { chat: { completions: { create: jest.fn().mockResolvedValue(fakeStream) } } };
-    const svc = new DeepseekService(client as any, { model: 'deepseek-test' });
+    const p = new TestProvider(client as unknown as OpenAI, 'test-model');
 
     const reasoningTexts: string[] = [];
-    await svc.generateArticle('{"generatedAt":"2026-05-12T00:00:00Z"}', (e) => {
+    await p.generateArticle('{"generatedAt":"2026-05-12T00:00:00Z"}', (e) => {
       if (e.type === 'reasoning_delta') reasoningTexts.push(e.text);
     });
     expect(reasoningTexts).toEqual(['甲', '乙']);
   });
 
-  it('extra_body 含 thinking enabled 且不传 temperature', async () => {
-    const client = { chat: { completions: { create: jest.fn().mockResolvedValue((async function* () {})()) } } };
-    const svc = new DeepseekService(client as any, { model: 'deepseek-test' });
-    await svc.generateArticle('{"generatedAt":"2026-05-12T00:00:00Z"}', () => {});
+  it('extra_body 透传 buildExtraBody 返回值，且不传 temperature / top_p', async () => {
+    const client = {
+      chat: { completions: { create: jest.fn().mockResolvedValue((async function* () {})()) } },
+    };
+    const p = new TestProvider(client as unknown as OpenAI, 'test-model', { thinking: { type: 'enabled' } });
+    await p.generateArticle('{"generatedAt":"2026-05-12T00:00:00Z"}', () => {});
     const callArgs = (client.chat.completions.create as jest.Mock).mock.calls[0][0];
     expect(callArgs.stream).toBe(true);
-    expect(callArgs.extra_body).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'high' });
+    expect(callArgs.extra_body).toEqual({ thinking: { type: 'enabled' } });
     expect(callArgs.temperature).toBeUndefined();
     expect(callArgs.top_p).toBeUndefined();
+  });
+
+  it('无 usage 时 tokenUsage 返回 null 且不推 usage 事件', async () => {
+    const fakeStream = (async function* () {
+      yield { choices: [{ delta: { reasoning_content: '想' } }] };
+      yield { choices: [{ delta: { content: '写' } }] };
+      // 末尾 chunk 不含 usage 字段
+      yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
+    })();
+    const client = { chat: { completions: { create: jest.fn().mockResolvedValue(fakeStream) } } };
+    const p = new TestProvider(client as unknown as OpenAI, 'test-model');
+
+    const events: ProgressEvent[] = [];
+    const r = await p.generateArticle('{"generatedAt":"2026-05-12T00:00:00Z"}', (e) => events.push(e));
+
+    expect(r.tokenUsage).toBeNull();
+    expect(events.some((e) => e.type === 'usage')).toBe(false);
   });
 });

@@ -5,7 +5,7 @@ import type { ProgressEvent, Stage, StageTiming } from './daily-review.types';
 // runPipeline 是 private 但通过 startGeneration 间接触发；这里直接用任意类型访问以聚焦阶段累积逻辑
 
 describe('DailyReviewService.runPipeline stageTimings 累积', () => {
-  const setup = (deepseekImpl: (snapshotJson: string, onProgress: (e: ProgressEvent) => void) => Promise<any>) => {
+  const setup = (llmImpl: (snapshotJson: string, onProgress: (e: ProgressEvent) => void) => Promise<any>) => {
     const updates: any[] = [];
     const repo: any = {
       findOne: jest.fn().mockResolvedValue(null),
@@ -17,10 +17,10 @@ describe('DailyReviewService.runPipeline stageTimings 累积', () => {
     };
     const ds: any = { query: jest.fn() };
     const builder: any = { buildSnapshot: jest.fn().mockResolvedValue({ generatedAt: '2026-05-12T00:00:00Z' }) };
-    const deepseek: any = { generateArticle: jest.fn(deepseekImpl), modelName: 'deepseek-test' };
+    const llm: any = { generateArticle: jest.fn(llmImpl), modelName: 'test-model' };
     const gateway = new DailyReviewProgressGateway();
-    const svc = new DailyReviewService(repo, ds, builder, deepseek, gateway);
-    return { svc, repo, updates, gateway, deepseek };
+    const svc = new DailyReviewService(repo, ds, builder, llm, gateway);
+    return { svc, repo, updates, gateway, llm };
   };
 
   const collectEvents = (gateway: DailyReviewProgressGateway, date: string): ProgressEvent[] => {
@@ -66,14 +66,14 @@ describe('DailyReviewService.runPipeline stageTimings 累积', () => {
     const { svc, updates } = setup(async (_json, onProgress) => {
       onProgress({ type: 'reasoning_delta', text: '残段A', ts: Date.now() });
       onProgress({ type: 'reasoning_delta', text: '残段B', ts: Date.now() });
-      throw new Error('deepseek timeout');
+      throw new Error('llm timeout');
     });
 
     await (svc as any).runPipeline('row-1', '20260512');
 
     const failUpdate = updates.find((u) => u.patch.status === 'failed');
     expect(failUpdate).toBeDefined();
-    expect(failUpdate.patch.errorMessage).toBe('deepseek timeout');
+    expect(failUpdate.patch.errorMessage).toBe('llm timeout');
     expect(failUpdate.patch.reasoningContent).toBe('残段A残段B');
     // stageTimings 至少包含到 reasoning 阶段的累积（具体长度依实现而定，但必须为非空数组）
     expect(Array.isArray(failUpdate.patch.stageTimings)).toBe(true);

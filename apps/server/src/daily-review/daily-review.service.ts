@@ -1,12 +1,12 @@
 import {
-  ConflictException, Injectable, Logger, NotFoundException, UnprocessableEntityException,
+  ConflictException, Inject, Injectable, Logger, NotFoundException, UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { DailyReviewEntity } from '../entities/daily-review/daily-review.entity';
 import type { CurrentUser } from '../auth/shared/auth.types';
 import { SnapshotBuilderService } from './snapshot-builder.service';
-import { DeepseekService } from './deepseek.service';
+import { LLM_PROVIDER, type LlmProvider } from './llm/llm-provider.interface';
 import { DailyReviewProgressGateway } from './daily-review-progress.gateway';
 import type { CreateReviewDto } from './dto/create-review.dto';
 import type { ListQueryDto } from './dto/list-query.dto';
@@ -21,7 +21,7 @@ export class DailyReviewService {
     private readonly repo: Repository<DailyReviewEntity>,
     private readonly ds: DataSource,
     private readonly builder: SnapshotBuilderService,
-    private readonly deepseek: DeepseekService,
+    @Inject(LLM_PROVIDER) private readonly llm: LlmProvider,
     private readonly gateway: DailyReviewProgressGateway,
   ) {}
 
@@ -104,8 +104,8 @@ export class DailyReviewService {
       this.gateway.emit(tradeDate, { type: 'stage', stage: next, percent, ts: now });
     };
 
-    // DeepSeek 在收到首个 content 时会自行发 stage_done(reasoning)+stage(writing)；pipeline 监听后同步累计 timings
-    const onDeepseekProgress = (e: ProgressEvent) => {
+    // LLM provider 在收到首个 content 时会自行发 stage_done(reasoning)+stage(writing)；pipeline 监听后同步累计 timings
+    const onLlmProgress = (e: ProgressEvent) => {
       if (e.type === 'reasoning_delta') partialReasoning += e.text;
       if (e.type === 'stage_done' && e.stage === 'reasoning' && currentStage === 'reasoning') {
         stageTimings.push({ stage: 'reasoning', startedAt: currentStageStartedAt, durationMs: e.durationMs });
@@ -126,9 +126,9 @@ export class DailyReviewService {
       await this.repo.update(id, { snapshot, status: 'generating' });
 
       transitionStage('reasoning', 45);
-      const { article, reasoning, tokenUsage } = await this.deepseek.generateArticle(
+      const { article, reasoning, tokenUsage } = await this.llm.generateArticle(
         JSON.stringify(snapshot),
-        onDeepseekProgress,
+        onLlmProgress,
       );
 
       transitionStage('finalize', 97);
@@ -143,7 +143,7 @@ export class DailyReviewService {
         articleMd: article,
         reasoningContent: reasoning,
         tokenUsage,
-        llmModel: this.deepseek.modelName,
+        llmModel: this.llm.modelName,
         stageTimings,
         status: 'completed',
       });

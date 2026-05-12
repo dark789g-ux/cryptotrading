@@ -1,35 +1,36 @@
 import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
-import { SYSTEM_PROMPT, buildUserPrompt } from './prompts/article-prompt';
-import type { ProgressEvent, TokenUsage } from './daily-review.types';
-
-export interface DeepseekConfig { model: string; }
+import { SYSTEM_PROMPT, buildUserPrompt } from '../prompts/article-prompt';
+import type { ProgressEvent, TokenUsage } from '../daily-review.types';
+import type { LlmProvider } from './llm-provider.interface';
 
 @Injectable()
-export class DeepseekService {
-  private readonly logger = new Logger(DeepseekService.name);
+export abstract class OpenAiCompatLlmProvider implements LlmProvider {
+  protected readonly logger = new Logger(this.constructor.name);
 
   constructor(
-    private readonly client: OpenAI,
-    private readonly config: DeepseekConfig,
+    protected readonly client: OpenAI,
+    private readonly _model: string,
   ) {}
 
   get modelName(): string {
-    return this.config.model;
+    return this._model;
   }
+
+  protected abstract buildExtraBody(): Record<string, unknown>;
 
   async generateArticle(
     snapshotJson: string,
     onProgress: (e: ProgressEvent) => void,
   ): Promise<{ article: string; reasoning: string; tokenUsage: TokenUsage | null }> {
     const stream: any = await (this.client.chat.completions.create as any)({
-      model: this.config.model,
+      model: this._model,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: buildUserPrompt(JSON.parse(snapshotJson)) },
       ],
       stream: true,
-      extra_body: { thinking: { type: 'enabled' }, reasoning_effort: 'high' },
+      extra_body: this.buildExtraBody(),
     });
 
     let reasoning = '';
@@ -41,7 +42,7 @@ export class DeepseekService {
 
     for await (const chunk of stream) {
       const delta = chunk.choices?.[0]?.delta;
-      // TODO: 需集成测试验证 DeepSeek 真实 reasoning_content 字段名（mock 单测不验证第三方契约）
+      // TODO: 需集成测试验证两家真实 stream 中 delta.reasoning_content 字段名（mock 单测不验证第三方契约）
       if (delta?.reasoning_content) {
         reasoning += delta.reasoning_content;
         onProgress({ type: 'reasoning_delta', text: delta.reasoning_content, ts: Date.now() });

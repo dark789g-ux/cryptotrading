@@ -7,29 +7,37 @@ import { DailyReviewController } from './daily-review.controller';
 import { DailyReviewService } from './daily-review.service';
 import { SnapshotBuilderService } from './snapshot-builder.service';
 import { TushareClientService } from '../market-data/a-shares/services/tushare-client.service';
-import { DeepseekService } from './deepseek.service';
 import { DailyReviewProgressGateway } from './daily-review-progress.gateway';
+import { LLM_PROVIDER } from './llm/llm-provider.interface';
+import { DeepseekLlmProvider } from './llm/deepseek.provider';
+import { MimoLlmProvider } from './llm/mimo.provider';
 
-const DEEPSEEK_CLIENT = 'DEEPSEEK_CLIENT';
+const LLM_CLIENT = 'LLM_CLIENT';
 
-const deepseekClientProvider = {
-  provide: DEEPSEEK_CLIENT,
+const llmClientProvider = {
+  provide: LLM_CLIENT,
   inject: [ConfigService],
   useFactory: (cfg: ConfigService) =>
     new OpenAI({
-      apiKey: cfg.getOrThrow<string>('DEEPSEEK_API_KEY'),
-      baseURL: cfg.get<string>('DEEPSEEK_BASE_URL') || 'https://api.deepseek.com',
+      apiKey: cfg.getOrThrow<string>('LLM_API_KEY'),
+      baseURL: cfg.getOrThrow<string>('LLM_BASE_URL'),
       timeout: 240_000,
     }),
 };
 
-const deepseekServiceProvider = {
-  provide: DeepseekService,
-  inject: [DEEPSEEK_CLIENT, ConfigService],
-  useFactory: (client: OpenAI, cfg: ConfigService) =>
-    new DeepseekService(client, {
-      model: cfg.get<string>('DEEPSEEK_MODEL') || 'deepseek-v4-pro',
-    }),
+const llmProviderProvider = {
+  provide: LLM_PROVIDER,
+  inject: [LLM_CLIENT, ConfigService],
+  useFactory: (client: OpenAI, cfg: ConfigService) => {
+    const kind = cfg.getOrThrow<string>('LLM_PROVIDER');
+    const model = cfg.getOrThrow<string>('LLM_MODEL');
+    switch (kind) {
+      case 'deepseek': return new DeepseekLlmProvider(client, model);
+      case 'mimo':     return new MimoLlmProvider(client, model);
+      default:
+        throw new Error(`Unknown LLM_PROVIDER: ${kind} (expected 'deepseek' or 'mimo')`);
+    }
+  },
 };
 
 @Module({
@@ -40,8 +48,8 @@ const deepseekServiceProvider = {
     SnapshotBuilderService,
     TushareClientService,
     DailyReviewProgressGateway,
-    deepseekClientProvider,
-    deepseekServiceProvider,
+    llmClientProvider,
+    llmProviderProvider,
   ],
 })
 export class DailyReviewModule {}
