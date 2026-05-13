@@ -53,6 +53,7 @@ import { IndexCatalogModule } from './market-data/index-catalog/index-catalog.mo
 import { OamvModule } from './market-data/oamv/oamv.module';
 import { OamvDailyEntity } from './entities/oamv/oamv-daily.entity';
 import { DailyReviewEntity } from './entities/daily-review/daily-review.entity';
+import { MacroEventEntity } from './entities/macro-event/macro-event.entity';
 import { DailyReviewModule } from './daily-review/daily-review.module';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
@@ -104,6 +105,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           ThsIndexCatalogEntity,
           OamvDailyEntity,
           DailyReviewEntity,
+          MacroEventEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],

@@ -1,15 +1,30 @@
 import { SnapshotBuilderService } from './snapshot-builder.service';
 import { DataSource } from 'typeorm';
+import type { OvernightMarketService } from './overnight/overnight-market.service';
+import type { MacroCalendarService } from './macro/macro-calendar.service';
+import type { ReviewHistoryService } from './history/review-history.service';
 
 describe('SnapshotBuilderService', () => {
   let svc: SnapshotBuilderService;
   let mockDs: Partial<DataSource>;
   let mockTushare: any;
+  let mockOvernight: jest.Mocked<Pick<OvernightMarketService, 'fetch'>>;
+  let mockMacro: jest.Mocked<Pick<MacroCalendarService, 'fetchToday'>>;
+  let mockHistory: jest.Mocked<Pick<ReviewHistoryService, 'previousSummary'>>;
 
   beforeEach(() => {
     mockDs = { query: jest.fn().mockResolvedValue([{ count: 0 }]) };
     mockTushare = { query: jest.fn().mockResolvedValue([]) };
-    svc = new SnapshotBuilderService(mockDs as DataSource, mockTushare);
+    mockOvernight = { fetch: jest.fn().mockResolvedValue(null) };
+    mockMacro = { fetchToday: jest.fn().mockResolvedValue(null) };
+    mockHistory = { previousSummary: jest.fn().mockResolvedValue(null) };
+    svc = new SnapshotBuilderService(
+      mockDs as DataSource,
+      mockTushare,
+      mockOvernight as unknown as OvernightMarketService,
+      mockMacro as unknown as MacroCalendarService,
+      mockHistory as unknown as ReviewHistoryService,
+    );
   });
 
   describe('validate', () => {
@@ -90,7 +105,7 @@ describe('SnapshotBuilderService', () => {
   });
 
   describe('buildSnapshot', () => {
-    it('串联所有子聚合，输出 SnapshotPayload', async () => {
+    const stubAggregations = () => {
       jest.spyOn(svc, 'validate').mockResolvedValue(undefined);
       jest.spyOn(svc, 'aggregateUpdown').mockResolvedValue({
         updownDist: { up: 1, down: 1, flat: 0, limitUp: 0, limitDown: 0 },
@@ -102,8 +117,70 @@ describe('SnapshotBuilderService', () => {
       });
       jest.spyOn(svc, 'aggregateStrongAndVolume').mockResolvedValue({ strongStocks: [], volumeTop: [] });
       jest.spyOn(svc, 'fetchIndices').mockResolvedValue([]);
+    };
+
+    it('串联所有子聚合，输出 SnapshotPayload（含三块新字段）', async () => {
+      stubAggregations();
+      mockOvernight.fetch.mockResolvedValueOnce({
+        usIndices: [{ name: '道琼斯', close: 40000, pctChg: 0.5, quotedAt: '2026-05-12T00:00:00Z' }],
+        chipStocks: [],
+        chinaConcepts: [],
+        commodities: [],
+      });
+      mockMacro.fetchToday.mockResolvedValueOnce({
+        todayEvents: [{ time: '10:00', event: 'CPI', importance: 'high' }],
+        upcomingEvents: [],
+      });
+      mockHistory.previousSummary.mockResolvedValueOnce({
+        tradeDate: '20260511',
+        nextDayJudgmentExcerpt: '昨日判断：关注半导体',
+      });
       const r = await svc.buildSnapshot('20260512');
       expect(r.generatedAt).toMatch(/T/);
+      expect(r.updownDist.up).toBe(1);
+      expect(r.overnight?.usIndices[0].name).toBe('道琼斯');
+      expect(r.macroCalendar?.todayEvents[0].event).toBe('CPI');
+      expect(r.previousReviewSummary?.tradeDate).toBe('20260511');
+      expect(mockOvernight.fetch).toHaveBeenCalledWith('20260512');
+      expect(mockMacro.fetchToday).toHaveBeenCalledWith('20260512');
+      expect(mockHistory.previousSummary).toHaveBeenCalledWith(1);
+    });
+
+    it('overnight 返回 null 时整体 snapshot 仍构造成功', async () => {
+      stubAggregations();
+      mockOvernight.fetch.mockResolvedValueOnce(null);
+      mockMacro.fetchToday.mockResolvedValueOnce({ todayEvents: [], upcomingEvents: [] });
+      mockHistory.previousSummary.mockResolvedValueOnce({
+        tradeDate: '20260511',
+        nextDayJudgmentExcerpt: '',
+      });
+      const r = await svc.buildSnapshot('20260512');
+      expect(r.overnight).toBeNull();
+      expect(r.macroCalendar).not.toBeNull();
+      expect(r.previousReviewSummary).not.toBeNull();
+    });
+
+    it('macroCalendar 返回 null 时整体 snapshot 仍构造成功', async () => {
+      stubAggregations();
+      mockOvernight.fetch.mockResolvedValueOnce({
+        usIndices: [], chipStocks: [], chinaConcepts: [], commodities: [],
+      });
+      mockMacro.fetchToday.mockResolvedValueOnce(null);
+      mockHistory.previousSummary.mockResolvedValueOnce(null);
+      const r = await svc.buildSnapshot('20260512');
+      expect(r.macroCalendar).toBeNull();
+      expect(r.overnight).not.toBeNull();
+    });
+
+    it('previousReviewSummary 返回 null 时整体 snapshot 仍构造成功', async () => {
+      stubAggregations();
+      mockOvernight.fetch.mockResolvedValueOnce(null);
+      mockMacro.fetchToday.mockResolvedValueOnce(null);
+      mockHistory.previousSummary.mockResolvedValueOnce(null);
+      const r = await svc.buildSnapshot('20260512');
+      expect(r.previousReviewSummary).toBeNull();
+      expect(r.overnight).toBeNull();
+      expect(r.macroCalendar).toBeNull();
       expect(r.updownDist.up).toBe(1);
     });
   });

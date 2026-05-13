@@ -2,6 +2,9 @@ import { Injectable, Logger, UnprocessableEntityException } from '@nestjs/common
 import { DataSource } from 'typeorm';
 import { TushareClientService } from '../market-data/a-shares/services/tushare-client.service';
 import type { IndexQuote, SnapshotPayload } from './daily-review.types';
+import { OvernightMarketService } from './overnight/overnight-market.service';
+import { MacroCalendarService } from './macro/macro-calendar.service';
+import { ReviewHistoryService } from './history/review-history.service';
 
 const INDEX_LIST = [
   { tsCode: '000001.SH', name: '上证指数' },
@@ -17,6 +20,9 @@ export class SnapshotBuilderService {
   constructor(
     private readonly ds: DataSource,
     private readonly tushare: TushareClientService,
+    private readonly overnight: OvernightMarketService,
+    private readonly macro: MacroCalendarService,
+    private readonly history: ReviewHistoryService,
   ) {}
 
   async validate(tradeDate: string) {
@@ -162,13 +168,24 @@ export class SnapshotBuilderService {
 
   async buildSnapshot(tradeDate: string): Promise<SnapshotPayload> {
     await this.validate(tradeDate);
-    const [indices, ud, sec, mf, sv] = await Promise.all([
-      this.fetchIndices(tradeDate),
-      this.aggregateUpdown(tradeDate),
-      this.aggregateSectors(tradeDate),
-      this.aggregateMoneyFlow(tradeDate),
-      this.aggregateStrongAndVolume(tradeDate),
-    ]);
+    // 三个新数据源（overnight / macroCalendar / previousReviewSummary）承诺内部 try/catch
+    // 不抛异常，统一 Promise.all 并行触发；返回 null 时不影响主流程。
+    const [indices, ud, sec, mf, sv, overnight, macroCalendar, previousReviewSummary] =
+      await Promise.all([
+        this.fetchIndices(tradeDate),
+        this.aggregateUpdown(tradeDate),
+        this.aggregateSectors(tradeDate),
+        this.aggregateMoneyFlow(tradeDate),
+        this.aggregateStrongAndVolume(tradeDate),
+        this.overnight.fetch(tradeDate),
+        this.macro.fetchToday(tradeDate),
+        this.history.previousSummary(1),
+      ]);
+    this.logger.log(
+      `[snapshot_built] tradeDate=${tradeDate} indices=${indices.length} ` +
+        `strongStocks=${sv.strongStocks.length} overnight=${overnight ? 'yes' : 'no'} ` +
+        `macro=${macroCalendar ? 'yes' : 'no'} history=${previousReviewSummary ? 'yes' : 'no'}`,
+    );
     return {
       indices,
       ...ud,
@@ -176,6 +193,9 @@ export class SnapshotBuilderService {
       moneyFlow: mf,
       ...sv,
       generatedAt: new Date().toISOString(),
+      overnight,
+      macroCalendar,
+      previousReviewSummary,
     };
   }
 }

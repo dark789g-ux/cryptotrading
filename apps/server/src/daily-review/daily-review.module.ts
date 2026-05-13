@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { DailyReviewEntity } from '../entities/daily-review/daily-review.entity';
+import { MacroEventEntity } from '../entities/macro-event/macro-event.entity';
 import { DailyReviewController } from './daily-review.controller';
 import { DailyReviewService } from './daily-review.service';
 import { SnapshotBuilderService } from './snapshot-builder.service';
@@ -11,6 +12,17 @@ import { DailyReviewProgressGateway } from './daily-review-progress.gateway';
 import { LLM_PROVIDER } from './llm/llm-provider.interface';
 import { DeepseekLlmProvider } from './llm/deepseek.provider';
 import { MimoLlmProvider } from './llm/mimo.provider';
+import { OvernightMarketService } from './overnight/overnight-market.service';
+import { MacroCalendarService } from './macro/macro-calendar.service';
+import { ReviewHistoryService } from './history/review-history.service';
+import { NewsSearchClient } from './news/news-search.client';
+import { InvestigatorService } from './investigator.service';
+import { ToolDispatcherService } from './tools/tool-dispatcher.service';
+import { SearchNewsHandler } from './tools/handlers/search-news.handler';
+import { LookupStockHandler } from './tools/handlers/lookup-stock.handler';
+import { LookupConceptHandler } from './tools/handlers/lookup-concept.handler';
+import { ReadPreviousReviewHandler } from './tools/handlers/read-previous-review.handler';
+import { FetchTopListHandler } from './tools/handlers/fetch-top-list.handler';
 
 const LLM_CLIENT = 'LLM_CLIENT';
 
@@ -41,13 +53,27 @@ const llmProviderProvider = {
 };
 
 @Module({
-  imports: [TypeOrmModule.forFeature([DailyReviewEntity]), ConfigModule],
+  imports: [TypeOrmModule.forFeature([DailyReviewEntity, MacroEventEntity]), ConfigModule],
   controllers: [DailyReviewController],
   providers: [
     DailyReviewService,
     SnapshotBuilderService,
     TushareClientService,
     DailyReviewProgressGateway,
+    // Stage 0 数据源
+    OvernightMarketService,
+    MacroCalendarService,
+    ReviewHistoryService,
+    // Stage 1 工具与外部检索
+    NewsSearchClient,
+    InvestigatorService,
+    ToolDispatcherService,
+    SearchNewsHandler,
+    LookupStockHandler,
+    LookupConceptHandler,
+    ReadPreviousReviewHandler,
+    FetchTopListHandler,
+    // LLM
     llmClientProvider,
     llmProviderProvider,
   ],

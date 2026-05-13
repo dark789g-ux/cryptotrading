@@ -27,8 +27,9 @@ const props = defineProps<{
   failed: boolean
 }>()
 
-// 阶段固定顺序——与 spec §5 Stage 定义保持一致
-const STAGES: Stage[] = ['validate', 'fetch', 'build', 'reasoning', 'writing', 'finalize']
+// 阶段固定顺序——与 spec §5 Stage 定义保持一致；
+// 'investigate' 为 tool-calling Investigator 阶段（spec 2026-05-13 §3）
+const STAGES: Stage[] = ['validate', 'fetch', 'build', 'investigate', 'reasoning', 'writing', 'finalize']
 
 const currentIndex = computed(() => STAGES.indexOf(props.current))
 const running = '进行中…'

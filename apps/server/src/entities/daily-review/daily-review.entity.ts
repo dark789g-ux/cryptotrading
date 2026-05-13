@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn, Unique, UpdateDateColumn,
 } from 'typeorm';
 import type { StageTiming } from '../../daily-review/daily-review.types';
+import type { EvidencePack, ToolCallLog } from '../../daily-review/types/evidence-pack.types';
 
 export type DailyReviewStatus = 'pending' | 'fetching' | 'generating' | 'completed' | 'failed';
 
@@ -37,6 +38,18 @@ export class DailyReviewEntity {
 
   @Column({ name: 'stage_timings', type: 'jsonb', nullable: true })
   stageTimings: StageTiming[] | null;
+
+  // Stage1 Investigator 产出的结构化证据包，spec § 4.1 / § 4.4
+  @Column({ name: 'evidence_pack', type: 'jsonb', nullable: true })
+  evidencePack: EvidencePack | null;
+
+  // Stage1 Investigator 调用工具的完整日志，spec § 4.4 ToolCallLog
+  @Column({ name: 'investigator_tool_calls', type: 'jsonb', nullable: true })
+  investigatorToolCalls: ToolCallLog[] | null;
+
+  // Stage1 工具调用次数（冗余字段，便于 admin 列表页快速排序/筛选）
+  @Column({ name: 'investigator_tool_call_count', type: 'int', nullable: true })
+  investigatorToolCallCount: number | null;
 
   @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage: string | null;

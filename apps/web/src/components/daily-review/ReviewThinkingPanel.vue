@@ -24,6 +24,47 @@
       {{ errorMsg }}
     </n-alert>
 
+    <!-- 工具调用列表：admin only，默认折叠 -->
+    <div
+      v-if="auth.isAdmin.value && effectiveToolCalls.length > 0"
+      class="tool-calls-wrap"
+      data-testid="tool-calls-section"
+    >
+      <n-collapse>
+        <n-collapse-item
+          :title="`AI 工具调用（${effectiveToolCalls.length} 次）`"
+          name="tool-calls"
+          display-directive="show"
+        >
+          <ul class="tool-call-list">
+            <li
+              v-for="call in effectiveToolCalls"
+              :key="call.callIndex"
+              class="tool-call-item"
+              :class="{ 'is-error': !!call.error }"
+            >
+              <div class="tool-call-head">
+                <span class="tool-call-index">#{{ call.callIndex }}</span>
+                <code class="tool-call-name">{{ call.toolName }}</code>
+                <n-tag
+                  v-if="call.error"
+                  size="small"
+                  type="error"
+                  :bordered="false"
+                  class="tool-call-status"
+                >
+                  失败
+                </n-tag>
+                <span class="tool-call-duration">{{ formatDuration(call.durationMs) }}</span>
+              </div>
+              <div class="tool-call-args">{{ summarizeArgs(call.args) }}</div>
+              <div v-if="call.error" class="tool-call-error">{{ call.error }}</div>
+            </li>
+          </ul>
+        </n-collapse-item>
+      </n-collapse>
+    </div>
+
     <!-- 左右两栏 -->
     <div class="split">
       <!-- 思考过程：admin only -->
@@ -73,12 +114,12 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { NAlert, NButton, NEmpty } from 'naive-ui'
+import { NAlert, NButton, NCollapse, NCollapseItem, NEmpty, NTag } from 'naive-ui'
 import ReviewStageTimeline from './ReviewStageTimeline.vue'
 import ReviewArticleViewer from './ReviewArticleViewer.vue'
 import { useAuth } from '@/composables/hooks/useAuth'
 import { useDailyReviewProgress } from '@/composables/useDailyReviewProgress'
-import type { Stage, StageTiming, TokenUsage } from '@/types/daily-review'
+import type { Stage, StageTiming, TokenUsage, ToolCallEntry } from '@/types/daily-review'
 
 interface ReplayData {
   reasoningContent: string | null
@@ -86,6 +127,7 @@ interface ReplayData {
   stageTimings: StageTiming[] | null
   tokenUsage: TokenUsage | null
   llmModel: string | null
+  toolCalls?: ToolCallEntry[] | null
   status: 'completed' | 'failed'
   errorMessage: string | null
 }
@@ -133,6 +175,25 @@ const effectiveModel = computed<string | null>(() => {
   if (useLive.value) return live!.llmModel.value
   return props.replayData?.llmModel ?? null
 })
+
+const effectiveToolCalls = computed<ToolCallEntry[]>(() => {
+  if (useLive.value) return live!.toolCalls.value
+  return props.replayData?.toolCalls ?? []
+})
+
+function summarizeArgs(args: Record<string, unknown>): string {
+  let json = ''
+  try {
+    json = JSON.stringify(args)
+  } catch {
+    json = '[unserializable]'
+  }
+  return json.length > 100 ? json.slice(0, 100) + '...' : json
+}
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  return `${(ms / 1000).toFixed(1)}s`
+}
 
 const reasoningText = computed<string>(() => {
   if (useLive.value) return live!.reasoning.value
@@ -275,6 +336,63 @@ watch(reasoningText, async () => {
 }
 .meta strong { color: var(--color-text); font-weight: 600; }
 .error-alert { margin-top: 4px; }
+.tool-calls-wrap {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-elevated, #1e2028);
+  padding: 4px 12px;
+}
+.tool-call-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tool-call-item {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--color-surface, #181a20);
+}
+.tool-call-item.is-error {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.08);
+}
+.tool-call-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.tool-call-index {
+  color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.tool-call-name {
+  font-weight: 600;
+  color: var(--color-text);
+}
+.tool-call-status { margin-left: 2px; }
+.tool-call-duration {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.tool-call-args {
+  margin-top: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  word-break: break-all;
+}
+.tool-call-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #ff7875;
+}
 .split {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);

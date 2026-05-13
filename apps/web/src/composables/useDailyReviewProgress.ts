@@ -4,6 +4,7 @@ import type {
   Stage,
   StageTiming,
   TokenUsage,
+  ToolCallEntry,
 } from '@/types/daily-review'
 
 // 每个 stage 对应的进度百分比（fallback：服务端会在 stage 事件里带 percent）
@@ -11,8 +12,9 @@ const STAGE_DEFAULT_PERCENT: Record<Stage, number> = {
   validate: 1,
   fetch: 10,
   build: 30,
-  reasoning: 45,
-  writing: 70,
+  investigate: 40,
+  reasoning: 55,
+  writing: 75,
   finalize: 95,
 }
 
@@ -32,6 +34,7 @@ export function useDailyReviewProgress(tradeDate: string) {
   const stageTimings = ref<StageTiming[]>([])
   const tokenUsage = ref<TokenUsage | null>(null)
   const llmModel = ref<string | null>(null)
+  const toolCalls = ref<ToolCallEntry[]>([])
   const error = ref<string | null>(null)
   const done = ref(false)
 
@@ -84,6 +87,16 @@ export function useDailyReviewProgress(tradeDate: string) {
         break
       case 'usage':
         tokenUsage.value = e.tokens
+        break
+      case 'tool_call':
+        toolCalls.value.push({
+          callIndex: e.callIndex,
+          toolName: e.toolName,
+          args: e.args,
+          durationMs: e.durationMs,
+          error: e.error,
+          ts: e.ts,
+        })
         break
       case 'stage_done':
         stageTimings.value.push({
@@ -156,6 +169,7 @@ export function useDailyReviewProgress(tradeDate: string) {
     stageTimings,
     tokenUsage,
     llmModel,
+    toolCalls,
     error,
     done,
     // 测试用：注入事件、强制刷新；运行时无副作用

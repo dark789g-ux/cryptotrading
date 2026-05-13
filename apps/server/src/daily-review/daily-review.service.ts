@@ -8,9 +8,16 @@ import type { CurrentUser } from '../auth/shared/auth.types';
 import { SnapshotBuilderService } from './snapshot-builder.service';
 import { LLM_PROVIDER, type LlmProvider } from './llm/llm-provider.interface';
 import { DailyReviewProgressGateway } from './daily-review-progress.gateway';
+import { InvestigatorService } from './investigator.service';
 import type { CreateReviewDto } from './dto/create-review.dto';
 import type { ListQueryDto } from './dto/list-query.dto';
-import type { ProgressEvent, Stage, StageTiming } from './daily-review.types';
+import type {
+  EvidencePack,
+  ProgressEvent,
+  Stage,
+  StageTiming,
+  ToolCallLog,
+} from './daily-review.types';
 
 @Injectable()
 export class DailyReviewService {
@@ -23,6 +30,7 @@ export class DailyReviewService {
     private readonly builder: SnapshotBuilderService,
     @Inject(LLM_PROVIDER) private readonly llm: LlmProvider,
     private readonly gateway: DailyReviewProgressGateway,
+    private readonly investigator: InvestigatorService,
   ) {}
 
   async list(q: ListQueryDto) {
@@ -65,6 +73,9 @@ export class DailyReviewService {
     row.stageTimings = null;
     row.errorMessage = null;
     row.llmModel = null;
+    row.evidencePack = null;
+    row.investigatorToolCalls = null;
+    row.investigatorToolCallCount = null;
     await this.repo.save(row);
 
     // 异步触发，不 await
@@ -117,6 +128,12 @@ export class DailyReviewService {
       this.gateway.emit(tradeDate, e);
     };
 
+    // Stage1 产出（落库 + 注入 Writer），Investigator 失败时为 null + degraded=true
+    let evidencePack: EvidencePack | null = null;
+    let investigatorToolCalls: ToolCallLog[] | null = null;
+    let investigatorToolCallCount: number | null = null;
+    let investigatorDegraded = false;
+
     try {
       this.gateway.emit(tradeDate, { type: 'stage', stage: 'validate', percent: 1, ts: Date.now() });
 
@@ -126,10 +143,24 @@ export class DailyReviewService {
       transitionStage('build', 35);
       await this.repo.update(id, { snapshot, status: 'generating' });
 
-      transitionStage('reasoning', 45);
+      // Stage1 · Investigator：tool-calling 自主追查归因；失败返回 null 走 Writer 降级
+      transitionStage('investigate', 42);
+      const investigateResult = await this.investigator.investigate(snapshot, onLlmProgress);
+      if (investigateResult) {
+        evidencePack = investigateResult.evidencePack;
+        investigatorToolCalls = investigateResult.toolCallLog;
+        investigatorToolCallCount = investigateResult.toolCallLog.length;
+      } else {
+        investigatorDegraded = true;
+        this.logger.warn(`[investigator_degraded] tradeDate=${tradeDate}，Writer 走外部归因缺失降级写作`);
+      }
+
+      transitionStage('reasoning', 60);
       const { article, reasoning, tokenUsage } = await this.llm.generateArticle(
         JSON.stringify(snapshot),
         onLlmProgress,
+        // Investigator 失败时显式传 null 触发 Writer prompt 的「外部归因数据缺失」降级分支
+        investigatorDegraded ? null : evidencePack,
       );
 
       transitionStage('finalize', 97);
@@ -146,6 +177,11 @@ export class DailyReviewService {
         tokenUsage,
         llmModel: this.llm.modelName,
         stageTimings,
+        evidencePack,
+        investigatorToolCalls,
+        investigatorToolCallCount,
+        // Investigator 降级时把降级标记塞进 errorMessage（最小侵入，admin 列表页一眼可见）
+        errorMessage: investigatorDegraded ? 'investigator_degraded' : null,
         status: 'completed',
       });
       this.gateway.emit(tradeDate, { type: 'completed', ts: Date.now() });
@@ -157,6 +193,10 @@ export class DailyReviewService {
         errorMessage: err.message,
         reasoningContent: partialReasoning || null,
         stageTimings,
+        // 把 Stage1 已经收集到的证据/工具日志一并落库，便于失败时排查
+        evidencePack,
+        investigatorToolCalls,
+        investigatorToolCallCount,
       });
       this.gateway.emit(tradeDate, { type: 'failed', error: err.message, ts: Date.now() });
     }

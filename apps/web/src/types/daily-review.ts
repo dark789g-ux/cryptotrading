@@ -10,7 +10,29 @@ export interface DailyReviewListItem {
 }
 
 // 与 spec §5 对齐：阶段、token、阶段耗时
-export type Stage = 'validate' | 'fetch' | 'build' | 'reasoning' | 'writing' | 'finalize'
+// 'investigate' 阶段：tool-calling Investigator（spec 2026-05-13 §3）
+export type Stage = 'validate' | 'fetch' | 'build' | 'investigate' | 'reasoning' | 'writing' | 'finalize'
+
+// Tool-calling Agent 单次工具调用进度事件（spec 2026-05-13 §8）
+export interface ToolCallProgressEvent {
+  type: 'tool_call'
+  toolName: string
+  args: Record<string, unknown>
+  durationMs: number
+  callIndex: number
+  error?: string
+  ts: number
+}
+
+// 前端展示用的工具调用条目（由 ToolCallProgressEvent 累积）
+export interface ToolCallEntry {
+  callIndex: number
+  toolName: string
+  args: Record<string, unknown>
+  durationMs: number
+  error?: string
+  ts: number
+}
 
 export interface TokenUsage {
   prompt: number
@@ -35,6 +57,7 @@ export type ProgressEvent =
   | { type: 'stage_done'; stage: Stage; durationMs: number; ts: number }
   | { type: 'completed'; ts: number }
   | { type: 'failed'; error: string; ts: number }
+  | ToolCallProgressEvent
 
 // 详情接口（getDetail）响应——补齐 reasoning / article / timings / usage / model / errorMessage
 export interface DailyReviewDetail {
@@ -61,6 +84,7 @@ export const STAGE_LABEL: Record<StageLabelKey, string> = {
   validate: '校验数据',
   fetch: '采集数据',
   build: '构建快照',
+  investigate: 'AI 追查证据',
   reasoning: 'AI 推理中',
   writing: 'AI 撰写中',
   finalize: '校验中',

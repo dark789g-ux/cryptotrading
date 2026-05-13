@@ -1,11 +1,24 @@
 import { DailyReviewService } from './daily-review.service';
 import { DailyReviewProgressGateway } from './daily-review-progress.gateway';
-import type { ProgressEvent, Stage, StageTiming } from './daily-review.types';
+import type { EvidencePack, ProgressEvent, Stage, StageTiming } from './daily-review.types';
 
 // runPipeline 是 private 但通过 startGeneration 间接触发；这里直接用任意类型访问以聚焦阶段累积逻辑
 
+interface SetupOpts {
+  // Investigator 行为：'pack' 返回 evidencePack；'null' 模拟降级；'throw' 模拟服务自己也炸了（不该发生，留作兜底）
+  investigator?: 'pack' | 'null' | 'throw';
+  evidencePack?: EvidencePack;
+}
+
 describe('DailyReviewService.runPipeline stageTimings 累积', () => {
-  const setup = (llmImpl: (snapshotJson: string, onProgress: (e: ProgressEvent) => void) => Promise<any>) => {
+  const setup = (
+    llmImpl: (
+      snapshotJson: string,
+      onProgress: (e: ProgressEvent) => void,
+      evidencePack?: EvidencePack | null,
+    ) => Promise<any>,
+    opts: SetupOpts = {},
+  ) => {
     const updates: any[] = [];
     const repo: any = {
       findOne: jest.fn().mockResolvedValue(null),
@@ -17,10 +30,38 @@ describe('DailyReviewService.runPipeline stageTimings 累积', () => {
     };
     const ds: any = { query: jest.fn() };
     const builder: any = { buildSnapshot: jest.fn().mockResolvedValue({ generatedAt: '2026-05-12T00:00:00Z' }) };
-    const llm: any = { generateArticle: jest.fn(llmImpl), modelName: 'test-model' };
+    const llmCalls: Array<{ snapshotJson: string; evidencePack: EvidencePack | null | undefined }> = [];
+    const llm: any = {
+      modelName: 'test-model',
+      generateArticle: jest.fn(async (snapshotJson: string, onProgress: any, evidencePack?: any) => {
+        llmCalls.push({ snapshotJson, evidencePack });
+        return llmImpl(snapshotJson, onProgress, evidencePack);
+      }),
+    };
+    const investigator: any = {
+      investigate: jest.fn(async () => {
+        const mode = opts.investigator ?? 'pack';
+        if (mode === 'throw') throw new Error('investigator boom');
+        if (mode === 'null') return null;
+        return {
+          evidencePack: opts.evidencePack ?? { hypotheses: [], yesterdayVerification: null },
+          toolCallLog: [
+            {
+              callIndex: 0,
+              name: 'search_news',
+              args: { query: 'x' },
+              result: { hits: [] },
+              durationMs: 10,
+              startedAt: '2026-05-12T00:00:00.000Z',
+            },
+          ],
+          tokenUsage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+        };
+      }),
+    };
     const gateway = new DailyReviewProgressGateway();
-    const svc = new DailyReviewService(repo, ds, builder, llm, gateway);
-    return { svc, repo, updates, gateway, llm };
+    const svc = new DailyReviewService(repo, ds, builder, llm, gateway, investigator);
+    return { svc, repo, updates, gateway, llm, investigator, llmCalls };
   };
 
   const collectEvents = (gateway: DailyReviewProgressGateway, date: string): ProgressEvent[] => {
@@ -49,7 +90,7 @@ describe('DailyReviewService.runPipeline stageTimings 累积', () => {
     expect(finalUpdate).toBeDefined();
     const timings: StageTiming[] = finalUpdate.patch.stageTimings;
     expect(timings.map((t) => t.stage)).toEqual<Stage[]>([
-      'validate', 'fetch', 'build', 'reasoning', 'writing', 'finalize',
+      'validate', 'fetch', 'build', 'investigate', 'reasoning', 'writing', 'finalize',
     ]);
     // startedAt 应为 ISO UTC 字符串
     for (const t of timings) {
@@ -93,5 +134,71 @@ describe('DailyReviewService.runPipeline stageTimings 累积', () => {
     expect(failUpdate).toBeDefined();
     expect(failUpdate.patch.errorMessage).toMatch(/文章长度异常/);
     expect(Array.isArray(failUpdate.patch.stageTimings)).toBe(true);
+  });
+
+  // ===== Stage1 · Investigator 注入与降级 =====
+
+  it('Investigator 返回 evidencePack 时：传给 Writer + evidencePack/toolCalls 列落库非空', async () => {
+    const fullArticle = 'A'.repeat(3000);
+    const pack: EvidencePack = {
+      hypotheses: [
+        {
+          claim: '半导体板块强势',
+          supportingFacts: [{ type: 'moneyflow', summary: '主力净流入 12 亿' }],
+          relevantSectors: ['半导体'],
+          relevantStocks: ['000725.SZ'],
+        },
+      ],
+      yesterdayVerification: null,
+    };
+    const { svc, updates, llmCalls } = setup(
+      async (_json, onProgress) => {
+        const now = Date.now();
+        onProgress({ type: 'stage_done', stage: 'reasoning', durationMs: 1, ts: now });
+        onProgress({ type: 'stage', stage: 'writing', percent: 70, ts: now });
+        return { article: fullArticle, reasoning: 'r', tokenUsage: null };
+      },
+      { investigator: 'pack', evidencePack: pack },
+    );
+
+    await (svc as any).runPipeline('row-1', '20260512');
+
+    // 1. evidencePack 注入 Writer
+    expect(llmCalls).toHaveLength(1);
+    expect(llmCalls[0].evidencePack).toBe(pack);
+
+    // 2. 落库 evidencePack/toolCalls/count 非空，errorMessage 为 null
+    const finalUpdate = updates.find((u) => u.patch.status === 'completed');
+    expect(finalUpdate).toBeDefined();
+    expect(finalUpdate.patch.evidencePack).toBe(pack);
+    expect(Array.isArray(finalUpdate.patch.investigatorToolCalls)).toBe(true);
+    expect(finalUpdate.patch.investigatorToolCalls.length).toBe(1);
+    expect(finalUpdate.patch.investigatorToolCallCount).toBe(1);
+    expect(finalUpdate.patch.errorMessage).toBeNull();
+  });
+
+  it('Investigator 返回 null 时：evidencePack 落库 null + errorMessage="investigator_degraded"，pipeline 仍 completed', async () => {
+    const fullArticle = 'A'.repeat(3000);
+    const { svc, updates, llmCalls } = setup(
+      async (_json, onProgress) => {
+        const now = Date.now();
+        onProgress({ type: 'stage_done', stage: 'reasoning', durationMs: 1, ts: now });
+        onProgress({ type: 'stage', stage: 'writing', percent: 70, ts: now });
+        return { article: fullArticle, reasoning: 'r', tokenUsage: null };
+      },
+      { investigator: 'null' },
+    );
+
+    await (svc as any).runPipeline('row-1', '20260512');
+
+    // Writer 收到的 evidencePack 应显式为 null（触发 Writer prompt 降级分支）
+    expect(llmCalls[0].evidencePack).toBeNull();
+
+    const finalUpdate = updates.find((u) => u.patch.status === 'completed');
+    expect(finalUpdate).toBeDefined();
+    expect(finalUpdate.patch.evidencePack).toBeNull();
+    expect(finalUpdate.patch.investigatorToolCalls).toBeNull();
+    expect(finalUpdate.patch.investigatorToolCallCount).toBeNull();
+    expect(finalUpdate.patch.errorMessage).toBe('investigator_degraded');
   });
 });
