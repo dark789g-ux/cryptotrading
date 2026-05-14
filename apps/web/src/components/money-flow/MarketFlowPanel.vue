@@ -28,7 +28,7 @@
 defineOptions({ name: 'MarketFlowPanel' })
 
 import { computed, onActivated, onMounted, ref } from 'vue'
-import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowMarketRow } from '@/api/modules/moneyFlow'
+import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowMarketRow } from '@/api/modules/market/moneyFlow'
 import FlowDateControl from './FlowDateControl.vue'
 import FlowKpiCards from './FlowKpiCards.vue'
 import FlowTrendChart from './FlowTrendChart.vue'

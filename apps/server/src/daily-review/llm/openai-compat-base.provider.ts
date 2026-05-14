@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
-import { SYSTEM_PROMPT, buildUserPrompt } from '../prompts/article-prompt';
+import { SYSTEM_PROMPT, buildUserPrompt } from './prompts/article-prompt';
 import type {
   EvidencePack,
   ProgressEvent,
   ToolCallLog,
   TokenUsage,
-} from '../daily-review.types';
+} from '../types/daily-review.types';
 import type {
   LlmProvider,
   RunToolLoopArgs,

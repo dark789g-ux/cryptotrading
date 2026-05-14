@@ -88,7 +88,7 @@ import { useASharesQuery } from './a-shares/useASharesQuery'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
-import { strategyConditionsApi } from '@/api/modules/strategyConditions'
+import { strategyConditionsApi } from '@/api/modules/strategy/strategyConditions'
 
 const message = useMessage()
 const {

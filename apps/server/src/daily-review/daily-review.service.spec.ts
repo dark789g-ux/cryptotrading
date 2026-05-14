@@ -1,6 +1,6 @@
 import { DailyReviewService } from './daily-review.service';
 import { DailyReviewProgressGateway } from './daily-review-progress.gateway';
-import type { EvidencePack, ProgressEvent, Stage, StageTiming } from './daily-review.types';
+import type { EvidencePack, ProgressEvent, Stage, StageTiming } from './types/daily-review.types';
 
 // runPipeline 是 private 但通过 startGeneration 间接触发；这里直接用任意类型访问以聚焦阶段累积逻辑
 

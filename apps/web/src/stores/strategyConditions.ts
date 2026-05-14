@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { strategyConditionsApi } from '../api/modules/strategyConditions';
-import type { StrategyCondition, RunProgress, LastRunStatus } from '../api/modules/strategyConditions';
+import { strategyConditionsApi } from '../api/modules/strategy/strategyConditions';
+import type { StrategyCondition, RunProgress, LastRunStatus } from '../api/modules/strategy/strategyConditions';
 
 export const useStrategyConditionsStore = defineStore('strategyConditions', () => {
   const conditions = ref<StrategyCondition[]>([]);

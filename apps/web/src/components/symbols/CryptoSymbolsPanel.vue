@@ -135,7 +135,7 @@ import { createCryptoColumnDefs } from './cryptoColumns'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
 import { useWatchlistTagFilter } from '@/composables/symbols/useWatchlistTagFilter'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
-import { strategyConditionsApi } from '@/api/modules/strategyConditions'
+import { strategyConditionsApi } from '@/api/modules/strategy/strategyConditions'
 
 const message = useMessage()
 

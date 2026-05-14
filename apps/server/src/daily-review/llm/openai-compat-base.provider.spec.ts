@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { OpenAiCompatLlmProvider } from './openai-compat-base.provider';
-import type { ProgressEvent } from '../daily-review.types';
+import type { ProgressEvent } from '../types/daily-review.types';
 
 // 测试基类共享逻辑：在测试文件内部声明最小子类，避免依赖任何已废弃的 provider 实现
 class TestProvider extends OpenAiCompatLlmProvider {

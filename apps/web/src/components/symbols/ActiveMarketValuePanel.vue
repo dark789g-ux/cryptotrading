@@ -27,8 +27,8 @@ import { computed, onActivated, ref } from 'vue'
 import { NButton, NCard, NEmpty, NIcon, NSpin, useMessage } from 'naive-ui'
 import { SyncOutline } from '@vicons/ionicons5'
 import KlineChart from '@/components/kline/KlineChart.vue'
-import { oamvApi, type OamvData } from '@/api/modules/oamv'
-import type { KlineChartBar } from '@/api/modules/symbols'
+import { oamvApi, type OamvData } from '@/api/modules/market/oamv'
+import type { KlineChartBar } from '@/api/modules/market/symbols'
 
 const message = useMessage()
 const loading = ref(false)

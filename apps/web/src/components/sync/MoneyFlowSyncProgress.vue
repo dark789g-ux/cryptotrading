@@ -41,7 +41,7 @@
 import { computed } from 'vue'
 import { NCollapse, NCollapseItem, NProgress } from 'naive-ui'
 import type { useSSE } from '@/composables/hooks/useSSE'
-import type { MoneyFlowSyncSummary } from '@/api/modules/moneyFlow'
+import type { MoneyFlowSyncSummary } from '@/api/modules/market/moneyFlow'
 
 const props = defineProps<{
   visible: boolean

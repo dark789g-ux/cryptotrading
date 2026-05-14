@@ -1,5 +1,5 @@
 import { DailyReviewProgressGateway } from './daily-review-progress.gateway';
-import type { ProgressEvent } from './daily-review.types';
+import type { ProgressEvent } from './types/daily-review.types';
 
 describe('DailyReviewProgressGateway', () => {
   let gw: DailyReviewProgressGateway;

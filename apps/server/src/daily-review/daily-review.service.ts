@@ -5,10 +5,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { DailyReviewEntity } from '../entities/daily-review/daily-review.entity';
 import type { CurrentUser } from '../auth/shared/auth.types';
-import { SnapshotBuilderService } from './snapshot-builder.service';
+import { SnapshotBuilderService } from './snapshot/snapshot-builder.service';
 import { LLM_PROVIDER, type LlmProvider } from './llm/llm-provider.interface';
 import { DailyReviewProgressGateway } from './daily-review-progress.gateway';
-import { InvestigatorService } from './investigator.service';
+import { InvestigatorService } from './investigation/investigator.service';
 import type { CreateReviewDto } from './dto/create-review.dto';
 import type { ListQueryDto } from './dto/list-query.dto';
 import type {
@@ -17,7 +17,7 @@ import type {
   Stage,
   StageTiming,
   ToolCallLog,
-} from './daily-review.types';
+} from './types/daily-review.types';
 
 @Injectable()
 export class DailyReviewService {

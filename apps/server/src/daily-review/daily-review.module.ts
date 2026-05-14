@@ -6,23 +6,23 @@ import { DailyReviewEntity } from '../entities/daily-review/daily-review.entity'
 import { MacroEventEntity } from '../entities/macro-event/macro-event.entity';
 import { DailyReviewController } from './daily-review.controller';
 import { DailyReviewService } from './daily-review.service';
-import { SnapshotBuilderService } from './snapshot-builder.service';
+import { SnapshotBuilderService } from './snapshot/snapshot-builder.service';
 import { TushareClientService } from '../market-data/a-shares/services/tushare-client.service';
 import { DailyReviewProgressGateway } from './daily-review-progress.gateway';
 import { LLM_PROVIDER } from './llm/llm-provider.interface';
 import { DeepseekLlmProvider } from './llm/deepseek.provider';
 import { MimoLlmProvider } from './llm/mimo.provider';
-import { OvernightMarketService } from './overnight/overnight-market.service';
-import { MacroCalendarService } from './macro/macro-calendar.service';
-import { ReviewHistoryService } from './history/review-history.service';
-import { NewsSearchClient } from './news/news-search.client';
-import { InvestigatorService } from './investigator.service';
-import { ToolDispatcherService } from './tools/tool-dispatcher.service';
-import { SearchNewsHandler } from './tools/handlers/search-news.handler';
-import { LookupStockHandler } from './tools/handlers/lookup-stock.handler';
-import { LookupConceptHandler } from './tools/handlers/lookup-concept.handler';
-import { ReadPreviousReviewHandler } from './tools/handlers/read-previous-review.handler';
-import { FetchTopListHandler } from './tools/handlers/fetch-top-list.handler';
+import { OvernightMarketService } from './snapshot/overnight/overnight-market.service';
+import { MacroCalendarService } from './snapshot/macro/macro-calendar.service';
+import { ReviewHistoryService } from './snapshot/history/review-history.service';
+import { NewsSearchClient } from './investigation/news/news-search.client';
+import { InvestigatorService } from './investigation/investigator.service';
+import { ToolDispatcherService } from './investigation/tools/tool-dispatcher.service';
+import { SearchNewsHandler } from './investigation/tools/handlers/search-news.handler';
+import { LookupStockHandler } from './investigation/tools/handlers/lookup-stock.handler';
+import { LookupConceptHandler } from './investigation/tools/handlers/lookup-concept.handler';
+import { ReadPreviousReviewHandler } from './investigation/tools/handlers/read-previous-review.handler';
+import { FetchTopListHandler } from './investigation/tools/handlers/fetch-top-list.handler';
 
 const LLM_CLIENT = 'LLM_CLIENT';
 

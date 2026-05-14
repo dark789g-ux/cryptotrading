@@ -24,13 +24,13 @@ const routes: any[] = [
   {
     path: '/backtest',
     name: 'backtest',
-    component: () => import('../views/BacktestView.vue'),
+    component: () => import('../views/strategy/BacktestView.vue'),
     meta: { title: '回测' },
   },
   {
     path: '/symbols',
     name: 'symbols',
-    component: () => import('../views/SymbolsView.vue'),
+    component: () => import('../views/market/SymbolsView.vue'),
     meta: { title: '标的' },
   },
   {
@@ -42,43 +42,43 @@ const routes: any[] = [
   {
     path: '/watchlists',
     name: 'watchlists',
-    component: () => import('../views/WatchlistsView.vue'),
+    component: () => import('../views/market/WatchlistsView.vue'),
     meta: { title: '自选列表' },
   },
   {
     path: '/tools',
     name: 'tools',
-    component: () => import('../views/ToolsView.vue'),
+    component: () => import('../views/system/ToolsView.vue'),
     meta: { title: '工具' },
   },
   {
     path: '/settings',
     name: 'settings',
-    component: () => import('../views/SettingsView.vue'),
+    component: () => import('../views/system/SettingsView.vue'),
     meta: { title: '设置' },
   },
   {
     path: '/strategy-conditions',
     name: 'strategy-conditions',
-    component: () => import('../views/StrategyConditionsView.vue'),
+    component: () => import('../views/strategy/StrategyConditionsView.vue'),
     meta: { title: '策略条件' },
   },
   {
     path: '/money-flow',
     name: 'money-flow',
-    component: () => import('../views/MoneyFlowView.vue'),
+    component: () => import('../views/market/MoneyFlowView.vue'),
     meta: { title: '资金流向' },
   },
   {
     path: '/daily-review',
     name: 'daily-review',
-    component: () => import('../views/DailyReviewView.vue'),
+    component: () => import('../views/strategy/DailyReviewView.vue'),
     meta: { title: '每日复盘' },
   },
   {
     path: '/daily-review/:tradeDate',
     name: 'daily-review-detail',
-    component: () => import('../views/DailyReviewDetailView.vue'),
+    component: () => import('../views/strategy/DailyReviewDetailView.vue'),
     meta: { title: '复盘详情' },
   },
 ]

@@ -42,7 +42,7 @@ defineOptions({ name: 'IndustryFlowPanel' })
 import { computed, h, onActivated, onMounted, ref } from 'vue'
 import { NButton, NDataTable } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowIndustryRow } from '@/api/modules/moneyFlow'
+import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowIndustryRow } from '@/api/modules/market/moneyFlow'
 import FlowDateControl from './FlowDateControl.vue'
 import FlowKpiCards from './FlowKpiCards.vue'
 import FlowTrendModal from './FlowTrendModal.vue'

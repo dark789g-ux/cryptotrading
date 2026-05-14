@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { OpenAiCompatLlmProvider } from './openai-compat-base.provider';
-import type { ProgressEvent, ToolCallLog } from '../daily-review.types';
+import type { ProgressEvent, ToolCallLog } from '../types/daily-review.types';
 import type { ToolSchema } from './llm-provider.interface';
 
 // 测试用最小子类（与 openai-compat-base.provider.spec.ts 中的 TestProvider 同构，但作用域独立）

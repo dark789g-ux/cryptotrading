@@ -47,7 +47,7 @@ defineOptions({ name: 'StockFlowPanel' })
 import { computed, h, onActivated, onMounted, ref } from 'vue'
 import { NButton, NDataTable, NInput } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowStockRow } from '@/api/modules/moneyFlow'
+import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowStockRow } from '@/api/modules/market/moneyFlow'
 import FlowDateControl from './FlowDateControl.vue'
 import FlowKpiCards from './FlowKpiCards.vue'
 import FlowTrendModal from './FlowTrendModal.vue'

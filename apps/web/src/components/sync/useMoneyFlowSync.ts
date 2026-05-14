@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
-import { moneyFlowApi } from '@/api/modules/moneyFlow'
-import type { MoneyFlowSyncSummary, MoneyFlowSyncResult } from '@/api/modules/moneyFlow'
+import { moneyFlowApi } from '@/api/modules/market/moneyFlow'
+import type { MoneyFlowSyncSummary, MoneyFlowSyncResult } from '@/api/modules/market/moneyFlow'
 import { useSSE } from '@/composables/hooks/useSSE'
 
 type SyncMode = 'incremental' | 'overwrite'

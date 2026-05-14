@@ -33,6 +33,13 @@ services:
       DB_NAME: cryptodb
       SERVER_PORT: 3000
       NODE_ENV: production
+      # daily-review tool-calling pipeline；key 通过宿主机环境注入，避免落到镜像里
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
+      DAILY_REVIEW_TOOL_BUDGET: ${DAILY_REVIEW_TOOL_BUDGET:-8}
+      DAILY_REVIEW_TOOL_TIMEOUT_MS: ${DAILY_REVIEW_TOOL_TIMEOUT_MS:-15000}
+      DAILY_REVIEW_INVESTIGATOR_TIMEOUT_MS: ${DAILY_REVIEW_INVESTIGATOR_TIMEOUT_MS:-300000}
+      DAILY_REVIEW_OVERNIGHT_ENABLED: ${DAILY_REVIEW_OVERNIGHT_ENABLED:-true}
     depends_on:
       postgres:
         condition: service_healthy

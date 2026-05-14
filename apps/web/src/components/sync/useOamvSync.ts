@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import { oamvApi } from '@/api/modules/oamv'
+import { oamvApi } from '@/api/modules/market/oamv'
 
 type SyncMode = 'incremental' | 'overwrite'
 

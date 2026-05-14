@@ -73,7 +73,7 @@ import { ref, computed, watch } from 'vue';
 import { NForm, NFormItem, NInput, NSelect, NInputNumber, NButton, NIcon, NSpace, NDivider, NRadioGroup, NRadioButton, useMessage } from 'naive-ui';
 import type { SelectOption } from 'naive-ui';
 import { Add as AddIcon, Trash as TrashIcon } from '@vicons/ionicons5';
-import type { StrategyConditionItem } from '../../api/modules/strategyConditions';
+import type { StrategyConditionItem } from '../../api/modules/strategy/strategyConditions';
 
 const message = useMessage()
 

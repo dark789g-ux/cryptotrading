@@ -2,7 +2,7 @@ import {
   Column, CreateDateColumn, Entity, Index,
   PrimaryGeneratedColumn, Unique, UpdateDateColumn,
 } from 'typeorm';
-import type { StageTiming } from '../../daily-review/daily-review.types';
+import type { StageTiming } from '../../daily-review/types/daily-review.types';
 import type { EvidencePack, ToolCallLog } from '../../daily-review/types/evidence-pack.types';
 
 export type DailyReviewStatus = 'pending' | 'fetching' | 'generating' | 'completed' | 'failed';

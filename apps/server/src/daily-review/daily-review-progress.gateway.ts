@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ReplaySubject, Observable } from 'rxjs';
 import { filter } from 'rxjs/operators';
-import type { ProgressEvent } from './daily-review.types';
+import type { ProgressEvent } from './types/daily-review.types';
 
 // 60s 保留窗口的用途：让"完成瞬间用户刚跳转过来"仍能从 ReplaySubject 拿到完整历史
 const DISPOSE_DELAY_MS = 60_000;
