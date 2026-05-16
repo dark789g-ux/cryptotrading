@@ -124,7 +124,9 @@ function mapMoneyFlowBars(rows: MoneyFlowStockRow[]): MoneyFlowBar[] {
 
 ### 4.2 改动文件：`apps/web/src/components/symbols/a-shares/AShareDetailDrawer.vue`
 
-变化点（保持现有结构，仅替换数据加载路径）：
+**保留现有 UX**：`loading` 自旋、`try/catch + message.error` 错误提示、`show=false` 清空数据。
+
+**watch 范式调整**：现有单 watch `[show, tsCode, priceMode]` 无法区分"row 变 vs priceMode 变"，要兑现 § 11 "priceMode 不重拉资金流" 硬约束，**拆成两个 watch**：
 
 ```ts
 import {
@@ -133,23 +135,68 @@ import {
 } from './aShareDetailFetcher'
 import type { MoneyFlowBar } from '@/api/modules/market/symbols'
 
+const loading = ref(false)
 const klineRows = ref<AShareKlineBar[]>([])
 const moneyFlowRows = ref<MoneyFlowBar[]>([])
 
-// 替换原 aSharesApi.getKlines 直调
-watch(() => props.row, async (row) => {
-  if (!row) return
-  const result = await fetchAShareDetail(row.tsCode, 360, props.priceMode)
-  klineRows.value = result.kline
-  moneyFlowRows.value = result.moneyFlow
-}, { immediate: true })
+/** Drawer 打开 / row 切换：并行拉 K 线 + 资金流 */
+async function loadDetail() {
+  const tsCode = props.row?.tsCode
+  if (!tsCode) return
+  loading.value = true
+  klineRows.value = []
+  moneyFlowRows.value = []
+  try {
+    const result = await fetchAShareDetail(tsCode, 360, props.priceMode)
+    klineRows.value = result.kline
+    moneyFlowRows.value = result.moneyFlow
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : String(err))
+  } finally {
+    loading.value = false
+  }
+}
 
-// priceMode 切换：只重拉 K 线，资金流不动
-watch(() => props.priceMode, async (mode) => {
-  if (!props.row) return
-  klineRows.value = await fetchAShareKlineOnly(props.row.tsCode, 360, mode)
-})
+/** priceMode 切换：只重拉 K 线，资金流保留 */
+async function reloadKlineOnly() {
+  const tsCode = props.row?.tsCode
+  if (!tsCode) return
+  loading.value = true
+  try {
+    klineRows.value = await fetchAShareKlineOnly(tsCode, 360, props.priceMode)
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : String(err))
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(
+  () => [props.show, props.row?.tsCode] as const,
+  ([show, tsCode]) => {
+    if (!show) {
+      klineRows.value = []
+      moneyFlowRows.value = []
+      return
+    }
+    if (!tsCode) return
+    void loadDetail()
+  },
+)
+
+watch(
+  () => props.priceMode,
+  () => {
+    if (!props.show || !props.row?.tsCode) return
+    void reloadKlineOnly()
+  },
+)
 ```
+
+替换说明：
+- 删除原 `loadKlines()` 函数，由 `loadDetail()` 接管，并新增 `reloadKlineOnly()`。
+- `klineRows` / `moneyFlowRows` 在 `show=false` 与 `loadDetail` 开头**双重清空**——避免上一只股票的资金流柱漏到新股票视图里。
+- `priceMode` 切换路径不清空 `moneyFlowRows`，从用户视角"副图保持显示，主图复权方式平滑切换"。
 
 模板：
 
@@ -167,7 +214,7 @@ watch(() => props.priceMode, async (mode) => {
 
 | 场景 | 行为 |
 |---|---|
-| 资金流 API 返回 0 行（北交所新股 / 停牌 / 未同步） | `moneyFlowRows = []`，`<KlineChart :money-flow="[]">` 不渲染副图 grid（`klineChartOptions.ts:267-291` 既有保护）。Drawer 正常显示主图，不报错不提示。 |
+| 资金流 API 返回 0 行（北交所新股 / 停牌 / 未同步） | `moneyFlowRows = []`，`<KlineChart :money-flow="[]">` 不渲染副图 grid（`apps/web/src/composables/kline/klineChartOptions.ts:267-291` 既有保护）。Drawer 正常显示主图，不报错不提示。 |
 | K 线 360 但资金流仅返回 200 行（部分日期未发布） | 按 trade_date 对齐，缺失日期 bar 留空（既有逻辑）。 |
 | 任一 API 失败（reject） | 沿用现有 Drawer try/catch，整体加载失败提示与现状一致；**不**退化为"K 线显示但副图静默空白"——避免与"合法 0 行"产生混淆。 |
 | priceMode 切换时正在加载 | watch 顺序触发，最后一次写入获胜；不引入 race-cancel 机制（YAGNI）。 |
@@ -257,8 +304,8 @@ watch(() => props.priceMode, async (mode) => {
 | `apps/server/src/daily-review/investigation/tools/handlers/lookup-stock.handler.ts` | 125 | 注释 `"主力净流入"排名` | `"资金净流入"排名` |
 | `apps/server/src/daily-review/daily-review.service.spec.ts` | 147 | `summary: '主力净流入 12 亿'` | `summary: '资金净流入 12 亿'` |
 | `apps/server/src/daily-review/investigation/investigator.service.spec.ts` | 31 | 同上 | 同上 |
-| `apps/server/src/entities/money-flow/money-flow-stock.entity.ts` | netAmount 字段注释（若含"主力净流入"） | 含该字样的注释 | `资金净流入（万元，未转亿元）` |
-| `apps/server/src/market-data/money-flow/money-flow-sync.service.ts` | 个股段落注释（若含"主力净流入"） | 含该字样的注释 | `资金净流入（万元）` |
+
+（Spec 自审时已 spot-check：`money-flow-stock.entity.ts` 与 `money-flow-sync.service.ts` 当前**不含**"主力净流入"字样，无需修改。）
 
 ### 6.2 显式不改（KEEP）
 
@@ -333,7 +380,7 @@ SyncView Card 3「资金流向」已暴露个股维度同步入口（`POST /mone
 | Task | 范围 | 涉及目录 | 预估改动 |
 |---|---|---|---|
 | **α — A 股副图主线** | 新建 fetcher + 改 Drawer + 单测 | `apps/web/src/components/symbols/a-shares/*`（含新建） | 1 新文件 + 1 改文件 + 1 spec ≈ 200 行 |
-| **β — 重命名 & 文案清理** | `mainNetIn → netIn` + "主力净流入" → "资金净流入"（NEED-CHANGE 项） | `apps/server/src/daily-review/**` + `apps/web/src/components/daily-review/ReviewMoneyFlowChart.vue` + `apps/web/src/components/money-flow/{MarketFlowPanel.vue, money-flow.types.ts}` + 后端 entity/sync 注释 + 相关 spec | 14 处接口/handler + 9 处测试 + 7 处文案 ≈ 50-80 行散点改动 |
+| **β — 重命名 & 文案清理** | `mainNetIn → netIn` + "主力净流入" → "资金净流入"（NEED-CHANGE 项） | `apps/server/src/daily-review/**` + `apps/web/src/components/daily-review/ReviewMoneyFlowChart.vue` + `apps/web/src/components/money-flow/{MarketFlowPanel.vue, money-flow.types.ts}` + 相关 spec | 13 处接口/handler/SQL 别名 + 9 处测试 + 5 处文案 ≈ 50 行散点改动 |
 | **γ — 同步入口验证** | 手动执行 SyncView 同步 + 跑 SQL 确认 | 无代码 | 0 行（产出验收记录） |
 
 **文件域非冲突边界**：
