@@ -2,7 +2,7 @@ import type { MarkPointComponentOption } from 'echarts'
 import { colors } from '../../styles/tokens'
 import { CANDLE_COLORS, TOOLTIP_STYLE, TRADE_COLORS } from './chartColors'
 import { fmt, fmtCompact } from './klineChartUtils'
-import type { KlineChartBar, TradeOnBar } from '@/api'
+import type { KlineChartBar, MoneyFlowBar, TradeOnBar } from '@/api'
 
 const MARK_BASE_GAP = 0.008
 const MARK_STACK_PX = 14
@@ -113,7 +113,12 @@ export function buildMarkPoints(data: KlineChartBar[], currentTs: string): MarkP
   return points
 }
 
-export function buildTooltip(row: KlineChartBar, idx: number, data: KlineChartBar[]): string {
+export function buildTooltip(
+  row: KlineChartBar,
+  idx: number,
+  data: KlineChartBar[],
+  moneyFlow?: MoneyFlowBar[],
+): string {
   const open = Number(row.open)
   const high = Number(row.high)
   const low = Number(row.low)
@@ -124,6 +129,19 @@ export function buildTooltip(row: KlineChartBar, idx: number, data: KlineChartBa
   const sign = diff >= 0 ? '+' : ''
   const color = diff >= 0 ? CANDLE_COLORS.up : CANDLE_COLORS.down
   const tradesHtml = row.trades?.length ? buildTradesHtml(row.trades) : ''
+
+  // 资金净流入仅在 moneyFlow 当 bar 命中时显示一行，颜色按符号
+  let flowHtml = ''
+  if (moneyFlow && moneyFlow.length) {
+    const hit = moneyFlow.find((r) => r.trade_date === row.open_time)
+    if (hit && Number.isFinite(Number(hit.net_amount))) {
+      const v = Number(hit.net_amount)
+      const flowSign = v >= 0 ? '+' : ''
+      const flowColor = v >= 0 ? CANDLE_COLORS.up : CANDLE_COLORS.down
+      flowHtml = `<div style="color:${flowColor}">资金净流入：${flowSign}${v.toFixed(2)} 亿</div>`
+    }
+  }
+
   return `<div style="font-size:12px;line-height:1.6;max-width:min(360px,85vw);word-break:break-word;overflow-wrap:break-word;box-sizing:border-box">
     <div style="margin-bottom:4px;color:${TOOLTIP_STYLE.muted}">${row.open_time ?? ''}</div>
     <div>Open: ${fmt(open, 4)}</div>
@@ -132,6 +150,7 @@ export function buildTooltip(row: KlineChartBar, idx: number, data: KlineChartBa
     <div>Close: ${fmt(close, 4)}</div>
     <div>Volume: ${fmtCompact(row.volume)}</div>
     <div style="color:${color}">Change: ${sign}${fmt(diff, 4)} (${sign}${pct.toFixed(2)}%)</div>
+    ${flowHtml}
     ${tradesHtml}
   </div>`
 }

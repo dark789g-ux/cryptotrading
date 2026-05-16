@@ -21,6 +21,11 @@ export interface BrickChartPoint {
   xg: boolean
 }
 
+export interface MoneyFlowBar {
+  trade_date: string   // 'YYYYMMDD'，与 KlineChartBar.open_time 同源
+  net_amount: number   // 单位亿元（后端 toYi() 已转）
+}
+
 export interface KlineChartBar {
   open_time: string
   open: number

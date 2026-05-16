@@ -17,6 +17,13 @@ const GRAPHIC_KDJ = { id: 'kdj-values', type: 'text' as const, left: '9%', top: 
 const GRAPHIC_MACD = { id: 'macd-values', type: 'text' as const, left: '9%', top: '73%', z: 100 }
 const GRAPHIC_BRICK = { id: 'brick-values', type: 'text' as const, left: '9%', top: '86%', z: 100 }
 
+// 资金流副图存在时整体上移，与 klineChartOptions GRID_WITH_FLOW 对齐
+const GRAPHIC_MA_FLOW = { id: 'ma-values', type: 'text' as const, left: '9%', top: '6%', z: 100 }
+const GRAPHIC_VOLUME_FLOW = { id: 'volume-values', type: 'text' as const, left: '9%', top: '38%', z: 100 }
+const GRAPHIC_KDJ_FLOW = { id: 'kdj-values', type: 'text' as const, left: '9%', top: '48%', z: 100 }
+const GRAPHIC_MACD_FLOW = { id: 'macd-values', type: 'text' as const, left: '9%', top: '58%', z: 100 }
+const GRAPHIC_BRICK_FLOW = { id: 'brick-values', type: 'text' as const, left: '9%', top: '68%', z: 100 }
+
 const buildMaText = (idx: number, data: KlineChartBar[]) => {
   const row = idx >= 0 && idx < data.length ? data[idx] : undefined
   const prev = idx > 0 && idx - 1 < data.length ? data[idx - 1] : undefined
@@ -97,12 +104,21 @@ const buildMacdText = (idx: number, data: KlineChartBar[]) => {
   return { text, rich, ...GRAPHIC_BG }
 }
 
-export function buildGraphics(idx: number, data: KlineChartBar[]): GraphicComponentOption[] {
+export function buildGraphics(
+  idx: number,
+  data: KlineChartBar[],
+  hasFlow = false,
+): GraphicComponentOption[] {
+  const ma = hasFlow ? GRAPHIC_MA_FLOW : GRAPHIC_MA
+  const vol = hasFlow ? GRAPHIC_VOLUME_FLOW : GRAPHIC_VOLUME
+  const kdj = hasFlow ? GRAPHIC_KDJ_FLOW : GRAPHIC_KDJ
+  const macd = hasFlow ? GRAPHIC_MACD_FLOW : GRAPHIC_MACD
+  const brick = hasFlow ? GRAPHIC_BRICK_FLOW : GRAPHIC_BRICK
   return [
-    { ...GRAPHIC_MA, style: buildMaText(idx, data) },
-    { ...GRAPHIC_VOLUME, style: buildVolumeText(idx, data) },
-    { ...GRAPHIC_KDJ, style: buildKdjText(idx, data) },
-    { ...GRAPHIC_MACD, style: buildMacdText(idx, data) },
-    { ...GRAPHIC_BRICK, style: buildBrickText(idx, data) },
+    { ...ma, style: buildMaText(idx, data) },
+    { ...vol, style: buildVolumeText(idx, data) },
+    { ...kdj, style: buildKdjText(idx, data) },
+    { ...macd, style: buildMacdText(idx, data) },
+    { ...brick, style: buildBrickText(idx, data) },
   ]
 }

@@ -6,7 +6,7 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { buildKlineChartGraphics, buildKlineChartOption } from '../../composables/kline/klineChartOptions'
-import type { KlineChartBar } from '@/api'
+import type { KlineChartBar, MoneyFlowBar } from '@/api'
 import { useTheme } from '../../composables/hooks/useTheme'
 
 const props = withDefaults(
@@ -15,11 +15,13 @@ const props = withDefaults(
     currentTs?: string
     sliderStart?: number
     height?: string | number
+    moneyFlow?: MoneyFlowBar[]
   }>(),
   {
     currentTs: '',
     sliderStart: 0,
     height: '600px',
+    moneyFlow: undefined,
   },
 )
 
@@ -68,7 +70,7 @@ function cancelPendingGraphicUpdate() {
   pendingGraphicFrame = null
 }
 
-function scheduleGraphicUpdate(idx: number, data: KlineChartBar[]) {
+function scheduleGraphicUpdate(idx: number, data: KlineChartBar[], hasFlow: boolean) {
   if (idx === lastGraphicIdx || idx === pendingGraphicIdx) return
 
   pendingGraphicIdx = idx
@@ -82,7 +84,7 @@ function scheduleGraphicUpdate(idx: number, data: KlineChartBar[]) {
 
     lastGraphicIdx = nextIdx
     chartInstance?.setOption(
-      { graphic: buildKlineChartGraphics(nextIdx, data) },
+      { graphic: buildKlineChartGraphics(nextIdx, data, hasFlow) },
       { lazyUpdate: true, silent: true },
     )
   })
@@ -104,12 +106,14 @@ async function renderChart() {
 
   disposeChart()
   chartInstance = echarts.init(el)
+  const hasFlow = Array.isArray(props.moneyFlow) && props.moneyFlow.length > 0
   chartInstance.setOption(
     buildKlineChartOption({
       data,
       echartsTheme: echartsTheme.value,
       currentTs: props.currentTs,
       sliderStart: props.sliderStart,
+      moneyFlow: props.moneyFlow,
     }),
   )
 
@@ -120,12 +124,12 @@ async function renderChart() {
     const info = event.axesInfo?.find((item) => item.axisDim === 'x')
     const idx = typeof info?.value === 'number' ? info.value : lastIdx
     const safeIdx = idx >= 0 && idx < data.length ? idx : lastIdx
-    scheduleGraphicUpdate(safeIdx, data)
+    scheduleGraphicUpdate(safeIdx, data, hasFlow)
   })
 }
 
 watch(
-  () => [props.data, props.currentTs, props.sliderStart, echartsTheme.value] as const,
+  () => [props.data, props.currentTs, props.sliderStart, props.moneyFlow, echartsTheme.value] as const,
   () => {
     void renderChart()
   },

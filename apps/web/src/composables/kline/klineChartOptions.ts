@@ -11,15 +11,17 @@ import type {
 } from 'echarts'
 import { colors } from '../../styles/tokens'
 import { ANCHOR_LINE_COLOR, BRICK_COLORS, CANDLE_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS } from './chartColors'
+import { buildDataZoom, buildGrid, buildLegend, buildXAxes, buildYAxes } from './klineChartLayout'
 import { buildGraphics } from './klineChartOverlay'
 import { buildMarkPoints, buildTooltip } from './klineChartTooltip'
-import type { KlineChartBar } from '@/api'
+import type { KlineChartBar, MoneyFlowBar } from '@/api'
 
 interface BuildKlineChartOptionsParams {
   data: KlineChartBar[]
   echartsTheme: Record<string, unknown>
   currentTs?: string
   sliderStart?: number
+  moneyFlow?: MoneyFlowBar[]
 }
 
 type BrickRangeDatum = [number, number, number]
@@ -72,7 +74,9 @@ export function buildKlineChartOption({
   echartsTheme,
   currentTs = '',
   sliderStart = 0,
+  moneyFlow,
 }: BuildKlineChartOptionsParams): EChartsOption {
+  const hasFlow = Array.isArray(moneyFlow) && moneyFlow.length > 0
   const times = data.map((row) => row.open_time)
   const klines = data.map((row) => [row.open, row.close, row.low, row.high])
   const lastIdx = data.length - 1
@@ -260,6 +264,32 @@ export function buildKlineChartOption({
     barMaxWidth: 12,
   }
 
+  // 资金流副图：按 trade_date → KlineChartBar.open_time Map 对齐；缺失返回 null
+  let moneyFlowSeries: BarSeriesOption | null = null
+  if (hasFlow) {
+    const flowMap = new Map<string, number>(
+      (moneyFlow as MoneyFlowBar[]).map((r) => [r.trade_date, r.net_amount]),
+    )
+    const flowData: BarSeriesOption['data'] = data.map((row) => {
+      const v = flowMap.get(row.open_time)
+      if (v == null) return null
+      return {
+        value: v,
+        itemStyle: {
+          color: v >= 0 ? CANDLE_COLORS.up : CANDLE_COLORS.down,
+        },
+      }
+    })
+    moneyFlowSeries = {
+      name: 'FLOW',
+      type: 'bar',
+      xAxisIndex: 5,
+      yAxisIndex: 5,
+      data: flowData,
+      barMaxWidth: 12,
+    }
+  }
+
   const series: SeriesOption[] = [
     candleSeries,
     ...maSeries,
@@ -270,6 +300,7 @@ export function buildKlineChartOption({
     macdPositiveSeries,
     macdNegativeSeries,
     brickSeries,
+    ...(moneyFlowSeries ? [moneyFlowSeries] : []),
   ]
 
   return {
@@ -288,106 +319,24 @@ export function buildKlineChartOption({
         const idx = (first as { dataIndex: number }).dataIndex
         const row = data[idx]
         if (!row) return ''
-        return buildTooltip(row, idx, data)
+        return buildTooltip(row, idx, data, moneyFlow)
       },
     },
     axisPointer: { link: [{ xAxisIndex: 'all' }] },
-    legend: [
-      {
-        orient: 'vertical',
-        right: 12,
-        top: '8%',
-        data: ['K', 'MA5', 'MA30', 'MA60', 'MA120', 'MA240'],
-        textStyle: { fontSize: 12, color: colors.text.DEFAULT },
-        itemWidth: 14,
-        itemHeight: 8,
-      },
-      {
-        orient: 'vertical',
-        right: 12,
-        top: '48%',
-        data: ['VOL'],
-        textStyle: { fontSize: 12, color: colors.text.DEFAULT },
-        itemWidth: 14,
-        itemHeight: 8,
-      },
-      {
-        orient: 'vertical',
-        right: 12,
-        top: '60%',
-        data: ['KDJ.K', 'KDJ.D', 'KDJ.J'],
-        textStyle: { fontSize: 12, color: colors.text.DEFAULT },
-        itemWidth: 14,
-        itemHeight: 8,
-      },
-      {
-        orient: 'vertical',
-        right: 12,
-        top: '73%',
-        data: ['DIF', 'DEA', 'MACD'],
-        textStyle: { fontSize: 12, color: colors.text.DEFAULT },
-        itemWidth: 14,
-        itemHeight: 8,
-      },
-      {
-        orient: 'vertical',
-        right: 12,
-        top: '86%',
-        data: ['BRICK'],
-        textStyle: { fontSize: 12, color: colors.text.DEFAULT },
-        itemWidth: 14,
-        itemHeight: 8,
-      },
-    ],
-    grid: [
-      { left: '8%', right: '8%', top: '10%', height: '33%' },
-      { left: '8%', right: '8%', top: '48%', height: '8%' },
-      { left: '8%', right: '8%', top: '60%', height: '9%' },
-      { left: '8%', right: '8%', top: '73%', height: '9%' },
-      { left: '8%', right: '8%', top: '86%', height: '6%' },
-    ],
-    xAxis: [
-      { type: 'category', data: times, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
-      { type: 'category', data: times, gridIndex: 1, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
-      { type: 'category', data: times, gridIndex: 2, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
-      { type: 'category', data: times, gridIndex: 3, axisLabel: { show: false }, axisPointer: { label: { show: false } } },
-      { type: 'category', data: times, gridIndex: 4, axisLabel: { show: false }, axisPointer: { label: { show: true } } },
-    ],
-    yAxis: [
-      { scale: true, splitLine: { show: false }, axisPointer: { label: { show: false } } },
-      { scale: true, splitLine: { show: false }, gridIndex: 1, axisPointer: { label: { show: false } } },
-      { scale: true, splitLine: { show: false }, gridIndex: 2, axisPointer: { label: { show: false } } },
-      { scale: true, splitLine: { show: false }, gridIndex: 3, axisPointer: { label: { show: false } } },
-      { scale: true, splitLine: { show: false }, gridIndex: 4, axisPointer: { label: { show: false } } },
-    ],
-    dataZoom: [
-      {
-        type: 'inside',
-        xAxisIndex: [0, 1, 2, 3, 4],
-        start: sliderStart,
-        end: 100,
-        realtime: true,
-        throttle: DATA_ZOOM_THROTTLE_MS,
-        zoomOnMouseWheel: true,
-        moveOnMouseWheel: false,
-        moveOnMouseMove: true,
-      },
-      {
-        type: 'slider',
-        xAxisIndex: [0, 1, 2, 3, 4],
-        start: sliderStart,
-        end: 100,
-        realtime: true,
-        throttle: DATA_ZOOM_THROTTLE_MS,
-        bottom: 20,
-        height: 22,
-      },
-    ],
-    graphic: buildGraphics(lastIdx, data),
+    legend: buildLegend(hasFlow),
+    grid: buildGrid(hasFlow),
+    xAxis: buildXAxes(times, hasFlow),
+    yAxis: buildYAxes(hasFlow),
+    dataZoom: buildDataZoom(hasFlow, sliderStart, DATA_ZOOM_THROTTLE_MS),
+    graphic: buildGraphics(lastIdx, data, hasFlow),
     series,
   }
 }
 
-export function buildKlineChartGraphics(idx: number, data: KlineChartBar[]): GraphicComponentOption[] {
-  return buildGraphics(idx, data)
+export function buildKlineChartGraphics(
+  idx: number,
+  data: KlineChartBar[],
+  hasFlow = false,
+): GraphicComponentOption[] {
+  return buildGraphics(idx, data, hasFlow)
 }
