@@ -25,8 +25,7 @@
     <keep-alive>
       <MarketFlowPanel v-if="activeTab === 'market'" />
       <IndustryFlowPanel v-else-if="activeTab === 'industry'" />
-      <SectorFlowPanel v-else-if="activeTab === 'sector'" />
-      <StockFlowPanel v-else />
+      <SectorFlowPanel v-else />
     </keep-alive>
   </div>
 </template>
@@ -38,15 +37,13 @@ import { ref } from 'vue'
 import MarketFlowPanel from '../../components/money-flow/MarketFlowPanel.vue'
 import IndustryFlowPanel from '../../components/money-flow/IndustryFlowPanel.vue'
 import SectorFlowPanel from '../../components/money-flow/SectorFlowPanel.vue'
-import StockFlowPanel from '../../components/money-flow/StockFlowPanel.vue'
 
-type TabKey = 'market' | 'industry' | 'sector' | 'stock'
+type TabKey = 'market' | 'industry' | 'sector'
 
 const tabs: { key: TabKey; label: string; source: string }[] = [
   { key: 'market', label: '大盘', source: '东方财富' },
   { key: 'industry', label: '行业', source: '同花顺' },
   { key: 'sector', label: '板块', source: '同花顺' },
-  { key: 'stock', label: '个股', source: '同花顺' },
 ]
 
 const activeTab = ref<TabKey>('market')
