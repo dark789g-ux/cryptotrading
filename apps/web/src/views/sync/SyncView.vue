@@ -176,7 +176,40 @@
               </div>
             </section>
 
-            <!-- Card 5：0AMV -->
+            <!-- Card 5：指数日线 (ths_daily) -->
+            <section class="data-source-card data-source-card--ths-index-daily">
+              <div class="data-source-header">
+                <div class="data-source-icon">
+                  <n-icon><trending-up-outline /></n-icon>
+                </div>
+                <div class="data-source-heading">
+                  <span class="data-source-eyebrow">THS Index Daily</span>
+                  <h3 class="data-source-title">指数日线 (ths_daily)</h3>
+                  <p class="data-source-desc">同花顺行业（type=I）/概念（type=N）指数日线 K 线 + 指标计算（MA/MACD/KDJ/BBI/BRICK）。</p>
+                </div>
+              </div>
+
+              <div class="data-source-body">
+                <div class="source-note">
+                  按 trade_date 循环拉取，全市场 I+N 合计约 ~700 行/日，落库后按受影响指数重算指标。
+                </div>
+              </div>
+
+              <div class="data-source-actions">
+                <n-button
+                  block
+                  secondary
+                  type="primary"
+                  :loading="thsIndexDailySyncing"
+                  @click="openThsIndexDailyModal"
+                >
+                  <template #icon><n-icon><trending-up-outline /></n-icon></template>
+                  配置并同步
+                </n-button>
+              </div>
+            </section>
+
+            <!-- Card 6：0AMV -->
             <section class="data-source-card data-source-card--oamv">
               <div class="data-source-header">
                 <div class="data-source-icon">
@@ -302,6 +335,43 @@
       :can-confirm="oamvCanConfirm"
       @confirm="confirmOamvSync"
     />
+
+    <!-- 指数日线 (ths_daily) 同步 Modal -->
+    <data-sync-modal
+      v-model:show="thsIndexDailyShow"
+      title="同步指数日线 (ths_daily)"
+      description="同花顺行业（type=I）/概念（type=N）指数日线 K 线 + 指标计算。"
+      :icon="TrendingUpOutline"
+      :syncing="thsIndexDailySyncing"
+      v-model:sync-mode="thsIndexDailySyncMode"
+      v-model:sync-date-range="thsIndexDailySyncDateRange"
+      :data-date-range-label="thsIndexDailyDateRangeLabel"
+      :data-date-range-loading="thsIndexDailyDateRangeLoading"
+      :can-confirm="thsIndexDailyCanConfirm"
+      :finished="!!thsIndexDailyFinished"
+      @confirm="confirmThsIndexDailySync"
+    >
+      <template #extra>
+        <div v-if="thsIndexDailyProgressVisible" class="crypto-sync-progress">
+          <div class="sync-progress-head">
+            <span>{{ thsIndexDailySse.phase.value || '同步中' }}</span>
+            <span>{{ Math.round(thsIndexDailySse.percent.value) }}%</span>
+          </div>
+          <n-progress
+            type="line"
+            :percentage="Math.round(thsIndexDailySse.percent.value)"
+            :status="thsIndexDailySse.status.value === 'error' ? 'error' : thsIndexDailyFinished ? 'success' : 'default'"
+            indicator-placement="inside"
+          />
+          <div class="sync-progress-meta">
+            <span>{{ thsIndexDailySse.message.value }}</span>
+          </div>
+          <div v-if="thsIndexDailyFinished" class="sync-progress-summary">
+            写入 {{ thsIndexDailyFinished.result.success }} 行 / 跳过 {{ thsIndexDailyFinished.result.skipped }} 日 / 失败 {{ thsIndexDailyFinished.result.errors.length }} 项
+          </div>
+        </div>
+      </template>
+    </data-sync-modal>
   </div>
 </template>
 
@@ -318,6 +388,7 @@ import { useCryptoSync } from '../../components/sync/useCryptoSync'
 import { useOamvSync } from '../../components/sync/useOamvSync'
 import { useMoneyFlowSync } from '../../components/sync/useMoneyFlowSync'
 import { useIndexCatalogSync } from '../../components/sync/useIndexCatalogSync'
+import { useThsIndexDailySync } from '../../components/sync/useThsIndexDailySync'
 
 const message = useMessage()
 const noopReload = async () => {}
@@ -405,6 +476,22 @@ const {
   openModal: openOamvModal,
   confirmSync: confirmOamvSync,
 } = useOamvSync(message)
+
+// 指数日线 (ths_daily) Modal
+const {
+  show: thsIndexDailyShow,
+  syncing: thsIndexDailySyncing,
+  syncMode: thsIndexDailySyncMode,
+  syncDateRange: thsIndexDailySyncDateRange,
+  dateRangeLabel: thsIndexDailyDateRangeLabel,
+  dateRangeLoading: thsIndexDailyDateRangeLoading,
+  canConfirm: thsIndexDailyCanConfirm,
+  syncProgressVisible: thsIndexDailyProgressVisible,
+  sse: thsIndexDailySse,
+  finished: thsIndexDailyFinished,
+  openModal: openThsIndexDailyModal,
+  confirmSync: confirmThsIndexDailySync,
+} = useThsIndexDailySync(message)
 </script>
 
 <style scoped src="./SyncView.styles.css"></style>

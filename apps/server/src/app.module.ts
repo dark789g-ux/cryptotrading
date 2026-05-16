@@ -48,8 +48,11 @@ import { MoneyFlowSectorEntity } from './entities/money-flow/money-flow-sector.e
 import { MoneyFlowMarketEntity } from './entities/money-flow/money-flow-market.entity';
 import { ThsMemberStockEntity } from './entities/money-flow/ths-member-stock.entity';
 import { ThsIndexCatalogEntity } from './entities/index-catalog/ths-index-catalog.entity';
+import { ThsIndexDailyQuoteEntity } from './entities/ths-index-daily/ths-index-daily-quote.entity';
+import { ThsIndexDailyIndicatorEntity } from './entities/ths-index-daily/ths-index-daily-indicator.entity';
 import { MoneyFlowModule } from './market-data/money-flow/money-flow.module';
 import { IndexCatalogModule } from './market-data/index-catalog/index-catalog.module';
+import { ThsIndexDailyModule } from './market-data/ths-index-daily/ths-index-daily.module';
 import { OamvModule } from './market-data/oamv/oamv.module';
 import { OamvDailyEntity } from './entities/oamv/oamv-daily.entity';
 import { DailyReviewEntity } from './entities/daily-review/daily-review.entity';
@@ -103,6 +106,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           MoneyFlowMarketEntity,
           ThsMemberStockEntity,
           ThsIndexCatalogEntity,
+          ThsIndexDailyQuoteEntity,
+          ThsIndexDailyIndicatorEntity,
           OamvDailyEntity,
           DailyReviewEntity,
           MacroEventEntity,
@@ -127,6 +132,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     StrategyConditionsModule,
     MoneyFlowModule,
     IndexCatalogModule,
+    ThsIndexDailyModule,
     OamvModule,
     DailyReviewModule,
   ],
