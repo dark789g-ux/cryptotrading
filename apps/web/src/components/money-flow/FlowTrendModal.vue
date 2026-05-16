@@ -3,19 +3,33 @@
   <AppModal
     :show="visible"
     :title="`${entityName} — 详情`"
-    width="min(720px, 92vw)"
+    :width="modalWidth"
     @update:show="$emit('update:visible', $event)"
   >
     <n-tabs v-model:value="activeTab" type="line" animated>
       <n-tab-pane name="trend" tab="趋势">
         <div class="trend-modal-body">
           <FlowDateControl
-            :hide-mode-toggle="false"
+            :hide-mode-toggle="chartMode === 'kline'"
             default-mode="range"
-            :default-range-days="30"
+            :default-range-days="chartMode === 'kline' ? 120 : 30"
             @change="onDateChange"
           />
-          <FlowTrendChart :rows="chartRows" />
+          <n-spin v-if="loading" />
+          <template v-else-if="chartMode === 'bar'">
+            <FlowTrendChart :rows="barRows" />
+          </template>
+          <template v-else>
+            <div v-if="!klineBars.length" class="empty-state">
+              该指数暂无 K 线数据，可能尚未同步
+            </div>
+            <KlineChart
+              v-else
+              :data="klineBars"
+              :money-flow="moneyFlowBars"
+              height="520px"
+            />
+          </template>
         </div>
       </n-tab-pane>
 
@@ -59,19 +73,31 @@ import type { DataTableColumns } from 'naive-ui'
 import AppModal from '@/components/common/AppModal.vue'
 import FlowDateControl from './FlowDateControl.vue'
 import FlowTrendChart from './FlowTrendChart.vue'
+import KlineChart from '@/components/kline/KlineChart.vue'
 import { moneyFlowApi, type MoneyFlowMemberRow, type MoneyFlowQueryParams } from '@/api/modules/market/moneyFlow'
 import { watchlistApi } from '@/api'
+import type { KlineChartBar, MoneyFlowBar } from '@/api'
 import { useWatchlistStore } from '@/stores/watchlist'
-import type { BarChartRow } from './money-flow.types'
+import type { BarChartRow, TrendFetchResult } from './money-flow.types'
+
+type ChartMode = 'bar' | 'kline'
+
+// fetchFn 的返回类型由调用方按 chartMode 自行约束：
+// - bar 模式：返回 BarChartRow[]
+// - kline 模式：返回 TrendFetchResult
+// 这里用联合类型并在 loadTrend 内按 chartMode 分发。
+type TrendFetchFn = (params: MoneyFlowQueryParams) => Promise<BarChartRow[] | TrendFetchResult>
 
 const props = withDefaults(defineProps<{
   visible: boolean
   tsCode: string
   entityName: string
-  fetchFn: (params: MoneyFlowQueryParams) => Promise<BarChartRow[]>
+  fetchFn: TrendFetchFn
+  chartMode?: ChartMode
   showMembersTab?: boolean
   membersTradeDate?: string | null
 }>(), {
+  chartMode: 'bar',
   showMembersTab: false,
   membersTradeDate: null,
 })
@@ -82,8 +108,14 @@ defineEmits<{
 
 const message = useMessage()
 
+const modalWidth = computed(() =>
+  props.chartMode === 'kline' ? 'min(1080px, 96vw)' : 'min(720px, 92vw)',
+)
+
 const activeTab = ref('trend')
-const chartRows = ref<BarChartRow[]>([])
+const barRows = ref<BarChartRow[]>([])
+const klineBars = ref<KlineChartBar[]>([])
+const moneyFlowBars = ref<MoneyFlowBar[]>([])
 const loading = ref(false)
 let skipNextEmit = false
 
@@ -201,27 +233,52 @@ async function onAddTag() {
   }
 }
 
-async function loadLatest() {
+function resetTrendState() {
+  barRows.value = []
+  klineBars.value = []
+  moneyFlowBars.value = []
+}
+
+async function loadTrend(params: MoneyFlowQueryParams) {
   loading.value = true
   try {
-    const data = await props.fetchFn({ ts_code: props.tsCode, limit: 30 })
-    chartRows.value = [...data].reverse()
+    const result = await props.fetchFn({ ...params, ts_code: props.tsCode })
+    if (props.chartMode === 'bar') {
+      barRows.value = result as BarChartRow[]
+      klineBars.value = []
+      moneyFlowBars.value = []
+    } else {
+      const r = result as TrendFetchResult
+      klineBars.value = r.kline ?? []
+      moneyFlowBars.value = r.moneyFlow ?? []
+      barRows.value = []
+    }
   } catch {
-    chartRows.value = []
+    resetTrendState()
   } finally {
     loading.value = false
   }
 }
 
-async function loadByDate(params: MoneyFlowQueryParams) {
-  loading.value = true
-  try {
-    chartRows.value = await props.fetchFn({ ...params, ts_code: props.tsCode })
-  } catch {
-    chartRows.value = []
-  } finally {
-    loading.value = false
+async function loadLatest() {
+  // 大盘 / bar 模式：保留原有 limit=30 取最近 30 条的语义
+  if (props.chartMode === 'bar') {
+    loading.value = true
+    try {
+      const result = await props.fetchFn({ ts_code: props.tsCode, limit: 30 })
+      const data = result as BarChartRow[]
+      barRows.value = [...data].reverse()
+      klineBars.value = []
+      moneyFlowBars.value = []
+    } catch {
+      resetTrendState()
+    } finally {
+      loading.value = false
+    }
+    return
   }
+  // kline 模式不在此处主动加载——首次进入由 FlowDateControl 的初始 emit 触发 loadTrend
+  resetTrendState()
 }
 
 function onDateChange(params: MoneyFlowQueryParams) {
@@ -229,7 +286,7 @@ function onDateChange(params: MoneyFlowQueryParams) {
     skipNextEmit = false
     return
   }
-  loadByDate(params)
+  loadTrend(params)
 }
 
 async function loadMembers() {
@@ -247,13 +304,17 @@ async function loadMembers() {
 
 watch(() => props.visible, (v) => {
   if (v) {
-    chartRows.value = []
+    resetTrendState()
     memberRows.value = []
     membersLoaded = false
     activeTab.value = 'trend'
     sortState.value = { field: 'netAmount', order: 'descend' }
-    skipNextEmit = true
-    loadLatest()
+    // bar 模式：直接拉最近 30 条柱状数据，跳过 FlowDateControl 初始 emit
+    // kline 模式：依赖 FlowDateControl 初始 emit 的 [今天-120d, 今天] 范围
+    if (props.chartMode === 'bar') {
+      skipNextEmit = true
+      loadLatest()
+    }
   }
 })
 

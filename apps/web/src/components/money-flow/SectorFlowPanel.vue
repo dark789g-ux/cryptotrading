@@ -30,6 +30,7 @@
       :ts-code="trendTsCode"
       :entity-name="trendEntityName"
       :fetch-fn="trendFetchFn"
+      chart-mode="kline"
       :show-members-tab="true"
       :members-trade-date="trendMembersTradeDate"
     />
@@ -46,7 +47,8 @@ import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowSectorRow } from
 import FlowDateControl from './FlowDateControl.vue'
 import FlowKpiCards from './FlowKpiCards.vue'
 import FlowTrendModal from './FlowTrendModal.vue'
-import type { BarChartRow, KpiCardItem } from './money-flow.types'
+import { fetchSectorTrend } from './trendFetchers'
+import type { KpiCardItem } from './money-flow.types'
 
 const rows = ref<MoneyFlowSectorRow[]>([])
 const loading = ref(false)
@@ -65,10 +67,7 @@ function openDetail(row: MoneyFlowSectorRow) {
   trendVisible.value = true
 }
 
-async function trendFetchFn(params: MoneyFlowQueryParams): Promise<BarChartRow[]> {
-  const data = await moneyFlowApi.querySectors(params)
-  return data.map(r => ({ label: r.tradeDate, value: Number(r.netAmount) || 0 }))
-}
+const trendFetchFn = fetchSectorTrend
 
 const kpiCards = computed((): KpiCardItem[] => {
   const sorted = [...rows.value].sort((a, b) => Number(b.netAmount) - Number(a.netAmount))
