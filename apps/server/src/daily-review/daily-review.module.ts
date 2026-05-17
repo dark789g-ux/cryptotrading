@@ -4,6 +4,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { DailyReviewEntity } from '../entities/daily-review/daily-review.entity';
 import { MacroEventEntity } from '../entities/macro-event/macro-event.entity';
+import { AShareSymbolEntity } from '../entities/a-share/a-share-symbol.entity';
+import { MoneyFlowStockEntity } from '../entities/money-flow/money-flow-stock.entity';
+import { MoneyFlowSectorEntity } from '../entities/money-flow/money-flow-sector.entity';
+import { MoneyFlowIndustryEntity } from '../entities/money-flow/money-flow-industry.entity';
+import { ThsMemberStockEntity } from '../entities/money-flow/ths-member-stock.entity';
 import { DailyReviewController } from './daily-review.controller';
 import { DailyReviewService } from './daily-review.service';
 import { SnapshotBuilderService } from './snapshot/snapshot-builder.service';
@@ -53,7 +58,18 @@ const llmProviderProvider = {
 };
 
 @Module({
-  imports: [TypeOrmModule.forFeature([DailyReviewEntity, MacroEventEntity]), ConfigModule],
+  imports: [
+    TypeOrmModule.forFeature([
+      DailyReviewEntity,
+      MacroEventEntity,
+      AShareSymbolEntity,
+      MoneyFlowStockEntity,
+      MoneyFlowSectorEntity,
+      MoneyFlowIndustryEntity,
+      ThsMemberStockEntity,
+    ]),
+    ConfigModule,
+  ],
   controllers: [DailyReviewController],
   providers: [
     DailyReviewService,

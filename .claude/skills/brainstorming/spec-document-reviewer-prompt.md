@@ -1,10 +1,10 @@
-# Spec Document Reviewer Prompt Template
+# Spec 文档审阅者 Prompt 模板（Spec Document Reviewer Prompt Template）
 
-Use this template when dispatching a spec document reviewer subagent.
+派发一个 spec 文档审阅者 subagent 时使用此模板。
 
-**Purpose:** Verify the spec is complete, consistent, and ready for implementation planning.
+**目的：** 验证 spec 是完整、一致且具备进入实现计划阶段的条件。
 
-**Dispatch after:** Spec document is written to docs/superpowers/specs/
+**派发时机：** 在 spec 文档写入 docs/superpowers/specs/ 之后。
 
 ```
 Task tool (general-purpose):
@@ -46,4 +46,27 @@ Task tool (general-purpose):
     - [suggestions for improvement]
 ```
 
-**Reviewer returns:** Status, Issues (if any), Recommendations
+**审阅者返回内容：** Status、Issues（若有）、Recommendations。
+
+---
+
+## 模板字段中文说明（供主 Agent 阅读，不要替换上面 prompt 里的英文）
+
+- **What to Check** 表格的 5 个类别含义：
+  - **Completeness（完整性）：** 是否有 TODO、占位符、"TBD"、未完成段落
+  - **Consistency（一致性）：** 是否存在内部矛盾或互相冲突的需求
+  - **Clarity（清晰度）：** 是否存在含糊到可能让人构建错东西的需求
+  - **Scope（范围）：** 是否聚焦于单份计划 —— 不要覆盖多个相互独立的子系统
+  - **YAGNI：** 是否包含未被请求的功能、过度设计
+
+- **Calibration（校准）：** 只标出会在实现计划阶段引发真实问题的事项。缺段、矛盾、可两解的需求 —— 这些是问题；轻微措辞改进、文体偏好、"某节比别的节略简"则不是。除非存在会导致计划失误的严重缺口，否则一律给 Approved。
+
+- **Output Format（输出格式）：** 必须输出
+  - **Status：** Approved 或 Issues Found
+  - **Issues（若有）：** 每条注明 章节位置、具体问题、对计划的影响
+  - **Recommendations（建议性，不阻断批准）：** 改进建议
+
+**主 Agent 使用约定：**
+
+- 在调用 `Agent` 工具时，`subagent_type` 用 `general-purpose`（或 `Plan`），把上方代码块整段作为 `prompt`，并把 `[SPEC_FILE_PATH]` 替换为实际 spec 文件路径。
+- SubAgent 返回后，主 Agent 按 Issues 列表**逐条 inline 修订** spec；改完无需再读一遍 spec，必要时再派一次 SubAgent 复审。

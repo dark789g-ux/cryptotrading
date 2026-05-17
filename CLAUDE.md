@@ -59,12 +59,7 @@ crtptotrading:加密量化策略
   1. **行级硬约束**：所有业务上不允许 NULL 的列在该日**每一行**都非空（如 daily 的 OHLC、adj_factor 的 `adj_factor`）；合法 NULL 列（如 PE/PB 对亏损股、turnover_rate 对停牌股）不得放进硬约束
   2. **跨表行数对齐**：派生数据集的当日行数必须 `>=` 基础数据集（如 `count(adj_factor for date) >= count(daily_quotes for date)`，`count(daily_metrics for date) >= count(daily_quotes for date)`）
   "至少一行非空"（`COUNT(*) FILTER (WHERE col IS NOT NULL) > 0`）是无意义的最弱约束——曾让 A 股增量同步在数据残缺时仍判为完整、跳过补齐。
-- **K 线副图对齐 key 不得假设两个后端接口的日期格式同源**：`KlineChart` 副图通过 `flowMap.get(row.open_time)` 按 `trade_date` 对齐主图，**主图 `open_time` 与副图 `trade_date` 的字符串必须按字面完全相等才能命中**。当前各后端 service 实际拼出的格式互不相同：
-  - `apps/server/src/market-data/ths-index-daily/ths-index-daily.service.ts:93`（行业/板块 K 线）：`open_time` 直返 `'YYYYMMDD'`
-  - `apps/server/src/market-data/a-shares/a-shares.service.ts:221`（A 股 K 线）：`open_time` 经 `formatTradeDateLabel` 转成 `'YYYY-MM-DD'`
-  - `apps/server/src/market-data/money-flow/money-flow.service.ts`（资金流各维度）：`tradeDate` 直返数据库原值 `'YYYYMMDD'`
-  
-  新接入"K 线 + moneyFlow 副图"组合前，**先打开两侧后端 service 看 `open_time` / `tradeDate` 实际拼出的字符串**，格式不同时**由前端 fetcher 层**显式归一化（参考 `aShareDetailFetcher.ts` 的 `toIsoTradeDate`）；**禁止**让 `KlineChart` 容忍多种格式（掩盖契约不一致）或冲动改后端（影响面失控）。曾因 `mapMoneyFlowBars` 原样透传 `'20260515'` 而 A 股 K 线 `open_time` 是 `'2026-05-15'`，副图 `flowMap` 100% miss、所有 series data 都是 `null`——但 `hasFlow` 守卫只是非空判断，ECharts 仍按副图建了 grid/legend/yAxis，**柱形完全画不出却 grid/图例都在**，比直接报错更难发现。行业 Tab 当年没踩同一坑是因为 `ths-index-daily` 也直返 `'YYYYMMDD'`，与资金流凑巧同源——这种"凑巧"不是契约。
+- **K 线副图对齐 key 不得假设两个后端接口的日期格式同源**：`KlineChart` 副图通过 `flowMap.get(row.open_time)` 按 `trade_date` 对齐主图，**主图 `open_time` 与副图 `trade_date` 的字符串必须按字面完全相等才能命中**。当前各后端 service 实际拼出的格式互不相同（如 `2026-05-15` vs `20260515`），**禁止**让 `KlineChart` 容忍多种格式（掩盖契约不一致）或冲动改后端（影响面失控）。
 
 ## Vue 3 watch 规范
 - `watch(source, cb)` 默认**懒执行**，不响应初始值；若逻辑依赖初始值，必须加 `{ immediate: true }` 或在 `onMounted` 中补充调用
