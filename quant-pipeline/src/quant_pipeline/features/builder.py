@@ -307,21 +307,31 @@ def neutralize_by_industry_and_market_cap(
     # 每个因子按截面对 mv_z 做最小二乘残差化：f_neu = f - β * mv_z
     # β = cov(f, mv_z) / var(mv_z)；按 trade_date 分组
     df["__mv_z"] = mv_z
+    grp = df.groupby("trade_date", sort=False)
     for col in factor_cols:
-        def _resid(g: pd.DataFrame, c: str = col) -> pd.Series:
-            f = g[c].astype(float)
-            z = g["__mv_z"].astype(float)
-            var_z = float(np.var(z, ddof=0))
-            if var_z < _STD_EPS:
-                return f
-            beta = float(np.cov(f, z, ddof=0)[0, 1] / var_z)
-            return f - beta * z
+        # 按 trade_date 计算 β 与 mv_z 的均值（fillna(0) 后均值=0）；
+        # cov(f,z) = E[f*z] - E[f]*E[z]，var(z) = E[z^2] - E[z]^2
+        ez = grp["__mv_z"].transform("mean")
+        ezz = grp.apply(
+            lambda g: pd.Series(
+                {"vz": float(np.var(g["__mv_z"].values, ddof=0))}
+            )
+        )["vz"]
+        # 把 vz 按 trade_date 广播
+        vz_map = ezz.to_dict()
+        vz_broadcast = df["trade_date"].map(vz_map).astype(float)
 
-        df[col] = (
-            df.groupby("trade_date", sort=False, group_keys=False)
-            .apply(lambda g, c=col: _resid(g, c))
-            .reset_index(level=0, drop=True)
-        )
+        ef = grp[col].transform("mean")
+        # E[f*z] 按截面
+        df["__fz"] = df[col].astype(float) * df["__mv_z"].astype(float)
+        efz = grp["__fz"].transform("mean")
+        cov_fz = efz - ef * ez
+
+        beta = cov_fz / vz_broadcast.where(vz_broadcast >= _STD_EPS, other=1.0)
+        beta = beta.where(vz_broadcast >= _STD_EPS, other=0.0)
+        df[col] = df[col].astype(float) - beta * df["__mv_z"].astype(float)
+        df = df.drop(columns=["__fz"])
+
     df = df.drop(columns=["mv_log", "__mv_z"]).set_index(["trade_date", "ts_code"]).sort_index()
     return df
 

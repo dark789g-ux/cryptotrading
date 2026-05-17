@@ -39,6 +39,22 @@ quality_app = typer.Typer(
 )
 app.add_typer(quality_app, name="quality")
 
+labels_app = typer.Typer(
+    help=(
+        "标签生成子命令（M2 Part A）。"
+        "scheme=strategy-aware 调 exit_rules 模拟出场；scheme=fwd_5d_ret 走 5 日兜底。"
+    )
+)
+app.add_typer(labels_app, name="labels")
+
+features_app = typer.Typer(
+    help=(
+        "特征矩阵构建子命令（M2 Part A）。"
+        "因子+标签 → feature_matrix：行业+市值中性化、截面 z-score、±3σ 截尾、label ±50% 截尾。"
+    )
+)
+app.add_typer(features_app, name="features")
+
 
 @app.command()
 def version() -> None:
@@ -499,6 +515,75 @@ def evaluate_stub(
         f"evaluate stub: run_id={run_id} —— 完整评估（三组对照 / Walk-Forward）由 M3 实现。"
     )
     raise typer.Exit(code=0)
+
+
+# ----------------------------------------------------------------------
+# labels 子命令（M2 Part A）
+# ----------------------------------------------------------------------
+
+@labels_app.command("build")
+def labels_build(
+    scheme: str = typer.Option(
+        "strategy-aware",
+        "--scheme",
+        help="标签方案：strategy-aware（推荐主用） | fwd_5d_ret（兜底）",
+    ),
+    date_range: str = typer.Option(
+        ...,
+        "--date-range",
+        help="信号日范围 YYYYMMDD:YYYYMMDD",
+    ),
+) -> None:
+    """计算 strategy-aware / fwd_5d_ret 标签，upsert 到 factors.labels。
+
+    CLI 直跑，不写 ml.jobs；与 worker dispatcher 的 'labels' run_type 走同一组
+    runner（02-quant-pipeline §3）。
+    """
+
+    setup_logging()
+    from quant_pipeline.labels.runner import compute_labels
+
+    n = compute_labels(scheme=scheme, date_range=date_range, job_id=None)
+    typer.echo(f"labels build scheme={scheme} {date_range}: rows_upserted={n}")
+
+
+# ----------------------------------------------------------------------
+# features 子命令（M2 Part A）
+# ----------------------------------------------------------------------
+
+@features_app.command("build")
+def features_build(
+    factor_version: str = typer.Option(
+        ...,
+        "--factor-version",
+        help="所选因子版本（factors.daily_factors.factor_version）",
+    ),
+    label_scheme: str = typer.Option(
+        "strategy-aware",
+        "--label-scheme",
+        help="标签方案（factors.labels.scheme）",
+    ),
+    date_range: str = typer.Option(
+        ...,
+        "--date-range",
+        help="构建窗口 YYYYMMDD:YYYYMMDD",
+    ),
+) -> None:
+    """构建并 upsert feature_matrix（含 feature_sets 元数据）。"""
+
+    setup_logging()
+    from quant_pipeline.features.runner import build_feature_matrix
+
+    feature_set_id = build_feature_matrix(
+        factor_version=factor_version,
+        label_scheme=label_scheme,
+        date_range=date_range,
+        job_id=None,
+    )
+    typer.echo(
+        f"features build factor_version={factor_version} label_scheme={label_scheme} "
+        f"{date_range}: feature_set_id={feature_set_id}"
+    )
 
 
 if __name__ == "__main__":

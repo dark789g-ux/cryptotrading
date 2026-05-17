@@ -172,12 +172,20 @@ def test_standardize_cross_sectional_zero_mean_unit_std() -> None:
 # ----------------------------------------------------------------------
 
 def test_impute_industry_median_fills_nan_within_industry() -> None:
+    """构造 2 个因子；C 在 f 上缺、g 上有 → pivot 仍含 C，f 列 NaN → 行业中位数填充。"""
+
     rows = [
+        # f 因子
         {"trade_date": "20240102", "ts_code": "A", "factor_id": "f", "value": 1.0},
         {"trade_date": "20240102", "ts_code": "B", "factor_id": "f", "value": 3.0},
-        {"trade_date": "20240102", "ts_code": "C", "factor_id": "f", "value": np.nan},
+        # C 缺 f
+        # g 因子（让 C 出现在 pivot index 中）
+        {"trade_date": "20240102", "ts_code": "A", "factor_id": "g", "value": 10.0},
+        {"trade_date": "20240102", "ts_code": "B", "factor_id": "g", "value": 20.0},
+        {"trade_date": "20240102", "ts_code": "C", "factor_id": "g", "value": 30.0},
     ]
     wide = pivot_factors_long_to_wide(pd.DataFrame(rows))
+    assert ("20240102", "C") in wide.index  # 保证 C 在
     industry = pd.DataFrame(
         [
             {"trade_date": "20240102", "ts_code": "A", "industry_l1": "X"},
@@ -186,8 +194,7 @@ def test_impute_industry_median_fills_nan_within_industry() -> None:
         ]
     )
     out = impute_missing_with_industry_median(wide, industry)
-    # C 的 NaN 应被 (1+3)/2 = 2.0 填充
-    assert out.loc[("20240102", "C"), "f"] == 2.0
+    assert out.loc[("20240102", "C"), "f"] == 2.0  # (1+3)/2
 
 
 # ----------------------------------------------------------------------
