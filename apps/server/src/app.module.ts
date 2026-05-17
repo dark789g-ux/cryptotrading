@@ -64,6 +64,11 @@ import { OamvDailyEntity } from './entities/oamv/oamv-daily.entity';
 import { DailyReviewEntity } from './entities/daily-review/daily-review.entity';
 import { MacroEventEntity } from './entities/macro-event/macro-event.entity';
 import { DailyReviewModule } from './daily-review/daily-review.module';
+import { QuantModule } from './modules/quant/quant.module';
+import { MlJobEntity } from './entities/ml/ml-job.entity';
+import { MlModelRunEntity } from './entities/ml/ml-model-run.entity';
+import { MlScoreDailyEntity } from './entities/ml/ml-score-daily.entity';
+import { MlQualityReportEntity } from './entities/ml/ml-quality-report.entity';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -125,6 +130,12 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           OamvDailyEntity,
           DailyReviewEntity,
           MacroEventEntity,
+          // ---- M2 Part C 新增：ml.* 4 张表 entities（jobs 是写者，其余只读，service 留 M3） ----
+          MlJobEntity,
+          MlModelRunEntity,
+          MlScoreDailyEntity,
+          MlQualityReportEntity,
+          // ----
         ],
         synchronize: false,
         logging: ['error', 'warn'],
@@ -149,6 +160,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     ThsIndexDailyModule,
     OamvModule,
     DailyReviewModule,
+    QuantModule,
   ],
 })
 export class AppModule implements OnModuleInit {

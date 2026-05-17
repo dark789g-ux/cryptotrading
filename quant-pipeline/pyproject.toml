@@ -22,9 +22,9 @@ dependencies = [
     # ---- M1/M2 加（占位，避免污染 M0 lock）----
     # "polars>=0.20",
     # "pyarrow>=15",
-    # ---- M2/M3 加 ----
-    # "lightgbm>=4.3",
-    # "scikit-learn>=1.4",
+    # ---- M2 Part G：LightGBM LambdaRank 训练 + inference ----
+    "lightgbm>=4.3",
+    "scikit-learn>=1.4",
     # ---- M4 加 ----
     # "optuna>=3.6",
     # "shap>=0.45",

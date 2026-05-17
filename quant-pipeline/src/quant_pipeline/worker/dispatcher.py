@@ -123,6 +123,31 @@ def _runner_sync(job: Job) -> None:
         )
 
 
+def _runner_labels(job: Job) -> None:
+    """labels runner（M2 Part F）：调用 labels.runner.runner_entrypoint。
+
+    params schema（01-pg-schema §4.1）：
+      {"scheme": "strategy-aware", "date_range": "YYYYMMDD:YYYYMMDD"}
+    """
+
+    from quant_pipeline.labels.runner import runner_entrypoint
+
+    runner_entrypoint(job)
+
+
+def _runner_features(job: Job) -> None:
+    """features runner（M2 Part F）：调用 features.runner.runner_entrypoint。
+
+    params schema（01-pg-schema §4.1）：
+      {"factor_version": "v1", "label_scheme": "strategy-aware",
+       "date_range": "YYYYMMDD:YYYYMMDD"}
+    """
+
+    from quant_pipeline.features.runner import runner_entrypoint
+
+    runner_entrypoint(job)
+
+
 def _runner_quality(job: Job) -> None:
     """quality runner 入口（M1 Part E）。
 
@@ -169,6 +194,44 @@ def _runner_quality(job: Job) -> None:
     update_progress(job.id, 100, stage="quality_done")
 
 
+def _runner_train(job: Job) -> None:
+    """train runner 入口（M2 Part G）。
+
+    路由到 quant_pipeline.training.runner.runner_entrypoint；
+    内部按 0→25→50→75→100 写进度，遇 QualityGateBlocked 由 dispatch() 接住置 blocked。
+
+    params schema（01-pg-schema §4.1）：
+      {
+        "feature_set_id": "fs_v1",
+        "model": "lgb-lambdarank",          # optional, default lgb-lambdarank
+        "walk_forward": false,              # optional, default false
+        "seed": 42                          # optional, default 42
+      }
+    """
+
+    from quant_pipeline.training.runner import runner_entrypoint as _train_entry
+
+    _train_entry(job)
+
+
+def _runner_infer(job: Job) -> None:
+    """infer runner 入口（M2 Part G）。
+
+    路由到 quant_pipeline.inference.runner.runner_entrypoint；推理前必检失败抛
+    QualityGateBlocked，不会写入任何 ml.scores_daily 行。
+
+    params schema（01-pg-schema §4.1）：
+      {
+        "model_version": "lgb-lambdarank-v1-20260620-seed42",
+        "date":          "20260517"
+      }
+    """
+
+    from quant_pipeline.inference.runner import runner_entrypoint as _infer_entry
+
+    _infer_entry(job)
+
+
 # run_type → runner 路由表
 _ROUTES = {
     "noop": _runner_noop,
@@ -176,11 +239,13 @@ _ROUTES = {
     "sync": _runner_sync,
     "factors": _runner_factors,
     "quality": _runner_quality,
-    # M1+ (其它 run_type 暂未实装)
-    "labels": _runner_not_implemented,
-    "features": _runner_not_implemented,
-    "train": _runner_not_implemented,
-    "infer": _runner_not_implemented,
+    # M2 Part F
+    "labels": _runner_labels,
+    "features": _runner_features,
+    # M2 Part G
+    "train": _runner_train,
+    "infer": _runner_infer,
+    # M4
     "optuna": _runner_not_implemented,
     "seed_avg": _runner_not_implemented,
 }

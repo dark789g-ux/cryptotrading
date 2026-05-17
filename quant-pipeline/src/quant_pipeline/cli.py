@@ -342,5 +342,164 @@ def quality_gate(
         raise typer.Exit(code=1)
 
 
+# ----------------------------------------------------------------------
+# 训练 / 推理 / 评估子命令（M2 Part B）
+# ----------------------------------------------------------------------
+
+train_app = typer.Typer(
+    help=(
+        "训练入口（M2 Part B）。"
+        "训练前必检（gate_check mode='training_pregate', strict=True）失败 → exit 1，"
+        "门禁不可绕过（CLI 不提供 --force）。"
+    )
+)
+infer_app = typer.Typer(
+    help=(
+        "推理入口（M2 Part B）。"
+        "推理前必检失败 → exit 1；scores_daily 行数严格等于 raw.daily_quote 当日股票数。"
+    )
+)
+evaluate_app = typer.Typer(
+    help="评估入口（M2 留 stub；完整三组对照 / Walk-Forward 评估由 M3 实现）。"
+)
+
+
+@app.command("train")
+def train_one(
+    feature_set: str = typer.Option(
+        ...,
+        "--feature-set",
+        help="feature_set_id（factors.feature_sets 主键），如 fs_xxxxxxx",
+    ),
+    model: str = typer.Option(
+        "lgb-lambdarank",
+        "--model",
+        help="模型类型；M2 仅支持 'lgb-lambdarank'（其它由 M3 接入）",
+    ),
+    seed: int = typer.Option(
+        42,
+        "--seed",
+        help="复现 seed；同时写入 model_version 后缀",
+    ),
+) -> None:
+    """直接调 training.runner（CLI 直跑，不写 ml.jobs）。
+
+    训练前必检由 runner 内部 strict=True 调用，失败抛 QualityGateBlocked → exit 1。
+    """
+
+    setup_logging()
+    from quant_pipeline.quality.runner import QualityGateBlocked
+    from quant_pipeline.training.runner import train_one_fold
+
+    try:
+        result = train_one_fold(
+            feature_set_id=feature_set,
+            model=model,
+            seed=seed,
+        )
+    except QualityGateBlocked as exc:
+        typer.echo(f"TRAIN BLOCKED rule={exc.rule} detail={exc.detail}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        "train ok: model_run_id={rid} model_version={mv} artifact={ar} "
+        "ndcg@10={n10:.4f} ndcg@5={n5:.4f} ic={ic:.4f} rank_ic={ric:.4f}".format(
+            rid=str(result.model_run_id),
+            mv=result.model_version,
+            ar=result.artifact_uri,
+            n10=float(result.oos_metrics.get("ndcg@10", 0.0) or 0.0),
+            n5=float(result.oos_metrics.get("ndcg@5", 0.0) or 0.0),
+            ic=float(result.oos_metrics.get("ic", 0.0) or 0.0),
+            ric=float(result.oos_metrics.get("rank_ic", 0.0) or 0.0),
+        )
+    )
+
+
+@app.command("infer")
+def infer_one(
+    run_id: str = typer.Option(
+        "",
+        "--run-id",
+        help="ml.model_runs.id（与 --model-version 二选一）",
+    ),
+    model_version: str = typer.Option(
+        "",
+        "--model-version",
+        help="ml.model_runs.model_version（与 --run-id 二选一）",
+    ),
+    date: str = typer.Option(
+        ...,
+        "--date",
+        help="推理交易日 YYYYMMDD",
+    ),
+) -> None:
+    """直接调 inference.runner（CLI 直跑，不写 ml.jobs）。
+
+    推理前必检失败 → exit 1；scores_daily 行数严格校验。
+    """
+
+    setup_logging()
+    from sqlalchemy import text as _text
+
+    from quant_pipeline.db.engine import session_scope
+    from quant_pipeline.inference.runner import run_inference
+    from quant_pipeline.inference.score_writer import ScoreRowCountMismatch
+    from quant_pipeline.quality.runner import QualityGateBlocked
+
+    mv = model_version.strip()
+    rid = run_id.strip()
+    if not mv and not rid:
+        typer.echo("必须提供 --run-id 或 --model-version 之一", err=True)
+        raise typer.Exit(code=2)
+
+    if not mv and rid:
+        # 反查 model_version
+        with session_scope() as session:
+            row = session.execute(
+                _text("SELECT model_version FROM ml.model_runs WHERE id = :id"),
+                {"id": rid},
+            ).first()
+        if row is None:
+            typer.echo(f"ml.model_runs 找不到 run_id={rid!r}", err=True)
+            raise typer.Exit(code=1)
+        mv = str(row[0])
+
+    if len(date) != 8 or not date.isdigit():
+        typer.echo(f"--date 必须是 YYYYMMDD，got {date!r}", err=True)
+        raise typer.Exit(code=2)
+
+    try:
+        n = run_inference(model_version=mv, trade_date=date)
+    except QualityGateBlocked as exc:
+        typer.echo(f"INFER BLOCKED rule={exc.rule} detail={exc.detail}", err=True)
+        raise typer.Exit(code=1) from exc
+    except ScoreRowCountMismatch as exc:
+        typer.echo(
+            f"INFER FAILED row_count_mismatch expected={exc.expected} got={exc.got} "
+            f"detail={exc.detail}",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"infer ok: model_version={mv} date={date} written={n}")
+
+
+@app.command("evaluate")
+def evaluate_stub(
+    run_id: str = typer.Option(
+        ...,
+        "--run-id",
+        help="ml.model_runs.id；M3 实现完整评估（三组对照 / Walk-Forward）",
+    ),
+) -> None:
+    """评估入口 stub —— M2 仅返回提示，完整实现在 M3。"""
+
+    setup_logging()
+    typer.echo(
+        f"evaluate stub: run_id={run_id} —— 完整评估（三组对照 / Walk-Forward）由 M3 实现。"
+    )
+    raise typer.Exit(code=0)
+
+
 if __name__ == "__main__":
     app()
