@@ -44,13 +44,139 @@ def _runner_not_implemented(job: Job) -> None:
     raise NotImplementedError(f"run_type={job.run_type!r} not implemented in M0")
 
 
+def _runner_factors(job: Job) -> None:
+    """factors runner 入口（M1 Part D）。
+
+    路由到 quant_pipeline.factors.runner.runner_entrypoint；
+    后者从 job.params 解析 version / date_range / factor_ids 并计算 + upsert。
+    """
+
+    # 延迟 import 避免 worker 模块在 factors 子树未就绪时 import 失败
+    from quant_pipeline.factors.runner import runner_entrypoint
+
+    runner_entrypoint(job)
+
+
+def _runner_sync(job: Job) -> None:
+    """sync runner（M1 Part C）：调用 quant_pipeline.sync.orchestrator.run_sync。
+
+    params schema（01-pg-schema.md §4.1）：
+      {
+        "date_range": "YYYYMMDD:YYYYMMDD",
+        "tables": ["trade_cal", ...],                   # 可选，默认全部 6 张
+        "fina_indicator_ts_codes": ["600000.SH", ...]   # 可选，控制财务表覆盖范围
+      }
+
+    任一表 fetcher 0 行 / 三种空数据情形都已在 tushare_client 内部 warn 双写
+    （日志 + ml.quality_reports，rule=`<api_name>_empty`），同时由 orchestrator
+    push 到 outcome.failed_items（apiName 标 `<table>_empty`，对齐 CLAUDE.md
+    "fetcher 0 行必须显式 failedItems" 规则）。dispatcher 此处只把概要写日志，
+    job 整体仍判 success，真正阻断由 quality 门禁负责（spec §2）。
+    """
+
+    # 延迟 import：避免 noop / 其它 run_type 加载时拖入 pandas / tushare
+    from quant_pipeline.sync.orchestrator import DEFAULT_TABLES, run_sync
+
+    params = job.params or {}
+    date_range = params.get("date_range")
+    if not isinstance(date_range, str) or ":" not in date_range:
+        raise ValueError(
+            f"sync job params.date_range 必须是 'YYYYMMDD:YYYYMMDD'，got {date_range!r}"
+        )
+
+    tables_raw = params.get("tables") or list(DEFAULT_TABLES)
+    if not isinstance(tables_raw, list) or not all(isinstance(t, str) for t in tables_raw):
+        raise ValueError(
+            f"sync job params.tables 必须是字符串数组，got {tables_raw!r}"
+        )
+    tables: tuple[str, ...] = tuple(tables_raw)
+
+    ts_codes_raw = params.get("fina_indicator_ts_codes")
+    if ts_codes_raw is not None:
+        if not isinstance(ts_codes_raw, list) or not all(
+            isinstance(t, str) for t in ts_codes_raw
+        ):
+            raise ValueError(
+                "sync job params.fina_indicator_ts_codes 必须是字符串数组（可选）"
+            )
+        fina_ts_codes: tuple[str, ...] | None = tuple(ts_codes_raw)
+    else:
+        fina_ts_codes = None
+
+    outcome = run_sync(
+        job_id=job.id,
+        date_range=date_range,
+        tables=tables,
+        fina_indicator_ts_codes=fina_ts_codes,
+    )
+
+    if outcome.failed_items or outcome.errors:
+        logger.warning(
+            "sync_job_completed_with_issues",
+            extra={
+                "job_id": str(job.id),
+                "rows_total": outcome.rows_total,
+                "per_table_rows": outcome.per_table_rows,
+                "failed_items_count": len(outcome.failed_items),
+                "errors_count": len(outcome.errors),
+            },
+        )
+
+
+def _runner_quality(job: Job) -> None:
+    """quality runner 入口（M1 Part E）。
+
+    params 约定（01-pg-schema §4.1）：
+        date:   YYYYMMDD（必填）
+        strict: bool（默认 false；true 时 critical 抛 QualityGateBlocked）
+
+    阈值参数（row_count_drift_threshold / adj_jump_ratio_threshold 等）
+    透传给 run_checks。QualityGateBlocked 由 dispatch() 捕获后置 blocked。
+    """
+
+    from quant_pipeline.quality.runner import run_checks
+
+    params = job.params or {}
+    trade_date = params.get("date")
+    if (
+        not isinstance(trade_date, str)
+        or len(trade_date) != 8
+        or not trade_date.isdigit()
+    ):
+        raise ValueError(
+            f"quality job.params.date must be YYYYMMDD string, got {trade_date!r}"
+        )
+    strict = bool(params.get("strict", False))
+
+    update_progress(job.id, 0, stage="quality_start")
+    if check_cancel_requested(job.id):
+        raise JobCancelled
+
+    check_params: dict[str, Any] = {}
+    for key in (
+        "row_count_drift_threshold",
+        "adj_jump_ratio_threshold",
+        "extreme_sigma",
+        "null_violation_columns",
+        "pk_map",
+        "factor_version",
+        "fundamental_factor_prefix",
+    ):
+        if key in params:
+            check_params[key] = params[key]
+
+    run_checks(trade_date, strict=strict, params=check_params, job_id=job.id)
+    update_progress(job.id, 100, stage="quality_done")
+
+
 # run_type → runner 路由表
 _ROUTES = {
     "noop": _runner_noop,
-    # M1+
-    "sync": _runner_not_implemented,
-    "quality": _runner_not_implemented,
-    "factors": _runner_not_implemented,
+    # M1
+    "sync": _runner_sync,
+    "factors": _runner_factors,
+    "quality": _runner_quality,
+    # M1+ (其它 run_type 暂未实装)
     "labels": _runner_not_implemented,
     "features": _runner_not_implemented,
     "train": _runner_not_implemented,
@@ -117,11 +243,25 @@ class Dispatcher:
             )
             return
 
+        # 延迟 import 避免循环依赖
+        from quant_pipeline.quality.runner import QualityGateBlocked
+
         try:
             runner(job)
         except JobCancelled:
             logger.info("job_cancelled", extra={"job_id": str(job.id)})
             _finalize_job(job.id, status="cancelled")
+        except QualityGateBlocked as exc:
+            logger.warning(
+                "quality_gate_blocked",
+                extra={"job_id": str(job.id), "rule": exc.rule},
+            )
+            _finalize_job(
+                job.id,
+                status="blocked",
+                blocked_reason=exc.rule,
+                error_text=f"quality gate blocked: {exc.rule}\n{exc.detail}",
+            )
         except NotImplementedError as exc:
             # M0 占位：明确告知尚未实现
             logger.warning(

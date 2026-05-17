@@ -22,6 +22,12 @@ import { DailyBasicEntity } from './entities/raw/daily-basic.entity';
 import { DailyIndicatorEntity } from './entities/raw/daily-indicator.entity';
 import { AdjFactorEntity } from './entities/raw/adj-factor.entity';
 import { IndicatorCalcStateEntity } from './entities/raw/indicator-calc-state.entity';
+import { TradeCalEntity } from './entities/raw/trade-cal.entity';
+import { StkLimitEntity } from './entities/raw/stk-limit.entity';
+import { SuspendEntity } from './entities/raw/suspend.entity';
+import { IndexClassifyEntity } from './entities/raw/index-classify.entity';
+import { IndexMemberEntity } from './entities/raw/index-member.entity';
+import { FinaIndicatorEntity } from './entities/raw/fina-indicator.entity';
 import { AShareSyncStateEntity } from './entities/a-share/a-share-sync-state.entity';
 import { AShareFilterPresetEntity } from './entities/a-share/a-share-filter-preset.entity';
 import { StrategyTypeEntity } from './entities/strategy/strategy-type.entity';
@@ -81,6 +87,14 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           DailyIndicatorEntity,
           AdjFactorEntity,
           IndicatorCalcStateEntity,
+          // ---- M1 Part C 新增：Python sync 拥有的 6 张 raw 表（只读 entity）----
+          TradeCalEntity,
+          StkLimitEntity,
+          SuspendEntity,
+          IndexClassifyEntity,
+          IndexMemberEntity,
+          FinaIndicatorEntity,
+          // ----
           AShareSyncStateEntity,
           AShareFilterPresetEntity,
           StrategyTypeEntity,
