@@ -43,14 +43,13 @@
 import { computed, h, onActivated, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  NAlert, NCard, NDataTable, NEmpty, NInput, useDialog,
+  NAlert, NCard, NDataTable, NEmpty, NInput,
 } from 'naive-ui'
 import type { DataTableColumns, DataTableSortState, PaginationProps } from 'naive-ui'
 import MetricBadge from '@/components/quant/MetricBadge.vue'
 import { quantApi, type ModelRunListItem, type RunsQuery } from '@/api/modules/quant'
 
 const router = useRouter()
-const dialog = useDialog()
 
 const rows = ref<ModelRunListItem[]>([])
 const total = ref(0)
@@ -184,15 +183,8 @@ const pagination = computed<PaginationProps>(() => ({
 const rowProps = (row: ModelRunListItem) => ({
   style: 'cursor: pointer;',
   onClick: () => {
-    // M4 才落详情页（路由 /quant/runs/:id 已预留但暂未注册组件）；
-    // 当前给占位 dialog，并保留 router.push 注释便于 M4 直接接入。
-    dialog.info({
-      title: 'Run 详情（M4 落地）',
-      content: `model_version: ${row.model_version}\nid: ${row.id}\n详情页 / SHAP / 模型下载将在 M4 实现。`,
-      positiveText: '知道了',
-    })
-    // M4 取消下行注释：router.push({ name: 'quant-run-detail', params: { id: row.id } })
-    void router.currentRoute.value
+    // M4 已落详情页：路由 /quant/runs/:id → QuantRunDetailView
+    router.push({ name: 'quant-run-detail', params: { id: row.id } })
   },
 })
 

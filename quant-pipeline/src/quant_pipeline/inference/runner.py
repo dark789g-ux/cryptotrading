@@ -275,6 +275,26 @@ def run_inference(
             "written": written,
         },
     )
+
+    # M4 Part L：inference 完成后自动跑监控；失败不阻塞 infer 主流程
+    try:
+        from quant_pipeline.quality.monitor import run_daily_monitor
+
+        run_daily_monitor(
+            date=trade_date,
+            model_version=model_version,
+            job_id=None,  # 监控不复用 infer job 的 progress
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "post_infer_monitor_failed",
+            extra={
+                "model_version": model_version,
+                "trade_date": trade_date,
+                "err": str(exc),
+            },
+        )
+
     return written
 
 

@@ -16,6 +16,7 @@ import { QuantScoresController } from './controllers/quant-scores.controller';
 import { QuantRunsController } from './controllers/quant-runs.controller';
 import { QuantQualityController } from './controllers/quant-quality.controller';
 import { SseTokenGuard } from './guards/sse-token.guard';
+import { PgListenService } from './realtime/pg-listen.service';
 
 /**
  * `apps/server/src/modules/quant/`：量化模型训练相关 HTTP 表面。
@@ -31,8 +32,13 @@ import { SseTokenGuard } from './guards/sse-token.guard';
  *   - quality controller：GET /quant/quality/recent · GET /quant/quality/:date
  *   - 每个 service 维护独立 FIELD_COL_MAP（CLAUDE.md 动态 SQL 规范）
  *
- * 留到 M4：
- *   - PG LISTEN/NOTIFY 实时进度（M4 替换 polling 实现）
+ * M4 追加（本 PR · Part B）：
+ *   - PgListenService：长生命周期独立 PG 连接 `LISTEN ml_job_progress`，桥接 NOTIFY
+ *     到 RxJS Subject 供 SSE controller 广播订阅
+ *   - QuantJobsSseController：升级到 LISTEN/NOTIFY，建连先 SELECT 一次快照（避免漏掉
+ *     LISTEN 注册之前 worker 已写过的进度），后续按 job_id 过滤转发 NOTIFY
+ *
+ * 留到 M4 Part A/C：
  *   - SHAP / RunDetail UI 配套接口
  *
  * 注册的 entities 仅覆盖 ml.* 4 张表：
@@ -66,6 +72,8 @@ import { SseTokenGuard } from './guards/sse-token.guard';
     QuantScoresService,
     QuantRunsService,
     QuantQualityService,
+    // M4 Part M：PG LISTEN/NOTIFY 桥接（长生命周期独立连接，不复用 TypeORM 池）
+    PgListenService,
   ],
   exports: [
     QuantJobsService,
@@ -74,6 +82,7 @@ import { SseTokenGuard } from './guards/sse-token.guard';
     QuantScoresService,
     QuantRunsService,
     QuantQualityService,
+    PgListenService,
   ],
 })
 export class QuantModule {}

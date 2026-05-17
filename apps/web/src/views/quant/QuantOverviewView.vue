@@ -1,5 +1,27 @@
 <template>
   <div class="page">
+    <!-- M4 Part C：critical 质量告警条（仅当当日存在 critical 时显示） -->
+    <n-alert
+      v-if="criticalAlerts.length > 0"
+      type="error"
+      :title="`${tradeDate || '当日'} 数据质量告警：${criticalAlerts.length} 条 critical`"
+      style="margin-bottom: 12px;"
+    >
+      <ul class="critical-list">
+        <li v-for="a in criticalAlerts" :key="a.id">
+          <span class="mono">{{ a.rule }}</span>
+          <span class="detail">· {{ summarizeDetail(a.detail) }}</span>
+          <router-link
+            v-if="tradeDate"
+            class="link"
+            :to="{ name: 'quant-quality-detail', params: { date: tradeDate } }"
+          >
+            查看详情
+          </router-link>
+        </li>
+      </ul>
+    </n-alert>
+
     <div class="page-header">
       <div>
         <h2>量化 · 总览</h2>
@@ -17,10 +39,13 @@
           :is-date-disabled="() => false"
           @update:value="onDateChange"
         />
+        <n-button type="primary" size="small" @click="showTrigger = true">触发训练</n-button>
       </div>
     </div>
 
     <n-alert v-if="errorText" type="error" :title="errorText" closable style="margin-bottom: 12px;" />
+
+    <QuantTrainTriggerModal v-model:show="showTrigger" />
 
     <n-grid x-gap="16" y-gap="16" cols="1 m:6" responsive="screen">
       <n-gi span="1 m:4">
@@ -53,14 +78,16 @@
 import { computed, onActivated, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  NAlert, NCard, NDatePicker, NEmpty, NGi, NGrid, NSpin, useMessage,
+  NAlert, NButton, NCard, NDatePicker, NEmpty, NGi, NGrid, NSpin, useMessage,
 } from 'naive-ui'
 import ModelVersionSelect from '@/components/quant/ModelVersionSelect.vue'
 import ScoreTable from '@/components/quant/ScoreTable.vue'
 import OosTrendChart from '@/components/quant/OosTrendChart.vue'
+import QuantTrainTriggerModal from '@/components/quant/QuantTrainTriggerModal.vue'
 import { useQuantStore } from '@/stores/quant'
 import {
   quantApi,
+  type QualityItem,
   type ScoreRow,
 } from '@/api/modules/quant'
 
@@ -78,6 +105,33 @@ const loading = ref(false)
 const trendPoints = ref<Array<{ date: string; ndcg10?: number | null; ic?: number | null; portfolio_annual_after_cost?: number | null }>>([])
 const trendLoading = ref(false)
 const errorText = ref<string>('')
+
+// M4 Part C：critical 告警
+const criticalAlerts = ref<QualityItem[]>([])
+const showTrigger = ref(false)
+
+function summarizeDetail(detail: Record<string, unknown> | null | undefined): string {
+  if (!detail || typeof detail !== 'object') return ''
+  // 优先展示有信息量的字段；其余 fallback 截断 JSON
+  const keys = ['feature_id', 'model_version', 'api_name', 'table', 'column', 'ts_code', 'factor_id']
+  for (const k of keys) {
+    const v = detail[k]
+    if (typeof v === 'string' || typeof v === 'number') return `${k}=${v}`
+  }
+  try { return JSON.stringify(detail).slice(0, 80) } catch { return '' }
+}
+
+async function loadCriticalAlerts() {
+  if (!tradeDate.value) return
+  try {
+    const res = await quantApi.getQuality(tradeDate.value, ['critical'])
+    criticalAlerts.value = res.items ?? []
+  } catch (e) {
+    // 告警条加载失败不阻断主流程，仅 warn
+    console.warn('[overview] critical alerts load failed', e)
+    criticalAlerts.value = []
+  }
+}
 
 const formattedTradeDate = computed(() => {
   const s = tradeDate.value
@@ -221,7 +275,7 @@ function onRowClick(row: ScoreRow) {
 async function refreshAll() {
   applyQueryFromRoute()
   await loadVersions()
-  await Promise.all([loadTopK(), loadTrend()])
+  await Promise.all([loadTopK(), loadTrend(), loadCriticalAlerts()])
 }
 
 onMounted(refreshAll)
@@ -266,5 +320,27 @@ void msg
   color: var(--color-text-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+.critical-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.critical-list li {
+  margin: 2px 0;
+}
+.critical-list .mono {
+  font-family: 'Menlo', 'Consolas', monospace;
+  font-weight: 600;
+}
+.critical-list .detail {
+  color: var(--color-text-muted);
+  margin-left: 6px;
+}
+.critical-list .link {
+  margin-left: 8px;
+  color: var(--color-primary);
+  text-decoration: underline;
+  font-size: 12px;
 }
 </style>

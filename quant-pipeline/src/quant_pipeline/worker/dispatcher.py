@@ -232,6 +232,42 @@ def _runner_infer(job: Job) -> None:
     _infer_entry(job)
 
 
+def _runner_optuna(job: Job) -> None:
+    """optuna runner（M4 Part L）：调 training.tuning.runner_entrypoint。
+
+    params schema（01-pg-schema §4.1）：
+      {"feature_set_id": "fs_v1", "n_trials": 50, "space": "default"}
+    """
+
+    from quant_pipeline.training.tuning import runner_entrypoint as _entry
+
+    _entry(job)
+
+
+def _runner_seed_avg(job: Job) -> None:
+    """seed_avg runner（M4 Part L）：调 training.seed_averaging.runner_entrypoint。
+
+    params schema：
+      {"feature_set_id": "fs_v1", "seeds": [42,123,456,789,1024]}
+    """
+
+    from quant_pipeline.training.seed_averaging import runner_entrypoint as _entry
+
+    _entry(job)
+
+
+def _runner_monitor(job: Job) -> None:
+    """monitor runner（M4 Part L）：调 quality.monitor.runner_entrypoint。
+
+    params schema：
+      {"date": "YYYYMMDD", "model_version": "..."}
+    """
+
+    from quant_pipeline.quality.monitor import runner_entrypoint as _entry
+
+    _entry(job)
+
+
 # run_type → runner 路由表
 _ROUTES = {
     "noop": _runner_noop,
@@ -245,9 +281,10 @@ _ROUTES = {
     # M2 Part G
     "train": _runner_train,
     "infer": _runner_infer,
-    # M4
-    "optuna": _runner_not_implemented,
-    "seed_avg": _runner_not_implemented,
+    # M4 Part L
+    "optuna": _runner_optuna,
+    "seed_avg": _runner_seed_avg,
+    "monitor": _runner_monitor,
 }
 
 

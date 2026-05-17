@@ -99,6 +99,25 @@ const routes: any[] = [
     component: () => import('../views/quant/QuantRunsView.vue'),
     meta: { title: '量化训练 Run' },
   },
+  {
+    path: '/quant/runs/:id',
+    name: 'quant-run-detail',
+    component: () => import('../views/quant/QuantRunDetailView.vue'),
+    meta: { title: '量化训练 Run 详情' },
+  },
+  {
+    path: '/quant/jobs',
+    name: 'quant-jobs',
+    component: () => import('../views/quant/QuantJobsView.vue'),
+    meta: { title: '量化作业队列' },
+  },
+  {
+    // 占位：M4 后续里程碑落实 quality 详情页；当前 Overview 告警条 link 兜底落 Overview
+    path: '/quant/quality/:date',
+    name: 'quant-quality-detail',
+    component: () => import('../views/quant/QuantOverviewView.vue'),
+    meta: { title: '量化数据质量详情' },
+  },
 ]
 
 const router = createRouter({

@@ -25,9 +25,9 @@ dependencies = [
     # ---- M2 Part G：LightGBM LambdaRank 训练 + inference ----
     "lightgbm>=4.3",
     "scikit-learn>=1.4",
-    # ---- M4 加 ----
-    # "optuna>=3.6",
-    # "shap>=0.45",
+    # ---- M4 Part L：Optuna 调参 + SHAP 解释 ----
+    "optuna>=3.6",
+    "shap>=0.45",
 ]
 
 [project.optional-dependencies]

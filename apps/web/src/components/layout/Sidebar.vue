@@ -80,6 +80,10 @@ const auth = useAuth()
 const activeKey = computed(() => {
   const name = route.name as string
   if (name?.startsWith('daily-review')) return 'daily-review'
+  // quant 子菜单：jobs / run-detail 命中各自菜单项，其余落总览
+  if (name === 'quant-jobs') return 'quant-jobs'
+  if (name === 'quant-runs' || name === 'quant-run-detail') return 'quant-runs'
+  if (name === 'quant-scores') return 'quant-scores'
   if (name?.startsWith('quant')) return 'quant-overview'
   return name
 })
@@ -102,6 +106,7 @@ const menuOptions = computed(() => [
       { label: '总览', key: 'quant-overview' },
       { label: '评分', key: 'quant-scores' },
       { label: '训练 Run', key: 'quant-runs' },
+      { label: '作业队列', key: 'quant-jobs' },
     ],
   },
   { label: '工具', key: 'tools', icon: renderIcon(CalculatorOutline) },

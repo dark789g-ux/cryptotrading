@@ -255,6 +255,7 @@ def train_model(
     job_id: UUID | None = None,
     hyperparams: dict[str, Any] | None = None,
     walk_forward_params: dict[str, Any] | None = None,
+    with_shap: bool = True,
 ) -> TrainResult:
     """完整训练通路。
 
@@ -297,7 +298,7 @@ def train_model(
     y_all = y_all.loc[valid_mask].reset_index(drop=True)
 
     if walk_forward:
-        return _train_walk_forward(
+        result = _train_walk_forward(
             feature_set_id=feature_set_id,
             df_train=df_train,
             X_all=X_all,
@@ -310,7 +311,7 @@ def train_model(
             latest_trade_date=latest_trade_date,
         )
     else:
-        return _train_single_fold(
+        result = _train_single_fold(
             feature_set_id=feature_set_id,
             df_train=df_train,
             X_all=X_all,
@@ -321,6 +322,24 @@ def train_model(
             hyperparams=hyperparams,
             latest_trade_date=latest_trade_date,
         )
+
+    # M4 Part L 后置钩子：SHAP 解释（默认开；失败不阻塞主流程，写 quality_reports）
+    if with_shap:
+        try:
+            from quant_pipeline.evaluation.shap_explainer import safely_explain_after_train
+
+            safely_explain_after_train(
+                result.model_run_id,
+                trade_date=latest_trade_date,
+                job_id=job_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "shap_post_train_hook_failed",
+                extra={"model_run_id": str(result.model_run_id), "err": str(exc)},
+            )
+
+    return result
 
 
 # ----------------------------------------------------------------------
@@ -792,6 +811,8 @@ def runner_entrypoint(job: Any) -> None:
     model = str(params.get("model", "lgb-lambdarank"))
     walk_forward = bool(params.get("walk_forward", True))
     seed = int(params.get("seed", 42))
+    # M4 Part A：params.skip_shap=true 跳过 SHAP 后置钩子（用于 Optuna 快速 trial）
+    with_shap = not bool(params.get("skip_shap", False))
 
     train_model(
         feature_set_id=feature_set_id,
@@ -801,6 +822,7 @@ def runner_entrypoint(job: Any) -> None:
         job_id=getattr(job, "id", None),
         hyperparams=params.get("hyperparams"),
         walk_forward_params=params.get("walk_forward_params"),
+        with_shap=with_shap,
     )
 
 

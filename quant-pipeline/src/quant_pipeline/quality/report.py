@@ -34,6 +34,10 @@ ALLOWED_RULES: frozenset[str] = frozenset(
         # M4 占位（本里程碑不写，但允许后续模块复用同一 ALLOWED 集合）
         "feature_drift_psi",
         "ic_drop",
+        # M4 Part L：SHAP 解释器失败时由 evaluation.shap_explainer 写入
+        "shap_explainer_failed",
+        # M4 Part L：评分分布漂移（与 feature_drift_psi 同步引入，便于在 detail 里区分 source）
+        "score_distribution_drift",
     }
 )
 

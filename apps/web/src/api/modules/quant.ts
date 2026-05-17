@@ -19,7 +19,7 @@
  *   GET /api/quant/quality/:date             当日数据质量报告
  *   GET /api/quant/quality/recent            最近 N 日数据质量报告
  */
-import { API_BASE, request } from '../client'
+import { API_BASE, post, request } from '../client'
 import { appendQueryParam } from '../query'
 
 // ---------- 后端原始响应类型（与 J 服务端字段名 1:1） ----------
@@ -107,6 +107,84 @@ export interface QualityItem {
   rule: string
   detail: Record<string, unknown>
   created_at: string
+}
+
+// ---------- M4: 作业 / SHAP 类型 ----------
+
+export type JobRunType =
+  | 'noop'
+  | 'sync'
+  | 'quality'
+  | 'factors'
+  | 'labels'
+  | 'features'
+  | 'train'
+  | 'infer'
+  | 'optuna'
+  | 'seed_avg'
+
+export type JobStatus =
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'failed'
+  | 'blocked'
+  | 'cancelled'
+
+/** `ml.jobs` 一行（NestJS 出参字段；时间为 UTC 墙钟字符串） */
+export interface JobRow {
+  id: string
+  run_type: JobRunType
+  status: JobStatus
+  progress: number
+  stage: string | null
+  priority: number
+  attempts: number
+  max_attempts: number
+  cancel_requested: boolean
+  parent_job_id: string | null
+  params: Record<string, unknown>
+  error_text: string | null
+  blocked_reason: string | null
+  created_by: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+  heartbeat_at: string | null
+}
+
+export interface JobListQuery {
+  page?: number
+  pageSize?: number
+  status?: JobStatus[]
+  run_type?: JobRunType[]
+}
+
+export interface JobListResponseRaw {
+  items: JobRow[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface JobListPage {
+  rows: JobRow[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/** SHAP top-k 单条：feature_id + 平均 |SHAP| 值，按 importance 倒序 */
+export interface ShapItem {
+  feature_id: string
+  importance: number
+}
+
+/** SSE NOTIFY payload（00-index §3 通信契约） */
+export interface JobProgressEvent {
+  job_id: string
+  progress: number
+  stage: string
 }
 
 // ---------- 查询参数 ----------
@@ -223,6 +301,95 @@ export const quantApi = {
   getRun(id: string): Promise<ModelRunDetail> {
     return request<ModelRunDetail>(
       `${API_BASE}/quant/runs/${encodeURIComponent(id)}`,
+    )
+  },
+
+  // ============ M4 Part C：jobs / SSE / quality alerts 扩展 ============
+
+  /**
+   * 触发新作业（M2 已实现 `POST /quant/jobs`）。
+   * 返回 NestJS 落库后的 job 行；前端拿 id 后跳 `/quant/jobs` 并高亮。
+   */
+  createJob(body: {
+    run_type: JobRunType
+    params: Record<string, unknown>
+    priority?: number
+    max_attempts?: number
+  }): Promise<JobRow> {
+    return post<JobRow>(`${API_BASE}/quant/jobs`, body)
+  },
+
+  /** 列表查询（按 status / run_type 过滤 + 分页）。M2: `GET /quant/jobs` */
+  async listJobs(query: JobListQuery = {}): Promise<JobListPage> {
+    const qs = new URLSearchParams()
+    appendQueryParam(qs, 'page', query.page)
+    appendQueryParam(qs, 'page_size', query.pageSize)
+    if (query.status && query.status.length > 0) {
+      qs.set('status', query.status.join(','))
+    }
+    if (query.run_type && query.run_type.length > 0) {
+      qs.set('run_type', query.run_type.join(','))
+    }
+    const s = qs.toString()
+    const raw = await request<JobListResponseRaw>(
+      `${API_BASE}/quant/jobs${s ? `?${s}` : ''}`,
+    )
+    return {
+      rows: raw.items ?? [],
+      total: raw.total ?? 0,
+      page: raw.page ?? query.page ?? 1,
+      pageSize: raw.page_size ?? query.pageSize ?? 20,
+    }
+  },
+
+  /** 单个 job 详情（也用于 SSE 重连后的兜底回补当前 progress） */
+  getJob(id: string): Promise<JobRow> {
+    return request<JobRow>(`${API_BASE}/quant/jobs/${encodeURIComponent(id)}`)
+  },
+
+  /** 申请取消（NestJS 把 cancel_requested 写 true，worker 异步响应） */
+  cancelJob(id: string): Promise<{ ok: true }> {
+    return post<{ ok: true }>(`${API_BASE}/quant/jobs/${encodeURIComponent(id)}/cancel`)
+  },
+
+  /**
+   * 为 SSE 申请 5 分钟短期 token；浏览器 EventSource 不带 Authorization header，
+   * 走 query token 鉴权（03-nestjs-vue.md §1）。
+   */
+  issueSseToken(id: string): Promise<{ token: string; expires_at: string }> {
+    return post<{ token: string; expires_at: string }>(
+      `${API_BASE}/quant/jobs/${encodeURIComponent(id)}/sse-token`,
+    )
+  },
+
+  /** 拼装 SSE URL（前端直接 `new EventSource(url)`） */
+  buildSseUrl(id: string, token: string): string {
+    const qs = new URLSearchParams({ token })
+    return `${API_BASE}/quant/jobs/${encodeURIComponent(id)}/stream?${qs.toString()}`
+  },
+
+  /**
+   * SHAP top-k JSON：`model_runs.shap_uri` 指向 artifact_uri 同目录下文件。
+   * NestJS Part B 提供 `GET /quant/runs/:id/shap` 代理读 artifact，返回 `{ items: [...] }`。
+   */
+  async getRunShap(id: string): Promise<{ items: ShapItem[] }> {
+    return request<{ items: ShapItem[] }>(
+      `${API_BASE}/quant/runs/${encodeURIComponent(id)}/shap`,
+    )
+  },
+
+  /** 当日质量报告（按 level 数组过滤；Overview 告警条只关心 critical） */
+  getQuality(
+    date: string,
+    level?: Array<'info' | 'warn' | 'critical'>,
+  ): Promise<{ trade_date: string; items: QualityItem[] }> {
+    const qs = new URLSearchParams()
+    if (level && level.length > 0) {
+      qs.set('level', level.join(','))
+    }
+    const s = qs.toString()
+    return request<{ trade_date: string; items: QualityItem[] }>(
+      `${API_BASE}/quant/quality/${encodeURIComponent(date)}${s ? `?${s}` : ''}`,
     )
   },
 
