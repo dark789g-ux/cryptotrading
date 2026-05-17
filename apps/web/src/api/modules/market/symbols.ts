@@ -22,7 +22,15 @@ export interface BrickChartPoint {
 }
 
 export interface MoneyFlowBar {
-  trade_date: string   // 'YYYYMMDD'，与 KlineChartBar.open_time 同源
+  /**
+   * 副图对齐 K 线主图的关键 key：必须与同一 chart 的 KlineChartBar.open_time
+   * 格式完全一致，否则 KlineChart 副图 flowMap.get(open_time) 全 miss，
+   * 副图柱形画不出。各业务接入的实际格式：
+   * - 行业/板块（ths-index-daily.service.ts:93）：'YYYYMMDD'
+   * - A 股（a-shares.service.ts:221 用 formatTradeDateLabel）：'YYYY-MM-DD'
+   * 由各自的 fetcher 负责把数据库原值（'YYYYMMDD'）归一为对应格式。
+   */
+  trade_date: string
   net_amount: number   // 单位亿元（后端 toYi() 已转）
 }
 

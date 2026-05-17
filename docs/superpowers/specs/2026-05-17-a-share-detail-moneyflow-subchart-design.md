@@ -106,21 +106,35 @@ export async function fetchAShareKlineOnly(
 }
 
 /**
+ * 把 'YYYYMMDD' 转 'YYYY-MM-DD'，以对齐 A 股 K 线 open_time 的格式。
+ * 行业 K 线（ths-index-daily.service.ts:93）直返 'YYYYMMDD'，
+ * 而 A 股 K 线（a-shares.service.ts:221 用 formatTradeDateLabel）转成 'YYYY-MM-DD'。
+ * money-flow.service.ts 直返数据库原值 'YYYYMMDD'，需在 A 股 fetcher 这一层做翻译。
+ */
+function toIsoTradeDate(yyyymmdd: string): string {
+  if (yyyymmdd.length !== 8) return yyyymmdd
+  return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`
+}
+
+/**
  * 把后端 MoneyFlowStockRow 映射为 KlineChart 副图所需的 MoneyFlowBar。
  * - 后端 service 在传 limit 时按 trade_date DESC 返回，K 线主图是 ASC 显示，需要 reverse。
+ * - trade_date 从 'YYYYMMDD' 转 'YYYY-MM-DD' 与 A 股 K 线 open_time 对齐。
  * - netAmount 已由后端 toYi() 转为亿元（万元 ÷ 10000），前端不再换算。
  * - null/NaN 回退为 0，与 trendFetchers.fetchIndustryTrend 一致。
  */
-function mapMoneyFlowBars(rows: MoneyFlowStockRow[]): MoneyFlowBar[] {
+export function mapMoneyFlowBars(rows: MoneyFlowStockRow[]): MoneyFlowBar[] {
   return rows
     .slice()
     .reverse()
     .map(r => ({
-      trade_date: r.tradeDate,
+      trade_date: toIsoTradeDate(r.tradeDate),
       net_amount: Number(r.netAmount) || 0,
     }))
 }
 ```
+
+⚠️ **后置修订（修复一处对齐 bug）**：spec 初版漏识别"A 股 K 线 open_time 是 'YYYY-MM-DD'，但个股资金流 tradeDate 是 'YYYYMMDD'"的格式差异，导致首次实现后副图柱形画不出（grid 渲染但无柱）。已在 fetcher 层补 `toIsoTradeDate` 转换；详见 § 4.3 边界表"格式对齐"行。
 
 ### 4.2 改动文件：`apps/web/src/components/symbols/a-shares/AShareDetailDrawer.vue`
 
@@ -215,6 +229,7 @@ watch(
 | 场景 | 行为 |
 |---|---|
 | 资金流 API 返回 0 行（北交所新股 / 停牌 / 未同步） | `moneyFlowRows = []`，`<KlineChart :money-flow="[]">` 不渲染副图 grid（`apps/web/src/composables/kline/klineChartOptions.ts:267-291` 既有保护）。Drawer 正常显示主图，不报错不提示。 |
+| **格式对齐**（fetcher 层） | A 股 K 线 `open_time` = `'2026-05-15'`（后端 `formatTradeDateLabel` 加短横）；个股资金流 `tradeDate` = `'20260515'`（数据库原值）。`mapMoneyFlowBars` 必须用 `toIsoTradeDate(...)` 把 `'YYYYMMDD'` 转 `'YYYY-MM-DD'`，否则 `flowMap.get(open_time)` 全 miss，副图柱形画不出。行业 Tab 凑巧 `ths-index-daily.service.ts:93` 也直返 `'YYYYMMDD'`，所以 K 线与资金流原本就对齐——A 股不行。 |
 | K 线 360 但资金流仅返回 200 行（部分日期未发布） | 按 trade_date 对齐，缺失日期 bar 留空（既有逻辑）。 |
 | 任一 API 失败（reject） | 沿用现有 Drawer try/catch，整体加载失败提示与现状一致；**不**退化为"K 线显示但副图静默空白"——避免与"合法 0 行"产生混淆。 |
 | priceMode 切换时正在加载 | watch 顺序触发，最后一次写入获胜；不引入 race-cancel 机制（YAGNI）。 |
