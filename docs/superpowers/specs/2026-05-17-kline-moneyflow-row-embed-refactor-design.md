@@ -262,7 +262,15 @@ async function load() {
 <KlineChart :data="klineBars" height="520px" />
 ```
 
-删除 `MoneyFlowBar` import。
+**完整清理清单**（避免 implementer 漏点）：
+- 删除 `moneyFlowBars` ref 声明
+- 删除 `MoneyFlowBar` import
+- 删除模板 `:money-flow="moneyFlowBars"` 绑定
+- `load()` 中删 `moneyFlowBars.value = r.moneyFlow ?? []` 赋值
+- `resetTrendState()`（行 236-240 附近）删 `moneyFlowBars.value = []`
+- `bar` 分支（行 248-249, 271-272 附近）删两处 `moneyFlowBars.value = []`
+
+依赖 TS 编译报错兜底（删 ref 后所有引用点都会标红），但显式列出更稳。
 
 ### 4.7 `apps/web/src/components/symbols/a-shares/AShareDetailDrawer.vue`
 
@@ -294,6 +302,21 @@ async function loadDetail() {
     loading.value = false
   }
 }
+
+// watch [show, tsCode] 关闭路径（show === false）也要清 cachedFlowRows，
+// 否则关闭→换股票→再打开间会有短暂窗口拿到上一只股票的 flowRows
+watch(
+  () => [props.show, props.row?.tsCode] as const,
+  ([show, tsCode]) => {
+    if (!show) {
+      klineRows.value = []
+      cachedFlowRows.value = []   // ← 新增清空
+      return
+    }
+    if (!tsCode) return
+    void loadDetail()
+  },
+)
 
 async function reloadKlineOnly() {
   const tsCode = props.row?.tsCode
@@ -469,8 +492,8 @@ export function buildTooltip(
 
 | 文件 | 类型 | 改动 |
 |---|---|---|
-| `mergeMoneyFlow.spec.ts` | **新建** | 8 用例：基本合并 / 双方同格式（行业形态）/ 部分缺失 / 资金流全无 / null netAmount 回退 / 不修改原对象 / R3 探针正面（0 命中触发）/ R3 探针负面（合法 0 行不触发） |
-| `klineChartOptions.spec.ts` | **重构 fixture** | 6 个 snapshot 用例 fixture 改为 `KlineChartBar.moneyFlow` 内嵌；`buildKlineChartOption` 调用删 `moneyFlow` 参数 |
+| `mergeMoneyFlow.spec.ts` | **新建** | 9 用例：基本合并 / 双方同格式（行业形态）/ 部分缺失 / 资金流全无 / null netAmount 回退 / 不修改原对象 / 非 8 位 tradeDate 两侧归一化稳定（容错回归）/ R3 探针正面（0 命中触发）/ R3 探针负面（合法 0 行不触发） |
+| `klineChartOptions.spec.ts` | **重构 fixture** | 现有"有 moneyFlow" describe 块的 5 个 `it` 用例（基本对齐 / 部分缺失 / 乱序对齐 / 正负染色 / 空数组回退）fixture 改为 `KlineChartBar.moneyFlow` 内嵌；"无 moneyFlow" 块 1 个用例同步删 `moneyFlow` 参数；`buildKlineChartOption` 调用统一删 `moneyFlow` 参数 |
 | `trendFetchers.spec.ts` | **改断言** | 断言从 `result.moneyFlow[i].net_amount` 改为 `result.kline[i].moneyFlow` |
 | `aShareDetailFetcher.spec.ts` | **重写大部** | 删 `mapMoneyFlowBars` / `toIsoTradeDate` 相关用例（已转入 `mergeMoneyFlow.spec.ts`）；新增 `flowRows` 透出字段断言；现有"格式对齐"与"容错"用例迁移到 `mergeMoneyFlow.spec.ts` |
 
@@ -529,6 +552,7 @@ rg "flowMap\.get|moneyFlow\.find" apps/web/src/composables/kline/
 | FlowTrendModal 通过 props.fetchFn 调用 fetcher，类型变化影响 prop 类型 | β 同步改 `TrendFetchResult`；FlowTrendModal 改在 γ；TS 编译会强制对齐 |
 | snapshot 测试 6 个用例 fixture 全部要重写 | 一次性重写，TDD 顺序：先改 fixture 看红，再改实现，再看绿 |
 | 删除 `MoneyFlowBar` 类型后某处遗漏 import | grep 反查 §5.4 第 1 条兜底；TS 编译会标错未删的 import |
+| 用户快速切换 row（race condition）导致 `cachedFlowRows` 与 `klineRows` 暂时不同步 | **本期非目标**。当前 `klineRows` 在同一场景下已是 last-write-wins 模式，未引入 AbortController；本次保持同样的语义不动，避免无关重构。如未来需要硬化，独立 spec 处理 |
 
 ## 8. 验收清单（写代码前公示）
 
