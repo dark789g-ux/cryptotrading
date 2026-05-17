@@ -25,7 +25,7 @@
 #   4  → 参数 / 环境校验失败（在跑任何阶段之前）
 #
 # 注意：本脚本必须在【项目仓库根目录】或仓库下任意子目录运行（脚本自动定位仓库根），
-#       并要求 quant-pipeline 已通过 `uv sync` 安装好依赖；TuShare token 必须配在
+#       并要求 apps/quant-pipeline 已通过 `uv sync` 安装好依赖；TuShare token 必须配在
 #       `.env` 或环境变量 `TUSHARE_TOKEN`。
 # =====================================================================
 
@@ -82,8 +82,8 @@ function Invoke-UvCmd {
         Write-Stage $Stage 'DRY RUN：跳过实际执行'
         return 0
     }
-    # 直接调用 uv，让其在 quant-pipeline 子目录内执行（pyproject.toml 在那里）
-    Push-Location (Join-Path (Get-RepoRoot) 'quant-pipeline')
+    # 直接调用 uv，让其在 apps/quant-pipeline 子目录内执行（pyproject.toml 在那里）
+    Push-Location (Join-Path (Get-RepoRoot) 'apps/quant-pipeline')
     try {
         & uv @Args
         $code = $LASTEXITCODE

@@ -32,10 +32,10 @@
 
 | # | 任务 | 文件域 | 估时 |
 |---|---|---|---|
-| 1 | `training/tuning.py` Optuna 4 主旋钮 + PG RDB storage 接入 | `quant-pipeline/src/quant_pipeline/training/tuning.py` | 3 天 |
-| 2 | `training/seed_averaging.py` + parent_job_id 父子关系 | `quant-pipeline/src/quant_pipeline/training/seed_averaging.py`、worker dispatcher | 2 天 |
-| 3 | `evaluation/shap_explainer.py` + 写 shap_uri | `quant-pipeline/src/quant_pipeline/evaluation/shap_explainer.py` | 2 天 |
-| 4 | 监控：IC 滚动 / 特征 PSI 计算 / 写 `ml.quality_reports` | `quant-pipeline/src/quant_pipeline/quality/monitor.py`（新增） | 2 天 |
+| 1 | `training/tuning.py` Optuna 4 主旋钮 + PG RDB storage 接入 | `apps/quant-pipeline/src/quant_pipeline/training/tuning.py` | 3 天 |
+| 2 | `training/seed_averaging.py` + parent_job_id 父子关系 | `apps/quant-pipeline/src/quant_pipeline/training/seed_averaging.py`、worker dispatcher | 2 天 |
+| 3 | `evaluation/shap_explainer.py` + 写 shap_uri | `apps/quant-pipeline/src/quant_pipeline/evaluation/shap_explainer.py` | 2 天 |
+| 4 | 监控：IC 滚动 / 特征 PSI 计算 / 写 `ml.quality_reports` | `apps/quant-pipeline/src/quant_pipeline/quality/monitor.py`（新增） | 2 天 |
 | 5 | NestJS SSE controller + SSE token endpoint 完善 + LISTEN/NOTIFY 桥接 | `apps/server/src/modules/quant/realtime/` | 2 天 |
 | 6 | Vue `QuantRunDetailView` + ShapBarChart + 拆分子组件至 ≤ 500 行 | `apps/web/src/views/quant/` + `components/quant/` | 4 天 |
 | 7 | Vue `QuantJobsView` + `QuantTrainTriggerModal` + `ProgressLine` SSE | 上同 | 3 天 |

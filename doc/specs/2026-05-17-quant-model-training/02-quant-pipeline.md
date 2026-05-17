@@ -5,7 +5,7 @@
 ## 1 目录结构
 
 ```
-quant-pipeline/
+apps/quant-pipeline/
 ├─ pyproject.toml          uv 管理；依赖见下
 ├─ uv.lock
 ├─ README.md               中文 · UTF-8 · Windows uv 上手步骤

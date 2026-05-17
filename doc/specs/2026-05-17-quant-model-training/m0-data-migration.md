@@ -11,7 +11,7 @@
 
 1. **手写 SQL migration**（含 docker exec 脚本 + 反向脚本）覆盖 [01-pg-schema.md](01-pg-schema.md) §6 全部 6 步正向序列 + 2 步回滚序列；git tag `quant-migration-base`
 2. **NestJS 既有 a-share entity 全部改指向 `raw.*` 并去 `a_share_` 前缀**；构建 & 单测通过
-3. `quant-pipeline/` uv 项目骨架：`pyproject.toml` + 空 `cli.py` + `db.engine` 能连上 PG（依赖清单见 [02-quant-pipeline.md](02-quant-pipeline.md) §2）
+3. `apps/quant-pipeline/` uv 项目骨架：`pyproject.toml` + 空 `cli.py` + `db.engine` 能连上 PG（依赖清单见 [02-quant-pipeline.md](02-quant-pipeline.md) §2）
 4. `factors / ml` schema 下各表的 Alembic 初始 migration（空表 + 索引）—— **不含** Optuna 自建表（M4 由 Optuna 库自行创建，见 [05-risks.md](05-risks.md) §9）
 5. `ml.jobs` 表 + 最小 worker（`run_type='noop'` 能拿行并回写 `status='success'`）
 
@@ -31,10 +31,10 @@
 | 2 | 手写正向 SQL（5 张表 SET SCHEMA + RENAME） | `apps/server/migrations/` | 1 天 |
 | 3 | 手写反向 SQL + 测试库演练 | 同上 | 0.5 天 |
 | 4 | NestJS entity 全改（指向 raw + 去前缀）+ 跑通既有同步 | `apps/server/src/entities/a-share/` 及引用方 | 1.5 天 |
-| 5 | 初始化 `quant-pipeline/` uv 骨架 + 连 PG | 新增根目录 `quant-pipeline/` | 1 天 |
-| 6 | `factors / ml` Alembic 初始 migration | `quant-pipeline/src/quant_pipeline/db/migrations/` | 1 天 |
-| 7 | 最小 worker（poller + dispatcher 空 dispatch） | `quant-pipeline/src/quant_pipeline/worker/` | 1 天 |
-| 8 | M0 README（发布/回滚序列说明书）+ 集成测试库 docker-compose | `quant-pipeline/README.md`、`docker-compose.test.yml` | 0.5 天 |
+| 5 | 初始化 `apps/quant-pipeline/` uv 骨架 + 连 PG | 新增 `apps/quant-pipeline/` | 1 天 |
+| 6 | `factors / ml` Alembic 初始 migration | `apps/quant-pipeline/src/quant_pipeline/db/migrations/` | 1 天 |
+| 7 | 最小 worker（poller + dispatcher 空 dispatch） | `apps/quant-pipeline/src/quant_pipeline/worker/` | 1 天 |
+| 8 | M0 README（发布/回滚序列说明书）+ 集成测试库 docker-compose | `apps/quant-pipeline/README.md`、`docker-compose.test.yml` | 0.5 天 |
 
 ## 与其它里程碑的依赖关系
 

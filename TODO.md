@@ -18,8 +18,8 @@
 
 - [ ] 配置 quant-pipeline 的 PG_DSN（指向生产 PG）
   ```powershell
-  cp quant-pipeline\.env.example quant-pipeline\.env
-  # 编辑 quant-pipeline\.env，填：
+  cp apps\quant-pipeline\.env.example apps\quant-pipeline\.env
+  # 编辑 apps\quant-pipeline\.env，填：
   # PG_DSN=postgresql+psycopg2://cryptouser:cryptopass@localhost:5432/cryptodb
   # TUSHARE_TOKEN=<你的 token>
   ```
@@ -46,7 +46,7 @@
 
 - [ ] 用 1 个月范围验证全链路无异常
   ```powershell
-  cd C:\codes\cryptotrading\quant-pipeline
+  cd C:\codes\cryptotrading\apps\quant-pipeline
   uv run quant sync raw --date-range 20240601:20240630 `
     --tables trade_cal,stk_limit,suspend,index_classify,index_member,fina_indicator
   uv run quant factors compute --version v1 --date-range 20240601:20240630
@@ -293,4 +293,4 @@
 - 方法论：`doc/量化/00-index.md` ~ `10-术语表.md`
 - 项目硬约束：`CLAUDE.md`
 - 任务计划脚本：`scripts/quant-daily/README.md`
-- pipeline 工程文档：`quant-pipeline/README.md`
+- pipeline 工程文档：`apps/quant-pipeline/README.md`

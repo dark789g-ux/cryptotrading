@@ -64,10 +64,10 @@ PostgreSQL (crypto-postgres 容器)
 
 ---
 
-## 9.4 应用代码结构（独立子项目 `quant-pipeline/`）
+## 9.4 应用代码结构（子项目 `apps/quant-pipeline/`）
 
 ```
-quant-pipeline/
+apps/quant-pipeline/
 ├─ src/
 │   ├─ sync/                  # TuShare → raw schema 同步
 │   │   ├─ daily-sync          P0：日线/基本面/复权因子/涨跌停
@@ -121,9 +121,9 @@ quant-pipeline/
 ## 9.5 与主项目（apps/server）的关系
 
 - **共用** PG 实例（`crypto-postgres` 容器），不同 schema 隔离
-- **独立部署**：quant-pipeline 不入 NestJS monorepo，单独 Python 项目（LightGBM 生态在 Python，跨语言不实用）
+- **独立部署**：`apps/quant-pipeline/` 与 NestJS workspace 同仓但不共享 pnpm 包管理，单独 Python 项目（LightGBM 生态在 Python，跨语言不实用）
 - **数据契约**：apps/server 如需展示选股结果，直接读 `ml.scores_daily` 表
-- **认证**：quant-pipeline 用独立 PG 角色 + 只读 `ml.scores_daily` 给后端
+- **认证**：apps/quant-pipeline 用独立 PG 角色 + 只读 `ml.scores_daily` 给后端
 
 ---
 

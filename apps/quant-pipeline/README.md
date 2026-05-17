@@ -1,6 +1,6 @@
 # quant-pipeline · M0 骨架
 
-A 股截面选股量化管道（Python · uv 管理）。本目录是 [doc/specs/2026-05-17-quant-model-training/](../doc/specs/2026-05-17-quant-model-training/) 的代码侧落地。
+A 股截面选股量化管道（Python · uv 管理）。本目录是 [doc/specs/2026-05-17-quant-model-training/](../../doc/specs/2026-05-17-quant-model-training/) 的代码侧落地。
 
 ## 现状（M0）
 
@@ -14,7 +14,7 @@ A 股截面选股量化管道（Python · uv 管理）。本目录是 [doc/specs
 > 前置：已安装 [uv](https://github.com/astral-sh/uv)，PowerShell 中 `where.exe uv` 能定位到 `uv.exe`。
 
 ```powershell
-cd quant-pipeline
+cd apps/quant-pipeline
 
 # 1. 同步依赖（自动建 .venv 并解析锁文件）
 uv sync
@@ -38,7 +38,7 @@ uv run quant worker run
 集成测试用一份独立的 PG 容器，端口避开生产的 `5432`（避免误操作生产数据）：
 
 ```powershell
-cd quant-pipeline
+cd apps/quant-pipeline
 docker compose -f docker-compose.test.yml up -d
 # 等待 healthy 后：
 docker exec crypto-postgres-test psql -U cryptouser -d cryptodb_test -c "SELECT version();"
@@ -48,7 +48,7 @@ $env:PG_DSN = "postgresql+psycopg2://cryptouser:cryptopass@localhost:15432/crypt
 uv run alembic upgrade head
 ```
 
-容器名 `crypto-postgres-test`、端口 `15432`，与 [doc/specs/2026-05-17-quant-model-training/04-error-quality-testing.md](../doc/specs/2026-05-17-quant-model-training/04-error-quality-testing.md) §3 严格一致。
+容器名 `crypto-postgres-test`、端口 `15432`，与 [doc/specs/2026-05-17-quant-model-training/04-error-quality-testing.md](../../doc/specs/2026-05-17-quant-model-training/04-error-quality-testing.md) §3 严格一致。
 
 ## Alembic（仅 factors / ml）
 
@@ -69,7 +69,7 @@ uv run alembic upgrade head
 
 ## M0 6 步发布序列
 
-> 严格对齐 [01-pg-schema.md §6](../doc/specs/2026-05-17-quant-model-training/01-pg-schema.md)。
+> 严格对齐 [01-pg-schema.md §6](../../doc/specs/2026-05-17-quant-model-training/01-pg-schema.md)。
 
 1. **PG 创建三 schema**（生产库执行）：
    ```bash
@@ -85,6 +85,7 @@ uv run alembic upgrade head
 4. **执行手写正向 SQL**（生产 PG）：
    ```powershell
    # 直接走 PowerShell 包装脚本（含 ON_ERROR_STOP=1 + BEGIN/COMMIT）
+   # 路径相对于仓库根
    powershell -File apps/server/migrations/apply-quant-raw-schema-migration.ps1
    # 或裸跑 SQL：
    docker exec -i crypto-postgres psql -U cryptouser -d cryptodb -v ON_ERROR_STOP=1 `
@@ -93,7 +94,7 @@ uv run alembic upgrade head
 5. **部署新版 NestJS**（步骤 3 的 PR）；起服务后立刻跑一次既有 A 股同步任务，确认写 `raw.*` 成功。
 6. **启动 Python worker**：
    ```powershell
-   cd quant-pipeline
+   cd apps/quant-pipeline
    uv run quant worker run
    # 另一 PowerShell 验证消费链路：
    docker exec crypto-postgres psql -U cryptouser -d cryptodb -c \

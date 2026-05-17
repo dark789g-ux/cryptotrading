@@ -128,7 +128,7 @@ WHERE ic.level = 'L1'
 
 ```bash
 # 单测
-cd quant-pipeline
+cd apps/quant-pipeline
 uv run pytest tests/unit/test_factors_*.py
 
 # 注册数量自检（应输出 15）

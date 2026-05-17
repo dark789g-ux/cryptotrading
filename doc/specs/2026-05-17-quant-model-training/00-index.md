@@ -3,7 +3,7 @@
 - 日期：2026-05-17
 - 状态：草稿，待审阅（已通过一次独立 SubAgent 审阅，P0/P1 全部修订）
 - 拆分说明：本目录是 `doc/specs/2026-05-17-quant-model-training-design.md` 的拆分形态，每个子文档 ≤ 300 行，便于 parallel-agents 各取一段独立推进
-- 涉及模块：新增 `quant-pipeline/`（仓库根目录，Python · uv 管理）、`apps/server/src/modules/quant/`、`apps/web/src/views/quant/`、PostgreSQL 新增 `raw / factors / ml` 三 schema
+- 涉及模块：新增 `apps/quant-pipeline/`（Python · uv 管理）、`apps/server/src/modules/quant/`、`apps/web/src/views/quant/`、PostgreSQL 新增 `raw / factors / ml` 三 schema
 
 ## 1 背景与目标
 
@@ -26,7 +26,7 @@
 | 决策项 | 决策 |
 |---|---|
 | Spec 范围 | 完整 90 天 Roadmap，一次写完 |
-| 代码布局 | 同仓 · 根目录 `quant-pipeline/` · Python |
+| 代码布局 | 同仓 · `apps/quant-pipeline/` · Python |
 | Python 环境 | uv（pyproject.toml + uv.lock） |
 | 与现有 A 股表的关系 | 迁移进 `raw` schema（去 `a_share_` 前缀）+ NestJS entity 同步改 |
 | 运行位置与触发 | 本地 Windows + CLI 手动 + Windows 任务计划 |
@@ -61,7 +61,7 @@
 │        · /quant/jobs       作业队列                         │
 │        · QuantTrainTriggerModal (复用 AppModal)             │
 │                                                             │
-│  quant-pipeline/ (Python · uv 管理) ※本仓新建               │
+│  apps/quant-pipeline/ (Python · uv 管理) ※本仓新建          │
 │    ├ pyproject.toml + uv.lock                               │
 │    ├ src/quant_pipeline/                                    │
 │    │   ├ cli.py             typer 主入口                    │
@@ -103,7 +103,7 @@
 | 文档 | 内容 | 主要消费者 |
 |---|---|---|
 | [01-pg-schema.md](01-pg-schema.md) | PG 4 个 schema 总览、所有表 DDL、迁移与回滚序列、sync 所有权 | M0 / M1 / M2 全部 |
-| [02-quant-pipeline.md](02-quant-pipeline.md) | Python `quant-pipeline/` 模块拆分、CLI 表面、worker/runner 进度约定 | M1 / M2 / M3 / M4 |
+| [02-quant-pipeline.md](02-quant-pipeline.md) | Python `apps/quant-pipeline/` 模块拆分、CLI 表面、worker/runner 进度约定 | M1 / M2 / M3 / M4 |
 | [03-nestjs-vue.md](03-nestjs-vue.md) | NestJS `modules/quant/` + Vue `views/quant/` 改动表面、SSE 鉴权 | M2（jobs controller） / M3（读 controller + UI v1） / M4（UI v2） |
 | [04-error-quality-testing.md](04-error-quality-testing.md) | 错误处理总则、数据质量门禁、测试策略、Vue 行数 CI | 全部 |
 | [05-risks.md](05-risks.md) | 风险与开放议题（含 reaper / Optuna RDB 等设计权衡） | 全部 |

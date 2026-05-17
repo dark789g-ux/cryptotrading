@@ -31,11 +31,11 @@
 
 | # | 任务 | 文件域 | 估时 |
 |---|---|---|---|
-| 1 | `training/walk_forward.py` Purged + embargo ≥ 21 日 + 折分配 | `quant-pipeline/src/quant_pipeline/training/walk_forward.py` | 3 天 |
-| 2 | `training/runner.py` 接入 Walk-Forward；fold_metrics 写 oos_metrics | `quant-pipeline/src/quant_pipeline/training/runner.py` | 1 天 |
-| 3 | 线性 baseline + GBDT 单模 + 集成（3 模型并跑） | `quant-pipeline/src/quant_pipeline/training/` | 3 天 |
-| 4 | `evaluation/portfolio.py` 扣成本年化（佣金 + 滑点） | `quant-pipeline/src/quant_pipeline/evaluation/portfolio.py` | 2 天 |
-| 5 | `evaluation/ab_compare.py` + 自动报告生成 `report.md` | `quant-pipeline/src/quant_pipeline/evaluation/` | 1 天 |
+| 1 | `training/walk_forward.py` Purged + embargo ≥ 21 日 + 折分配 | `apps/quant-pipeline/src/quant_pipeline/training/walk_forward.py` | 3 天 |
+| 2 | `training/runner.py` 接入 Walk-Forward；fold_metrics 写 oos_metrics | `apps/quant-pipeline/src/quant_pipeline/training/runner.py` | 1 天 |
+| 3 | 线性 baseline + GBDT 单模 + 集成（3 模型并跑） | `apps/quant-pipeline/src/quant_pipeline/training/` | 3 天 |
+| 4 | `evaluation/portfolio.py` 扣成本年化（佣金 + 滑点） | `apps/quant-pipeline/src/quant_pipeline/evaluation/portfolio.py` | 2 天 |
+| 5 | `evaluation/ab_compare.py` + 自动报告生成 `report.md` | `apps/quant-pipeline/src/quant_pipeline/evaluation/` | 1 天 |
 | 6 | NestJS scores / runs / quality 三只读 controller + service + FIELD_COL_MAP | `apps/server/src/modules/quant/` | 3 天 |
 | 7 | Vue Overview + Scores + Runs 三页 + ScoreTable / MetricBadge | `apps/web/src/views/quant/` | 4 天 |
 | 8 | 模型版本切换器（query string + URL 同步） | 上同 | 1 天 |

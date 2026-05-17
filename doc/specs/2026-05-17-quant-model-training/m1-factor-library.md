@@ -15,7 +15,7 @@
 3. `factors.daily_factors`（按 `factor_version` 分区）写入完成，覆盖 2018 至今
 4. 数据质量门禁 doc/03 八项 + 落 `ml.quality_reports`（rule 清单见 [01-pg-schema.md](01-pg-schema.md) §4.3）
 5. PIT 自动审计（doc/03 三铁律 + 三幽灵 Bug 检测）作为独立 `quant quality pit-audit` 命令
-6. **Python 侧** `quant-pipeline/sync/` 新增 `raw.stk_limit / raw.suspend_d / raw.index_classify / raw.index_member / raw.fina_indicator / raw.trade_cal` 6 张表的同步实现（[01-pg-schema.md](01-pg-schema.md) §5 所有权划分）；NestJS sync 不动既有 5 张表，但 entity / repo 要能只读新 6 张表
+6. **Python 侧** `apps/quant-pipeline/sync/` 新增 `raw.stk_limit / raw.suspend_d / raw.index_classify / raw.index_member / raw.fina_indicator / raw.trade_cal` 6 张表的同步实现（[01-pg-schema.md](01-pg-schema.md) §5 所有权划分）；NestJS sync 不动既有 5 张表，但 entity / repo 要能只读新 6 张表
 
 ## 验收门槛
 
@@ -29,13 +29,13 @@
 
 | # | 任务 | 文件域 | 估时 |
 |---|---|---|---|
-| 1 | `factors/base.py` 抽象类设计（PIT 窗口声明 / 注册表接口） | `quant-pipeline/src/quant_pipeline/factors/base.py`、`registry.py` | 1 天 |
-| 2 | Python sync 新增 6 张表（trade_cal 优先，其它依赖它） | `quant-pipeline/src/quant_pipeline/sync/` | 3 天 |
+| 1 | `factors/base.py` 抽象类设计（PIT 窗口声明 / 注册表接口） | `apps/quant-pipeline/src/quant_pipeline/factors/base.py`、`registry.py` | 1 天 |
+| 2 | Python sync 新增 6 张表（trade_cal 优先，其它依赖它） | `apps/quant-pipeline/src/quant_pipeline/sync/` | 3 天 |
 | 3 | NestJS 只读 entity / repo（6 张新表） | `apps/server/src/entities/a-share/`（沿用 raw schema） | 0.5 天 |
-| 4 | 量价因子 20 个（动量 / 波动率 / 成交量等） + 单测 | `quant-pipeline/src/quant_pipeline/factors/price/` + `tests/unit/` | 3 天 |
-| 5 | 行业派生因子 10 个 + 中性化 + 单测 | `quant-pipeline/src/quant_pipeline/factors/industry/` | 2 天 |
-| 6 | `factors/runner.py` + 历史回填（2018 至今） | `quant-pipeline/src/quant_pipeline/factors/runner.py` | 1 天 |
-| 7 | quality 八项检验 + PIT 三铁律审计 | `quant-pipeline/src/quant_pipeline/quality/` | 2 天 |
+| 4 | 量价因子 20 个（动量 / 波动率 / 成交量等） + 单测 | `apps/quant-pipeline/src/quant_pipeline/factors/price/` + `tests/unit/` | 3 天 |
+| 5 | 行业派生因子 10 个 + 中性化 + 单测 | `apps/quant-pipeline/src/quant_pipeline/factors/industry/` | 2 天 |
+| 6 | `factors/runner.py` + 历史回填（2018 至今） | `apps/quant-pipeline/src/quant_pipeline/factors/runner.py` | 1 天 |
+| 7 | quality 八项检验 + PIT 三铁律审计 | `apps/quant-pipeline/src/quant_pipeline/quality/` | 2 天 |
 | 8 | 历史日人工核对 + 验收报告 | 文档 | 0.5 天 |
 
 ## 与其它里程碑的依赖关系
