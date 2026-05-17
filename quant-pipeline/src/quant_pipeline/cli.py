@@ -501,20 +501,128 @@ def infer_one(
 
 
 @app.command("evaluate")
-def evaluate_stub(
+def evaluate_run(
     run_id: str = typer.Option(
         ...,
         "--run-id",
-        help="ml.model_runs.id；M3 实现完整评估（三组对照 / Walk-Forward）",
+        help="ml.model_runs.id；将从 ml.model_runs 反查 feature_set_id / model_version。",
+    ),
+    ab_baseline: str = typer.Option(
+        "linear,gbdt",
+        "--ab-baseline",
+        help=(
+            "逗号分隔的 baseline 名（'linear' / 'gbdt' / 'lgb-lambdarank'）。"
+            "ensemble 始终保留。'gbdt' 自动映射为 'gbdt-pointwise'。"
+        ),
+    ),
+    n_folds: int = typer.Option(
+        6, "--n-folds", help="Purged Walk-Forward 折数（≥ 6）"
+    ),
+    embargo_days: int = typer.Option(
+        21, "--embargo-days", help="A 股财报披露窗口 embargo（≥ 21）"
+    ),
+    min_train_days: int = typer.Option(
+        252, "--min-train-days", help="单折最少训练日数（≥ 252）"
+    ),
+    top_k: int = typer.Option(20, "--top-k", help="portfolio 每日选股数"),
+    commission_rate: float = typer.Option(
+        0.0003, "--commission-rate", help="双边佣金率"
+    ),
+    slippage_bps: float = typer.Option(5.0, "--slippage-bps", help="滑点 bp"),
+    lgb_num_boost_round: int = typer.Option(
+        100, "--lgb-num-boost-round",
+        help="LightGBM 训练轮数（M3 评估默认 100，与 walk-forward runner 对齐）",
     ),
 ) -> None:
-    """评估入口 stub —— M2 仅返回提示，完整实现在 M3。"""
+    """跑 Purged Walk-Forward 三组对照评估并生成 report.md。
+
+    与 `train --walk-forward` 的差别：evaluate 是"事后评估" —— 不写新的
+    ml.model_runs / 不落 model.txt；只把 ab_compare 报告写到
+    `./artifacts/<run_id>/report.md`（覆盖同名文件），便于复跑对照。
+    """
 
     setup_logging()
+    from pathlib import Path
+
+    from sqlalchemy import text as _text
+
+    from quant_pipeline.db.engine import session_scope
+    from quant_pipeline.evaluation.ab_compare import run_ab_compare
+    from quant_pipeline.utils.paths import artifact_dir
+
+    # 1) 反查 ml.model_runs
+    with session_scope() as session:
+        row = session.execute(
+            _text(
+                "SELECT feature_set_id, model_version FROM ml.model_runs WHERE id = :id"
+            ),
+            {"id": run_id},
+        ).first()
+    if row is None:
+        typer.echo(f"ml.model_runs 找不到 run_id={run_id!r}", err=True)
+        raise typer.Exit(code=1)
+    feature_set_id, model_version = str(row[0]), str(row[1])
+
+    # 2) 解析 --ab-baseline；CLI 输入 'gbdt' → 内部模型名 'gbdt-pointwise'
+    baseline_map = {
+        "linear": "linear",
+        "gbdt": "gbdt-pointwise",
+        "gbdt-pointwise": "gbdt-pointwise",
+        "lgb-lambdarank": "lgb-lambdarank",
+    }
+    raw_baselines = [b.strip() for b in ab_baseline.split(",") if b.strip()]
+    baselines: list[str] = []
+    for b in raw_baselines:
+        if b not in baseline_map:
+            typer.echo(
+                f"--ab-baseline 不支持 {b!r}，可选: {sorted(baseline_map)}", err=True
+            )
+            raise typer.Exit(code=2)
+        baselines.append(baseline_map[b])
+
+    # 3) 跑评估
+    out_dir = artifact_dir(run_id)
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    try:
+        result = run_ab_compare(
+            feature_set_id=feature_set_id,
+            baselines=baselines,
+            model_run_id=run_id,
+            model_version=model_version,
+            output_dir=out_dir,
+            n_folds=n_folds,
+            embargo_days=embargo_days,
+            min_train_days=min_train_days,
+            top_k=top_k,
+            commission_rate=commission_rate,
+            slippage_bps=slippage_bps,
+            lgb_num_boost_round=lgb_num_boost_round,
+            lgb_early_stopping_rounds=None,
+        )
+    except ValueError as exc:
+        typer.echo(f"EVALUATE FAILED: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    summary = result["summary"]
     typer.echo(
-        f"evaluate stub: run_id={run_id} —— 完整评估（三组对照 / Walk-Forward）由 M3 实现。"
+        f"evaluate ok: run_id={run_id} feature_set_id={feature_set_id} "
+        f"model_version={model_version}"
     )
-    raise typer.Exit(code=0)
+    for name, m in summary.items():
+        typer.echo(
+            "  - {n:24s} ndcg@10={n10} ic={ic} rank_ic={ric} "
+            "annual_net={ar} folds={f}".format(
+                n=name,
+                n10=f"{m.get('ndcg_at_10_mean', float('nan')):.4f}",
+                ic=f"{m.get('ic_mean', float('nan')):.4f}",
+                ric=f"{m.get('rank_ic_mean', float('nan')):.4f}",
+                ar=f"{m.get('portfolio_annual_after_cost', float('nan')):.4f}",
+                f=m.get("n_folds", "-"),
+            )
+        )
+    rp = result.get("report_path")
+    if rp is not None:
+        typer.echo(f"  report -> {rp}")
 
 
 # ----------------------------------------------------------------------

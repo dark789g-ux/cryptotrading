@@ -116,9 +116,11 @@ def test_train_model_quality_passed_full_path(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(runner_mod, "_write_artifact", _fake_write_artifact)
 
     # 让 LightGBM 跑得动 mock 小样本：覆盖默认 hyperparams
+    # mock 数据只有 25 个交易日，不足 PurgedWalkForwardSplit 所需，使用单 fold 通路
     result = runner_mod.train_model(
         "fs_v1",
         seed=42,
+        walk_forward=False,
         hyperparams={"min_data_in_leaf": 3, "num_leaves": 7},
     )
 
@@ -166,6 +168,7 @@ def test_train_model_insert_failure_rolls_back_artifact(
         runner_mod.train_model(
             "fs_v1",
             seed=42,
+            walk_forward=False,
             hyperparams={"min_data_in_leaf": 3, "num_leaves": 7},
         )
 

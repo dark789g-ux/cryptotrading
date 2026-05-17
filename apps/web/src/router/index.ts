@@ -81,6 +81,24 @@ const routes: any[] = [
     component: () => import('../views/strategy/DailyReviewDetailView.vue'),
     meta: { title: '复盘详情' },
   },
+  {
+    path: '/quant',
+    name: 'quant-overview',
+    component: () => import('../views/quant/QuantOverviewView.vue'),
+    meta: { title: '量化总览' },
+  },
+  {
+    path: '/quant/scores',
+    name: 'quant-scores',
+    component: () => import('../views/quant/QuantScoresView.vue'),
+    meta: { title: '量化评分' },
+  },
+  {
+    path: '/quant/runs',
+    name: 'quant-runs',
+    component: () => import('../views/quant/QuantRunsView.vue'),
+    meta: { title: '量化训练 Run' },
+  },
 ]
 
 const router = createRouter({

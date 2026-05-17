@@ -65,6 +65,7 @@ import {
   ChevronBack, ChevronForward,
   TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline, CalculatorOutline,
   LogOutOutline, PersonCircleOutline, AnalyticsOutline, SwapHorizontalOutline, NewspaperOutline,
+  StatsChartOutline,
 } from '@vicons/ionicons5'
 import { useSidebarCollapsed } from '../../composables/hooks/useSidebarCollapsed'
 import { useAuth } from '../../composables/hooks/useAuth'
@@ -79,6 +80,7 @@ const auth = useAuth()
 const activeKey = computed(() => {
   const name = route.name as string
   if (name?.startsWith('daily-review')) return 'daily-review'
+  if (name?.startsWith('quant')) return 'quant-overview'
   return name
 })
 
@@ -92,6 +94,16 @@ const menuOptions = computed(() => [
   { label: '策略条件', key: 'strategy-conditions', icon: renderIcon(AnalyticsOutline) },
   { label: '资金流向', key: 'money-flow', icon: renderIcon(SwapHorizontalOutline) },
   { label: '每日复盘', key: 'daily-review', icon: renderIcon(NewspaperOutline) },
+  {
+    label: '量化',
+    key: 'quant-overview',
+    icon: renderIcon(StatsChartOutline),
+    children: [
+      { label: '总览', key: 'quant-overview' },
+      { label: '评分', key: 'quant-scores' },
+      { label: '训练 Run', key: 'quant-runs' },
+    ],
+  },
   { label: '工具', key: 'tools', icon: renderIcon(CalculatorOutline) },
   { label: '系统设置', key: 'settings', icon: renderIcon(SettingsOutline) },
 ])

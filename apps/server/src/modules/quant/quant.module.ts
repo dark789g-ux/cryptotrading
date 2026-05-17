@@ -7,8 +7,14 @@ import { MlScoreDailyEntity } from '../../entities/ml/ml-score-daily.entity';
 import { MlQualityReportEntity } from '../../entities/ml/ml-quality-report.entity';
 import { QuantJobsService } from './services/quant-jobs.service';
 import { SseTokenService } from './services/sse-token.service';
+import { QuantScoresService } from './services/quant-scores.service';
+import { QuantRunsService } from './services/quant-runs.service';
+import { QuantQualityService } from './services/quant-quality.service';
 import { QuantJobsController } from './controllers/quant-jobs.controller';
 import { QuantJobsSseController } from './controllers/quant-jobs-sse.controller';
+import { QuantScoresController } from './controllers/quant-scores.controller';
+import { QuantRunsController } from './controllers/quant-runs.controller';
+import { QuantQualityController } from './controllers/quant-quality.controller';
 import { SseTokenGuard } from './guards/sse-token.guard';
 
 /**
@@ -19,9 +25,15 @@ import { SseTokenGuard } from './guards/sse-token.guard';
  *   - sse-stream controller：GET /quant/jobs/:id/stream（M2 polling 占位，M4 升 LISTEN/NOTIFY）
  *   - SseTokenGuard + SseTokenService：5 分钟短期 token 签发与校验
  *
- * 留到 M3 / M4：
- *   - scores / runs / quality 三只读 controller（M3，与 UI 一并）
+ * M3 追加（本 PR）：
+ *   - scores controller：GET /quant/scores/{daily,ts/:ts_code,model-versions,compare}
+ *   - runs controller：GET /quant/runs · GET /quant/runs/:id
+ *   - quality controller：GET /quant/quality/recent · GET /quant/quality/:date
+ *   - 每个 service 维护独立 FIELD_COL_MAP（CLAUDE.md 动态 SQL 规范）
+ *
+ * 留到 M4：
  *   - PG LISTEN/NOTIFY 实时进度（M4 替换 polling 实现）
+ *   - SHAP / RunDetail UI 配套接口
  *
  * 注册的 entities 仅覆盖 ml.* 4 张表：
  *   - ml.jobs：本 module **读写**（INSERT pending + UPDATE cancel_requested）
@@ -40,8 +52,28 @@ import { SseTokenGuard } from './guards/sse-token.guard';
       MlQualityReportEntity,
     ]),
   ],
-  controllers: [QuantJobsController, QuantJobsSseController],
-  providers: [QuantJobsService, SseTokenService, SseTokenGuard],
-  exports: [QuantJobsService, SseTokenService, SseTokenGuard],
+  controllers: [
+    QuantJobsController,
+    QuantJobsSseController,
+    QuantScoresController,
+    QuantRunsController,
+    QuantQualityController,
+  ],
+  providers: [
+    QuantJobsService,
+    SseTokenService,
+    SseTokenGuard,
+    QuantScoresService,
+    QuantRunsService,
+    QuantQualityService,
+  ],
+  exports: [
+    QuantJobsService,
+    SseTokenService,
+    SseTokenGuard,
+    QuantScoresService,
+    QuantRunsService,
+    QuantQualityService,
+  ],
 })
 export class QuantModule {}
