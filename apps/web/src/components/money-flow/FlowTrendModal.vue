@@ -26,7 +26,6 @@
             <KlineChart
               v-else
               :data="klineBars"
-              :money-flow="moneyFlowBars"
               height="520px"
             />
           </template>
@@ -76,7 +75,7 @@ import FlowTrendChart from './FlowTrendChart.vue'
 import KlineChart from '@/components/kline/KlineChart.vue'
 import { moneyFlowApi, type MoneyFlowMemberRow, type MoneyFlowQueryParams } from '@/api/modules/market/moneyFlow'
 import { watchlistApi } from '@/api'
-import type { KlineChartBar, MoneyFlowBar } from '@/api'
+import type { KlineChartBar } from '@/api'
 import { useWatchlistStore } from '@/stores/watchlist'
 import type { BarChartRow, TrendFetchResult } from './money-flow.types'
 
@@ -115,7 +114,6 @@ const modalWidth = computed(() =>
 const activeTab = ref('trend')
 const barRows = ref<BarChartRow[]>([])
 const klineBars = ref<KlineChartBar[]>([])
-const moneyFlowBars = ref<MoneyFlowBar[]>([])
 const loading = ref(false)
 let skipNextEmit = false
 
@@ -236,7 +234,6 @@ async function onAddTag() {
 function resetTrendState() {
   barRows.value = []
   klineBars.value = []
-  moneyFlowBars.value = []
 }
 
 async function loadTrend(params: MoneyFlowQueryParams) {
@@ -246,11 +243,9 @@ async function loadTrend(params: MoneyFlowQueryParams) {
     if (props.chartMode === 'bar') {
       barRows.value = result as BarChartRow[]
       klineBars.value = []
-      moneyFlowBars.value = []
     } else {
       const r = result as TrendFetchResult
       klineBars.value = r.kline ?? []
-      moneyFlowBars.value = r.moneyFlow ?? []
       barRows.value = []
     }
   } catch {
@@ -269,7 +264,6 @@ async function loadLatest() {
       const data = result as BarChartRow[]
       barRows.value = [...data].reverse()
       klineBars.value = []
-      moneyFlowBars.value = []
     } catch {
       resetTrendState()
     } finally {

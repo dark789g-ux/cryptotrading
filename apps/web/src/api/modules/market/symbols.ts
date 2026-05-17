@@ -21,19 +21,6 @@ export interface BrickChartPoint {
   xg: boolean
 }
 
-export interface MoneyFlowBar {
-  /**
-   * 副图对齐 K 线主图的关键 key：必须与同一 chart 的 KlineChartBar.open_time
-   * 格式完全一致，否则 KlineChart 副图 flowMap.get(open_time) 全 miss，
-   * 副图柱形画不出。各业务接入的实际格式：
-   * - 行业/板块（ths-index-daily.service.ts:93）：'YYYYMMDD'
-   * - A 股（a-shares.service.ts:221 用 formatTradeDateLabel）：'YYYY-MM-DD'
-   * 由各自的 fetcher 负责把数据库原值（'YYYYMMDD'）归一为对应格式。
-   */
-  trade_date: string
-  net_amount: number   // 单位亿元（后端 toYi() 已转）
-}
-
 export interface KlineChartBar {
   open_time: string
   open: number
@@ -55,6 +42,13 @@ export interface KlineChartBar {
   BBI: number | null
   brickChart?: BrickChartPoint
   trades?: TradeOnBar[]
+  /**
+   * 资金净流入（单位亿元）。由 `mergeKlineWithMoneyFlow` 在 fetcher 层按
+   * 日期合并到行内，KlineChart 副图按 index 直读 `data[i].moneyFlow`。
+   * - `null` 表示该 bar 当日无资金流数据（如新股、停牌）
+   * - 不存在该字段表示业务方未启用资金流副图
+   */
+  moneyFlow?: number | null
 }
 
 export interface SymbolDateRange {

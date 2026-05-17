@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildKlineChartOption } from './klineChartOptions'
 import { CANDLE_COLORS } from './chartColors'
-import type { KlineChartBar, MoneyFlowBar } from '@/api'
+import type { KlineChartBar } from '@/api'
 
 // 构造最小可用 KlineChartBar 数组，open_time 用 Tushare 标准 YYYYMMDD
 function makeBar(overrides: Partial<KlineChartBar> & { open_time: string }): KlineChartBar {
@@ -87,13 +87,13 @@ describe('buildKlineChartOption — 无 moneyFlow（snapshot 守护）', () => {
   })
 })
 
-describe('buildKlineChartOption — 有 moneyFlow', () => {
+describe('buildKlineChartOption — 有 moneyFlow（按行内嵌）', () => {
   it('全部命中：series / yAxis / grid 各多 1 条；dataZoom 包含 5', () => {
-    const moneyFlow: MoneyFlowBar[] = baseData.map((row, i) => ({
-      trade_date: row.open_time,
-      net_amount: (i - 1) * 2.5, // -2.5, 0, 2.5, 5
+    const data: KlineChartBar[] = baseData.map((row, i) => ({
+      ...row,
+      moneyFlow: (i - 1) * 2.5, // -2.5, 0, 2.5, 5
     }))
-    const opt = buildKlineChartOption({ data: baseData, echartsTheme, moneyFlow })
+    const opt = buildKlineChartOption({ data, echartsTheme })
 
     expect(arrify(opt.series).length).toBe(16)
     expect(arrify(opt.grid).length).toBe(6)
@@ -120,17 +120,17 @@ describe('buildKlineChartOption — 有 moneyFlow', () => {
     expect(flowSeries.type).toBe('bar')
     expect(flowSeries.xAxisIndex).toBe(5)
     expect(flowSeries.yAxisIndex).toBe(5)
-    expect(flowSeries.data.length).toBe(baseData.length)
+    expect(flowSeries.data.length).toBe(data.length)
   })
 
   it('部分日期缺失：未命中位置 data[i] === null', () => {
-    const moneyFlow: MoneyFlowBar[] = [
-      { trade_date: '20260510', net_amount: 1.2 },
-      // 20260511 缺失
-      { trade_date: '20260512', net_amount: -0.8 },
-      // 20260513 缺失
+    const data: KlineChartBar[] = [
+      { ...baseData[0], moneyFlow: 1.2 },
+      { ...baseData[1], moneyFlow: null },
+      { ...baseData[2], moneyFlow: -0.8 },
+      { ...baseData[3], moneyFlow: null },
     ]
-    const opt = buildKlineChartOption({ data: baseData, echartsTheme, moneyFlow })
+    const opt = buildKlineChartOption({ data, echartsTheme })
     const seriesArr = arrify(opt.series)
     const flowSeries = seriesArr[seriesArr.length - 1] as any
     expect(flowSeries.data[0]).not.toBeNull()
@@ -141,27 +141,28 @@ describe('buildKlineChartOption — 有 moneyFlow', () => {
     expect(flowSeries.data[3]).toBeNull()
   })
 
-  it('moneyFlow 顺序乱序：仍按 trade_date 与 KlineChartBar.open_time 对齐', () => {
-    const moneyFlow: MoneyFlowBar[] = [
-      { trade_date: '20260513', net_amount: 4 },
-      { trade_date: '20260510', net_amount: 1 },
-      { trade_date: '20260512', net_amount: 3 },
-      { trade_date: '20260511', net_amount: 2 },
+  it('moneyFlow 按 index 对齐（不再依赖外部 trade_date 排序）', () => {
+    // 行内嵌契约下，flow 与 K 线天然按 index 对齐
+    const data: KlineChartBar[] = [
+      { ...baseData[0], moneyFlow: 1 },
+      { ...baseData[1], moneyFlow: 2 },
+      { ...baseData[2], moneyFlow: 3 },
+      { ...baseData[3], moneyFlow: 4 },
     ]
-    const opt = buildKlineChartOption({ data: baseData, echartsTheme, moneyFlow })
+    const opt = buildKlineChartOption({ data, echartsTheme })
     const seriesArr = arrify(opt.series)
     const flowSeries = seriesArr[seriesArr.length - 1] as any
     expect(flowSeries.data.map((d: any) => d?.value)).toEqual([1, 2, 3, 4])
   })
 
   it('正负染色：正值 → CANDLE_COLORS.up；负值 → CANDLE_COLORS.down；0 视为非负（up）', () => {
-    const moneyFlow: MoneyFlowBar[] = [
-      { trade_date: '20260510', net_amount: 5 },
-      { trade_date: '20260511', net_amount: -3 },
-      { trade_date: '20260512', net_amount: 0 },
-      { trade_date: '20260513', net_amount: -0.01 },
+    const data: KlineChartBar[] = [
+      { ...baseData[0], moneyFlow: 5 },
+      { ...baseData[1], moneyFlow: -3 },
+      { ...baseData[2], moneyFlow: 0 },
+      { ...baseData[3], moneyFlow: -0.01 },
     ]
-    const opt = buildKlineChartOption({ data: baseData, echartsTheme, moneyFlow })
+    const opt = buildKlineChartOption({ data, echartsTheme })
     const seriesArr = arrify(opt.series)
     const flowSeries = seriesArr[seriesArr.length - 1] as any
     expect(flowSeries.data[0].itemStyle.color).toBe(CANDLE_COLORS.up)
@@ -170,8 +171,9 @@ describe('buildKlineChartOption — 有 moneyFlow', () => {
     expect(flowSeries.data[3].itemStyle.color).toBe(CANDLE_COLORS.down)
   })
 
-  it('moneyFlow 为空数组：等价于未传，退回 5 副图布局', () => {
-    const opt = buildKlineChartOption({ data: baseData, echartsTheme, moneyFlow: [] })
+  it('所有 moneyFlow 均为 null：等价于未启用副图，退回 5 副图布局', () => {
+    const data: KlineChartBar[] = baseData.map(row => ({ ...row, moneyFlow: null }))
+    const opt = buildKlineChartOption({ data, echartsTheme })
     expect(arrify(opt.grid).length).toBe(5)
     expect(arrify(opt.series).length).toBe(15)
     const dz = arrify(opt.dataZoom) as any[]

@@ -14,14 +14,13 @@ import { ANCHOR_LINE_COLOR, BRICK_COLORS, CANDLE_COLORS, KDJ_COLORS, MA_COLORS, 
 import { buildDataZoom, buildGrid, buildLegend, buildXAxes, buildYAxes } from './klineChartLayout'
 import { buildGraphics } from './klineChartOverlay'
 import { buildMarkPoints, buildTooltip } from './klineChartTooltip'
-import type { KlineChartBar, MoneyFlowBar } from '@/api'
+import type { KlineChartBar } from '@/api'
 
 interface BuildKlineChartOptionsParams {
   data: KlineChartBar[]
   echartsTheme: Record<string, unknown>
   currentTs?: string
   sliderStart?: number
-  moneyFlow?: MoneyFlowBar[]
 }
 
 type BrickRangeDatum = [number, number, number]
@@ -74,9 +73,8 @@ export function buildKlineChartOption({
   echartsTheme,
   currentTs = '',
   sliderStart = 0,
-  moneyFlow,
 }: BuildKlineChartOptionsParams): EChartsOption {
-  const hasFlow = Array.isArray(moneyFlow) && moneyFlow.length > 0
+  const hasFlow = data.some((row) => row.moneyFlow != null)
   const times = data.map((row) => row.open_time)
   const klines = data.map((row) => [row.open, row.close, row.low, row.high])
   const lastIdx = data.length - 1
@@ -264,14 +262,11 @@ export function buildKlineChartOption({
     barMaxWidth: 12,
   }
 
-  // 资金流副图：按 trade_date → KlineChartBar.open_time Map 对齐；缺失返回 null
+  // 资金流副图：按 index 直接读 row.moneyFlow（合并已在 fetcher 层完成）
   let moneyFlowSeries: BarSeriesOption | null = null
   if (hasFlow) {
-    const flowMap = new Map<string, number>(
-      (moneyFlow as MoneyFlowBar[]).map((r) => [r.trade_date, r.net_amount]),
-    )
     const flowData: BarSeriesOption['data'] = data.map((row) => {
-      const v = flowMap.get(row.open_time)
+      const v = row.moneyFlow
       if (v == null) return null
       return {
         value: v,
@@ -319,7 +314,7 @@ export function buildKlineChartOption({
         const idx = (first as { dataIndex: number }).dataIndex
         const row = data[idx]
         if (!row) return ''
-        return buildTooltip(row, idx, data, moneyFlow)
+        return buildTooltip(row, idx, data)
       },
     },
     axisPointer: { link: [{ xAxisIndex: 'all' }] },

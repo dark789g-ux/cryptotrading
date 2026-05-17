@@ -1,4 +1,4 @@
-import type { KlineChartBar, MoneyFlowBar } from '@/api'
+import type { KlineChartBar } from '@/api'
 
 export interface KpiCardItem {
   label: string
@@ -15,10 +15,9 @@ export interface BarChartRow {
 
 /**
  * 行业 / 板块 详情 Modal 趋势 Tab 的合并取数结果。
- * - kline: 同花顺指数 K 线（来自 GET /ths-index-daily）
- * - moneyFlow: 资金净流入柱状副图数据（来自 GET /money-flow/{industries|sectors}）
+ * - kline: 同花顺指数 K 线，已通过 `mergeKlineWithMoneyFlow` 把资金净流入
+ *   挂载到每根 bar 的 `moneyFlow` 字段；KlineChart 副图直读行内字段。
  */
 export interface TrendFetchResult {
   kline: KlineChartBar[]
-  moneyFlow: MoneyFlowBar[]
 }

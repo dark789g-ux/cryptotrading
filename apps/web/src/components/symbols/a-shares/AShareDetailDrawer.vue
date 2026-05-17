@@ -28,7 +28,6 @@
           <kline-chart
             v-else
             :data="klineRows"
-            :money-flow="moneyFlowRows"
             height="100%"
             :slider-start="35"
           />
@@ -51,7 +50,7 @@ import {
 } from 'naive-ui'
 import KlineChart from '../../kline/KlineChart.vue'
 import { type AShareKlineBar, type AShareRow } from '@/api'
-import type { MoneyFlowBar } from '@/api/modules/market/symbols'
+import { mergeKlineWithMoneyFlow, type MoneyFlowRowLike } from '@/composables/kline/mergeMoneyFlow'
 import { fetchAShareDetail, fetchAShareKlineOnly } from './aShareDetailFetcher'
 import { formatTradeDate } from './aSharesFormatters'
 
@@ -67,7 +66,8 @@ const message = useMessage()
 
 const loading = ref(false)
 const klineRows = ref<AShareKlineBar[]>([])
-const moneyFlowRows = ref<MoneyFlowBar[]>([])
+// 缓存最近一次的资金流 raw 行，供 priceMode 切换路径复用
+const cachedFlowRows = ref<MoneyFlowRowLike[]>([])
 
 /** Drawer 打开 / row 切换：并行拉 K 线 + 资金流 */
 async function loadDetail() {
@@ -75,11 +75,11 @@ async function loadDetail() {
   if (!tsCode) return
   loading.value = true
   klineRows.value = []
-  moneyFlowRows.value = []
+  cachedFlowRows.value = []
   try {
     const result = await fetchAShareDetail(tsCode, 360, props.priceMode)
     klineRows.value = result.kline
-    moneyFlowRows.value = result.moneyFlow
+    cachedFlowRows.value = result.flowRows
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
   } finally {
@@ -87,13 +87,15 @@ async function loadDetail() {
   }
 }
 
-/** priceMode 切换：只重拉 K 线，资金流保留 */
+/** priceMode 切换：只重拉 K 线，资金流由缓存重新 merge */
 async function reloadKlineOnly() {
   const tsCode = props.row?.tsCode
   if (!tsCode) return
   loading.value = true
   try {
-    klineRows.value = await fetchAShareKlineOnly(tsCode, 360, props.priceMode)
+    const rawKline = await fetchAShareKlineOnly(tsCode, 360, props.priceMode)
+    // 把缓存的资金流挂回新 K 线（开发模式下若日期格式漂移 R3 探针会触发）
+    klineRows.value = mergeKlineWithMoneyFlow(rawKline, cachedFlowRows.value)
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
   } finally {
@@ -106,7 +108,7 @@ watch(
   ([show, tsCode]) => {
     if (!show) {
       klineRows.value = []
-      moneyFlowRows.value = []
+      cachedFlowRows.value = []
       return
     }
     if (!tsCode) return

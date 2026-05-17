@@ -34,8 +34,12 @@ describe('trendFetchers', () => {
     querySectorsMock.mockReset()
   })
 
-  it('fetchIndustryTrend 并发拉 K 线 + 行业净流入，并把 tradeDate/netAmount 映射为 trade_date/net_amount', async () => {
-    const klineFixture = [{ open_time: '20260105', open: 1, high: 2, low: 1, close: 2, volume: 100 }]
+  it('fetchIndustryTrend 并发拉 K 线 + 行业净流入，并把 moneyFlow 合并到 kline 行内', async () => {
+    const klineFixture = [
+      { open_time: '20260105', open: 1, high: 2, low: 1, close: 2, volume: 100 },
+      { open_time: '20260106', open: 1, high: 2, low: 1, close: 2, volume: 100 },
+      { open_time: '20260107', open: 1, high: 2, low: 1, close: 2, volume: 100 },
+    ]
     const flowFixture = [
       { tradeDate: '20260105', netAmount: '12.3456' },
       { tradeDate: '20260106', netAmount: '-5.6789' },
@@ -58,12 +62,12 @@ describe('trendFetchers', () => {
     // money-flow 接受完整 params（含未来扩展字段）
     expect(queryIndustriesMock).toHaveBeenCalledWith(BASE_PARAMS)
 
-    expect(result.kline).toBe(klineFixture)
-    expect(result.moneyFlow).toEqual([
-      { trade_date: '20260105', net_amount: 12.3456 },
-      { trade_date: '20260106', net_amount: -5.6789 },
-      { trade_date: '20260107', net_amount: 0 },
-    ])
+    expect(result.kline).toHaveLength(3)
+    expect(result.kline[0].moneyFlow).toBeCloseTo(12.3456, 4)
+    expect(result.kline[1].moneyFlow).toBeCloseTo(-5.6789, 4)
+    expect(result.kline[2].moneyFlow).toBe(0)
+    // 不修改原 fixture（新数组）
+    expect(result.kline[0]).not.toBe(klineFixture[0])
   })
 
   it('fetchSectorTrend 走 querySectors 而非 queryIndustries', async () => {
@@ -75,7 +79,6 @@ describe('trendFetchers', () => {
     expect(querySectorsMock).toHaveBeenCalledTimes(1)
     expect(queryIndustriesMock).not.toHaveBeenCalled()
     expect(result.kline).toEqual([])
-    expect(result.moneyFlow).toEqual([{ trade_date: '20260105', net_amount: 1 }])
   })
 
   it('K 线为空但资金流非空仍按合约返回（前端会走空状态分支）', async () => {
@@ -84,7 +87,6 @@ describe('trendFetchers', () => {
 
     const result = await fetchIndustryTrend(BASE_PARAMS)
     expect(result.kline).toEqual([])
-    expect(result.moneyFlow).toHaveLength(1)
   })
 
   it('缺少必填日期参数时抛错（避免向后端发空字符串）', async () => {
