@@ -17,11 +17,11 @@ import { UsersModule } from './users/users.module';
 import { SymbolEntity } from './entities/symbol/symbol.entity';
 import { KlineEntity } from './entities/symbol/kline.entity';
 import { AShareSymbolEntity } from './entities/a-share/a-share-symbol.entity';
-import { AShareDailyQuoteEntity } from './entities/a-share/a-share-daily-quote.entity';
-import { AShareDailyMetricEntity } from './entities/a-share/a-share-daily-metric.entity';
-import { AShareDailyIndicatorEntity } from './entities/a-share/a-share-daily-indicator.entity';
-import { AShareAdjFactorEntity } from './entities/a-share/a-share-adj-factor.entity';
-import { AShareIndicatorCalcStateEntity } from './entities/a-share/a-share-indicator-calc-state.entity';
+import { DailyQuoteEntity } from './entities/raw/daily-quote.entity';
+import { DailyBasicEntity } from './entities/raw/daily-basic.entity';
+import { DailyIndicatorEntity } from './entities/raw/daily-indicator.entity';
+import { AdjFactorEntity } from './entities/raw/adj-factor.entity';
+import { IndicatorCalcStateEntity } from './entities/raw/indicator-calc-state.entity';
 import { AShareSyncStateEntity } from './entities/a-share/a-share-sync-state.entity';
 import { AShareFilterPresetEntity } from './entities/a-share/a-share-filter-preset.entity';
 import { StrategyTypeEntity } from './entities/strategy/strategy-type.entity';
@@ -76,11 +76,11 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           SymbolEntity,
           KlineEntity,
           AShareSymbolEntity,
-          AShareDailyQuoteEntity,
-          AShareDailyMetricEntity,
-          AShareDailyIndicatorEntity,
-          AShareAdjFactorEntity,
-          AShareIndicatorCalcStateEntity,
+          DailyQuoteEntity,
+          DailyBasicEntity,
+          DailyIndicatorEntity,
+          AdjFactorEntity,
+          IndicatorCalcStateEntity,
           AShareSyncStateEntity,
           AShareFilterPresetEntity,
           StrategyTypeEntity,

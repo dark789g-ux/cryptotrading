@@ -1,7 +1,7 @@
 import type { Repository } from 'typeorm';
-import { AShareAdjFactorEntity } from '../../../entities/a-share/a-share-adj-factor.entity';
-import { AShareDailyMetricEntity } from '../../../entities/a-share/a-share-daily-metric.entity';
-import { AShareDailyQuoteEntity } from '../../../entities/a-share/a-share-daily-quote.entity';
+import { AdjFactorEntity } from '../../../entities/raw/adj-factor.entity';
+import { DailyBasicEntity } from '../../../entities/raw/daily-basic.entity';
+import { DailyQuoteEntity } from '../../../entities/raw/daily-quote.entity';
 import { AShareSymbolEntity } from '../../../entities/a-share/a-share-symbol.entity';
 import { asNullableString, asString } from '../utils/a-shares-format.util';
 import { ADJ_FACTOR_FIELDS, DAILY_BASIC_FIELDS, DAILY_FIELDS, STOCK_BASIC_FIELDS } from './a-shares-sync.constants';
@@ -11,9 +11,9 @@ import type { TushareClientService } from '../services/tushare-client.service';
 
 export interface ASharesSyncFetcherDeps {
   symbolRepo: Repository<AShareSymbolEntity>;
-  quoteRepo: Repository<AShareDailyQuoteEntity>;
-  metricRepo: Repository<AShareDailyMetricEntity>;
-  adjFactorRepo: Repository<AShareAdjFactorEntity>;
+  quoteRepo: Repository<DailyQuoteEntity>;
+  metricRepo: Repository<DailyBasicEntity>;
+  adjFactorRepo: Repository<AdjFactorEntity>;
   tushareClient: TushareClientService;
 }
 
@@ -119,7 +119,7 @@ export async function syncAdjFactorsByTradeDate(
 }
 
 async function loadLatestAdjFactors(
-  adjFactorRepo: Repository<AShareAdjFactorEntity>,
+  adjFactorRepo: Repository<AdjFactorEntity>,
   tsCodes: string[],
 ): Promise<Map<string, LatestAdjFactor>> {
   if (!tsCodes.length) return new Map();
@@ -128,7 +128,7 @@ async function loadLatestAdjFactors(
       ts_code AS "tsCode",
       trade_date AS "tradeDate",
       adj_factor AS "adjFactor"
-    FROM a_share_adj_factors
+    FROM raw.adj_factor
     WHERE ts_code = ANY($1::text[])
     ORDER BY ts_code, trade_date DESC
   `, [tsCodes]);

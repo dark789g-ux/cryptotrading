@@ -85,7 +85,7 @@ export class ASharesService {
   async getSummary() {
     const rows = await this.dataSource.query<Array<Record<string, string | null>>>(`
       WITH latest AS (
-        SELECT MAX(trade_date) AS trade_date FROM a_share_daily_quotes
+        SELECT MAX(trade_date) AS trade_date FROM raw.daily_quote
       )
       SELECT
         (SELECT COUNT(*) FROM a_share_symbols WHERE list_status = 'L') AS "totalSymbols",
@@ -94,7 +94,7 @@ export class ASharesService {
         COUNT(q.ts_code) FILTER (WHERE COALESCE(q.qfq_pct_chg, q.pct_chg)::numeric < 0) AS "downCount",
         COUNT(q.ts_code) AS "quotedCount"
       FROM latest
-      LEFT JOIN a_share_daily_quotes q ON q.trade_date = latest.trade_date
+      LEFT JOIN raw.daily_quote q ON q.trade_date = latest.trade_date
       GROUP BY latest.trade_date
     `);
     return rows[0] ?? {
@@ -149,7 +149,7 @@ export class ASharesService {
       SELECT
         MIN(trade_date) AS min,
         MAX(trade_date) AS max
-      FROM a_share_daily_quotes
+      FROM raw.daily_quote
     `);
     return rows[0] ?? { min: null, max: null };
   }
@@ -200,9 +200,9 @@ export class ASharesService {
           m.pb,
           m.total_mv AS "totalMv",
           m.circ_mv AS "circMv"
-        FROM a_share_daily_quotes q
-        LEFT JOIN a_share_daily_indicators i ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
-        LEFT JOIN a_share_daily_metrics m ON m.ts_code = q.ts_code AND m.trade_date = q.trade_date
+        FROM raw.daily_quote q
+        LEFT JOIN raw.daily_indicator i ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
+        LEFT JOIN raw.daily_basic m ON m.ts_code = q.ts_code AND m.trade_date = q.trade_date
         WHERE q.ts_code = $1
           AND ${priceCols.open} IS NOT NULL
           AND ${priceCols.high} IS NOT NULL

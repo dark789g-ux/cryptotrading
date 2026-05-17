@@ -1,0 +1,22 @@
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: crypto-postgres-test
+    environment:
+      POSTGRES_USER: cryptouser
+      POSTGRES_PASSWORD: cryptopass
+      POSTGRES_DB: cryptodb_test
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "15432:5432"  # 避开生产 5432（04-error-quality-testing.md §3）
+    restart: "no"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cryptouser -d cryptodb_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_test_data:

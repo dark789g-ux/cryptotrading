@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { AShareDailyIndicatorEntity } from '../../../entities/a-share/a-share-daily-indicator.entity';
-import { AShareIndicatorCalcStateEntity } from '../../../entities/a-share/a-share-indicator-calc-state.entity';
+import { DailyIndicatorEntity } from '../../../entities/raw/daily-indicator.entity';
+import { IndicatorCalcStateEntity } from '../../../entities/raw/indicator-calc-state.entity';
 import { calcBrickChartPoints } from '../../../indicators/brick-chart';
 import { calcIndicators, KlineRow, KlineRowWithIndicators } from '../../../indicators/indicators';
 import { IndicatorWorkerPool } from '../../../indicators/indicator-worker-pool';
@@ -15,17 +15,17 @@ const DIRTY_INDICATOR_CONCURRENCY = 5;
 @Injectable()
 export class ASharesIndicatorService {
   constructor(
-    @InjectRepository(AShareDailyIndicatorEntity)
-    private readonly indicatorRepo: Repository<AShareDailyIndicatorEntity>,
-    @InjectRepository(AShareIndicatorCalcStateEntity)
-    private readonly calcStateRepo: Repository<AShareIndicatorCalcStateEntity>,
+    @InjectRepository(DailyIndicatorEntity)
+    private readonly indicatorRepo: Repository<DailyIndicatorEntity>,
+    @InjectRepository(IndicatorCalcStateEntity)
+    private readonly calcStateRepo: Repository<IndicatorCalcStateEntity>,
     private readonly dataSource: DataSource,
   ) {}
 
   async recalculateIndicatorsForRange(range: ASharesSyncRange): Promise<number> {
     const changedRows = await this.dataSource.query<Array<{ tsCode: string }>>(`
       SELECT DISTINCT ts_code AS "tsCode"
-      FROM a_share_daily_quotes
+      FROM raw.daily_quote
       WHERE trade_date BETWEEN $1 AND $2
       ORDER BY ts_code
     `, [range.startDate, range.endDate]);
@@ -80,12 +80,13 @@ export class ASharesIndicatorService {
       FROM a_share_sync_states
       WHERE ts_code = $1
     `, [tsCode]);
+    // 注：a_share_sync_states 不在 M0 raw schema 迁移范围，保留 public.* 现状（PG 默认 search_path 自动解析）
     const dirtyFrom = syncRows[0]?.dirtyFrom;
     if (!dirtyFrom) return 0;
 
     const seedRows = await this.dataSource.query<Array<{ tradeDate: string; state: unknown }>>(`
       SELECT trade_date AS "tradeDate", state
-      FROM a_share_indicator_calc_states
+      FROM raw.indicator_calc_state
       WHERE ts_code = $1
         AND trade_date < $2
       ORDER BY trade_date DESC
@@ -120,13 +121,13 @@ export class ASharesIndicatorService {
     if (seedState) {
       await this.upsertInChunks(this.indicatorRepo, entities, ['tsCode', 'tradeDate']);
       await this.dataSource.query(`
-        DELETE FROM a_share_indicator_calc_states
+        DELETE FROM raw.indicator_calc_state
         WHERE ts_code = $1
           AND trade_date >= $2
       `, [tsCode, dirtyFrom]);
     } else {
-      await this.dataSource.query('DELETE FROM a_share_daily_indicators WHERE ts_code = $1', [tsCode]);
-      await this.dataSource.query('DELETE FROM a_share_indicator_calc_states WHERE ts_code = $1', [tsCode]);
+      await this.dataSource.query('DELETE FROM raw.daily_indicator WHERE ts_code = $1', [tsCode]);
+      await this.dataSource.query('DELETE FROM raw.indicator_calc_state WHERE ts_code = $1', [tsCode]);
       await this.insertInChunks(this.indicatorRepo, entities);
     }
     await this.upsertInChunks(this.calcStateRepo, stateEntities, ['tsCode', 'tradeDate']);
@@ -181,7 +182,7 @@ export class ASharesIndicatorService {
         qfq_close AS "qfqClose",
         vol,
         amount
-      FROM a_share_daily_quotes
+      FROM raw.daily_quote
       WHERE ts_code = $1
         ${startDate ? 'AND trade_date >= $2' : ''}
         AND qfq_open IS NOT NULL
@@ -203,7 +204,7 @@ export class ASharesIndicatorService {
         qfq_close AS "qfqClose",
         vol,
         amount
-      FROM a_share_daily_quotes
+      FROM raw.daily_quote
       WHERE ts_code = $1
         AND trade_date > $2
         AND qfq_open IS NOT NULL
@@ -219,7 +220,7 @@ export class ASharesIndicatorService {
     tradeDate: string,
     row: KlineRowWithIndicators,
     brickChart: { brick: number; delta: number; xg: boolean } | null,
-  ): AShareDailyIndicatorEntity {
+  ): DailyIndicatorEntity {
     return this.indicatorRepo.create({
       tsCode,
       tradeDate,
@@ -252,7 +253,7 @@ export class ASharesIndicatorService {
     tsCode: string,
     rows: AShareQuoteForIndicator[],
     calculated: Awaited<ReturnType<IndicatorWorkerPool['run']>>,
-  ): AShareIndicatorCalcStateEntity[] {
+  ): IndicatorCalcStateEntity[] {
     const indexes = new Set<number>();
     indexes.add(rows.length - 1);
     if (rows.length > 1) indexes.add(rows.length - 2);

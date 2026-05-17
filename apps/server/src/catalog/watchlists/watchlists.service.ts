@@ -301,7 +301,7 @@ export class WatchlistsService {
       ),
       a_share_latest AS (
         SELECT q.ts_code, MAX(q.trade_date) AS trade_date
-        FROM a_share_daily_quotes q
+        FROM raw.daily_quote q
         JOIN page_symbols ps ON ps.symbol = q.ts_code
         GROUP BY q.ts_code
       ),
@@ -319,8 +319,8 @@ export class WatchlistsService {
           to_date(q.trade_date, 'YYYYMMDD')::timestamp AS "openTime"
         FROM page_symbols ps
         JOIN a_share_latest latest ON latest.ts_code = ps.symbol
-        JOIN a_share_daily_quotes q ON q.ts_code = latest.ts_code AND q.trade_date = latest.trade_date
-        LEFT JOIN a_share_daily_indicators i ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
+        JOIN raw.daily_quote q ON q.ts_code = latest.ts_code AND q.trade_date = latest.trade_date
+        LEFT JOIN raw.daily_indicator i ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
       ),
       rows AS (
         SELECT * FROM crypto_rows

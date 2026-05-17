@@ -26,7 +26,7 @@ export class StrategyConditionsQueryBuilder {
 
   buildAShareQuery(conditions: StrategyConditionItem[]): BuiltWhere {
     return this.build(conditions, ASHARE_FIELD_COL_MAP, 'i.', 'A股', {
-      tablePrev: 'a_share_daily_indicators',
+      tablePrev: 'raw.daily_indicator',
       prevAlias: 'prev',
       prevJoinKey: 'ts_code',
       prevDateKey: 'trade_date',

@@ -204,7 +204,7 @@ export class DailyReviewService {
 
   private async resolveLatestTradeDate(): Promise<string> {
     const [r] = await this.ds.query(
-      'SELECT MAX(trade_date) AS d FROM a_share_daily_quotes',
+      'SELECT MAX(trade_date) AS d FROM raw.daily_quote',
     );
     if (!r?.d) throw new UnprocessableEntityException('尚无任何 A 股日线数据');
     return r.d;

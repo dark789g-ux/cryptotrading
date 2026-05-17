@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AShareDailyIndicatorEntity } from '../../entities/a-share/a-share-daily-indicator.entity';
-import { AShareDailyMetricEntity } from '../../entities/a-share/a-share-daily-metric.entity';
-import { AShareDailyQuoteEntity } from '../../entities/a-share/a-share-daily-quote.entity';
+import { DailyIndicatorEntity } from '../../entities/raw/daily-indicator.entity';
+import { DailyBasicEntity } from '../../entities/raw/daily-basic.entity';
+import { DailyQuoteEntity } from '../../entities/raw/daily-quote.entity';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
-import { AShareAdjFactorEntity } from '../../entities/a-share/a-share-adj-factor.entity';
-import { AShareIndicatorCalcStateEntity } from '../../entities/a-share/a-share-indicator-calc-state.entity';
+import { AdjFactorEntity } from '../../entities/raw/adj-factor.entity';
+import { IndicatorCalcStateEntity } from '../../entities/raw/indicator-calc-state.entity';
 import { AShareSyncStateEntity } from '../../entities/a-share/a-share-sync-state.entity';
 import { AShareFilterPresetEntity } from '../../entities/a-share/a-share-filter-preset.entity';
 import { ASharesController } from './a-shares.controller';
@@ -18,11 +18,11 @@ import { TushareClientService } from './services/tushare-client.service';
 @Module({
   imports: [TypeOrmModule.forFeature([
     AShareSymbolEntity,
-    AShareDailyQuoteEntity,
-    AShareDailyMetricEntity,
-    AShareDailyIndicatorEntity,
-    AShareAdjFactorEntity,
-    AShareIndicatorCalcStateEntity,
+    DailyQuoteEntity,
+    DailyBasicEntity,
+    DailyIndicatorEntity,
+    AdjFactorEntity,
+    IndicatorCalcStateEntity,
     AShareSyncStateEntity,
     AShareFilterPresetEntity,
   ])],

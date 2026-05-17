@@ -27,8 +27,8 @@ function dbConfig() {
 async function loadSymbols(client: Client): Promise<string[]> {
   const res = await client.query<SymbolRow>(`
     SELECT DISTINCT q.ts_code AS "tsCode"
-    FROM a_share_daily_quotes q
-    INNER JOIN a_share_daily_indicators i
+    FROM raw.daily_quote q
+    INNER JOIN raw.daily_indicator i
       ON i.ts_code = q.ts_code
      AND i.trade_date = q.trade_date
     WHERE q.high IS NOT NULL
@@ -48,8 +48,8 @@ async function loadQuotes(client: Client, tsCode: string): Promise<QuoteRow[]> {
       q.high,
       q.low,
       q.close
-    FROM a_share_daily_quotes q
-    INNER JOIN a_share_daily_indicators i
+    FROM raw.daily_quote q
+    INNER JOIN raw.daily_indicator i
       ON i.ts_code = q.ts_code
      AND i.trade_date = q.trade_date
     WHERE q.ts_code = $1
@@ -82,7 +82,7 @@ async function updateBrickIndicators(client: Client, tsCode: string, rows: Quote
     });
 
     const res = await client.query(`
-      UPDATE a_share_daily_indicators AS target
+      UPDATE raw.daily_indicator AS target
       SET
         brick = source.brick::double precision,
         brick_delta = source.brick_delta::double precision,

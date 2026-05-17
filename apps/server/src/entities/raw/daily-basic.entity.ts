@@ -1,8 +1,8 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn, Unique, UpdateDateColumn } from 'typeorm';
 
-@Entity('a_share_daily_metrics')
+@Entity({ schema: 'raw', name: 'daily_basic' })
 @Unique(['tsCode', 'tradeDate'])
-export class AShareDailyMetricEntity {
+export class DailyBasicEntity {
   @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id: string;
 

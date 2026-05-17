@@ -87,7 +87,7 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
   let sql = `
       WITH latest AS (
         SELECT ts_code, MAX(trade_date) AS trade_date
-        FROM a_share_daily_quotes
+        FROM raw.daily_quote
         GROUP BY ts_code
       )
       SELECT
@@ -117,9 +117,9 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
         ) AS tags
       FROM a_share_symbols s
       LEFT JOIN latest l ON l.ts_code = s.ts_code
-      LEFT JOIN a_share_daily_quotes q ON q.ts_code = s.ts_code AND q.trade_date = l.trade_date
-      LEFT JOIN a_share_daily_metrics m ON m.ts_code = s.ts_code AND m.trade_date = l.trade_date
-      LEFT JOIN a_share_daily_indicators i ON i.ts_code = s.ts_code AND i.trade_date = l.trade_date
+      LEFT JOIN raw.daily_quote q ON q.ts_code = s.ts_code AND q.trade_date = l.trade_date
+      LEFT JOIN raw.daily_basic m ON m.ts_code = s.ts_code AND m.trade_date = l.trade_date
+      LEFT JOIN raw.daily_indicator i ON i.ts_code = s.ts_code AND i.trade_date = l.trade_date
       WHERE s.list_status = 'L'
     `;
 

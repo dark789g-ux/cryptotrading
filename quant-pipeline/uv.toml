@@ -1,0 +1,6 @@
+# 项目级 uv 配置：使用清华镜像，避免直连 pypi.org 在国内超时。
+# 如需切换源，覆盖 UV_INDEX_URL 环境变量即可。
+
+[[index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true

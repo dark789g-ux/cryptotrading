@@ -99,12 +99,12 @@ export class StrategyConditionsRunner {
       query = `
         SELECT s.ts_code as "tsCode", s.name
         FROM a_share_symbols s
-        JOIN a_share_daily_indicators i
+        JOIN raw.daily_indicator i
           ON i.ts_code = s.ts_code
-         AND i.trade_date = (SELECT MAX(trade_date) FROM a_share_daily_indicators)
-        LEFT JOIN a_share_daily_quotes q
+         AND i.trade_date = (SELECT MAX(trade_date) FROM raw.daily_indicator)
+        LEFT JOIN raw.daily_quote q
           ON q.ts_code = s.ts_code AND q.trade_date = i.trade_date
-        LEFT JOIN a_share_daily_metrics m
+        LEFT JOIN raw.daily_basic m
           ON m.ts_code = s.ts_code AND m.trade_date = i.trade_date
         WHERE s.list_status = 'L'
           AND ${where.sql}

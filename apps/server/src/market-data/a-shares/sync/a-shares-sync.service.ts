@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { AShareAdjFactorEntity } from '../../../entities/a-share/a-share-adj-factor.entity';
-import { AShareDailyMetricEntity } from '../../../entities/a-share/a-share-daily-metric.entity';
-import { AShareDailyQuoteEntity } from '../../../entities/a-share/a-share-daily-quote.entity';
+import { AdjFactorEntity } from '../../../entities/raw/adj-factor.entity';
+import { DailyBasicEntity } from '../../../entities/raw/daily-basic.entity';
+import { DailyQuoteEntity } from '../../../entities/raw/daily-quote.entity';
 import { AShareSymbolEntity } from '../../../entities/a-share/a-share-symbol.entity';
 import { AShareSyncStateEntity } from '../../../entities/a-share/a-share-sync-state.entity';
 import { ASharesIndicatorService } from '../services/a-shares-indicator.service';
@@ -40,12 +40,12 @@ export class ASharesSyncService {
   constructor(
     @InjectRepository(AShareSymbolEntity)
     private readonly symbolRepo: Repository<AShareSymbolEntity>,
-    @InjectRepository(AShareDailyQuoteEntity)
-    private readonly quoteRepo: Repository<AShareDailyQuoteEntity>,
-    @InjectRepository(AShareDailyMetricEntity)
-    private readonly metricRepo: Repository<AShareDailyMetricEntity>,
-    @InjectRepository(AShareAdjFactorEntity)
-    private readonly adjFactorRepo: Repository<AShareAdjFactorEntity>,
+    @InjectRepository(DailyQuoteEntity)
+    private readonly quoteRepo: Repository<DailyQuoteEntity>,
+    @InjectRepository(DailyBasicEntity)
+    private readonly metricRepo: Repository<DailyBasicEntity>,
+    @InjectRepository(AdjFactorEntity)
+    private readonly adjFactorRepo: Repository<AdjFactorEntity>,
     @InjectRepository(AShareSyncStateEntity)
     private readonly syncStateRepo: Repository<AShareSyncStateEntity>,
     private readonly tushareClient: TushareClientService,

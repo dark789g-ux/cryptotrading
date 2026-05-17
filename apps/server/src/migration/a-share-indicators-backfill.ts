@@ -31,7 +31,7 @@ function dbConfig() {
 async function loadSymbols(client: Client): Promise<string[]> {
   const res = await client.query<SymbolRow>(`
     SELECT DISTINCT ts_code AS "tsCode"
-    FROM a_share_daily_quotes
+    FROM raw.daily_quote
     ORDER BY ts_code
   `);
   return res.rows.map((row) => row.tsCode).filter((tsCode) => tsCode.length > 0);
@@ -48,7 +48,7 @@ async function loadQuotes(client: Client, tsCode: string): Promise<QuoteRow[]> {
       close,
       vol,
       amount
-    FROM a_share_daily_quotes
+    FROM raw.daily_quote
     WHERE ts_code = $1
       AND open IS NOT NULL
       AND high IS NOT NULL
@@ -113,7 +113,7 @@ async function upsertIndicators(client: Client, tsCode: string, rows: QuoteRow[]
     });
 
     await client.query(`
-      INSERT INTO a_share_daily_indicators (
+      INSERT INTO raw.daily_indicator (
         ts_code,
         trade_date,
         dif,

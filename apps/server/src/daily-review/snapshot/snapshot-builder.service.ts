@@ -27,7 +27,7 @@ export class SnapshotBuilderService {
 
   async validate(tradeDate: string) {
     const [{ count }] = await this.ds.query(
-      `SELECT COUNT(*)::int AS count FROM a_share_daily_quotes WHERE trade_date = $1`,
+      `SELECT COUNT(*)::int AS count FROM raw.daily_quote WHERE trade_date = $1`,
       [tradeDate],
     );
     if (count === 0) {
@@ -51,7 +51,7 @@ export class SnapshotBuilderService {
            WHEN (ts_code LIKE '300%' OR ts_code LIKE '688%') AND pct_chg::numeric <= -19.9 THEN 1
            WHEN ts_code NOT LIKE '300%' AND ts_code NOT LIKE '688%' AND pct_chg::numeric <= -9.9 THEN 1
            ELSE 0 END) AS limit_down
-       FROM a_share_daily_quotes
+       FROM raw.daily_quote
        WHERE trade_date = $1`,
       [tradeDate],
     );
@@ -115,13 +115,13 @@ export class SnapshotBuilderService {
   }
 
   async aggregateStrongAndVolume(tradeDate: string) {
-    // 强势股：JOIN a_share_symbols 过滤 ST，JOIN a_share_daily_metrics 取 turnover_rate
+    // 强势股：JOIN a_share_symbols 过滤 ST，JOIN raw.daily_basic 取 turnover_rate
     const strong = await this.ds.query(
       `SELECT q.ts_code, s.name, q.pct_chg::numeric AS pct_chg,
               m.turnover_rate::numeric AS turnover_rate
-         FROM a_share_daily_quotes q
+         FROM raw.daily_quote q
          JOIN a_share_symbols s ON s.ts_code = q.ts_code
-         LEFT JOIN a_share_daily_metrics m ON m.ts_code = q.ts_code AND m.trade_date = q.trade_date
+         LEFT JOIN raw.daily_basic m ON m.ts_code = q.ts_code AND m.trade_date = q.trade_date
          WHERE q.trade_date = $1
            AND s.name NOT ILIKE '%ST%'
          ORDER BY q.pct_chg::numeric DESC LIMIT 20`,
@@ -130,7 +130,7 @@ export class SnapshotBuilderService {
     // 成交额 TOP
     const vol = await this.ds.query(
       `SELECT q.ts_code, s.name, q.amount::numeric AS amount, q.pct_chg::numeric AS pct_chg
-         FROM a_share_daily_quotes q
+         FROM raw.daily_quote q
          JOIN a_share_symbols s ON s.ts_code = q.ts_code
          WHERE q.trade_date = $1
          ORDER BY q.amount::numeric DESC LIMIT 20`,
@@ -141,7 +141,7 @@ export class SnapshotBuilderService {
         tsCode: r.ts_code, name: r.name, pctChg: +r.pct_chg,
         turnoverRate: r.turnover_rate != null ? +r.turnover_rate : undefined,
       })),
-      // a_share_daily_quotes.amount 单位为「千元」（Tushare daily.amount 原值），统一换算为「元」
+      // raw.daily_quote.amount 单位为「千元」（Tushare daily.amount 原值），统一换算为「元」
       volumeTop: vol.map((r: any) => ({ tsCode: r.ts_code, name: r.name, amount: +r.amount * 1000, pctChg: +r.pct_chg })),
     };
   }

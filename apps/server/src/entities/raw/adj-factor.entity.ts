@@ -1,8 +1,8 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn, Unique, UpdateDateColumn } from 'typeorm';
 
-@Entity('a_share_indicator_calc_states')
+@Entity({ schema: 'raw', name: 'adj_factor' })
 @Unique(['tsCode', 'tradeDate'])
-export class AShareIndicatorCalcStateEntity {
+export class AdjFactorEntity {
   @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id: string;
 
@@ -14,8 +14,8 @@ export class AShareIndicatorCalcStateEntity {
   @Column({ name: 'trade_date', length: 8 })
   tradeDate: string;
 
-  @Column({ type: 'jsonb' })
-  state: Record<string, unknown>;
+  @Column({ name: 'adj_factor', type: 'numeric', precision: 30, scale: 10, nullable: true })
+  adjFactor: string;
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;

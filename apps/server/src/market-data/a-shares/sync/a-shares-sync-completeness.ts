@@ -1,11 +1,11 @@
 import { Logger } from '@nestjs/common';
 import type { Repository } from 'typeorm';
-import type { AShareDailyQuoteEntity } from '../../../entities/a-share/a-share-daily-quote.entity';
+import type { DailyQuoteEntity } from '../../../entities/raw/daily-quote.entity';
 import type { ASharesDatasetKey, ASharesSyncMode, DatasetCompletenessConfig } from './a-shares-sync-types';
 
 const logger = new Logger('ASharesSyncCompleteness');
 
-const DAILY_QUOTES_TABLE = 'a_share_daily_quotes';
+const DAILY_QUOTES_TABLE = 'raw.daily_quote';
 
 const DATASET_COMPLETENESS: Record<ASharesDatasetKey, DatasetCompletenessConfig> = {
   daily: {
@@ -15,7 +15,7 @@ const DATASET_COMPLETENESS: Record<ASharesDatasetKey, DatasetCompletenessConfig>
     baseline: 'self',
   },
   daily_basic: {
-    tableName: 'a_share_daily_metrics',
+    tableName: 'raw.daily_basic',
     dateColumn: 'trade_date',
     // turnover_rate / total_mv / circ_mv 在实测数据中 100% 非空；
     // pe / pe_ttm / pb / volume_ratio 对亏损股或停牌股合法为 NULL，不能作硬约束。
@@ -23,7 +23,7 @@ const DATASET_COMPLETENESS: Record<ASharesDatasetKey, DatasetCompletenessConfig>
     baseline: 'daily_quotes',
   },
   adj_factor: {
-    tableName: 'a_share_adj_factors',
+    tableName: 'raw.adj_factor',
     dateColumn: 'trade_date',
     strictNonNullColumns: ['adj_factor'],
     baseline: 'daily_quotes',
@@ -31,7 +31,7 @@ const DATASET_COMPLETENESS: Record<ASharesDatasetKey, DatasetCompletenessConfig>
 };
 
 export async function shouldSyncDataset(
-  quoteRepo: Repository<AShareDailyQuoteEntity>,
+  quoteRepo: Repository<DailyQuoteEntity>,
   syncMode: ASharesSyncMode,
   dataset: ASharesDatasetKey,
   tradeDate: string,
@@ -41,7 +41,7 @@ export async function shouldSyncDataset(
 }
 
 async function isDatasetComplete(
-  quoteRepo: Repository<AShareDailyQuoteEntity>,
+  quoteRepo: Repository<DailyQuoteEntity>,
   dataset: ASharesDatasetKey,
   tradeDate: string,
 ): Promise<boolean> {
@@ -86,7 +86,7 @@ async function isDatasetComplete(
     }
     if (total < baseline) {
       logger.warn(
-        `${dataset} ${tradeDate} 行数 ${total} < a_share_daily_quotes 行数 ${baseline}，判定不完整以触发补齐`,
+        `${dataset} ${tradeDate} 行数 ${total} < raw.daily_quote 行数 ${baseline}，判定不完整以触发补齐`,
       );
       return false;
     }

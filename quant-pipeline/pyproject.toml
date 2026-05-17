@@ -1,0 +1,63 @@
+[project]
+name = "quant-pipeline"
+version = "0.1.0"
+description = "A 股截面选股量化管道（M0 骨架）"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "cryptotrading" }]
+
+dependencies = [
+    # ---- M0 必需 ----
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "alembic>=1.13",
+    "pydantic-settings>=2.2",
+    "typer>=0.12",
+
+    # ---- M1/M2 加（占位，避免污染 M0 lock）----
+    # "pandas>=2.2",
+    # "polars>=0.20",
+    # "numpy>=1.26",
+    # "pyarrow>=15",
+    # "tushare>=1.4",
+    # ---- M2/M3 加 ----
+    # "lightgbm>=4.3",
+    # "scikit-learn>=1.4",
+    # ---- M4 加 ----
+    # "optuna>=3.6",
+    # "shap>=0.45",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+quant = "quant_pipeline.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/quant_pipeline"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

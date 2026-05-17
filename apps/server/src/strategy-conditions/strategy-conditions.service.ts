@@ -153,7 +153,7 @@ export class StrategyConditionsService {
       SELECT MAX(open_time) as max FROM klines WHERE interval = '1d'
     `);
     const [aShareMax] = await this.dataSource.query<Array<{ max: string | null }>>(`
-      SELECT MAX(trade_date) as max FROM a_share_daily_indicators
+      SELECT MAX(trade_date) as max FROM raw.daily_indicator
     `);
 
     const parseTradeDate = (s: string): Date => {

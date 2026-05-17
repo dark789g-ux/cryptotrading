@@ -1,9 +1,9 @@
 import type { Repository } from 'typeorm';
-import type { AShareDailyQuoteEntity } from '../../../entities/a-share/a-share-daily-quote.entity';
+import type { DailyQuoteEntity } from '../../../entities/raw/daily-quote.entity';
 import type { AShareSyncStateEntity } from '../../../entities/a-share/a-share-sync-state.entity';
 
 export interface ASharesSyncDirtyRangeDeps {
-  quoteRepo: Repository<AShareDailyQuoteEntity>;
+  quoteRepo: Repository<DailyQuoteEntity>;
   syncStateRepo: Repository<AShareSyncStateEntity>;
 }
 
@@ -78,11 +78,11 @@ async function recalculateDirtyQfqQuotesForSymbol(
         CASE WHEN latest.adj_factor IS NULL OR latest.adj_factor = 0 OR f.adj_factor IS NULL THEN NULL ELSE q.high * f.adj_factor / latest.adj_factor END AS qfq_high,
         CASE WHEN latest.adj_factor IS NULL OR latest.adj_factor = 0 OR f.adj_factor IS NULL THEN NULL ELSE q.low * f.adj_factor / latest.adj_factor END AS qfq_low,
         CASE WHEN latest.adj_factor IS NULL OR latest.adj_factor = 0 OR f.adj_factor IS NULL THEN NULL ELSE q.close * f.adj_factor / latest.adj_factor END AS qfq_close
-      FROM a_share_daily_quotes q
-      LEFT JOIN a_share_adj_factors f ON f.ts_code = q.ts_code AND f.trade_date = q.trade_date
+      FROM raw.daily_quote q
+      LEFT JOIN raw.adj_factor f ON f.ts_code = q.ts_code AND f.trade_date = q.trade_date
       LEFT JOIN LATERAL (
         SELECT lf.adj_factor
-        FROM a_share_adj_factors lf
+        FROM raw.adj_factor lf
         WHERE lf.ts_code = q.ts_code
           AND lf.adj_factor IS NOT NULL
         ORDER BY lf.trade_date DESC
@@ -105,7 +105,7 @@ async function recalculateDirtyQfqQuotesForSymbol(
       FROM adjusted
       LEFT JOIN LATERAL (
         SELECT pq.qfq_close AS prev_qfq_close
-        FROM a_share_daily_quotes pq
+        FROM raw.daily_quote pq
         WHERE pq.ts_code = $1
           AND pq.trade_date < $2
           AND pq.qfq_close IS NOT NULL
@@ -113,7 +113,7 @@ async function recalculateDirtyQfqQuotesForSymbol(
         LIMIT 1
       ) prev ON true
     )
-    UPDATE a_share_daily_quotes AS target
+    UPDATE raw.daily_quote AS target
     SET
       qfq_open = with_prev.qfq_open,
       qfq_high = with_prev.qfq_high,
@@ -151,13 +151,13 @@ async function recalculateDirtyQfqQuotesForSymbol(
 }
 
 async function resolveEarliestQuoteDate(
-  quoteRepo: Repository<AShareDailyQuoteEntity>,
+  quoteRepo: Repository<DailyQuoteEntity>,
   tsCode: string,
   fallback: string,
 ): Promise<string> {
   const rows = await quoteRepo.query<Array<{ tradeDate: string }>>(`
     SELECT MIN(trade_date) AS "tradeDate"
-    FROM a_share_daily_quotes
+    FROM raw.daily_quote
     WHERE ts_code = $1
   `, [tsCode]);
   return rows[0]?.tradeDate ?? fallback;

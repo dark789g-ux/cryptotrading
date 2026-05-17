@@ -3,7 +3,7 @@ import { Column, Entity, Index, PrimaryGeneratedColumn, Unique, UpdateDateColumn
 /**
  * 同花顺指数日线技术指标。
  *
- * 与 a_share_daily_indicators 的子集对齐：去掉个股交易专用项
+ * 与 raw.daily_indicator 的子集对齐：去掉个股交易专用项
  * （ATR / quote_volume_10 / stop_loss_pct / risk_reward_ratio / low_9 / high_9 / loss_atr_14），
  * 保留 MA / MACD / KDJ / BBI / BRICK。
  */

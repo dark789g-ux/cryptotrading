@@ -135,8 +135,8 @@ describe('WatchlistsService', () => {
         page_size: 20,
       });
       const [sql, params] = watchlistRepo.query.mock.calls[0];
-      expect(sql).toContain('a_share_daily_quotes');
-      expect(sql).toContain('a_share_daily_indicators');
+      expect(sql).toContain('raw.daily_quote');
+      expect(sql).toContain('raw.daily_indicator');
       expect(params).toEqual(['1d', ['000001.SZ', '000002.SZ']]);
     });
   });
