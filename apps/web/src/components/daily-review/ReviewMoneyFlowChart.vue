@@ -7,8 +7,8 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 
 const props = defineProps<{
-  topIn: { name: string; mainNetIn: number }[]
-  topOut: { name: string; mainNetIn: number }[]
+  topIn: { name: string; netIn: number }[]
+  topOut: { name: string; netIn: number }[]
 }>()
 const el = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
@@ -29,8 +29,8 @@ function render() {
         name: '净流入',
         type: 'bar',
         data: [
-          ...inItems.map(i => ({ value: toHundredMillion(i.mainNetIn), itemStyle: { color: '#e74c3c' } })),
-          ...outItems.map(i => ({ value: toHundredMillion(i.mainNetIn), itemStyle: { color: '#27ae60' } })),
+          ...inItems.map(i => ({ value: toHundredMillion(i.netIn), itemStyle: { color: '#e74c3c' } })),
+          ...outItems.map(i => ({ value: toHundredMillion(i.netIn), itemStyle: { color: '#27ae60' } })),
         ],
         label: { show: true, position: 'right', formatter: (p: any) => `${p.value}亿` },
       },

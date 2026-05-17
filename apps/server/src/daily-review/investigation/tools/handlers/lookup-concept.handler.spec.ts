@@ -60,7 +60,7 @@ describe('LookupConceptHandler', () => {
       tsCode: '601138.SH',
       name: '工业富联',
       pctChg: 5.1,
-      mainNetIn: 99999,
+      netIn: 99999,
       isLeader: true,
     });
     expect(out.constituents[1].isLeader).toBe(false);

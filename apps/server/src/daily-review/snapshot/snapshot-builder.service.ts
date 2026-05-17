@@ -86,18 +86,18 @@ export class SnapshotBuilderService {
 
   async aggregateMoneyFlow(tradeDate: string) {
     const [market] = await this.ds.query(
-      `SELECT net_amount::numeric AS main_net_in
+      `SELECT net_amount::numeric AS net_in
          FROM money_flow_market WHERE trade_date = $1`,
       [tradeDate],
     );
     const topIn = await this.ds.query(
-      `SELECT ts_code, name, net_amount::numeric AS main_net_in
+      `SELECT ts_code, name, net_amount::numeric AS net_in
          FROM money_flow_stocks WHERE trade_date = $1
          ORDER BY net_amount::numeric DESC LIMIT 20`,
       [tradeDate],
     );
     const topOut = await this.ds.query(
-      `SELECT ts_code, name, net_amount::numeric AS main_net_in
+      `SELECT ts_code, name, net_amount::numeric AS net_in
          FROM money_flow_stocks WHERE trade_date = $1
          ORDER BY net_amount::numeric ASC LIMIT 20`,
       [tradeDate],
@@ -106,9 +106,9 @@ export class SnapshotBuilderService {
       this.logger.warn(`[moneyflow_market_empty] trade_date=${tradeDate}`);
     }
     // DB 中 net_amount 单位为「万元」，统一换算为「元」交给 LLM（prompt 已约定单位为元）
-    const map = (r: any) => ({ tsCode: r.ts_code, name: r.name, mainNetIn: +r.main_net_in * 10000 });
+    const map = (r: any) => ({ tsCode: r.ts_code, name: r.name, netIn: +r.net_in * 10000 });
     return {
-      market: { mainNetIn: +(market?.main_net_in ?? 0) * 10000 },
+      market: { netIn: +(market?.net_in ?? 0) * 10000 },
       stocksTopIn: topIn.map(map),
       stocksTopOut: topOut.map(map),
     };

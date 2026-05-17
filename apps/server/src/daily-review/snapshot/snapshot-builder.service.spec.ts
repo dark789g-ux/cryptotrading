@@ -67,14 +67,14 @@ describe('SnapshotBuilderService', () => {
   describe('aggregateMoneyFlow', () => {
     it('返回市场净流入 + 个股 TOP/BOTTOM 20', async () => {
       (mockDs.query as jest.Mock)
-        .mockResolvedValueOnce([{ main_net_in: '12345600' }])
-        .mockResolvedValueOnce([{ ts_code: '688256.SH', name: '寒武纪', main_net_in: '4000000000' }])
-        .mockResolvedValueOnce([{ ts_code: '601318.SH', name: '中国平安', main_net_in: '-2500000000' }]);
+        .mockResolvedValueOnce([{ net_in: '12345600' }])
+        .mockResolvedValueOnce([{ ts_code: '688256.SH', name: '寒武纪', net_in: '4000000000' }])
+        .mockResolvedValueOnce([{ ts_code: '601318.SH', name: '中国平安', net_in: '-2500000000' }]);
       const r = await svc.aggregateMoneyFlow('20260512');
       // DB 单位「万元」→ snapshot 单位「元」，乘 10000
-      expect(r.market.mainNetIn).toBe(123456000000);
-      expect(r.stocksTopIn[0].mainNetIn).toBe(40000000000000);
-      expect(r.stocksTopOut[0].mainNetIn).toBe(-25000000000000);
+      expect(r.market.netIn).toBe(123456000000);
+      expect(r.stocksTopIn[0].netIn).toBe(40000000000000);
+      expect(r.stocksTopOut[0].netIn).toBe(-25000000000000);
     });
   });
 
@@ -113,7 +113,7 @@ describe('SnapshotBuilderService', () => {
       });
       jest.spyOn(svc, 'aggregateSectors').mockResolvedValue({ industryRank: [], conceptRank: [] });
       jest.spyOn(svc, 'aggregateMoneyFlow').mockResolvedValue({
-        market: { mainNetIn: 0 }, stocksTopIn: [], stocksTopOut: [],
+        market: { netIn: 0 }, stocksTopIn: [], stocksTopOut: [],
       });
       jest.spyOn(svc, 'aggregateStrongAndVolume').mockResolvedValue({ strongStocks: [], volumeTop: [] });
       jest.spyOn(svc, 'fetchIndices').mockResolvedValue([]);

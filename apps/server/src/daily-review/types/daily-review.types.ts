@@ -2,7 +2,7 @@ export type IndexQuote = { tsCode: string; name: string; close: number; pctChg: 
 export type LimitStats = { upCount: number; downCount: number; brokenCount: number };
 export type UpdownDist = { up: number; down: number; flat: number; limitUp: number; limitDown: number };
 export type SectorRow  = { name: string; pctChg: number };
-export type StockRow   = { tsCode: string; name: string; mainNetIn?: number; pctChg?: number; turnoverRate?: number; amount?: number };
+export type StockRow   = { tsCode: string; name: string; netIn?: number; pctChg?: number; turnoverRate?: number; amount?: number };
 
 // ===== Snapshot 扩展字段（spec §4.3）=====
 export interface OvernightPayload {
@@ -29,7 +29,7 @@ export interface SnapshotPayload {
   industryRank: SectorRow[];
   conceptRank: SectorRow[];
   moneyFlow: {
-    market: { mainNetIn: number };
+    market: { netIn: number };
     stocksTopIn: StockRow[];
     stocksTopOut: StockRow[];
   };

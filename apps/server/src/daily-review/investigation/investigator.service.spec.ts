@@ -28,7 +28,7 @@ describe('InvestigatorService.investigate', () => {
       hypotheses: [
         {
           claim: '半导体板块强势',
-          supportingFacts: [{ type: 'moneyflow', summary: '主力净流入 12 亿' }],
+          supportingFacts: [{ type: 'moneyflow', summary: '资金净流入 12 亿' }],
           relevantSectors: ['半导体'],
           relevantStocks: ['000725.SZ'],
         },

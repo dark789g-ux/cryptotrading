@@ -25,7 +25,13 @@
             <n-spin />
           </div>
           <n-empty v-else-if="!klineRows.length" description="暂无K线数据" class="chart-empty" />
-          <kline-chart v-else :data="klineRows" height="100%" :slider-start="35" />
+          <kline-chart
+            v-else
+            :data="klineRows"
+            :money-flow="moneyFlowRows"
+            height="100%"
+            :slider-start="35"
+          />
         </div>
       </div>
       <n-empty v-else description="未选择股票" class="chart-empty" />
@@ -44,7 +50,9 @@ import {
   useMessage,
 } from 'naive-ui'
 import KlineChart from '../../kline/KlineChart.vue'
-import { aSharesApi, type AShareKlineBar, type AShareRow } from '@/api'
+import { type AShareKlineBar, type AShareRow } from '@/api'
+import type { MoneyFlowBar } from '@/api/modules/market/symbols'
+import { fetchAShareDetail, fetchAShareKlineOnly } from './aShareDetailFetcher'
 import { formatTradeDate } from './aSharesFormatters'
 
 const props = defineProps<{
@@ -59,14 +67,33 @@ const message = useMessage()
 
 const loading = ref(false)
 const klineRows = ref<AShareKlineBar[]>([])
+const moneyFlowRows = ref<MoneyFlowBar[]>([])
 
-async function loadKlines() {
+/** Drawer 打开 / row 切换：并行拉 K 线 + 资金流 */
+async function loadDetail() {
   const tsCode = props.row?.tsCode
   if (!tsCode) return
   loading.value = true
   klineRows.value = []
+  moneyFlowRows.value = []
   try {
-    klineRows.value = await aSharesApi.getKlines(tsCode, 360, props.priceMode)
+    const result = await fetchAShareDetail(tsCode, 360, props.priceMode)
+    klineRows.value = result.kline
+    moneyFlowRows.value = result.moneyFlow
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : String(err))
+  } finally {
+    loading.value = false
+  }
+}
+
+/** priceMode 切换：只重拉 K 线，资金流保留 */
+async function reloadKlineOnly() {
+  const tsCode = props.row?.tsCode
+  if (!tsCode) return
+  loading.value = true
+  try {
+    klineRows.value = await fetchAShareKlineOnly(tsCode, 360, props.priceMode)
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
   } finally {
@@ -75,14 +102,23 @@ async function loadKlines() {
 }
 
 watch(
-  () => [props.show, props.row?.tsCode, props.priceMode] as const,
+  () => [props.show, props.row?.tsCode] as const,
   ([show, tsCode]) => {
     if (!show) {
       klineRows.value = []
+      moneyFlowRows.value = []
       return
     }
     if (!tsCode) return
-    void loadKlines()
+    void loadDetail()
+  },
+)
+
+watch(
+  () => props.priceMode,
+  () => {
+    if (!props.show || !props.row?.tsCode) return
+    void reloadKlineOnly()
   },
 )
 

@@ -68,8 +68,8 @@ export interface ConceptConstituent {
   tsCode: string;
   name: string | null;
   pctChg: number | null;
-  mainNetIn: number | null;
-  /** 该板块当日 mainNetIn 排名第 1 视为龙头 */
+  netIn: number | null;
+  /** 该板块当日 netIn 排名第 1 视为龙头 */
   isLeader: boolean;
 }
 

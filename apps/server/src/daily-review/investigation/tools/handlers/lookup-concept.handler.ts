@@ -16,13 +16,13 @@ import {
  * lookup_concept（spec § 5.1）
  *
  * 入参：conceptName: string（中文名，可能是概念或行业）
- * 出参：{ matchedName, todayPctChg, constituents: [{tsCode, name, pctChg, mainNetIn, isLeader}] }
+ * 出参：{ matchedName, todayPctChg, constituents: [{tsCode, name, pctChg, netIn, isLeader}] }
  *
  * 实现策略：
  * - 概念优先（money_flow_sectors.name），未命中回退到行业（money_flow_industries.industry）
  * - 都未命中：返回空 constituents + matchedName=入参原值；不抛错（LLM 会改 query 重试）
  * - constituents 来源：ths_member_stocks join money_flow_stocks（同一交易日 = 概念最新交易日）
- *   - isLeader = 当天该概念内 mainNetIn 排名第 1
+ *   - isLeader = 当天该概念内 netIn 排名第 1
  * - 不在此处嵌入新闻检索（spec 明确）；LLM 需要催化信息时自行调 search_news
  */
 @Injectable()
@@ -143,7 +143,7 @@ export class LookupConceptHandler implements ToolHandler {
       tsCode: String(r.ts_code),
       name: r.name ?? null,
       pctChg: this.safeNumber(r.pct_change),
-      mainNetIn: this.safeNumber(r.net_amount),
+      netIn: this.safeNumber(r.net_amount),
       isLeader: idx === 0,
     }));
   }

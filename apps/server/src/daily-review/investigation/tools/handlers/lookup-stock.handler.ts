@@ -122,7 +122,7 @@ export class LookupStockHandler implements ToolHandler {
   }
 
   /**
-   * 当 tsCode 在 latestDate 当日资金流榜中的"主力净流入"排名（从 1 起）。
+   * 当 tsCode 在 latestDate 当日资金流榜中的"资金净流入"排名（从 1 起）。
    * 用裸 SQL 跑 ROW_NUMBER 性能更稳；trade_date 用参数传入，避免 SQL 注入。
    */
   private async computeTodayRank(tsCode: string, latestDate: string | null): Promise<number | null> {
