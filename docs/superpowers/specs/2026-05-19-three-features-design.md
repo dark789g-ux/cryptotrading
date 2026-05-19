@@ -60,6 +60,7 @@ status: draft
 - 列表中新策略（从未运行过）显示 `—`
 - 运行一条策略后立即刷新，时间列显示当前时间 + 「运行中」标记
 - 运行完成后再次刷新，显示 `completedAt`
+- 失败态（`status === 'failed'`）：若 `completedAt` 非空则显示 `completedAt`（红色 + 失败角标），否则回退到 `startedAt`
 - 时间显示遵循项目 `formatUTCDateTime` 规范（UTC 墙钟字符串，不走 `toLocaleString`）
 
 ---
@@ -130,10 +131,15 @@ status: draft
 ```
 返回 `{ added, skipped }` → toast `已添加 X 个，跳过 Y 个`。
 
-**覆盖模式**：
-- 检查 `WatchlistsController` 是否已有「按 id 替换 symbols」的 endpoint（在调研中已识别 `PUT :id`，确认其入参支持 `symbols` 数组）
-- 若已有：`PUT /watchlists/:id { symbols }`
-- 若不支持替换语义：在 service 层调用「DELETE items by watchlist_id + 批量 INSERT」组合，由前端发起两次请求（仅 MVP；同 service 内可后续合并为一次事务）
+**覆盖模式**：复用 `PUT /watchlists/:id`
+```ts
+{ symbols: <合法 symbol 列表> }
+```
+该 endpoint 的 `updateWatchlist` 已实现全量替换语义（内部走 `setSymbols`），无需新增后端代码。
+
+**Toast 文案**：根据后端返回的 `UpsertByNameResult` 区分两种情况：
+- `created === false`（已有同名 watchlist）→ `已添加 X 个，跳过 Y 个`
+- `created === true`（新建了 watchlist）→ `新建列表「<name>」并添加 X 个`（避免用户列表名拼错时无声创建新列表）
 
 ### 2.8 验收
 
@@ -151,18 +157,31 @@ status: draft
 
 在 `SyncView.vue` 顶部提供一个「一键同步」入口，让用户选一次日期范围、点一次按钮，依次完成 A 股 4 类核心数据集的同步，并提供清晰的进度可视化。
 
-### 3.2 编排策略 — 方案 B+ 前端串行
+### 3.2 编排策略 — 方案 B+ 前端串行 + 适配层
 
-不引入后端 orchestrator、不建 `sync_task` 表、不新增 endpoint。前端串行 `await` 4 个已有 sync composable 的 `confirmSync`，把它们各自的 SSE 状态聚合到一个总控视图。
+不引入后端 orchestrator、不建 `sync_task` 表、不新增 endpoint。前端串行调用 4 个已有 sync composable，把它们各自的 SSE 状态聚合到一个总控视图。
 
-**步骤顺序（固定）**：
+**关键事实（已核实）**：4 个底层 composable 的对外接口**并非完全同构**：
 
-| # | 步骤名 | 复用 composable | 失败影响 |
+| composable | 触发方法 | 完成信号 | syncMode 取值 |
+|---|---|---|---|
+| `useASharesSync` | `syncAShares()` | 内部 `syncSse.start` 的 `onDone` 回调；不暴露 `finished` ref | `'incremental' \| 'overwrite'` |
+| `useMoneyFlowSync` | `confirmSync()` | 暴露 `finished` ref（`{ result }` 结构） | `'incremental' \| 'overwrite'` |
+| `useThsIndexDailySync` | `confirmSync()` | 暴露 `finished` ref（`{ result }` 结构） | `'incremental' \| 'overwrite'` |
+| `useOamvSync` | `confirmSync()` | 暴露 `finished` ref（`{ result }` 结构） | `'incremental' \| 'overwrite'` |
+
+**因此 `useOneClickSync` 内部必须包一层适配器**（参见 §3.3.1），不要试图统一改 4 个 composable 的对外签名（影响面太大，破坏现有 SyncView.vue 调用方）。
+
+**编排步骤（固定顺序）**：
+
+| # | 步骤名 | 适配 composable | 失败影响 |
 |---|---|---|---|
 | 1 | A 股数据 | `useASharesSync` | 不阻塞 |
 | 2 | 资金流向 | `useMoneyFlowSync` | 不阻塞 |
 | 3 | 指数日线 ths_daily | `useThsIndexDailySync` | 不阻塞 |
 | 4 | 活跃市值 0AMV | `useOamvSync` | 不阻塞 |
+
+**syncMode 固定取 `'incremental'`**（4 个 composable 都没有 `'range'` mode；spec 早期措辞「强制 mode='range'」是错误的，应删除）。日期范围通过各 composable 的 `syncDateRange` ref 写入。
 
 **失败语义**：单步骤失败 → 标记 `failed`，继续下一步，最终 summary 汇总所有 errors（与项目「数据集为空必须 warn」规范对齐）。
 
@@ -204,12 +223,51 @@ export function useOneClickSync(message: MessageApi) {
 ```
 
 **编排实现要点**：
-- 内部直接 `new` 出 4 个底层 composable 实例：`const aSharesCtrl = useASharesSync(message, noopReload)` 等
-- 把 `dateRange` 写入各底层 composable 的 `syncDateRange` ref，并强制 mode 为 `'range'`（4 个 composable 都已支持该模式）
-- 顺序 `await` 各 `confirmSync()`；同时 watch 底层 composable 的 SSE 状态（`syncPhase` / `syncPercent` / `syncStatus` / `syncMessage` / `finished`）→ 增量更新 `steps[i]`
-- 把每个 SSE 事件追加到 `logEntries`（含 `step` 前缀、时间戳、原始消息）；特别保留 `errors` / `failedItems` / `*_empty` warn 项，红/黄高亮
-- `try/catch` 每一步，失败 → `steps[i].status = 'failed'`、继续 `i+1`
-- 全部完成 → `summary = { steps: [...], totalMs, errors: [...] }`
+
+1. **实例化 4 个底层 composable**（注意第 1 个签名不同）：
+   ```ts
+   const noopReload = async () => {};
+   const aSharesCtrl   = useASharesSync(message, noopReload);   // 注意：2 个参数
+   const moneyFlowCtrl = useMoneyFlowSync(message);
+   const thsIndexCtrl  = useThsIndexDailySync(message);
+   const oamvCtrl      = useOamvSync(message);
+   ```
+
+2. **配置统一参数**：把 `dateRange.value` 赋给各 `syncDateRange.value`；把 `syncMode.value` 都置为 `'incremental'`。
+
+3. **包装为统一 step runner**（适配层 — 这是修复 blocker A 的关键）：
+
+   ```ts
+   interface StepRunner {
+     run: () => Promise<void>;          // 触发并 await 至完成或失败
+     watch: () => void;                 // 安装对底层 SSE 状态的 watcher，更新 steps[i]
+     unwatch: () => void;               // 卸载 watcher
+   }
+   ```
+
+   - **A 股步骤（特殊）**：`useASharesSync` 不暴露 `finished` ref，通过 `syncSse` 的 `onDone` 回调完成。适配方案有两种，二选一在实现时确定：
+     - **方案 1（推荐，零侵入）**：在 `useOneClickSync` 中用 `watch(aSharesCtrl.syncStatus, status => { if (status === 'done' || status === 'error') resolveStep1(...) })` 配合一个外层 `Promise` 实现"完成判定"。同时 watch `syncSse.message` 中的最终 summary 字符串作为 `rowsWritten` 的来源（或读取 `parseSyncResult` 暴露的数据 — 若不可达则只显示状态文本）。
+     - **方案 2（轻度改造）**：在 `useASharesSync` 中增加一个可选的 `onFinished` 回调参数，`useOneClickSync` 传入解析后的回调。此方案需修改 `useASharesSync.ts` 第 87-89 行的 `onDone` 内部，向外暴露解析结果。
+     - 默认采用方案 1。
+
+   - **其它 3 个步骤（统一模式）**：调 `ctrl.confirmSync()`，然后 `await until(ctrl.finished.value !== null || ctrl.syncStatus.value === 'error')`。可用一个工具函数 `awaitFinished(ctrl)` 封装。
+
+4. **SSE 状态 → step 状态映射**：
+   ```ts
+   watch([ctrl.syncPhase, ctrl.syncPercent, ctrl.syncStatus, ctrl.syncMessage], ([phase, pct, st, msg]) => {
+     steps.value[i].phase = phase;
+     steps.value[i].percent = pct;
+     steps.value[i].status = st === 'running' ? 'running' : steps.value[i].status;
+     steps.value[i].message = msg;
+     pushLog({ step: stepKey, level: 'info', text: msg });
+   });
+   ```
+
+5. **errors / warn 收集**：watch `ctrl.finished?.result?.errors`（其它 3 个步骤）或 A 股的 `parseSyncResult` 结果中 errors 字段；任一 `errors.length > 0` 时把它们逐条 `pushLog({ level: 'warn', ... })`，并加入 `steps[i].errors`。
+
+6. **每一步用 `try/catch`**，失败 → `steps[i].status = 'failed'`、清理 watcher、继续 `i+1`。
+
+7. **全部完成** → `summary = { steps: [...], totalMs, errors: [...] }`。
 
 **日期参数处理（CLAUDE.md 规范）**：
 - `n-date-picker` 取值用 `getFullYear/getMonth/getDate` 转 `YYYYMMDD`（本地日历日）
