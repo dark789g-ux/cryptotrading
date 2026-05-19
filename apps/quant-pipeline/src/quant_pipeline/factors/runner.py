@@ -61,17 +61,21 @@ class RawData:
 
 
 def _query_trade_dates(start: str, end: str) -> list[str]:
-    """从 raw.trade_cal 取 [start, end] 范围内 is_open=1 的交易日（YYYYMMDD）。
+    """从 raw.daily_quote 取 [start, end] 范围内的实际有报价日期（PIT 真值）。
 
     若表暂不存在（Part C 未交付），返回 [] 并 warn——runner 据此跳过本轮工作。
+
+    trade_cal 仅服务于前瞻性查询（次日是否开市）；历史 PIT 计算的真值来自
+    `raw.daily_quote.trade_date`——与每日 OHLC 同表，强 PIT 安全。本函数不再依赖
+    trade_cal 的同步覆盖范围。若某日全市场零成交，daily_quote 不含该日，本函数
+    自然剔除——与 PIT 真值一致。
     """
 
     sql = text(
         """
-        SELECT cal_date
-        FROM raw.trade_cal
-        WHERE cal_date >= :start AND cal_date <= :end AND is_open = 1
-        ORDER BY cal_date
+        SELECT DISTINCT trade_date FROM raw.daily_quote
+        WHERE trade_date >= :start AND trade_date <= :end
+        ORDER BY trade_date
         """
     )
     try:
@@ -80,7 +84,7 @@ def _query_trade_dates(start: str, end: str) -> list[str]:
         return [r[0] for r in rows]
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "trade_cal_unavailable",
+            "trade_dates_unavailable",
             extra={"start": start, "end": end, "err": str(exc)},
         )
         return []
@@ -133,18 +137,13 @@ def _load_raw_panel(start: str, end: str) -> pd.DataFrame:
 def _load_industry_pit(start: str, end: str) -> pd.DataFrame:
     """从 raw.index_member 解析窗口内每日的个股 → industry_l1 归属（PIT 安全）。
 
-    策略：
-      申万一级行业指数代码以 .SI 结尾，or 用 raw.index_classify.level='L1'
-      过滤。本函数采用"按 trade_date 反查"模式：
-        SELECT trade_date, ts_code (= con_code), index_code (= industry_l1)
-        FROM raw.index_member im JOIN raw.index_classify ic ON ic.index_code = im.index_code
-        WHERE ic.level = 'L1'
-          AND im.in_date <= trade_date AND (im.out_date IS NULL OR im.out_date > trade_date)
-      但 raw.index_member 通常存的是 (index_code, con_code, in_date, out_date)，
-      要展平到日级需要 generate_series + 交易日历交叉，开销大。
+    实现：sync/index_member.py 已经把 (l1_code, l1_name, l2_code, l2_name, l3_code, l3_name)
+    同行落库，l1_code 即"申万一级行业代码"（形如 801xxx.SI）。本函数按 trade_date
+    在 raw.index_member 上反查 in_date / out_date 区间命中 T 日的行，直接取 l1_code，
+    无需 JOIN raw.index_classify。
 
-      实用做法：runner 在每个 T 日单独 SELECT 一次"在 T 日有效的归属"，O(N) 次
-      数据库查询；N=窗口交易日数（≤100）。
+    runner 在每个 T 日单独 SELECT 一次"在 T 日有效的归属"，O(N) 次数据库查询；
+    N = 窗口交易日数（≤100）。
 
     返回 MultiIndex [trade_date, ts_code]、单列 industry_l1。表不可用时返回空。
     """
@@ -155,10 +154,9 @@ def _load_industry_pit(start: str, end: str) -> pd.DataFrame:
 
     sql = text(
         """
-        SELECT :t AS trade_date, im.con_code AS ts_code, im.index_code AS industry_l1
+        SELECT :t AS trade_date, im.ts_code, im.l1_code AS industry_l1
         FROM raw.index_member im
-        JOIN raw.index_classify ic ON ic.index_code = im.index_code
-        WHERE ic.level = 'L1'
+        WHERE im.l1_code IS NOT NULL
           AND im.in_date <= :t
           AND (im.out_date IS NULL OR im.out_date > :t)
         """

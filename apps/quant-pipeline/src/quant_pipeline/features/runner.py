@@ -116,26 +116,29 @@ def _load_mv_map(start: str, end: str) -> pd.DataFrame:
 
 
 def _load_industry_map(start: str, end: str) -> pd.DataFrame:
-    """从 raw.trade_cal + raw.index_member + raw.index_classify 解析 PIT 行业归属。
+    """从 raw.daily_quote（PIT 真值日历）+ raw.index_member 解析 PIT 行业归属。
 
     简化：返回 [trade_date, ts_code, industry_l1]——对每个交易日按 in_date <= t AND
     (out_date IS NULL OR out_date > t) 解析。表不可用时返回空 DF。
+
+    日期源头：raw.daily_quote.trade_date（与 factors/runner._query_trade_dates 口径一致，
+    不依赖 raw.trade_cal 同步范围）。
     """
 
     sql = text(
         """
         SELECT cal.cal_date AS trade_date,
-               im.con_code  AS ts_code,
-               im.index_code AS industry_l1
-        FROM raw.trade_cal cal
+               im.ts_code,
+               im.l1_code AS industry_l1
+        FROM (
+            SELECT DISTINCT trade_date AS cal_date
+            FROM raw.daily_quote
+            WHERE trade_date >= :start AND trade_date <= :end
+        ) cal
         JOIN raw.index_member im
           ON im.in_date <= cal.cal_date
          AND (im.out_date IS NULL OR im.out_date > cal.cal_date)
-        JOIN raw.index_classify ic
-          ON ic.index_code = im.index_code
-         AND ic.level = 'L1'
-        WHERE cal.is_open = 1
-          AND cal.cal_date >= :start AND cal.cal_date <= :end
+        WHERE im.l1_code IS NOT NULL
         """
     )
     try:
