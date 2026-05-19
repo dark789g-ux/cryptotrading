@@ -65,6 +65,10 @@ dry-run 直接产物：134,700 行 raw 已落、53,266 行 `rsi_14` 数据（只
 │      └─ ml.quality_reports critical 必须为 0                     │
 │                                                                  │
 │  c6  doc: 更新 TODO.md（删手工 partition 步骤）+ 02 spec 段       │
+│                                                                  │
+│  c7  bollinger_position_20d 用 np.nan 代 pd.NA（c5 暴露）         │
+│  c8  orchestrator 按 l1_codes 分批同步 index_member（c5 暴露）    │
+│      └─ 共同目标：让 c5 验收门槛全绿                              │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -303,6 +307,55 @@ docker exec crypto-postgres psql -U cryptouser -d cryptodb -c "
 4. **CLAUDE.md** 不动
    - 现有"数据完整性 & 第三方 API"章节已覆盖本轮 bug 根因（mock 不验契约 / 0 行需 failedItems）
    - 新增 PG 集成测样例即等于落地
+
+## 9.5 c7 · 修 bollinger_position_20d NAType bug（c5 暴露）
+
+**位置**：`apps/quant-pipeline/src/quant_pipeline/factors/price/bollinger_position_20d.py:44`
+
+**根因**：用 `pd.NA` 做 0 分母占位，使 series 变成 nullable dtype；下游 `runner._upsert_daily_factors` 走 `float(value)` 时 `float(pd.NA)` 抛 `TypeError: float() argument must be a string or a real number, not 'NAType'`。c5 实测在 20240606 / 20240607 全市场 skip → 丢 ~10K 行。
+
+**修复**：将 `pd.NA` 换成 `np.nan`。series 保持 `float64` dtype，divide-by-0 自然产生 inf/nan，runner 已有 `np.isnan(value)` 检查（[runner.py:376](../../apps/quant-pipeline/src/quant_pipeline/factors/runner.py#L376)）。
+
+```text
+-import pandas as pd
++import numpy as np
++import pandas as pd
+...
+-denom = (upper - lower).replace(0, pd.NA)
++denom = (upper - lower).replace(0, np.nan)
+```
+
+**验证**：c5 重跑后 `bollinger_position_20d` 应 19 天全命中、~5300 行/日。
+
+## 9.6 c8 · 修 index_member sync 覆盖率（c5 暴露）
+
+**位置**：`apps/quant-pipeline/src/quant_pipeline/sync/orchestrator.py:172-174`（调用方）+ `sync/index_member.py`（实现已经支持 l1_codes 循环）
+
+**根因**：orchestrator 调用 `sync_index_member(client=client)` 不传 `l1_codes`，单次 fetch 受 TuShare `index_member_all` 默认行数上限（实测 3000 行截断），只取到 31 个 L1 行业的部分成份股（3000 distinct ts_code vs 全 A 5300 股）。导致：
+- `_load_industry_pit` 命中率 ~52%（缺主板外的 BJ/创业板/科创板新股、ST 等）
+- `quality check` 的 `survivor_bias` rule 抓到 35 个 ts_code 不在 baseline → BLOCKED
+
+**修复**：让 orchestrator 先从 `raw.index_classify` 取 `level='L1' AND src='SW2021'` 的 31 个 L1 code 列表，再传入 `sync_index_member(l1_codes=...)`，按 L1 分批 fetch。
+
+```text
+# orchestrator.py 改动伪码
+elif table == "index_member":
+    # 先确保 index_classify 已就绪（已在前一步执行）
+    l1_codes = _list_l1_codes_from_classify()   # SELECT DISTINCT index_code FROM raw.index_classify WHERE level='L1' AND src='SW2021'
+    reports = sync_index_member(client=client, l1_codes=l1_codes or None)
+    _collect_reports("index_member", reports, outcome)
+```
+
+`l1_codes or None` 兜底：若 `raw.index_classify` 为空（前置步骤失败），退化为单次全量调用（向后兼容现状）。
+
+**验证**：c5 重跑后 `raw.index_member` 应有 ≥ 5000 distinct ts_code，`industry_l1` 非空率 ≥ 95%，`survivor_bias` rule 不再触发 critical。
+
+**重跑 c5 步骤补充**（c8 落地后）：
+```text
+docker exec crypto-postgres psql -U cryptouser -d cryptodb -c "TRUNCATE raw.index_member"
+uv run quant sync raw --date-range 20240601:20240630 --tables index_classify,index_member
+# 然后 truncate factors/ml + 重跑 factors compute + quality check
+```
 
 ## 10. YAGNI 明确不做
 
