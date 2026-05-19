@@ -23,7 +23,9 @@
         :collapsed-width="64"
         :options="menuOptions"
         :value="activeKey"
+        :expanded-keys="expandedKeys"
         @update:value="handleMenuSelect"
+        @update:expanded-keys="handleExpandedKeysChange"
       />
     </div>
 
@@ -58,7 +60,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NMenu, NButton, NIcon, NTooltip } from 'naive-ui'
 import {
@@ -100,7 +102,7 @@ const menuOptions = computed(() => [
   { label: '每日复盘', key: 'daily-review', icon: renderIcon(NewspaperOutline) },
   {
     label: '量化',
-    key: 'quant-overview',
+    key: 'quant',
     icon: renderIcon(StatsChartOutline),
     children: [
       { label: '总览', key: 'quant-overview' },
@@ -116,6 +118,24 @@ const menuOptions = computed(() => [
 const handleMenuSelect = (key: string) => {
   if (key === 'sync' && !auth.isAdmin.value) return
   router.push({ name: key })
+}
+
+const QUANT_CHILD_KEYS = ['quant-overview', 'quant-scores', 'quant-runs', 'quant-jobs', 'quant-run-detail']
+
+const expandedKeys = ref<string[]>([])
+
+watch(
+  () => route.name,
+  (name) => {
+    if (typeof name === 'string' && QUANT_CHILD_KEYS.includes(name) && !expandedKeys.value.includes('quant')) {
+      expandedKeys.value = [...expandedKeys.value, 'quant']
+    }
+  },
+  { immediate: true },
+)
+
+const handleExpandedKeysChange = (keys: string[]) => {
+  expandedKeys.value = keys
 }
 
 const logout = async () => {
@@ -397,5 +417,45 @@ const logout = async () => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding-left: 22px;
+}
+
+/* ===== 子菜单（量化组）弱化样式 ===== */
+:deep(.n-submenu-children) {
+  position: relative;
+}
+
+:deep(.n-submenu-children::before) {
+  content: '';
+  position: absolute;
+  left: 28px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background-color: var(--color-border);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+:deep(.n-submenu-children .n-menu-item) {
+  height: 32px;
+}
+
+:deep(.n-submenu-children .n-menu-item-content) {
+  padding: 6px 14px 6px 44px !important;
+  font-size: 13px;
+  color: var(--color-text-muted) !important;
+}
+
+:deep(.n-submenu-children .n-menu-item-content:hover) {
+  color: var(--color-text-on-dark) !important;
+}
+
+:deep(.n-submenu-children .n-menu-item-content--selected),
+:deep(.n-submenu-children .n-menu-item-content--selected:hover) {
+  color: var(--color-primary) !important;
+}
+
+:deep(.n-submenu-children .n-menu-item-content .n-menu-item-content-header) {
+  color: inherit !important;
 }
 </style>
