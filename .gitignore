@@ -18,7 +18,8 @@ apps/web/dist/
 packages/*/dist/
 
 # 环境变量
-apps/server/.env
+/.env
+# 注：第 164 行通配 `.env` 已覆盖任意目录；这里 `/.env` 是显式说明仓库根有 .env
 
 # 日志
 *.log

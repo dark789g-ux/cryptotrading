@@ -6,16 +6,22 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# settings.py → config → quant_pipeline → src → quant-pipeline → apps → 仓库根
+# = parents[5]
+_REPO_ROOT = Path(__file__).resolve().parents[5]
+_REPO_ENV = _REPO_ROOT / ".env"
+
 
 class Settings(BaseSettings):
-    """全局配置；从 .env / 环境变量读取。"""
+    """全局配置；从仓库根 .env / 环境变量读取。"""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_REPO_ENV),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

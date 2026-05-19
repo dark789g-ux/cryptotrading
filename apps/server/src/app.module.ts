@@ -2,6 +2,7 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { REPO_ENV_PATH } from './env-file-path';
 import { SymbolsModule } from './catalog/symbols/symbols.module';
 import { KlinesModule } from './market-data/klines/klines.module';
 import { SyncModule } from './market-data/sync/sync.module';
@@ -73,7 +74,10 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: REPO_ENV_PATH,
+    }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({

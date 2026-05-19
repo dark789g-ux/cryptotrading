@@ -1,3 +1,7 @@
+import * as dotenv from 'dotenv';
+import { REPO_ENV_PATH } from './env-file-path';
+dotenv.config({ path: REPO_ENV_PATH });
+
 import { NestFactory } from '@nestjs/core';
 import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';

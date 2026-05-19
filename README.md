@@ -44,7 +44,13 @@
 pnpm install
 ```
 
-### 2. 启动数据库
+### 2. 拷贝环境变量模板
+
+```bash
+cp .env.example .env   # 按需填入 TUSHARE_TOKEN 等敏感项
+```
+
+### 3. 启动数据库
 
 ```bash
 pnpm db:start   # 启动 PostgreSQL Docker 容器
@@ -57,7 +63,7 @@ pnpm db:start   # 启动 PostgreSQL Docker 容器
 - User: `cryptouser` / Password: `cryptopass`
 - Database: `cryptodb`
 
-### 3. 启动开发服务
+### 4. 启动开发服务
 
 ```bash
 pnpm dev        # 后端 :3000 + 前端 :5173 并行启动
@@ -65,7 +71,7 @@ pnpm dev        # 后端 :3000 + 前端 :5173 并行启动
 
 访问 [http://localhost:5173](http://localhost:5173)
 
-### 4. 导入旧 CSV 数据（可选）
+### 5. 导入旧 CSV 数据（可选）
 
 ```bash
 pnpm migrate:csv   # 将 cache/ 中的旧 CSV K 线导入 PostgreSQL
