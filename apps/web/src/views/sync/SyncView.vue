@@ -4,6 +4,8 @@
       <h1 class="page-title workspace-page-title">数据同步</h1>
     </div>
 
+    <!-- 一键同步面板（前端编排） -->
+    <n-card class="one-click-card" title="一键同步" :bordered="false"><OneClickSyncPanel :controller="oneClickCtrl" /></n-card>
     <div class="sync-grid">
       <!-- 同步配置 -->
       <n-card class="config-card" title="同步配置" :bordered="false">
@@ -95,6 +97,7 @@
                   secondary
                   type="primary"
                   :loading="aSharesSyncing"
+                  :disabled="aSharesSyncing || oneClickRunning"
                   @click="openASharesSyncModal"
                 >
                   <template #icon><n-icon><cloud-download-outline /></n-icon></template>
@@ -128,6 +131,7 @@
                   secondary
                   type="primary"
                   :loading="moneyFlowSyncing"
+                  :disabled="moneyFlowSyncing || oneClickRunning"
                   @click="openMoneyFlowModal"
                 >
                   <template #icon><n-icon><swap-horizontal-outline /></n-icon></template>
@@ -201,6 +205,7 @@
                   secondary
                   type="primary"
                   :loading="thsIndexDailySyncing"
+                  :disabled="thsIndexDailySyncing || oneClickRunning"
                   @click="openThsIndexDailyModal"
                 >
                   <template #icon><n-icon><trending-up-outline /></n-icon></template>
@@ -234,6 +239,7 @@
                   secondary
                   type="primary"
                   :loading="oamvSyncing"
+                  :disabled="oamvSyncing || oneClickRunning"
                   @click="openOamvModal"
                 >
                   <template #icon><n-icon><trending-up-outline /></n-icon></template>
@@ -389,7 +395,9 @@ import { useOamvSync } from '../../components/sync/useOamvSync'
 import { useMoneyFlowSync } from '../../components/sync/useMoneyFlowSync'
 import { useIndexCatalogSync } from '../../components/sync/useIndexCatalogSync'
 import { useThsIndexDailySync } from '../../components/sync/useThsIndexDailySync'
-
+import { computed, provide } from 'vue'
+import OneClickSyncPanel from '../../components/sync/OneClickSyncPanel.vue'
+import { useOneClickSync } from '../../components/sync/useOneClickSync'
 const message = useMessage()
 const noopReload = async () => {}
 
@@ -492,6 +500,10 @@ const {
   openModal: openThsIndexDailyModal,
   confirmSync: confirmThsIndexDailySync,
 } = useThsIndexDailySync(message)
+// 一键同步顶层 controller（与下方 4 张相关卡片共享 running 状态）
+const oneClickCtrl = useOneClickSync(message)
+const oneClickRunning = computed(() => oneClickCtrl.running.value)
+provide('oneClickRunning', oneClickRunning)
 </script>
 
 <style scoped src="./SyncView.styles.css"></style>
