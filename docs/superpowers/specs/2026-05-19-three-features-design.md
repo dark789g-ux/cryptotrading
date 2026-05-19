@@ -206,7 +206,7 @@ interface OneClickStepState {
 }
 
 export function useOneClickSync(message: MessageApi) {
-  const dateRange = ref<[number, number] | null>(null);  // 本地午盘 ms（按 CLAUDE.md 日期选择器规范）
+  const dateRange = ref<[number, number] | null>(null);  // 本地午夜 ms（按 CLAUDE.md 日期选择器规范）
   const running = ref(false);
   const steps = ref<OneClickStepState[]>([...4 个初始 state]);
   const currentStepIndex = ref(-1);
