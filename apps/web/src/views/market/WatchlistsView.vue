@@ -83,6 +83,14 @@
       :current-member-count="importTarget.items?.length ?? 0"
       @imported="store.loadWatchlists()"
     />
+
+    <!-- 从 CSV 导入 -->
+    <WatchlistCsvImportModal
+      v-if="csvImportTarget"
+      v-model:show="showCsvImportModal"
+      :watchlist="csvImportTarget"
+      @imported="store.loadWatchlists()"
+    />
   </div>
 </template>
 
@@ -98,6 +106,7 @@ import { watchlistApi, type Watchlist } from '@/api'
 import AppModal from '@/components/common/AppModal.vue'
 import WatchlistTable from '@/components/watchlist/WatchlistTable.vue'
 import ImportFromIndexModal from '@/components/watchlist/ImportFromIndexModal.vue'
+import WatchlistCsvImportModal from '@/components/watchlist/WatchlistCsvImportModal.vue'
 
 const store = useWatchlistStore()
 const message = useMessage()
@@ -118,11 +127,15 @@ const contextMenuTarget = ref<Watchlist | null>(null)
 const dropdownOptions = [
   { label: '重命名', key: 'rename' },
   { label: '从指数导入成员', key: 'import-index' },
+  { label: '从 CSV 导入…', key: 'import-csv' },
   { label: '删除', key: 'delete' },
 ]
 
 const showImportModal = ref(false)
 const importTarget = ref<Watchlist | null>(null)
+
+const showCsvImportModal = ref(false)
+const csvImportTarget = ref<Watchlist | null>(null)
 
 function handleTabChange(id: string) {
   store.setCurrentId(id)
@@ -164,6 +177,9 @@ function handleDropdownSelect(key: string) {
   } else if (key === 'import-index') {
     importTarget.value = wl
     showImportModal.value = true
+  } else if (key === 'import-csv') {
+    csvImportTarget.value = wl
+    showCsvImportModal.value = true
   } else if (key === 'delete') {
     handleTabClose(wl.id)
   }
