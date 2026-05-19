@@ -100,6 +100,33 @@ def _list_open_trade_dates(start_date: str, end_date: str) -> list[str]:
     return [r[0] for r in rows]
 
 
+def _list_l1_codes_from_classify() -> list[str]:
+    """从 raw.index_classify 取申万一级（SW2021 source）的 index_code 列表。
+
+    TuShare `index_member_all` 默认单次调用受行数上限（实测 3000 行截断），
+    全 A ~5300 股 + 多行业层级数据量远超上限。本函数返回 31 个 L1 code，
+    由 orchestrator 传给 sync_index_member 按 L1 分批 fetch（每 L1 行业
+    成份股 ~150-200 行，远低于单次上限）。
+
+    表为空时返回 []，调用方应退化为单次全量调用（向后兼容）。
+    """
+
+    from sqlalchemy import text
+
+    with session_scope() as session:
+        rows = session.execute(
+            text(
+                """
+                SELECT DISTINCT index_code
+                FROM raw.index_classify
+                WHERE level = 'L1' AND src = 'SW2021'
+                ORDER BY index_code
+                """
+            )
+        ).all()
+    return [r[0] for r in rows]
+
+
 def _collect_reports(
     table: str, reports: list[SyncReport], outcome: SyncOutcome
 ) -> None:
@@ -170,7 +197,20 @@ def run_sync(
                 _collect_reports("index_classify", reports, outcome)
 
             elif table == "index_member":
-                reports = sync_index_member(client=client)
+                # 按 raw.index_classify 的 L1 code 列表分批 fetch；
+                # 避免 TuShare index_member_all 单次行数上限截断（c8 修复）
+                l1_codes = _list_l1_codes_from_classify()
+                if l1_codes:
+                    reports = sync_index_member(
+                        client=client, l1_codes=tuple(l1_codes)
+                    )
+                else:
+                    # 兜底：index_classify 未就绪时退化为单次全量调用
+                    logger.warning(
+                        "index_member_fallback_single_call",
+                        extra={"reason": "raw.index_classify 无 L1 行业；可能导致单次行数上限截断"},
+                    )
+                    reports = sync_index_member(client=client)
                 _collect_reports("index_member", reports, outcome)
 
             elif table in ("stk_limit", "suspend_d"):
