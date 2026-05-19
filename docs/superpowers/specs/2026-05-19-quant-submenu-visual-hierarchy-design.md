@@ -49,6 +49,12 @@ status: ready-for-review
 
 - 现有 `activeKey` 计算逻辑通过路由 name 前缀匹配决定（[Sidebar.vue:84-88](apps/web/src/components/layout/Sidebar.vue#L84)），子项 key 与路由 name 一一对应，无需改动。
 - naive-ui `n-menu` 在子项被选中时会自动给父项加"路径态"（一般是颜色变深 / 加粗），无需手动维护父项高亮。
+- **已确认**：`activeKey` 通过 `route.name` 显式映射到**子项** key（[Sidebar.vue:80-89](apps/web/src/components/layout/Sidebar.vue#L80)），从不返回父项 key，因此父项 key 由 `quant-overview` 改名为 `quant` 不影响任何子项高亮逻辑。
+
+### 边界行为说明
+
+- **用户手动收起后跳转**：用户在 `/quant/overview` 主动点击"量化"收起后，再点击"评分"等子项（route.name 变为 `quant-scores`），`watch(route.name)` 会重新触发并强制展开。这是**有意行为**——保证用户跳进子页面时一定能看到当前所处子项的高亮位置，而非陷入"已收起 + 找不到自己在哪"的状态。
+- **同一子页面内的局部跳转**：route.name 未变时 `watch` 不会触发，用户在同一子页面手动收起后保持收起态，直到离开该页。
 
 ## 视觉差异化
 
@@ -90,7 +96,7 @@ status: ready-for-review
 | 文字左起点 | ~44px（含 16px padding + 18px icon + 10px gap） | 44px（无图标，靠 padding-left 撑） | **关键**：子项文字左边缘与顶级项文字左边缘对齐 |
 | 选中态背景 | 现状（橙色淡底） | 现状（橙色淡底） | 沿用 `n-menu-item-content--selected` |
 | 选中态左色条 | 现状（3px primary） | 现状（3px primary） | 沿用现有覆写 |
-| 整组左竖线 | — | 1px `var(--color-border)` α30% | 位于 padding-left ≈ 28px 处，纵贯 4 个子项 |
+| 整组左竖线 | — | 1px `var(--color-border)` α30% | 距菜单容器左边缘 28px 处，纵贯 4 个子项 |
 
 ### 设计要点
 
@@ -219,10 +225,11 @@ const handleExpandedKeysChange = (keys: string[]) => {
 - **手动验证**：
   1. 刷新进入 `/backtest` 等非量化页面，"量化"应收起。
   2. 直接访问 `/quant/overview`，"量化"自动展开，"总览"高亮。
-  3. 在量化子页面间切换，展开态保持。
+  3. 在量化子页面间切换，展开态保持；"总览"切到"评分"时高亮正确跟随。
   4. 点击"量化"父项，仅切换展开/收起，URL 不变。
-  5. 子项的字号、颜色、左侧竖线视觉上明显比顶级项"轻"。
-  6. 折叠侧边栏（点击 logo 旁的折叠按钮），"量化"以 popover 形式弹出 4 个子项。
+  5. 手动收起"量化"后，再点击同组其它子页面链接（如外部触发跳到 `/quant/scores`），"量化"应被强制展开并高亮"评分"（验证边界行为）。
+  6. 子项的字号、颜色、左侧竖线视觉上明显比顶级项"轻"。
+  7. 折叠侧边栏（点击 logo 旁的折叠按钮），"量化"以 popover 形式弹出 4 个子项。
 
 - **回归点**：
   - `activeKey` 计算不应受影响（子项 key 未变）。
