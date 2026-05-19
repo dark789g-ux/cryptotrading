@@ -117,6 +117,45 @@ const columns = [
     },
   },
   {
+    title: '最新运行时间',
+    key: 'lastRun',
+    width: 160,
+    align: 'left' as const,
+    render(row: StrategyCondition) {
+      const lr = row.lastRun;
+      if (!lr) {
+        return h('span', { style: { color: '#999' } }, '—');
+      }
+      if (lr.status === 'running') {
+        return h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#666' } }, [
+          h('span', {
+            class: 'last-run-pulse',
+            style: {
+              display: 'inline-block',
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: '#2080f0',
+            },
+          }),
+          `${formatUTCDateTime(lr.startedAt)} · 运行中`,
+        ]);
+      }
+      if (lr.status === 'failed') {
+        const ts = lr.completedAt ?? lr.startedAt;
+        return h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#d03050' } }, [
+          formatUTCDateTime(ts),
+          h(NTag, { type: 'error', size: 'small', round: true }, { default: () => '失败' }),
+        ]);
+      }
+      // success / completed / 其它已结束状态
+      if (lr.completedAt) {
+        return formatUTCDateTime(lr.completedAt);
+      }
+      return formatUTCDateTime(lr.startedAt);
+    },
+  },
+  {
     title: '创建时间',
     key: 'createdAt',
     render(row: StrategyCondition) {
@@ -216,5 +255,14 @@ onMounted(() => {
 <style scoped>
 .strategy-conditions-view {
   padding: 16px;
+}
+
+:deep(.last-run-pulse) {
+  animation: last-run-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes last-run-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
 }
 </style>

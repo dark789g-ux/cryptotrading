@@ -7,9 +7,14 @@ import { StrategyConditionHitEntity } from '../entities/strategy/strategy-condit
 import { CreateStrategyConditionDto } from './dto/create-strategy-condition.dto';
 import { UpdateStrategyConditionDto } from './dto/update-strategy-condition.dto';
 import { StrategyConditionsRunner } from './strategy-conditions.runner';
-import { RunProgress, LastRunStatus } from './strategy-conditions.types';
+import {
+  RunProgress,
+  LastRunStatus,
+  StrategyConditionWithLastRun,
+  StrategyConditionLastRun,
+} from './strategy-conditions.types';
 
-export { RunProgress, LastRunStatus };
+export { RunProgress, LastRunStatus, StrategyConditionWithLastRun, StrategyConditionLastRun };
 
 @Injectable()
 export class StrategyConditionsService {
@@ -37,15 +42,46 @@ export class StrategyConditionsService {
     return this.repo.save(entity);
   }
 
-  async findAll(userId: string, targetType?: string): Promise<StrategyConditionEntity[]> {
-    const where: any = { userId };
+  async findAll(userId: string, targetType?: string): Promise<StrategyConditionWithLastRun[]> {
+    const qb = this.repo
+      .createQueryBuilder('c')
+      .leftJoin('strategy_condition_runs', 'lr', 'lr.id = c.last_run_id')
+      .addSelect('lr.id', 'lr_id')
+      .addSelect('lr.status', 'lr_status')
+      .addSelect('lr.created_at', 'lr_created_at')
+      .addSelect('lr.completed_at', 'lr_completed_at')
+      .where('c.user_id = :userId', { userId })
+      .orderBy('c.created_at', 'DESC');
+
     if (targetType) {
-      where.targetType = targetType;
+      qb.andWhere('c.target_type = :targetType', { targetType });
     }
-    return this.repo.find({ where, order: { createdAt: 'DESC' } });
+
+    const { entities, raw } = await qb.getRawAndEntities();
+    return entities.map((entity, index) => this.attachLastRun(entity, raw[index]));
   }
 
-  async findOne(id: string, userId: string): Promise<StrategyConditionEntity> {
+  async findOne(id: string, userId: string): Promise<StrategyConditionWithLastRun> {
+    const qb = this.repo
+      .createQueryBuilder('c')
+      .leftJoin('strategy_condition_runs', 'lr', 'lr.id = c.last_run_id')
+      .addSelect('lr.id', 'lr_id')
+      .addSelect('lr.status', 'lr_status')
+      .addSelect('lr.created_at', 'lr_created_at')
+      .addSelect('lr.completed_at', 'lr_completed_at')
+      .where('c.id = :id', { id })
+      .andWhere('c.user_id = :userId', { userId });
+
+    const result = await qb.getRawAndEntities();
+    const entity = result.entities[0];
+    if (!entity) {
+      throw new NotFoundException('Strategy condition not found');
+    }
+    return this.attachLastRun(entity, result.raw[0]);
+  }
+
+  /** 内部使用：仅取实体（不带 lastRun），供需要可变实体的方法复用 */
+  private async findEntity(id: string, userId: string): Promise<StrategyConditionEntity> {
     const entity = await this.repo.findOne({ where: { id, userId } });
     if (!entity) {
       throw new NotFoundException('Strategy condition not found');
@@ -53,19 +89,56 @@ export class StrategyConditionsService {
     return entity;
   }
 
+  private attachLastRun(
+    entity: StrategyConditionEntity,
+    raw: Record<string, unknown> | undefined,
+  ): StrategyConditionWithLastRun {
+    const lastRun = this.buildLastRunFromRaw(raw);
+    return {
+      id: entity.id,
+      name: entity.name,
+      userId: entity.userId,
+      targetType: entity.targetType,
+      conditions: entity.conditions,
+      createdAt: entity.createdAt,
+      updatedAt: entity.updatedAt,
+      lastRunId: entity.lastRunId,
+      lastRun,
+    };
+  }
+
+  private buildLastRunFromRaw(raw: Record<string, unknown> | undefined): StrategyConditionLastRun | null {
+    if (!raw) return null;
+    const lrId = raw['lr_id'] as string | null | undefined;
+    if (!lrId) return null;
+    const status = (raw['lr_status'] as string | null | undefined) ?? 'unknown';
+    const createdAt = raw['lr_created_at'] as Date | string | null | undefined;
+    const completedAt = raw['lr_completed_at'] as Date | string | null | undefined;
+    const toIso = (v: Date | string | null | undefined): string | null => {
+      if (v == null) return null;
+      return v instanceof Date ? v.toISOString() : new Date(v).toISOString();
+    };
+    return {
+      id: lrId,
+      status,
+      startedAt: toIso(createdAt) ?? new Date(0).toISOString(),
+      completedAt: toIso(completedAt),
+    };
+  }
+
   async update(id: string, userId: string, dto: UpdateStrategyConditionDto): Promise<StrategyConditionEntity> {
-    const entity = await this.findOne(id, userId);
+    const entity = await this.findEntity(id, userId);
     Object.assign(entity, dto);
     return this.repo.save(entity);
   }
 
   async remove(id: string, userId: string): Promise<void> {
-    const entity = await this.findOne(id, userId);
+    const entity = await this.findEntity(id, userId);
     await this.repo.remove(entity);
   }
 
   async run(id: string, userId: string): Promise<{ runId: string }> {
-    const entity = await this.findOne(id, userId);
+    const entity = await this.findEntity(id, userId);
 
     const existing = await this.runRepo.findOne({
       where: { conditionId: entity.id, status: 'running' },

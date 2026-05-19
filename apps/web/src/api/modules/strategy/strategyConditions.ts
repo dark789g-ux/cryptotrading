@@ -8,6 +8,15 @@ export interface StrategyConditionItem {
   compareMode?: 'field' | 'value';
 }
 
+export interface StrategyConditionLastRun {
+  id: string;
+  status: 'running' | 'completed' | 'failed' | string;
+  /** 运行启动时间（UTC ISO 字符串） */
+  startedAt: string;
+  /** 运行完成时间；运行中则为 null */
+  completedAt: string | null;
+}
+
 export interface StrategyCondition {
   id: string;
   name: string;
@@ -16,6 +25,8 @@ export interface StrategyCondition {
   conditions: StrategyConditionItem[];
   createdAt: string;
   updatedAt: string;
+  lastRunId?: string | null;
+  lastRun: StrategyConditionLastRun | null;
 }
 
 export interface RunResult {

@@ -83,3 +83,26 @@ export interface LastRunStatus {
   lastRunAt: string | null;
   totalHits: number;
 }
+
+/** 列表/详情响应中附带的最新运行信息 */
+export interface StrategyConditionLastRun {
+  id: string;
+  status: 'running' | 'completed' | 'failed' | string;
+  /** 运行启动时间，UTC ISO 字符串 */
+  startedAt: string;
+  /** 运行完成时间，UTC ISO 字符串；运行中则为 null */
+  completedAt: string | null;
+}
+
+/** 列表/详情响应 DTO（在 StrategyConditionEntity 基础上附带 lastRun） */
+export interface StrategyConditionWithLastRun {
+  id: string;
+  name: string;
+  userId: string;
+  targetType: 'crypto' | 'a-share';
+  conditions: unknown[];
+  createdAt: Date;
+  updatedAt: Date;
+  lastRunId: string | null;
+  lastRun: StrategyConditionLastRun | null;
+}
