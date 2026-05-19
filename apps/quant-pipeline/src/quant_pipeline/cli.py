@@ -55,6 +55,9 @@ features_app = typer.Typer(
 )
 app.add_typer(features_app, name="features")
 
+factors_app = typer.Typer(help="因子计算子命令（M1 Part C）。读 raw.* → 写 factors.daily_factors。")
+app.add_typer(factors_app, name="factors")
+
 
 @app.command()
 def version() -> None:
@@ -691,6 +694,38 @@ def features_build(
     typer.echo(
         f"features build factor_version={factor_version} label_scheme={label_scheme} "
         f"{date_range}: feature_set_id={feature_set_id}"
+    )
+
+
+# ----------------------------------------------------------------------
+# factors 子命令（M1 Part C）
+# ----------------------------------------------------------------------
+
+@factors_app.command("compute")
+def factors_compute(
+    version: str    = typer.Option(..., "--version",    help="factor_version，如 v1"),
+    date_range: str = typer.Option(..., "--date-range", help="YYYYMMDD:YYYYMMDD"),
+    factor_ids: str = typer.Option("",  "--factor-ids", help="逗号分隔；留空 = 全部 v1 因子"),
+) -> None:
+    """对 factor_version 在 date_range 内每个交易日计算因子并 upsert 到 factors.daily_factors。
+
+    CLI 直跑（不写 ml.jobs）；worker dispatcher 走 `worker run` 的 factors 路径。
+    """
+
+    setup_logging()
+    from quant_pipeline.factors.runner import run_factors
+
+    ids = tuple(s.strip() for s in factor_ids.split(",") if s.strip()) or None
+    out = run_factors(
+        factor_version=version,
+        date_range=date_range,
+        factor_ids=ids,
+        job_id=None,
+    )
+    typer.echo(
+        f"factors compute v={version} {date_range}: "
+        f"trade_dates={out['trade_dates']} factors={out['factors']} "
+        f"rows_upserted={out['rows_upserted']}"
     )
 
 
