@@ -13,6 +13,7 @@ PIT 窗口：35 日历日。
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from quant_pipeline.factors.base import Factor
@@ -41,6 +42,6 @@ class BollingerPosition20d(Factor):
         upper = mid + 2 * sigma
         lower = mid - 2 * sigma
         c_t = close.iloc[-1]
-        denom = (upper - lower).replace(0, pd.NA)
+        denom = (upper - lower).replace(0, np.nan)
         out = (c_t - lower) / denom
         return out.astype(float)
