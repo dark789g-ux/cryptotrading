@@ -66,8 +66,9 @@ dry-run 直接产物：134,700 行 raw 已落、53,266 行 `rsi_14` 数据（只
 │                                                                  │
 │  c6  doc: 更新 TODO.md（删手工 partition 步骤）+ 02 spec 段       │
 │                                                                  │
-│  c7  bollinger_position_20d 用 np.nan 代 pd.NA（c5 暴露）         │
-│  c8  orchestrator 按 l1_codes 分批同步 index_member（c5 暴露）    │
+│  c7  bollinger_position_20d 用 np.nan 代 pd.NA（c5-r1 暴露）      │
+│  c8  orchestrator 按 l1_codes 分批同步 index_member（c5-r1 暴露） │
+│  c9  runner 加 T 日 universe 过滤，修幸存者偏差（c5-r2 暴露）     │
 │      └─ 共同目标：让 c5 验收门槛全绿                              │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -356,6 +357,30 @@ docker exec crypto-postgres psql -U cryptouser -d cryptodb -c "TRUNCATE raw.inde
 uv run quant sync raw --date-range 20240601:20240630 --tables index_classify,index_member
 # 然后 truncate factors/ml + 重跑 factors compute + quality check
 ```
+
+## 9.7 c9 · runner 加 PIT universe 过滤（c5 第二轮暴露）
+
+**位置**：`apps/quant-pipeline/src/quant_pipeline/factors/runner.py` —— `run_factors` 内循环 + 新增 `_query_live_universe` helper。
+
+**根因**：滚动 / 聚合类因子（`rsi_14` / `volatility_20d` / `amihud_illiq_20d` / `turnover_mean_20d` / `price_max_drawdown_60d`）的 compute 用 PIT 窗口内多日数据做平滑，即使 T 日 `raw.daily_quote` 无报价（停牌 / 退市），窗口里其余日仍能算出一个值。runner 把这些"历史平滑值"当作 T 日因子写入 `factors.daily_factors`。c5 第二轮实测 20240628 有 35 个 ts_code（如 600647.SH，当日 daily_quote 0 行、前 5 日有数据）被这样写入，触发 `quality.checks.check_survivor_bias` → critical → `quality check --strict` BLOCKED。
+
+需 T 日点值的因子（momentum / ma_ratio / volume_ratio / bollinger）对缺报价股自然返回 NaN、已被 runner 过滤——所以只有滚动类漏网。
+
+**修复**：在 `run_factors` 的 T 日循环内，先查一次 T 日 `raw.daily_quote` 的 ts_code 集合（`_query_live_universe`），所有因子输出按此集合过滤——T 日无报价的 ts_code 不写因子。一处修复覆盖全部 16 个因子。
+
+```text
+# run_factors 内循环新增
+live_universe = _query_live_universe(t)   # SELECT ts_code FROM raw.daily_quote WHERE trade_date = :t
+...
+for ts_code, value in series.items():
+    if value is None or np.isnan(value):
+        continue
+    if str(ts_code) not in live_universe:   # ← c9 新增：PIT 安全过滤
+        continue
+    rows.append(...)
+```
+
+**验证**：c5 第三轮重跑后 `quality check --strict` 退出码 = 0，`ml.quality_reports` 无 critical。
 
 ## 10. YAGNI 明确不做
 

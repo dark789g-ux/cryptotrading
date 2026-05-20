@@ -90,6 +90,29 @@ def _query_trade_dates(start: str, end: str) -> list[str]:
         return []
 
 
+def _query_live_universe(trade_date: str) -> set[str]:
+    """取 T 日 raw.daily_quote 实际有报价的 ts_code 集合（PIT 真值 universe）。
+
+    用于 run_factors 过滤：T 日无报价的 ts_code（停牌 / 退市）即便被滚动类
+    因子用历史窗口算出值，也不应写进 T 日因子表——否则构成幸存者偏差。
+    表不可用时返回空集（调用方据此跳过当日，与 _query_trade_dates 退化一致）。
+    """
+
+    sql = text(
+        "SELECT ts_code FROM raw.daily_quote WHERE trade_date = :t"
+    )
+    try:
+        with session_scope() as session:
+            rows = session.execute(sql, {"t": trade_date}).fetchall()
+        return {r[0] for r in rows}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "live_universe_unavailable",
+            extra={"trade_date": trade_date, "err": str(exc)},
+        )
+        return set()
+
+
 def _load_raw_panel(start: str, end: str) -> pd.DataFrame:
     """预取窗口内 daily_quote + adj_factor + daily_basic 的合表。
 
@@ -346,6 +369,12 @@ def run_factors(
         if job_id is not None and check_cancel_requested(job_id):
             raise JobCancelled
 
+        # PIT 安全过滤：T 日 raw.daily_quote 实际有报价的 ts_code 集合。
+        # 滚动类因子（rsi / volatility / amihud 等）即使 T 日缺报价也能用历史
+        # 窗口算出值；若不过滤，停牌 / 退市股会带着"历史平滑值"写进 T 日因子，
+        # 构成幸存者偏差（quality.checks.check_survivor_bias 会判 critical）。
+        live_universe = _query_live_universe(t)
+
         rows: list[dict[str, object]] = []
         for f in factors:
             sub = _slice_window_for_factor(
@@ -372,6 +401,9 @@ def run_factors(
             for ts_code, value in series.items():
                 # 跳过 NaN（按 long 表惯例，停牌 / 数据不足不入库）
                 if value is None or (isinstance(value, float) and np.isnan(value)):
+                    continue
+                # PIT 安全：T 日无报价的 ts_code 不写因子（见 live_universe 注释）
+                if str(ts_code) not in live_universe:
                     continue
                 rows.append(
                     {
