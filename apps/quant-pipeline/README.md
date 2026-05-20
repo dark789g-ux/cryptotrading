@@ -2,12 +2,33 @@
 
 A 股截面选股量化管道（Python · uv 管理）。本目录是 [doc/specs/2026-05-17-quant-model-training/](../../doc/specs/2026-05-17-quant-model-training/) 的代码侧落地。
 
-## 现状（M0）
+## 现状（M0 → M1+）
 
 - 落盘四个实装模块：`config` / `db` / `worker` / `cli`
-- 其余模块（`factors` / `labels` / `strategy` / `features` / `training` / `evaluation` / `inference` / `quality` / `sync` / `utils`）仅保留空骨架
+- M1+ 各业务模块（`sync` / `factors` / `quality` / `labels` / `features` / `training` / `evaluation` / `inference`）已实装
 - `ml.jobs` worker 链路打通：`run_type='noop'` 可被消费，写 `progress=100` + `status='success'` + `NOTIFY ml_job_progress`
-- 重 ML 依赖（lightgbm / optuna / shap / pandas / tushare）在 `pyproject.toml` 仅作注释占位，避免污染 M0 lock
+- 重 ML 依赖（lightgbm / optuna / shap / pandas / tushare）已落 `pyproject.toml`
+
+## CLI 入口（M1+）
+
+```powershell
+# TuShare → raw.* 同步（6 张 Python 侧拥有的表）
+uv run quant sync raw --date-range 20240601:20240630 `
+  --tables trade_cal,stk_limit,suspend_d,index_classify,index_member,fina_indicator
+
+# 因子计算 → factors.daily_factors
+uv run quant factors compute --version v1 --date-range 20240601:20240630
+
+# 数据质量门禁（strict 模式下 critical → exit 1）
+uv run quant quality check --date 20240628 --strict
+uv run quant quality pit-audit
+
+# 标签 / 特征矩阵 / 训练 / 推理
+uv run quant labels build --scheme strategy-aware --date-range 20240601:20240630
+uv run quant features build --factor-version v1 --label-scheme strategy-aware --date-range 20240601:20240630
+uv run quant train  --feature-set fs_xxxxxxxx --model lgb-lambdarank
+uv run quant infer  --model-version <model_version> --date 20240628
+```
 
 ## Windows uv 上手
 

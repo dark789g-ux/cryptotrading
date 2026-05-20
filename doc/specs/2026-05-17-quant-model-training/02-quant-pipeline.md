@@ -110,6 +110,13 @@ uv run quant worker run   # 常驻，轮询 ml.jobs
 
 **门禁不可绕过**：CLI 不提供 `--force` 旗标。任何 quality 失败导致的 `status=blocked` 只能通过修代码或修数据解除。
 
+### 3.1 因子运行的 PIT 真值源（2026-05-20 dry-run 修订）
+
+- **交易日历**：`factors.runner._query_trade_dates` 从 `raw.daily_quote.trade_date` 取实际有报价日，**不依赖** `raw.trade_cal` 的同步覆盖范围。`raw.trade_cal` 仅服务于前瞻性查询（次日是否开市，如 `sync` 的 stk_limit / suspend_d 按日循环）。
+- **当日 universe**：runner 在每个 T 日按 `raw.daily_quote` 当日 ts_code 集合过滤因子输出——T 日无报价的股票（停牌 / 退市）即使被滚动类因子用历史窗口算出值，也不写入 `factors.daily_factors`，避免幸存者偏差。
+- **行业归属**：`_load_industry_pit` 直接读 `raw.index_member.l1_code`（sync 已摊平申万一级行业代码），按 `in_date` / `out_date` 做 PIT 区间命中，无需 JOIN `raw.index_classify`。
+- 详见 `doc/specs/2026-05-20-m1-dryrun-bugfix-design.md`。
+
 ## 4 Worker / Runner 进度写入约定
 
 （与 [01-pg-schema.md](01-pg-schema.md) §4.2 一致）

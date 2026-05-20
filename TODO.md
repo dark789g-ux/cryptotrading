@@ -44,16 +44,22 @@
 
 ### 1.1 小范围 dry-run（**强烈建议先做**，10 分钟）
 
-- [ ] 用 1 个月范围验证全链路无异常
+> ✅ 已于 2026-05-20 完成（commit `c573687`~`4473830`）。首轮 dry-run 暴露 4 个
+> M0/M1 实现 bug + 后续 3 个次级问题，全部修复并补 PG 集成测，10 项验收门槛全绿。
+> 详见 `doc/specs/2026-05-20-m1-dryrun-bugfix-design.md`。
+> 注：表名是 `suspend_d`（非 `suspend`）；分区由 migration `20260520_0001` 自动建，
+> 无需再手工建分区。
+
+- [x] 用 1 个月范围验证全链路无异常
   ```powershell
   cd C:\codes\cryptotrading\apps\quant-pipeline
   uv run quant sync raw --date-range 20240601:20240630 `
-    --tables trade_cal,stk_limit,suspend,index_classify,index_member,fina_indicator
+    --tables trade_cal,stk_limit,suspend_d,index_classify,index_member,fina_indicator
   uv run quant factors compute --version v1 --date-range 20240601:20240630
   uv run quant quality check --date 20240628 --strict
   uv run quant quality pit-audit
   ```
-- [ ] 观察 `ml.quality_reports` 是否有 critical
+- [x] 观察 `ml.quality_reports` 是否有 critical（验收结果：critical=0）
   ```powershell
   docker exec crypto-postgres psql -U cryptouser -d cryptodb -c `
     "SELECT level, rule, count(*) FROM ml.quality_reports GROUP BY level, rule ORDER BY level, rule;"
@@ -64,16 +70,24 @@
 - [ ] sync 6 张新 raw 表（fina_indicator 最慢，~30-45 min）
   ```powershell
   uv run quant sync raw --date-range 20200101:20260517 `
-    --tables trade_cal,stk_limit,suspend,index_classify,index_member,fina_indicator
+    --tables trade_cal,stk_limit,suspend_d,index_classify,index_member,fina_indicator
   ```
   - 中途 Ctrl+C 后重跑会按 PK ON CONFLICT 去重续传，不会重复请求 TuShare
+  - **全量回填前置检查**（dry-run 暴露过坑）：先确认 `raw.index_member` 早年
+    `l1_code` 覆盖率，否则早期年份 industry 类因子会大面积空跑：
+    ```sql
+    SELECT min(in_date),
+           count(*) FILTER (WHERE l1_code IS NULL)::float / count(*) AS null_rate
+    FROM raw.index_member;
+    ```
 
 - [ ] factors 全量计算（~30-60 min）
   ```powershell
   uv run quant factors compute --version v1 --date-range 20200101:20260517
   ```
   - 16 因子 × 5500 股 × 1500 日 ≈ 132M 行写 `factors.daily_factors`
-  - 预计磁盘占用 10-20 GB（按月分区）
+  - 预计磁盘占用 10-20 GB（按月分区——分区由 migration `20260520_0001`
+    预建至 2030-12，无需手工建）
 
 - [ ] 全量 quality 校验
   ```powershell
