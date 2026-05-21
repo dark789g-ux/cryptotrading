@@ -43,7 +43,7 @@ def captured_warns(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
 
 def test_compute_psi_identical_distributions_near_zero() -> None:
-    from quant_pipeline.quality.monitor import compute_psi
+    from quant_pipeline.quality.psi_utils import compute_psi
 
     rng = np.random.default_rng(42)
     base = rng.normal(0.0, 1.0, size=2000)
@@ -54,7 +54,7 @@ def test_compute_psi_identical_distributions_near_zero() -> None:
 
 
 def test_compute_psi_shifted_distribution_large() -> None:
-    from quant_pipeline.quality.monitor import compute_psi
+    from quant_pipeline.quality.psi_utils import compute_psi
 
     rng = np.random.default_rng(42)
     base = rng.normal(0.0, 1.0, size=2000)
@@ -69,12 +69,12 @@ def test_compute_psi_shifted_distribution_large() -> None:
 
 
 def test_psi_threshold_levels() -> None:
-    from quant_pipeline.quality.monitor import _psi_level
+    from quant_pipeline.quality.psi_utils import psi_level
 
-    assert _psi_level(0.1) is None  # < 0.25
-    assert _psi_level(0.3) == "warn"  # (0.25, 0.5]
-    assert _psi_level(0.7) == "critical"  # > 0.5
-    assert _psi_level(float("nan")) is None
+    assert psi_level(0.1) is None  # < 0.25
+    assert psi_level(0.3) == "warn"  # (0.25, 0.5]
+    assert psi_level(0.7) == "critical"  # > 0.5
+    assert psi_level(float("nan")) is None
 
 
 # ----------------------------------------------------------------------
