@@ -87,8 +87,8 @@ def test_filter_suspended_on_entry_drops_suspended_candidates() -> None:
 def test_derive_suspended_set_from_raw_suspend_d() -> None:
     suspend_d = pd.DataFrame(
         [
-            {"ts_code": "000001.SZ", "suspend_date": "20240102"},
-            {"ts_code": "000002.SZ", "suspend_date": "20240103"},
+            {"ts_code": "000001.SZ", "trade_date": "20240102"},
+            {"ts_code": "000002.SZ", "trade_date": "20240103"},
         ]
     )
     out = derive_suspended_set(suspend_d)
