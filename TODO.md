@@ -67,7 +67,20 @@
 
 ### 1.2 全量回填（约 1-1.5 小时，可挂机过夜）
 
-- [ ] sync 6 张新 raw 表（fina_indicator 最慢，~30-45 min）
+> ✅ 已于 2026-05-21 完成。实际产出：5 张 raw 表共 9.63M 行 + `factors.daily_factors`
+> v1 共 66.7M 行（812 交易日 × 16 因子），quality 三项校验 `critical=0`。
+> 三点偏差说明：
+> 1. `fina_indicator` 本轮**有意跳过**——v1 的 16 个因子全是 price/industry 类，
+>    无一读 `raw.fina_indicator`；该表只能按 ts_code 单股调用，留待 M2 引入
+>    fundamental 类因子前再单独回填。orchestrator 已按硬约束记 `failed_items=1`。
+> 2. `raw.daily_quote` 实际只覆盖 `20230103` 起（2020-2022 无源数据，A 股日线由
+>    NestJS 端同步、不在本 pipeline sync 范围），故 factors 有效区间为 2023-01 起
+>    约 3.3 年，而非命令里写的 2020。M3 Walk-Forward 若需更长历史，须先让
+>    NestJS 端往前补 A 股日线。
+> 3. §1.2 校验命令里的 `--date 20240630` 是**笔误**（周日，非交易日，会误报
+>    `row_count_drift` critical）；已改用交易日 `20240628` 复跑通过，并清掉污染记录。
+
+- [x] sync 6 张新 raw 表（fina_indicator 最慢，~30-45 min）
   ```powershell
   uv run quant sync raw --date-range 20200101:20260517 `
     --tables trade_cal,stk_limit,suspend_d,index_classify,index_member,fina_indicator
@@ -81,7 +94,7 @@
     FROM raw.index_member;
     ```
 
-- [ ] factors 全量计算（~30-60 min）
+- [x] factors 全量计算（~30-60 min）
   ```powershell
   uv run quant factors compute --version v1 --date-range 20200101:20260517
   ```
@@ -89,30 +102,36 @@
   - 预计磁盘占用 10-20 GB（按月分区——分区由 migration `20260520_0001`
     预建至 2030-12，无需手工建）
 
-- [ ] 全量 quality 校验
+- [x] 全量 quality 校验（注：`20240630` 是周日，须用交易日 `20240628`）
   ```powershell
-  uv run quant quality check --date 20240630 --strict
+  uv run quant quality check --date 20240628 --strict
   uv run quant quality check --date 20250630 --strict
   uv run quant quality pit-audit
   ```
 
 ### 1.3 M1 验收（5 分钟）
 
-- [ ] 每个因子的 PIT 单测全绿
+> ✅ 已于 2026-05-21 完成。三项全绿。
+
+- [x] 每个因子的 PIT 单测全绿（`32 passed`）
   ```powershell
   uv run --extra dev pytest tests/unit/test_factors_base.py tests/unit/test_factors_price.py tests/unit/test_factors_industry.py -v
   ```
-- [ ] 抽 5 个因子人工核对历史值（如 `momentum_20d` 在 2024-06-28 选 5 支股票）
+- [x] 抽 5 个因子人工核对历史值（如 `momentum_20d` 在 2024-06-28 选 5 支股票）
   ```sql
   SELECT * FROM factors.daily_factors
   WHERE trade_date='20240628' AND factor_id='momentum_20d'
   ORDER BY value DESC LIMIT 5;
   ```
-- [ ] 跨表对齐检查
+- [x] 跨表对齐检查（`raw_n=5338` / `fact_n=5327`，差 11 只全部可解释）
   ```sql
   SELECT (SELECT count(DISTINCT ts_code) FROM raw.daily_quote WHERE trade_date='20240628') AS raw_n,
          (SELECT count(DISTINCT ts_code) FROM factors.daily_factors WHERE trade_date='20240628' AND factor_id='momentum_20d') AS fact_n;
   ```
+  > `momentum_20d` 比日线少 11 只：6 只次新股（上市 3-17 天，不足 20 日窗）+
+  > 5 只停牌股（停牌打断 20 日回看窗锚点，正确置空；同股 `momentum_60d` 因
+  > T-60 锚点落在有交易日仍可算）。带窗口因子 `fact_n < raw_n` 属正常，
+  > pipeline 自带 `cross_table_alignment` 规则亦 `passed=True`。
 
 ---
 
