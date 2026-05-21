@@ -279,8 +279,17 @@ def audit_ghost2_adj_trap(
             candidate_sql, {"n": sample_size_codes * sample_size_dates}
         ).all()
     except Exception as exc:
-        logger.warning("ghost2_adj_trap_skip", extra={"err": str(exc)})
-        return []
+        logger.error("ghost2_adj_trap_failed", extra={"err": str(exc)})
+        return [
+            CheckResult(
+                passed=False,
+                level="critical",
+                rule="adj_jump",
+                detail={"audit": "ghost2_adj_trap", "error": str(exc)},
+                trade_date="00000000",
+                name="ghost2_adj_trap",
+            )
+        ]
 
     if not candidates:
         return []
@@ -312,7 +321,8 @@ def audit_ghost2_adj_trap(
         )
         try:
             row = session.execute(sql, {"c": ts_code, "d": trade_date}).first()
-        except Exception:
+        except Exception as exc:
+            logger.warning("ghost2_sample_skip", extra={"ts_code": ts_code, "date": trade_date, "err": str(exc)})
             continue
         if not row or row[0] is None or row[1] is None or row[1] == 0:
             continue
@@ -369,8 +379,17 @@ def audit_ghost3_fina_delay(
     try:
         samples = session.execute(sample_sql, {"n": sample_size}).all()
     except Exception as exc:
-        logger.warning("ghost3_fina_delay_skip", extra={"err": str(exc)})
-        return []
+        logger.error("ghost3_fina_delay_failed", extra={"err": str(exc)})
+        return [
+            CheckResult(
+                passed=False,
+                level="critical",
+                rule="pit_finance",
+                detail={"audit": "ghost3_fina_delay", "error": str(exc)},
+                trade_date="00000000",
+                name="ghost3_fina_delay",
+            )
+        ]
 
     issues: list[CheckResult] = []
     for ts_code, ann_date, end_date in samples:
@@ -390,7 +409,8 @@ def audit_ghost3_fina_delay(
                 leak_sql,
                 {"c": ts_code, "end_d": end_date, "ann_d": ann_date},
             ).all()
-        except Exception:
+        except Exception as exc:
+            logger.warning("ghost3_sample_skip", extra={"ts_code": ts_code, "ann_date": ann_date, "err": str(exc)})
             continue
 
         # 仅当确实"在 ann_date 之前"已经写入了对应财务期 fundamental 因子时报警

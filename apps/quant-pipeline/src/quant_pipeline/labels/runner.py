@@ -65,8 +65,8 @@ def _load_daily_quotes(start: str, end_padded: str) -> pd.DataFrame:
         df["close"] = pd.to_numeric(df["close"], errors="coerce")
         return df
     except Exception as exc:  # noqa: BLE001
-        logger.warning("daily_quote_unavailable", extra={"err": str(exc)})
-        return pd.DataFrame(columns=["ts_code", "trade_date", "close"])
+        logger.error("daily_quote_failed", extra={"err": str(exc)})
+        raise
 
 
 def _load_stk_limit(start: str, end: str) -> pd.DataFrame:
@@ -87,59 +87,57 @@ def _load_stk_limit(start: str, end: str) -> pd.DataFrame:
             df[c] = pd.to_numeric(df[c], errors="coerce")
         return df
     except Exception as exc:  # noqa: BLE001
-        logger.warning("stk_limit_unavailable", extra={"err": str(exc)})
-        return pd.DataFrame(columns=["ts_code", "trade_date", "up_limit", "down_limit"])
+        logger.error("stk_limit_failed", extra={"err": str(exc)})
+        raise
 
 
 def _load_suspend(start: str, end: str) -> pd.DataFrame:
     sql = text(
         """
-        SELECT ts_code, suspend_date
+        SELECT ts_code, trade_date
         FROM raw.suspend_d
-        WHERE suspend_date >= :start AND suspend_date <= :end
+        WHERE trade_date >= :start AND trade_date <= :end
         """
     )
     try:
         with session_scope() as session:
             rows = session.execute(sql, {"start": start, "end": end}).fetchall()
         if not rows:
-            return pd.DataFrame(columns=["ts_code", "suspend_date"])
-        return pd.DataFrame(rows, columns=["ts_code", "suspend_date"])
+            logger.warning("suspend_d_empty", extra={"start": start, "end": end})
+            return pd.DataFrame(columns=["ts_code", "trade_date"])
+        return pd.DataFrame(rows, columns=["ts_code", "trade_date"])
     except Exception as exc:  # noqa: BLE001
-        logger.warning("suspend_d_unavailable", extra={"err": str(exc)})
-        return pd.DataFrame(columns=["ts_code", "suspend_date"])
+        logger.error("suspend_d_failed", extra={"err": str(exc)})
+        raise
 
 
 def _load_listing_info() -> tuple[pd.DataFrame, pd.DataFrame]:
-    """加载 stock_basic（list_date / delist_date）。
+    """加载上市/退市信息（list_date / delist_date）。
 
-    使用 raw.stock_basic 若存在；否则返回空 DF。
+    数据来源：public.a_share_symbols（NestJS syncSymbols 维护）。
     """
 
     sql = text(
         """
         SELECT ts_code, list_date, delist_date
-        FROM raw.stock_basic
+        FROM public.a_share_symbols
         """
     )
     try:
         with session_scope() as session:
             rows = session.execute(sql).fetchall()
         if not rows:
-            return (
-                pd.DataFrame(columns=["ts_code", "list_date"]),
-                pd.DataFrame(columns=["ts_code", "delist_date"]),
+            logger.error("a_share_symbols_empty")
+            raise RuntimeError(
+                "a_share_symbols returned 0 rows — cannot compute survivorship bias"
             )
         df = pd.DataFrame(rows, columns=["ts_code", "list_date", "delist_date"])
         listing = df[["ts_code", "list_date"]].dropna()
         delist = df[df["delist_date"].notna()][["ts_code", "delist_date"]]
         return listing, delist
     except Exception as exc:  # noqa: BLE001
-        logger.warning("stock_basic_unavailable", extra={"err": str(exc)})
-        return (
-            pd.DataFrame(columns=["ts_code", "list_date"]),
-            pd.DataFrame(columns=["ts_code", "delist_date"]),
-        )
+        logger.error("stock_basic_failed", extra={"err": str(exc)})
+        raise
 
 
 # ----------------------------------------------------------------------

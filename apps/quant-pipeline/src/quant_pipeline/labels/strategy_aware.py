@@ -246,12 +246,12 @@ def derive_limit_up_set(
 
 
 def derive_suspended_set(suspend_d: pd.DataFrame | None) -> set[tuple[str, str]]:
-    """从 raw.suspend_d 派生 (ts_code, suspend_date) 集合。"""
+    """从 raw.suspend_d 派生 (ts_code, trade_date) 集合。"""
 
     if suspend_d is None or suspend_d.empty:
         return set()
     return {
-        (str(r["ts_code"]), str(r["suspend_date"]))
+        (str(r["ts_code"]), str(r["trade_date"]))
         for _, r in suspend_d.iterrows()
     }
 
@@ -279,7 +279,7 @@ class LabelInputs:
     daily_quotes: 必须含 [ts_code, trade_date, close]；可选 [low, ma5,
                   is_suspended, is_limit_up, is_limit_down, is_delisted]
     stk_limit:    raw.stk_limit
-    suspend_d:    raw.suspend_d（[ts_code, suspend_date]）
+    suspend_d:    raw.suspend_d（[ts_code, trade_date]）
     delist:       raw.stock_basic 中 delist_date 不空的行
     listing:      raw.stock_basic 中 [ts_code, list_date]
     entries:      可选；不提供则用 daily_quotes 的全部 (ts_code, trade_date) 作为信号集

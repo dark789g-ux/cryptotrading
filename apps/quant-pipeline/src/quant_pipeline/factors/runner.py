@@ -83,11 +83,11 @@ def _query_trade_dates(start: str, end: str) -> list[str]:
             rows = session.execute(sql, {"start": start, "end": end}).fetchall()
         return [r[0] for r in rows]
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "trade_dates_unavailable",
+        logger.error(
+            "trade_dates_failed",
             extra={"start": start, "end": end, "err": str(exc)},
         )
-        return []
+        raise
 
 
 def _query_live_universe(trade_date: str) -> set[str]:
@@ -106,11 +106,11 @@ def _query_live_universe(trade_date: str) -> set[str]:
             rows = session.execute(sql, {"t": trade_date}).fetchall()
         return {r[0] for r in rows}
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "live_universe_unavailable",
+        logger.error(
+            "live_universe_failed",
             extra={"trade_date": trade_date, "err": str(exc)},
         )
-        return set()
+        raise
 
 
 def _load_raw_panel(start: str, end: str) -> pd.DataFrame:
@@ -150,11 +150,11 @@ def _load_raw_panel(start: str, end: str) -> pd.DataFrame:
             df[c] = pd.to_numeric(df[c], errors="coerce")
         return df
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "raw_panel_unavailable",
+        logger.error(
+            "raw_panel_failed",
             extra={"start": start, "end": end, "err": str(exc)},
         )
-        return pd.DataFrame(columns=["close", "vol", "amount", "adj_factor", "turnover_rate"])
+        raise
 
 
 def _load_industry_pit(start: str, end: str) -> pd.DataFrame:
@@ -200,11 +200,11 @@ def _load_industry_pit(start: str, end: str) -> pd.DataFrame:
         out = pd.concat(frames, ignore_index=True).set_index(["trade_date", "ts_code"])
         return out
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "index_member_unavailable",
+        logger.error(
+            "index_member_failed",
             extra={"start": start, "end": end, "err": str(exc)},
         )
-        return pd.DataFrame(columns=["industry_l1"])
+        raise
 
 
 def load_window_data(start: str, end: str, need_industry: bool) -> RawData:

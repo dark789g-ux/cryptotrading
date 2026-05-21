@@ -56,8 +56,8 @@ def _load_daily_factors(
         df["value"] = pd.to_numeric(df["value"], errors="coerce")
         return df
     except Exception as exc:  # noqa: BLE001
-        logger.warning("daily_factors_unavailable", extra={"err": str(exc)})
-        return pd.DataFrame(columns=["trade_date", "ts_code", "factor_id", "value"])
+        logger.error("daily_factors_failed", extra={"err": str(exc)})
+        raise
 
 
 def _load_labels(scheme: str, start: str, end: str) -> pd.DataFrame:
@@ -86,10 +86,8 @@ def _load_labels(scheme: str, start: str, end: str) -> pd.DataFrame:
         df["value"] = pd.to_numeric(df["value"], errors="coerce")
         return df
     except Exception as exc:  # noqa: BLE001
-        logger.warning("labels_unavailable", extra={"err": str(exc)})
-        return pd.DataFrame(
-            columns=["trade_date", "ts_code", "scheme", "value", "exit_reason", "hold_days"]
-        )
+        logger.error("labels_failed", extra={"err": str(exc)})
+        raise
 
 
 def _load_mv_map(start: str, end: str) -> pd.DataFrame:
@@ -111,8 +109,8 @@ def _load_mv_map(start: str, end: str) -> pd.DataFrame:
         df["mv"] = pd.to_numeric(df["mv"], errors="coerce")
         return df
     except Exception as exc:  # noqa: BLE001
-        logger.warning("daily_basic_mv_unavailable", extra={"err": str(exc)})
-        return pd.DataFrame(columns=["trade_date", "ts_code", "mv"])
+        logger.error("daily_basic_mv_failed", extra={"err": str(exc)})
+        raise
 
 
 def _load_industry_map(start: str, end: str) -> pd.DataFrame:
@@ -148,8 +146,8 @@ def _load_industry_map(start: str, end: str) -> pd.DataFrame:
             return pd.DataFrame(columns=["trade_date", "ts_code", "industry_l1"])
         return pd.DataFrame(rows, columns=["trade_date", "ts_code", "industry_l1"])
     except Exception as exc:  # noqa: BLE001
-        logger.warning("industry_map_unavailable", extra={"err": str(exc)})
-        return pd.DataFrame(columns=["trade_date", "ts_code", "industry_l1"])
+        logger.error("industry_map_failed", extra={"err": str(exc)})
+        raise
 
 
 def _upsert_feature_set(
@@ -160,7 +158,7 @@ def _upsert_feature_set(
         INSERT INTO factors.feature_sets
             (feature_set_id, factor_version, scheme, factor_ids, created_at)
         VALUES
-            (:feature_set_id, :factor_version, :scheme, CAST(:factor_ids AS jsonb), now())
+            (:feature_set_id, :factor_version, :scheme, CAST(:factor_ids AS text[]), now())
         ON CONFLICT (feature_set_id)
         DO UPDATE SET factor_version = EXCLUDED.factor_version,
                       scheme         = EXCLUDED.scheme,
@@ -174,7 +172,7 @@ def _upsert_feature_set(
                 "feature_set_id": feature_set_id,
                 "factor_version": factor_version,
                 "scheme": scheme,
-                "factor_ids": json.dumps(factor_ids, ensure_ascii=False),
+                "factor_ids": "{" + ",".join(f'"{f}"' for f in factor_ids) + "}",
             },
         )
 

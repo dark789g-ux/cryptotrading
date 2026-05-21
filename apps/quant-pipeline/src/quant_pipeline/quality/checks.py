@@ -49,7 +49,7 @@ DEFAULT_PK_MAP: dict[str, tuple[str, ...]] = {
     "raw.stk_limit": ("ts_code", "trade_date"),
     "raw.suspend_d": ("ts_code", "trade_date", "suspend_type"),
     # fina_indicator 用 ann_date 入库（PIT 铁律），PK 含 ann_date
-    "raw.fina_indicator": ("ts_code", "ann_date", "end_date"),
+    "raw.fina_indicator": ("ts_code", "end_date", "ann_date"),
 }
 
 
@@ -375,8 +375,15 @@ def check_extreme_value(
     try:
         rows = session.execute(sql, bind).all()
     except Exception as exc:
-        logger.warning("extreme_value_skip", extra={"err": str(exc)})
-        rows = []
+        logger.error("extreme_value_failed", extra={"err": str(exc)})
+        return CheckResult(
+            passed=False,
+            level="critical",
+            rule="extreme_value",
+            detail={"date": trade_date, "error": str(exc)},
+            trade_date=trade_date,
+            name="extreme_value",
+        )
 
     if rows:
         # detail 必须含 factor_id / date / outlier_count（§4.3）；多 factor 时取最大
@@ -439,8 +446,15 @@ def check_pit_finance(
     try:
         null_ann_count = int(session.execute(null_ann_sql).scalar_one() or 0)
     except Exception as exc:
-        logger.warning("pit_finance_skip_null_ann", extra={"err": str(exc)})
-        null_ann_count = 0
+        logger.error("pit_finance_failed_null_ann", extra={"err": str(exc)})
+        return CheckResult(
+            passed=False,
+            level="critical",
+            rule="pit_finance",
+            detail={"date": trade_date, "error": str(exc)},
+            trade_date=trade_date,
+            name="pit_finance",
+        )
 
     # 扫描 fundamental 类因子的 ts_code 样本，看是否能在 trade_date 当日找到对应
     # ann_date <= trade_date 的 fina_indicator 记录；找不到说明用了 end_date。
@@ -473,8 +487,15 @@ def check_pit_finance(
             sample_sql, {"d": trade_date, "prefix": f"{factor_prefix}%"}
         ).all()
     except Exception as exc:
-        logger.warning("pit_finance_skip_sample", extra={"err": str(exc)})
-        rows = []
+        logger.error("pit_finance_failed_sample", extra={"err": str(exc)})
+        return CheckResult(
+            passed=False,
+            level="critical",
+            rule="pit_finance",
+            detail={"date": trade_date, "error": str(exc)},
+            trade_date=trade_date,
+            name="pit_finance",
+        )
 
     if null_ann_count > 0 or rows:
         primary_factor = rows[0][0] if rows else "<raw.fina_indicator>"
@@ -548,8 +569,15 @@ def check_adj_jump(
     try:
         rows = session.execute(sql, {"d": trade_date, "r": ratio_threshold}).all()
     except Exception as exc:
-        logger.warning("adj_jump_skip", extra={"err": str(exc)})
-        rows = []
+        logger.error("adj_jump_failed", extra={"err": str(exc)})
+        return CheckResult(
+            passed=False,
+            level="critical",
+            rule="adj_jump",
+            detail={"date": trade_date, "error": str(exc)},
+            trade_date=trade_date,
+            name="adj_jump",
+        )
 
     if rows:
         top = rows[0]
@@ -614,8 +642,15 @@ def check_survivor_bias(
     try:
         row = session.execute(sql, {"d": trade_date}).first()
     except Exception as exc:
-        logger.warning("survivor_bias_skip", extra={"err": str(exc)})
-        row = None
+        logger.error("survivor_bias_failed", extra={"err": str(exc)})
+        return CheckResult(
+            passed=False,
+            level="critical",
+            rule="survivor_bias",
+            detail={"date": trade_date, "error": str(exc)},
+            trade_date=trade_date,
+            name="survivor_bias",
+        )
 
     bad_ts_count = int(row[0]) if row else 0
     bad_factor_count = int(row[1]) if row else 0
@@ -689,8 +724,15 @@ def check_cross_table_alignment(
     try:
         row = session.execute(sql, {"d": trade_date}).first()
     except Exception as exc:
-        logger.warning("cross_table_alignment_skip", extra={"err": str(exc)})
-        row = None
+        logger.error("cross_table_alignment_failed", extra={"err": str(exc)})
+        return CheckResult(
+            passed=False,
+            level="critical",
+            rule="cross_table_alignment",
+            detail={"date": trade_date, "error": str(exc)},
+            trade_date=trade_date,
+            name="cross_table_alignment",
+        )
 
     if row is None:
         return CheckResult(
