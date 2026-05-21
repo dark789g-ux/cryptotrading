@@ -40,6 +40,7 @@ dev = [
 
 [project.scripts]
 quant = "quant_pipeline.cli:app"
+lint-no-silent-degradation = "tools.lint_no_silent_degradation:main"
 
 [build-system]
 requires = ["hatchling"]

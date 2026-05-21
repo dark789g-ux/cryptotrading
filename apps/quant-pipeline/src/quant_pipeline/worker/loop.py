@@ -35,6 +35,13 @@ def run_worker_loop() -> None:
     """常驻循环。Ctrl+C / SIGTERM 优雅退出。"""
 
     settings = get_settings()
+
+    # ── schema 契约校验 ──
+    from quant_pipeline.db import session_scope
+    from quant_pipeline.db.schema_contract import validate_schema
+    with session_scope() as session:
+        validate_schema(session)
+
     dispatcher = Dispatcher()
     stop = _StopFlag()
 
