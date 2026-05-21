@@ -16,7 +16,7 @@
 
 ### REQUIRED dict
 
-声明 quant-pipeline 依赖的表和列（17 张表）：
+声明 quant-pipeline 依赖的表和列（19 张表）：
 
 ```
 ┌─────────────────────────┬───────────────────────────────────────────┐
@@ -100,9 +100,9 @@ def validate_schema(session) -> None:
 def run_worker_loop():
     settings = Settings()
     # ── schema 契约校验 ──
-    from quant_pipeline.db import get_engine
+    from quant_pipeline.db import session_scope
     from quant_pipeline.db.schema_contract import validate_schema
-    with session_scope(get_engine()) as session:
+    with session_scope() as session:
         validate_schema(session)
     # ── 原有逻辑 ──
     dispatcher = Dispatcher(...)
@@ -283,4 +283,4 @@ lint-no-silent-degradation = "tools.lint_no_silent_degradation:main"
 | `apps/quant-pipeline/src/quant_pipeline/worker/loop.py` | 修改（注入校验调用） |
 | `apps/quant-pipeline/pyproject.toml` | 修改（加 script） |
 | `apps/quant-pipeline/tests/unit/test_schema_contract.py` | 新建 |
-| `apps/quant-pipeline/tools/test_lint_no_silent_degradation.py` | 新建 |
+| `apps/quant-pipeline/tests/unit/test_lint_no_silent_degradation.py` | 新建 |
