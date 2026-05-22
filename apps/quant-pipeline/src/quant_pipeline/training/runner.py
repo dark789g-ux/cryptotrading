@@ -354,6 +354,7 @@ def train_model(
             job_id=job_id,
             hyperparams=hyperparams,
             latest_trade_date=latest_trade_date,
+            progress_callback=_progress,
         )
 
     # M4 Part L 后置钩子：SHAP 解释（默认开；失败不阻塞主流程，写 quality_reports）
@@ -391,6 +392,7 @@ def _train_single_fold(
     job_id: UUID | None,
     hyperparams: dict[str, Any] | None,
     latest_trade_date: str,
+    progress_callback: ProgressCallback,
 ) -> TrainResult:
     splitter = SingleFoldSplit(train_ratio=0.7, embargo_days=0)
     (train_idx, test_idx) = next(splitter.split(df_train))
@@ -416,7 +418,7 @@ def _train_single_fold(
         num_boost_round=DEFAULT_NUM_BOOST_ROUND,
     )
 
-    _progress(50, "train:fit_done")
+    progress_callback(50, "train:fit_done")
 
     scores_test = booster.predict(X_test.values)
     ndcg10 = _ndcg_at_k(scores_test, y_test.to_numpy(), groups_test, k=10)
@@ -439,7 +441,7 @@ def _train_single_fold(
         "walk_forward": False,
     }
 
-    _progress(75, "train:eval_done")
+    progress_callback(75, "train:eval_done")
 
     run_id = uuid4()
     today_yyyymmdd = datetime.now(timezone.utc).strftime("%Y%m%d")
@@ -490,7 +492,7 @@ def _train_single_fold(
             pass
         raise
 
-    _progress(100, "train:done")
+    progress_callback(100, "train:done")
 
     logger.info(
         "train_done",
