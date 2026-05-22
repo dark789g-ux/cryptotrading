@@ -43,7 +43,7 @@
 | 11 | 日期字符串比较前提 | 🟢 | 加注释说明依赖 YYYYMMDD 定宽 | [04](./04-data-integrity-perf-cleanup.md#item-11) |
 | 12 | 接口契约文档不符 | 🟢 | `exit_rules.py:22-23` 删除不存在的 `suspend_dates` | [03](./03-exit-rules-fixes.md#item-2) |
 | 13 | 未使用 import | 🟢 | 删 `strategy_aware.py:42/44`、`exit_rules.py:29` | [04](./04-data-integrity-perf-cleanup.md#item-13) |
-| 14 | `winsorize_label_value` 死代码 | 🟢 | 删除该函数，docstring 坑 5 改为「截尾在 features 层做」 | [04](./04-data-integrity-perf-cleanup.md#item-14) |
+| 14 | `winsorize_label_value` 死代码 | 🟢 | ⚠️ 评审前提有误：该函数被 `features/builder.py` 使用，**非死代码**。保留函数，仅修正 docstring | [04](./04-data-integrity-perf-cleanup.md#item-14) |
 | 15 | 进度回调魔数 | 🟢 | 集中到 `_common.py` 的 `PROGRESS_*` 常量 | [04](./04-data-integrity-perf-cleanup.md#item-15) |
 | 16 | fallback/strategy_aware 重复 | 🟢 | 新建 `labels/_common.py` 收拢 `_empty()`/dedup/`derive_*` | [01](./01-common-and-adjustment.md#common-module) |
 

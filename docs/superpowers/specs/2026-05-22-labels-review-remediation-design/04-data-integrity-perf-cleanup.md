@@ -135,15 +135,20 @@ keep = list_date.isna() | list_idx.isna() | buy_idx.isna()
 
 改完按 CLAUDE.md 约束**回读文件头部验证 import 顺序**，不依赖 linter。
 
-### <a id="item-14"></a>4.3 `winsorize_label_value` 死代码（第 14 条）
+### <a id="item-14"></a>4.3 `winsorize_label_value`（第 14 条）—— ⚠️ 实施后修正：非死代码，保留
 
-`strategy_aware.py:201-214` 的 `winsorize_label_value` docstring 自承「labels.runner
-不调用」，是占位死代码。
+**评审第 14 条的「死代码」前提有误。** 评审依据是 docstring「labels.runner 不调用」，
+但实测 `features/builder.py:28-35,434` **正在 import 并调用** `winsorize_label_value`
+及 `WINSORIZE_LO/HI` 常量 —— 它是 features 层的真实依赖，删除会破坏 `features/builder.py`。
 
-- **删除该函数本体** + `__all__` 中的 `winsorize_label_value`、相关常量
-  `WINSORIZE_LO` / `WINSORIZE_HI`（`strategy_aware.py:74-76`，仅该函数用）。
-- 「5 个坑」docstring 坑 5 条目改为：「强右偏温和截尾在 features 层做，labels 不实现
-  （`.clip()` 一行，无需在 labels 占位）」。
+**实际处置（已实施）：**
+
+- **保留** `winsorize_label_value` 函数、`WINSORIZE_LO/HI` 常量、`__all__` 中三个名字。
+- 仅修正其 docstring 与模块「5 个坑」坑 5 描述，如实说明：labels.runner 不调用本函数，
+  实际消费方是 `features/builder.py`（坑 5 截尾在 features 层完成）。
+- **未决项**：`winsorize_label_value` 物理上在 `labels/strategy_aware.py`、消费方在
+  `features/`，依赖方向略反常。是否把它迁到 `features/` 层属 spec 范围外重构，留待
+  后续单独决定，本次不动。
 
 ### <a id="item-15"></a>4.4 进度回调魔数（第 15 条）
 
@@ -164,6 +169,6 @@ strategy_aware   pct = PROGRESS_SIMULATE_START
 | 文件 | 改动 |
 |---|---|
 | `runner.py` | quotes/labels 空改 `raise`；`_load_stk_limit` 空补 warning；进度魔数改常量；日期比较加注释 |
-| `strategy_aware.py` | `derive_*` 迁出并向量化；`filter_new_listing` 向量化；删 `winsorize_label_value` + 相关常量；删未用 import；进度魔数改常量 |
+| `strategy_aware.py` | `derive_*` 迁出并向量化；`filter_new_listing` 向量化；`winsorize_label_value` 保留（非死代码，仅改 docstring）；删未用 import；进度魔数改常量 |
 | `fallback.py` | `compute_fwd_5d_ret` 主循环向量化；`_empty()` 改用 `_common.empty_labels_frame`；dedup 改用 `_common.dedup_labels` |
 | `_common.py` | 承接迁入的 `derive_*`（向量化版）、`empty_labels_frame`、`dedup_labels`、`PROGRESS_*` |
