@@ -134,7 +134,7 @@ def _evaluate_one_model(
     commission_rate: float = 0.0003,
     slippage_bps: float = 5.0,
 ) -> dict[str, float]:
-    """单模单折评估：NDCG@5/10 + IC + RankIC + portfolio 扣成本年化。"""
+    """单模单折评估：NDCG@5/10 + IC + RankIC + portfolio 单笔净收益中位数。"""
 
     labels = y_test.to_numpy(dtype=np.float64)
     ndcg5 = ndcg_at_k(scores, labels, groups_test, k=5)
@@ -170,7 +170,11 @@ def _evaluate_one_model(
         "ndcg@10": ndcg10,
         "ic": ic,
         "rank_ic": rank_ic,
-        "portfolio_annual_after_cost": float(portfolio["annual_return"]),
+        # 止血（2026-05-22）：portfolio 已放弃年化（见 portfolio.py 文件头）。
+        # JSON 字段名暂留 `portfolio_annual_after_cost` 不改（避免 DB/server/前端连锁
+        # 改动），但其值现在是"每日 Top-K 篮子净收益的中位数"，非年化。彻底重命名
+        # 留待事件驱动持仓回测任务。
+        "portfolio_annual_after_cost": float(portfolio["net_return_median"]),
         "sharpe": float(portfolio["sharpe"]) if not np.isnan(portfolio["sharpe"]) else float("nan"),
     }
 

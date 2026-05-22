@@ -39,7 +39,8 @@ export function resolveRunsFilterColumn(field: string): string | null {
   return col ?? null;
 }
 
-/** OOS metrics 的核心字段（M3 前端要快速渲染的"NDCG@10 / IC / 扣成本年化"三个数字） */
+/** OOS metrics 的核心字段（M3 前端要快速渲染的"NDCG@10 / IC / 单笔净收益中位数"三个数字）
+ *  注：portfolio_annual_after_cost 字段名保留历史命名，止血后其值为"单笔净收益中位数"（非年化）。 */
 export interface OosMetricsCore {
   ndcg_at_5: number | null;
   ndcg_at_10: number | null;

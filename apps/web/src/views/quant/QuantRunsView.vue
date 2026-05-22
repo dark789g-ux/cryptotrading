@@ -61,7 +61,7 @@ const errorText = ref('')
 const versionFilter = ref('')
 /**
  * J 仅允许 sort_by 字段 ∈ {created_at, model_version}（违反 400）；
- * 指标列（NDCG@10 / IC / 扣成本年化）不参与远端排序，前端 column 渲染时
+ * 指标列（NDCG@10 / IC / 单笔净收益中位数）不参与远端排序，前端 column 渲染时
  * 不再挂 sorter，避免 NDataTable 触发 sortChange 后被后端拒绝。
  */
 const sortField = ref<RunsQuery['sortField']>('created_at')
@@ -131,9 +131,9 @@ const columns = computed<DataTableColumns<ModelRunListItem>>(() => [
     },
   },
   {
-    title: '扣成本年化',
+    title: '单笔净收益(中位)',
     key: 'portfolio_annual_after_cost',
-    width: 150,
+    width: 160,
     align: 'right',
     render(row) {
       return h(MetricBadge, {
@@ -141,7 +141,7 @@ const columns = computed<DataTableColumns<ModelRunListItem>>(() => [
         value: fmtMetric(row.oos_metrics_core?.portfolio_annual_after_cost),
         percent: true,
         digits: 2,
-        thresholds: { good: 0.15, warn: 0 },
+        thresholds: { good: 0.002, warn: 0 },
       })
     },
   },

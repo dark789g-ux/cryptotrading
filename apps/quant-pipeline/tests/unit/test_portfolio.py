@@ -1,11 +1,14 @@
-"""Portfolio 扣成本年化单测（M3 Part I）。
+"""Portfolio 扣成本组合评估单测（M3 Part I）。
 
 覆盖：
-  - 合成 scores + labels：年化计算公式正确
+  - 合成 scores + labels：单日篮子净收益均值/中位数计算正确
   - top_k <= 0 / 负成本 抛 ValueError
   - 空输入返回 nan
   - 双边佣金 + 滑点 5bps 公式核对
   - 最大回撤计算
+
+> 止血（2026-05-22）：原 `annual_return`（按 252 年化）已移除，
+> 改为 `net_return_mean` / `net_return_median`，见 portfolio.py 文件头。
 """
 
 from __future__ import annotations
@@ -39,19 +42,22 @@ def _build_scores_labels(
 def test_portfolio_basic_metrics_present() -> None:
     sc, lb = _build_scores_labels(n_days=30, n_codes=10)
     out = compute_portfolio_metrics(sc, lb, top_k=3, commission_rate=0.0003, slippage_bps=5.0)
-    assert {"annual_return", "sharpe", "max_drawdown", "win_rate", "turnover", "daily_returns"} <= set(out.keys())
+    assert {
+        "net_return_mean", "net_return_median", "sharpe",
+        "max_drawdown", "win_rate", "turnover", "daily_returns",
+    } <= set(out.keys())
     assert out["n_days"] > 0
     assert isinstance(out["daily_returns"], pd.Series)
 
 
-def test_portfolio_annualization_formula() -> None:
-    """构造每日固定净收益 r，年化应 = (1+r)**252 - 1。"""
+def test_portfolio_net_return_formula() -> None:
+    """构造每日固定净收益 r，均值/中位数均应 = r（止血后不再年化）。"""
 
     # 让 score 完美对齐 label：选 top-1，且每日 label 相同
     n_days = 60
     rows_s = []
     rows_l = []
-    fixed_label = 0.001  # 0.1% 日收益
+    fixed_label = 0.001  # 0.1% 单日篮子净收益
     for d in range(n_days):
         td = f"2026{1 + d // 28:02d}{1 + d % 28:02d}"
         # 同一个 ts_code 始终持有，turnover 之后 = 0；首日 turnover=1
@@ -65,22 +71,22 @@ def test_portfolio_annualization_formula() -> None:
         pd.DataFrame(rows_s), pd.DataFrame(rows_l),
         top_k=1, commission_rate=0.0, slippage_bps=0.0,
     )
-    # 0 成本 → 日均 net = fixed_label
-    expected_annual = (1.0 + fixed_label) ** 252 - 1.0
-    assert out["annual_return"] == pytest.approx(expected_annual, rel=1e-6)
+    # 0 成本 → 每日 net 恒为 fixed_label → 均值/中位数都等于它
+    assert out["net_return_mean"] == pytest.approx(fixed_label, rel=1e-6)
+    assert out["net_return_median"] == pytest.approx(fixed_label, rel=1e-6)
     # 持仓不变 → 平均 turnover ≈ 1/n_days
     assert out["turnover"] == pytest.approx(1.0 / n_days, rel=1e-6)
 
 
 def test_portfolio_commission_slippage_reduces_return() -> None:
-    """加成本后年化必须 < 不加成本。"""
+    """加成本后单日净收益均值必须 < 不加成本。"""
 
     sc, lb = _build_scores_labels(n_days=30, n_codes=10, signal_strength=2.0)
     out_no_cost = compute_portfolio_metrics(sc, lb, top_k=3, commission_rate=0.0, slippage_bps=0.0)
     out_with_cost = compute_portfolio_metrics(sc, lb, top_k=3, commission_rate=0.0003, slippage_bps=5.0)
-    # 当存在 turnover 时，扣成本年化必须更低
+    # 当存在 turnover 时，扣成本后净收益均值必须更低
     if out_no_cost["turnover"] > 0:
-        assert out_with_cost["annual_return"] < out_no_cost["annual_return"]
+        assert out_with_cost["net_return_mean"] < out_no_cost["net_return_mean"]
 
 
 def test_portfolio_invalid_top_k_raises() -> None:
@@ -107,7 +113,8 @@ def test_portfolio_empty_input_returns_nan() -> None:
         pd.DataFrame({"trade_date": [], "ts_code": [], "label": []}),
     )
     assert out["n_days"] == 0
-    assert np.isnan(out["annual_return"])
+    assert np.isnan(out["net_return_mean"])
+    assert np.isnan(out["net_return_median"])
 
 
 def test_portfolio_max_drawdown_nonnegative() -> None:

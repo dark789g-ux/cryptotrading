@@ -1,23 +1,30 @@
-"""扣成本年化（M3 评估层）。
+"""扣成本组合评估（M3 评估层）。
 
 > doc/量化/05-LightGBM训练体系.md §5.7 三层评估指标：
 >   "成本后：扣单边 0.15% 手续费 + 0.15% 冲击 → 年化仍 > 沪深 300 + 10%"
 > spec m3 §3：本任务命名为 `portfolio_annual_after_cost`，默认双边佣金 0.0003 + 滑点 5bps。
 
+⚠️ 止血说明（2026-05-22）：原实现把 strategy-aware `label` 当成"单日净收益率"，
+   按 `(1+mean)**252` 年化。但 `label` 实为出场规则驱动的"多日持仓累计净收益率"
+   （持仓 1~20 个交易日，量级可达 +1114%），按 252 年化会爆炸出 1e120 量级的
+   天文数字。本函数已**放弃年化**，改报每日 Top-K 篮子净收益的均值 / 中位数
+   （`net_return_mean` / `net_return_median`）。真正的事件驱动持仓回测见后续任务。
+
 模拟策略（最简形式）：
   1) 每日按预测分数选 Top-K 等权持仓
-  2) 第 T+1 日按 label（视为 T 日选股的实际净收益率）结算
+  2) 按 label（T 日选股的实现净收益率）结算
   3) 与前一日持仓求 turnover；按 turnover * (commission_rate_two_side + slippage_rate) 扣成本
-  4) daily_return = mean(top_k labels) - turnover_cost
-  5) 输出年化（按 252 个交易日年化）/ Sharpe / 最大回撤 / 胜率 / 平均换手
+  4) daily_net = mean(top_k labels) - turnover_cost
+  5) 输出单日篮子净收益均值/中位数 / Sharpe / 最大回撤 / 胜率 / 平均换手
 
 公式（与 spec / doc/05 §5.7 对齐）：
   - 双边佣金 commission_rate = 0.0003（默认；调用方可配）
   - 滑点 slippage_bps = 5 → slippage_rate = 0.0005
   - 单边交易成本 ≈ commission_rate + slippage_rate（已含双边语义；commission 已设为双边）
   - 实际 turnover_cost_per_day = turnover * (commission_rate + slippage_rate)
-  - annual_return = (1 + mean_daily_net) ** 252 - 1
+  - net_return_mean / net_return_median = 各日 Top-K 篮子净收益的均值 / 中位数
   - Sharpe = mean_daily_net / std_daily_net * sqrt(252)
+    （注：同样受 label 多日 horizon 影响，年化口径仍为近似；不爆炸故止血阶段保留）
   - max_drawdown = max((cummax(equity) - equity) / cummax(equity))
 
 scores_df / label_df 输入约定：
@@ -59,7 +66,7 @@ def compute_portfolio_metrics(
 
     Returns:
         dict: {
-            annual_return, sharpe, max_drawdown,
+            net_return_mean, net_return_median, sharpe, max_drawdown,
             win_rate, turnover, daily_returns: pd.Series,
             n_days, top_k, commission_rate, slippage_rate
         }
@@ -92,7 +99,8 @@ def compute_portfolio_metrics(
 
     if df.empty:
         return {
-            "annual_return": float("nan"),
+            "net_return_mean": float("nan"),
+            "net_return_median": float("nan"),
             "sharpe": float("nan"),
             "max_drawdown": float("nan"),
             "win_rate": float("nan"),
@@ -135,7 +143,8 @@ def compute_portfolio_metrics(
     returns = pd.Series(daily_returns, index=daily_dates, name="daily_net_return")
     if returns.empty:
         return {
-            "annual_return": float("nan"),
+            "net_return_mean": float("nan"),
+            "net_return_median": float("nan"),
             "sharpe": float("nan"),
             "max_drawdown": float("nan"),
             "win_rate": float("nan"),
@@ -150,7 +159,10 @@ def compute_portfolio_metrics(
     mean_daily = float(returns.mean())
     std_daily = float(returns.std(ddof=1)) if len(returns) > 1 else 0.0
 
-    annual_return = float((1.0 + mean_daily) ** _TRADING_DAYS_PER_YEAR - 1.0)
+    # 止血：不再年化（label 是多日持仓累计收益，按 252 年化会爆炸）。
+    # 直接报每日 Top-K 篮子净收益的均值与中位数。
+    net_return_mean = mean_daily
+    net_return_median = float(returns.median())
     sharpe = (
         float(mean_daily / std_daily * np.sqrt(_TRADING_DAYS_PER_YEAR))
         if std_daily > 0
@@ -167,7 +179,8 @@ def compute_portfolio_metrics(
     turnover_mean = float(np.mean(turnovers)) if turnovers else float("nan")
 
     return {
-        "annual_return": annual_return,
+        "net_return_mean": net_return_mean,
+        "net_return_median": net_return_median,
         "sharpe": sharpe,
         "max_drawdown": max_drawdown,
         "win_rate": win_rate,

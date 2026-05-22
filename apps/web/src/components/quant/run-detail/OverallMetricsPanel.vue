@@ -18,9 +18,9 @@
         <MetricBadge label="" :value="rankIc" :digits="4" :thresholds="{ good: 0.05, warn: 0.02 }" />
       </div>
       <div class="cell">
-        <span class="label">扣成本年化</span>
+        <span class="label">单笔净收益(中位)</span>
         <MetricBadge label="" :value="annual" :percent="true" :digits="2"
-          :thresholds="{ good: 0.15, warn: 0 }" />
+          :thresholds="{ good: 0.002, warn: 0 }" />
       </div>
     </div>
   </n-card>

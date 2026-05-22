@@ -96,12 +96,12 @@ const columns = computed<DataTableColumns<FoldRow>>(() => [
       thresholds: { good: 0.05, warn: 0.02 } }),
   },
   {
-    title: '扣成本年化',
+    title: '单笔净收益(中位)',
     key: 'portfolio_annual_after_cost',
-    width: 130,
+    width: 150,
     align: 'right',
     render: r => h(MetricBadge, { label: '', value: r.portfolio_annual_after_cost,
-      percent: true, digits: 2, thresholds: { good: 0.15, warn: 0 } }),
+      percent: true, digits: 2, thresholds: { good: 0.002, warn: 0 } }),
   },
 ])
 </script>

@@ -28,10 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 # doc/量化/05-LightGBM训练体系.md §5.7 三层评估指标的期望区间（A 股基准）
+# 注：portfolio_annual_after_cost 字段在止血后承载的是"单笔净收益中位数"（非年化），
+# 期望区间相应调整为 > 0（详见 evaluation/portfolio.py 文件头）。
 _EXPECTED_RANGES = {
     "rank_ic": (0.04, None, "因子层 RankIC mean > 0.04"),
     "ndcg@10": (0.50, None, "NDCG@10 通常应 > 0.50"),
-    "portfolio_annual_after_cost": (0.10, None, "扣成本年化应 > 沪深 300 + 10%"),
+    "portfolio_annual_after_cost": (0.0, None, "单笔净收益中位数应 > 0"),
 }
 
 
@@ -55,7 +57,7 @@ def _compare_table(summary: dict[str, dict[str, Any]]) -> str:
         ("ndcg_at_10_mean", "NDCG@10"),
         ("ic_mean", "IC"),
         ("rank_ic_mean", "RankIC"),
-        ("portfolio_annual_after_cost", "Annual(net)"),
+        ("portfolio_annual_after_cost", "NetRet(med)"),
         ("sharpe_mean", "Sharpe"),
         ("n_folds", "Folds"),
     ]
@@ -81,7 +83,7 @@ def _per_model_fold_tables(summary: dict[str, dict[str, Any]]) -> str:
         lines = [
             f"#### {model}",
             "",
-            "| Fold | NDCG@5 | NDCG@10 | IC | RankIC | Annual(net) | Sharpe |",
+            "| Fold | NDCG@5 | NDCG@10 | IC | RankIC | NetRet(med) | Sharpe |",
             "|---|---|---|---|---|---|---|",
         ]
         for f in folds:
@@ -187,7 +189,7 @@ def generate_report(
     sections.append(_json.dumps(hyperparams, ensure_ascii=False, indent=2))
     sections.append("```\n")
 
-    sections.append("## 三组对照（NDCG / IC / RankIC / 扣成本年化）\n")
+    sections.append("## 三组对照（NDCG / IC / RankIC / 单笔净收益中位数）\n")
     sections.append(_compare_table(compare_summary))
     sections.append("")
 

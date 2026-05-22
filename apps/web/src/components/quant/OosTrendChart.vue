@@ -8,7 +8,7 @@ import * as echarts from 'echarts'
 
 /**
  * 最近 N 日 OOS 指标趋势小图
- * - x: 日期；多条线：NDCG@10 / IC / 扣成本年化（按 0..1 归一化展示则可直接共轴）
+ * - x: 日期；多条线：NDCG@10 / IC / 单笔净收益中位数
  */
 interface Point {
   date: string
@@ -20,6 +20,25 @@ interface Point {
 const props = defineProps<{ points: Point[] }>()
 const el = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
+
+/**
+ * 异常值兜底：这三个指标（NDCG / IC / 单笔净收益中位数）量级都在 ±1 附近，
+ * 正常不会超过 ±10。历史脏数据（曾出现 1e123 量级的错误年化值）会把 Y 轴
+ * 整个撑爆、压扁其它正常曲线。此处把非有限值或越界值一律置 null（绘成断点），
+ * 并 warn 出来便于排查。
+ */
+const SANE_ABS_LIMIT = 10
+
+function sane(v: number | null | undefined, seriesName: string, date: string): number | null {
+  if (v === null || v === undefined) return null
+  if (!Number.isFinite(v) || Math.abs(v) > SANE_ABS_LIMIT) {
+    console.warn(
+      `[OosTrendChart] 丢弃异常值 ${seriesName}@${date}=${v}（超出 ±${SANE_ABS_LIMIT} 或非有限值）`,
+    )
+    return null
+  }
+  return v
+}
 
 function render() {
   if (!chart) return
@@ -38,21 +57,23 @@ function render() {
       {
         name: 'NDCG@10',
         type: 'line',
-        data: props.points.map(p => p.ndcg10 ?? null),
+        data: props.points.map(p => sane(p.ndcg10, 'NDCG@10', p.date)),
         smooth: true,
         connectNulls: true,
       },
       {
         name: 'IC',
         type: 'line',
-        data: props.points.map(p => p.ic ?? null),
+        data: props.points.map(p => sane(p.ic, 'IC', p.date)),
         smooth: true,
         connectNulls: true,
       },
       {
-        name: '扣成本年化',
+        name: '单笔净收益(中位)',
         type: 'line',
-        data: props.points.map(p => p.portfolio_annual_after_cost ?? null),
+        data: props.points.map(
+          p => sane(p.portfolio_annual_after_cost, '单笔净收益(中位)', p.date),
+        ),
         smooth: true,
         connectNulls: true,
       },
