@@ -18,6 +18,20 @@ export function formatAmount(value: string | null) {
   return `${num.toFixed(2)} 万`
 }
 
+/**
+ * 格式化市值（万元 → 亿/万亿）。
+ * Tushare daily_basic 的 total_mv / circ_mv 单位为万元，与 amount（千元）不同，
+ * 不能复用 formatAmount（会差 10 倍）。
+ */
+export function formatMarketCap(value: string | null) {
+  if (value == null) return '-'
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '-'
+  if (Math.abs(num) >= 1_0000_0000) return `${(num / 1_0000_0000).toFixed(2)} 万亿`
+  if (Math.abs(num) >= 1_0000) return `${(num / 1_0000).toFixed(2)} 亿`
+  return `${num.toFixed(2)} 万`
+}
+
 export function formatTradeDate(value: string | null) {
   if (!value || value.length !== 8) return '-'
   return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`

@@ -61,6 +61,8 @@ const RAW_SORT_COL_MAP: Record<string, string> = {
   pe: 'm.pe',
   peTtm: 'm.pe_ttm',
   pb: 'm.pb',
+  totalMv: 'm.total_mv',
+  circMv: 'm.circ_mv',
   tradeDate: 'q.trade_date',
 };
 

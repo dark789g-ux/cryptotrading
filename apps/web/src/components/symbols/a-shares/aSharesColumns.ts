@@ -4,7 +4,7 @@ import { OpenOutline } from '@vicons/ionicons5'
 import SymbolStarButton from '../../common/SymbolStarButton.vue'
 import type { AShareRow } from '@/api'
 import { colors } from '../../../styles/tokens'
-import { formatAmount, formatNumber, formatPercent, formatTradeDate, trendClass } from './aSharesFormatters'
+import { formatAmount, formatMarketCap, formatNumber, formatPercent, formatTradeDate, trendClass } from './aSharesFormatters'
 import type { SymbolColumnDef } from '../columnTypes'
 
 interface ASharesColumnsOptions {
@@ -67,6 +67,8 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
     { title: 'PE', key: 'pe', width: 90, sorter: true, defaultVisible: true, render: (row) => formatNumber(row.pe, 2) },
     { title: 'PE(TTM)', key: 'peTtm', width: 110, sorter: true, defaultVisible: true, render: (row) => formatNumber(row.peTtm, 2) },
     { title: 'PB', key: 'pb', width: 90, sorter: true, defaultVisible: true, render: (row) => formatNumber(row.pb, 2) },
+    { title: '总市值', key: 'totalMv', width: 120, sorter: true, defaultVisible: false, render: (row) => formatMarketCap(row.totalMv) },
+    { title: '流通市值', key: 'circMv', width: 120, sorter: true, defaultVisible: false, render: (row) => formatMarketCap(row.circMv) },
     { title: '交易日', key: 'tradeDate', width: 110, sorter: true, defaultVisible: true, render: (row) => formatTradeDate(row.tradeDate) },
     {
       title: '标签',
