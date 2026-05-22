@@ -41,7 +41,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-from typing import Final
+from typing import Any, Callable, Final
 
 import numpy as np
 import pandas as pd
@@ -331,7 +331,10 @@ def _augment_quotes_for_exit(
     return out
 
 
-def compute_strategy_aware_labels(inputs: LabelInputs) -> pd.DataFrame:
+def compute_strategy_aware_labels(
+    inputs: LabelInputs,
+    progress_callback: Callable[[int, str], None] | None = None,
+) -> pd.DataFrame:
     """计算 strategy-aware 标签长表（factors.labels 直接 upsert 列）。
 
     返回 DataFrame 列：trade_date / ts_code / scheme / value / exit_reason / hold_days
@@ -400,7 +403,14 @@ def compute_strategy_aware_labels(inputs: LabelInputs) -> pd.DataFrame:
         subset=["ts_code", "entry_date"], keep="first"
     ).reset_index(drop=True)
 
-    for _, e in cand_dedup.iterrows():
+    total = len(cand_dedup)
+    report_interval = max(1, total // 100)  # 每 1% 报告一次
+
+    for i, (_, e) in enumerate(cand_dedup.iterrows()):
+        if progress_callback is not None and i % report_interval == 0:
+            pct = 10 + int(50 * i / total)  # 10% ~ 60% 的进度范围
+            progress_callback(pct, f"labels:simulate {i}/{total}")
+
         ts_code = str(e["ts_code"])
         entry_date = str(e["entry_date"])
         sub = grouped.get(ts_code)

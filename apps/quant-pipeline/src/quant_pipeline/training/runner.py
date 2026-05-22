@@ -49,7 +49,7 @@ from quant_pipeline.utils.paths import (
     artifact_uri,
     ensure_artifact_dir,
 )
-from quant_pipeline.worker.progress import update_progress
+from quant_pipeline.worker.progress import ProgressCallback, update_progress
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +119,30 @@ def _build_groups(df: pd.DataFrame) -> np.ndarray:
 
     counts = df.groupby("trade_date", sort=False).size().to_numpy()
     return counts.astype(np.int64)
+
+
+def _bin_labels_by_group(
+    y: pd.Series,
+    df: pd.DataFrame,
+    n_bins: int = 5,
+) -> pd.Series:
+    """按每日分组将连续标签分桶为整数（0..n_bins-1）。
+
+    LambdaRank 需要整数标签表示相关性等级。
+    每个交易日内，按标签值排名后均匀分桶。
+    """
+
+    result = pd.Series(index=y.index, dtype=int)
+    for trade_date, group_df in df.groupby("trade_date", sort=False):
+        idx = group_df.index
+        y_group = y.loc[idx]
+        if len(y_group) == 0:
+            continue
+        # 按排名分桶：rank 1..N → bin 0..n_bins-1
+        ranks = y_group.rank(method="first", ascending=True)
+        bins = ((ranks - 1) * n_bins / len(y_group)).astype(int).clip(0, n_bins - 1)
+        result.loc[idx] = bins
+    return result
 
 
 def _flatten_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
@@ -249,6 +273,7 @@ def train_model(
     walk_forward: bool = True,
     seed: int = 42,
     job_id: UUID | None = None,
+    progress_callback: ProgressCallback | None = None,
     hyperparams: dict[str, Any] | None = None,
     walk_forward_params: dict[str, Any] | None = None,
     with_shap: bool = True,
@@ -264,13 +289,18 @@ def train_model(
         lgb_num_boost_round / lgb_early_stopping_rounds
     """
 
+    def _progress(progress: int, stage: str) -> None:
+        if progress_callback is not None:
+            progress_callback(progress, stage)
+        if job_id is not None:
+            update_progress(job_id, progress, stage=stage)
+
     if model != "lgb-lambdarank":
         raise ValueError(
             f"M2/M3 只支持 model='lgb-lambdarank'（其它后续里程碑接入），got {model!r}"
         )
 
-    if job_id is not None:
-        update_progress(job_id, 0, stage="train:start")
+    _progress(0, "train:start")
 
     # ---- 1. 数据加载 ----
     df = _load_feature_matrix(feature_set_id)
@@ -279,8 +309,7 @@ def train_model(
     latest_trade_date = _latest_trade_date_from_features(df)
     gate_check(latest_trade_date, mode="training_pregate", strict=True, job_id=job_id)
 
-    if job_id is not None:
-        update_progress(job_id, 10, stage="train:data_loaded")
+    _progress(10, "train:data_loaded")
 
     X_all, feature_cols = _flatten_features(df)
     y_all = df["label"]
@@ -292,6 +321,9 @@ def train_model(
     df_train = df.loc[valid_mask].reset_index(drop=True)
     X_all = X_all.loc[valid_mask].reset_index(drop=True)
     y_all = y_all.loc[valid_mask].reset_index(drop=True)
+
+    # LambdaRank 需要整数标签（0..K），按每日分组分桶
+    y_all = _bin_labels_by_group(y_all, df_train, n_bins=5)
 
     if walk_forward:
         from quant_pipeline.training.walk_forward_runner import train_walk_forward
@@ -309,6 +341,7 @@ def train_model(
             latest_trade_date=latest_trade_date,
             insert_model_run=_insert_model_run,
             write_artifact=_write_artifact,
+            progress_callback=_progress,
         )
     else:
         result = _train_single_fold(
@@ -383,8 +416,7 @@ def _train_single_fold(
         num_boost_round=DEFAULT_NUM_BOOST_ROUND,
     )
 
-    if job_id is not None:
-        update_progress(job_id, 50, stage="train:fit_done")
+    _progress(50, "train:fit_done")
 
     scores_test = booster.predict(X_test.values)
     ndcg10 = _ndcg_at_k(scores_test, y_test.to_numpy(), groups_test, k=10)
@@ -407,8 +439,7 @@ def _train_single_fold(
         "walk_forward": False,
     }
 
-    if job_id is not None:
-        update_progress(job_id, 75, stage="train:eval_done")
+    _progress(75, "train:eval_done")
 
     run_id = uuid4()
     today_yyyymmdd = datetime.now(timezone.utc).strftime("%Y%m%d")
@@ -459,8 +490,7 @@ def _train_single_fold(
             pass
         raise
 
-    if job_id is not None:
-        update_progress(job_id, 100, stage="train:done")
+    _progress(100, "train:done")
 
     logger.info(
         "train_done",

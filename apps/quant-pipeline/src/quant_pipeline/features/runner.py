@@ -26,6 +26,7 @@ from quant_pipeline.features.builder import (
 )
 from quant_pipeline.worker.progress import (
     JobCancelled,
+    ProgressCallback,
     check_cancel_requested,
     update_progress,
 )
@@ -238,8 +239,19 @@ def build_feature_matrix(
     label_scheme: str,
     date_range: str,
     job_id: UUID | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> str:
-    """构建并落库 feature_matrix；返回 feature_set_id。"""
+    """构建并落库 feature_matrix；返回 feature_set_id。
+
+    参数：
+        progress_callback: 可选，CLI 终端进度条回调 (progress, stage) -> None
+    """
+
+    def _progress(progress: int, stage: str) -> None:
+        if progress_callback is not None:
+            progress_callback(progress, stage)
+        if job_id is not None:
+            update_progress(job_id, progress, stage=stage)
 
     start, end = date_range.split(":")
     if len(start) != 8 or len(end) != 8:
@@ -247,8 +259,7 @@ def build_feature_matrix(
 
     if job_id is not None and check_cancel_requested(job_id):
         raise JobCancelled
-    if job_id is not None:
-        update_progress(job_id, 10, stage="features:load")
+    _progress(10, "features:load")
 
     daily_factors = _load_daily_factors(factor_version, start, end)
     labels = _load_labels(label_scheme, start, end)
@@ -266,12 +277,10 @@ def build_feature_matrix(
                 "labels_rows": len(labels),
             },
         )
-        if job_id is not None:
-            update_progress(job_id, 100, stage="features:empty")
+        _progress(100, "features:empty")
         return feature_set_id
 
-    if job_id is not None:
-        update_progress(job_id, 30, stage="features:compute")
+    _progress(30, "features:compute")
 
     bundle = build_feature_matrix_from_frames(
         daily_factors=daily_factors,
@@ -282,8 +291,7 @@ def build_feature_matrix(
         label_scheme=label_scheme,
     )
 
-    if job_id is not None:
-        update_progress(job_id, 70, stage="features:upsert")
+    _progress(70, "features:upsert")
 
     _upsert_feature_set(
         feature_set_id=bundle.feature_set_id,
@@ -305,8 +313,7 @@ def build_feature_matrix(
         },
     )
 
-    if job_id is not None:
-        update_progress(job_id, 100, stage="features:done")
+    _progress(100, "features:done")
     return bundle.feature_set_id
 
 

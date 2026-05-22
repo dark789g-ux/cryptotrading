@@ -6,8 +6,21 @@
 from __future__ import annotations
 
 import typer
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from quant_pipeline.config.logging import setup_logging
+
+console = Console(force_terminal=True)
+
+
+def _make_progress_callback(progress: Progress, task_id: int):
+    """创建 CLI 进度回调函数，用于 runner 报告进度。"""
+
+    def callback(pct: int, stage: str) -> None:
+        progress.update(task_id, completed=pct, description=f"[cyan]{stage}")
+
+    return callback
 
 
 def cmd_train(
@@ -26,6 +39,11 @@ def cmd_train(
         "--seed",
         help="复现 seed；同时写入 model_version 后缀",
     ),
+    progress: bool = typer.Option(
+        False,
+        "--progress",
+        help="显示终端进度条",
+    ),
 ) -> None:
     """直接调 training.runner（CLI 直跑，不写 ml.jobs）。
 
@@ -37,11 +55,28 @@ def cmd_train(
     from quant_pipeline.training.runner import train_one_fold
 
     try:
-        result = train_one_fold(
-            feature_set_id=feature_set,
-            model=model,
-            seed=seed,
-        )
+        if progress:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console,
+            ) as prog:
+                task = prog.add_task("train:loading", total=100)
+                callback = _make_progress_callback(prog, task)
+                result = train_one_fold(
+                    feature_set_id=feature_set,
+                    model=model,
+                    seed=seed,
+                    progress_callback=callback,
+                )
+        else:
+            result = train_one_fold(
+                feature_set_id=feature_set,
+                model=model,
+                seed=seed,
+            )
     except QualityGateBlocked as exc:
         typer.echo(f"TRAIN BLOCKED rule={exc.rule} detail={exc.detail}", err=True)
         raise typer.Exit(code=1) from exc
@@ -75,6 +110,11 @@ def cmd_infer(
         ...,
         "--date",
         help="推理交易日 YYYYMMDD",
+    ),
+    progress: bool = typer.Option(
+        False,
+        "--progress",
+        help="显示终端进度条",
     ),
 ) -> None:
     """直接调 inference.runner（CLI 直跑，不写 ml.jobs）。
@@ -113,7 +153,23 @@ def cmd_infer(
         raise typer.Exit(code=2)
 
     try:
-        n = run_inference(model_version=mv, trade_date=date)
+        if progress:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console,
+            ) as prog:
+                task = prog.add_task("infer:loading", total=100)
+                callback = _make_progress_callback(prog, task)
+                n = run_inference(
+                    model_version=mv,
+                    trade_date=date,
+                    progress_callback=callback,
+                )
+        else:
+            n = run_inference(model_version=mv, trade_date=date)
     except QualityGateBlocked as exc:
         typer.echo(f"INFER BLOCKED rule={exc.rule} detail={exc.detail}", err=True)
         raise typer.Exit(code=1) from exc

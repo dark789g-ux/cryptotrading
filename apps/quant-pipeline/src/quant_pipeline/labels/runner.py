@@ -34,6 +34,7 @@ from quant_pipeline.labels.strategy_aware import (
 )
 from quant_pipeline.worker.progress import (
     JobCancelled,
+    ProgressCallback,
     check_cancel_requested,
     update_progress,
 )
@@ -186,14 +187,22 @@ def compute_labels(
     scheme: str,
     date_range: str,
     job_id: UUID | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> int:
     """计算并 upsert 标签；返回写入的行数。
 
     参数：
-        scheme:     "strategy-aware"（M2 暂仅支持）
-        date_range: "YYYYMMDD:YYYYMMDD"
-        job_id:     可选，传入则在每日完成后写 progress
+        scheme:            "strategy-aware"（M2 暂仅支持）
+        date_range:        "YYYYMMDD:YYYYMMDD"
+        job_id:            可选，传入则在每日完成后写 progress
+        progress_callback: 可选，CLI 终端进度条回调 (progress, stage) -> None
     """
+
+    def _progress(progress: int, stage: str) -> None:
+        if progress_callback is not None:
+            progress_callback(progress, stage)
+        if job_id is not None:
+            update_progress(job_id, progress, stage=stage)
 
     if scheme not in (LABEL_SCHEME, SCHEME_FWD_5D_RET):
         raise NotImplementedError(
@@ -228,8 +237,7 @@ def compute_labels(
 
     if job_id is not None and check_cancel_requested(job_id):
         raise JobCancelled
-    if job_id is not None:
-        update_progress(job_id, 10, stage="labels:load")
+    _progress(10, "labels:load")
 
     if scheme == LABEL_SCHEME:
         labels_df = compute_strategy_aware_labels(
@@ -240,7 +248,8 @@ def compute_labels(
                 delist=delist if not delist.empty else None,
                 listing=listing if not listing.empty else None,
                 entries=entries,
-            )
+            ),
+            progress_callback=_progress if progress_callback is not None else None,
         )
     else:
         # fwd_5d_ret 兜底（doc/04 §4.1）
@@ -254,23 +263,20 @@ def compute_labels(
         labels_df = labels_df.loc[
             (labels_df["trade_date"] >= start) & (labels_df["trade_date"] <= end)
         ].reset_index(drop=True)
-    if job_id is not None:
-        update_progress(job_id, 60, stage="labels:compute")
+    _progress(60, "labels:compute")
 
     if labels_df.empty:
         logger.warning(
             "labels_empty",
             extra={"date_range": date_range, "scheme": scheme},
         )
-        if job_id is not None:
-            update_progress(job_id, 100, stage="labels:done")
+        _progress(100, "labels:done")
         return 0
 
     rows = labels_df.to_dict("records")
     n = _upsert_labels(rows)
 
-    if job_id is not None:
-        update_progress(job_id, 100, stage="labels:done")
+    _progress(100, "labels:done")
     logger.info(
         "labels_written",
         extra={"date_range": date_range, "scheme": scheme, "rows": n},

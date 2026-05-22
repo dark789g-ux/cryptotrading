@@ -51,6 +51,7 @@ def train_walk_forward(
     latest_trade_date: str,
     insert_model_run: Any,
     write_artifact: Any,
+    progress_callback: Any = None,
 ) -> Any:
     """M3 Walk-Forward + 三组对照 + 集成。
 
@@ -82,10 +83,14 @@ def train_walk_forward(
     progress_end = 90
 
     def _fold_progress(done: int, total: int) -> None:
-        if job_id is None or total <= 0:
+        if total <= 0:
             return
         pct = progress_start + (progress_end - progress_start) * done // total
-        update_progress(job_id, int(pct), stage=f"train:wf_fold_{done}/{total}")
+        stage = f"train:wf_fold_{done}/{total}"
+        if progress_callback is not None:
+            progress_callback(int(pct), stage)
+        if job_id is not None:
+            update_progress(job_id, int(pct), stage=stage)
 
     summary = compare_three(
         df_train,
@@ -106,13 +111,10 @@ def train_walk_forward(
         update_progress(job_id, progress_end, stage="train:wf_done")
 
     # 以 LambdaRank 整段 booster 作为生产推理用 artifact
-    from quant_pipeline.evaluation.ab_compare import _label_to_cross_sectional_rank
-
     final_groups = build_groups(df_train)
-    y_all_rank = _label_to_cross_sectional_rank(df_train, y_all)
     final_booster = train_lambdarank(
         X_all,
-        y_all_rank,
+        y_all,
         final_groups,
         hyperparams=hyperparams,
         seed=seed,
@@ -305,11 +307,6 @@ def build_ensemble_daily_returns(
         df_test = df_train.iloc[test_idx].reset_index(drop=True)
         groups_train = build_groups(df_train.iloc[train_idx].reset_index(drop=True))
 
-        from quant_pipeline.evaluation.ab_compare import _label_to_cross_sectional_rank
-
-        y_train_rank = _label_to_cross_sectional_rank(
-            df_train.iloc[train_idx].reset_index(drop=True), y_train
-        )
         lin = train_linear(X_train, y_train, seed=seed)
         s_lin = predict_linear(lin, X_test)
         gbdt = train_gbdt_pointwise(
@@ -318,7 +315,7 @@ def build_ensemble_daily_returns(
         )
         s_gbdt = predict_gbdt_pointwise(gbdt, X_test)
         lr = train_lambdarank(
-            X_train, y_train_rank, groups_train,
+            X_train, y_train, groups_train,
             hyperparams=lgb_hyperparams,
             num_boost_round=lgb_num_boost_round, early_stopping_rounds=None, seed=seed,
         )

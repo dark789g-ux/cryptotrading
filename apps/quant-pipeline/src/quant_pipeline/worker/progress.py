@@ -6,18 +6,22 @@
 - payload 总长 ≤ 1KB，禁止携带日志正文 / 堆栈 / 数组
 - heartbeat 不发 NOTIFY，只刷 heartbeat_at
 - warn_with_quality_report：日志 + ml.quality_reports 双写（04 §2 规范，M0 预留接口）
+- ProgressCallback：CLI 终端进度条回调（M2 新增）
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
 from sqlalchemy import text
 
 from quant_pipeline.db.engine import session_scope
+
+# CLI 进度回调类型：(progress: int, stage: str) -> None
+ProgressCallback = Callable[[int, str], None]
 
 logger = logging.getLogger(__name__)
 

@@ -12,10 +12,25 @@ Part E 追加 quality 子命令（check / pit-audit）。
 
 from __future__ import annotations
 
+from typing import Callable
+
 import typer
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from quant_pipeline import __version__
 from quant_pipeline.config.logging import setup_logging
+
+console = Console(force_terminal=True)
+
+
+def _make_progress_callback(progress: Progress, task_id: int) -> Callable[[int, str], None]:
+    """创建 CLI 进度回调函数，用于 runner 报告进度。"""
+
+    def callback(pct: int, stage: str) -> None:
+        progress.update(task_id, completed=pct, description=f"[cyan]{stage}")
+
+    return callback
 
 app = typer.Typer(
     name="quant",
@@ -201,6 +216,11 @@ def labels_build(
         "--date-range",
         help="信号日范围 YYYYMMDD:YYYYMMDD",
     ),
+    progress: bool = typer.Option(
+        False,
+        "--progress",
+        help="显示终端进度条",
+    ),
 ) -> None:
     """计算 strategy-aware / fwd_5d_ret 标签，upsert 到 factors.labels。
 
@@ -211,7 +231,25 @@ def labels_build(
     setup_logging()
     from quant_pipeline.labels.runner import compute_labels
 
-    n = compute_labels(scheme=scheme, date_range=date_range, job_id=None)
+    if progress:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as prog:
+            task = prog.add_task("labels:loading", total=100)
+            callback = _make_progress_callback(prog, task)
+            n = compute_labels(
+                scheme=scheme,
+                date_range=date_range,
+                job_id=None,
+                progress_callback=callback,
+            )
+    else:
+        n = compute_labels(scheme=scheme, date_range=date_range, job_id=None)
+
     typer.echo(f"labels build scheme={scheme} {date_range}: rows_upserted={n}")
 
 
@@ -237,18 +275,42 @@ def features_build(
         "--date-range",
         help="构建窗口 YYYYMMDD:YYYYMMDD",
     ),
+    progress: bool = typer.Option(
+        False,
+        "--progress",
+        help="显示终端进度条",
+    ),
 ) -> None:
     """构建并 upsert feature_matrix（含 feature_sets 元数据）。"""
 
     setup_logging()
     from quant_pipeline.features.runner import build_feature_matrix
 
-    feature_set_id = build_feature_matrix(
-        factor_version=factor_version,
-        label_scheme=label_scheme,
-        date_range=date_range,
-        job_id=None,
-    )
+    if progress:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as prog:
+            task = prog.add_task("features:loading", total=100)
+            callback = _make_progress_callback(prog, task)
+            feature_set_id = build_feature_matrix(
+                factor_version=factor_version,
+                label_scheme=label_scheme,
+                date_range=date_range,
+                job_id=None,
+                progress_callback=callback,
+            )
+    else:
+        feature_set_id = build_feature_matrix(
+            factor_version=factor_version,
+            label_scheme=label_scheme,
+            date_range=date_range,
+            job_id=None,
+        )
+
     typer.echo(
         f"features build factor_version={factor_version} label_scheme={label_scheme} "
         f"{date_range}: feature_set_id={feature_set_id}"

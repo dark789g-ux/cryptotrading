@@ -139,59 +139,33 @@
 
 > 因子库就绪后，跑出第一个能写 `ml.scores_daily` 的模型。
 
-- [ ] 生成标签
-  ```powershell
-  uv run quant labels build --scheme strategy-aware --date-range 20200101:20260517
-  ```
+- [x] 生成标签（4,237,745 行，strategy-aware，20200101-20260517）
+- [x] 构建特征矩阵（feature_set_id=`fs_60bc257fb173`，4,234,027 行，16 因子）
+- [x] 训练 Walk-Forward LightGBM（6 折 + embargo 21 日，model_version=`lgb-lambdarank-v1-20260521-seed42`）
+- [x] 推理一天（20260515，写入 5495 行）
+- [x] **M2 验收**：scores 行数严格等于 daily_quote 当日股票数（5495 == 5495 ✅）
+- [x] **M2 验收**：model.txt 能被 LightGBM CLI 独立加载（16 features, 500 trees ✅）
 
-- [ ] 构建特征矩阵
-  ```powershell
-  uv run quant features build --factor-version v1 --label-scheme strategy-aware
-  # 记下输出的 feature_set_id（形如 fs_xxxxxxxx）
-  ```
-
-- [ ] 训练单 fold LightGBM（M2 不接 Walk-Forward）
-  ```powershell
-  uv run quant train --feature-set fs_xxxxxxxx --model lgb-lambdarank --seed 42
-  # 记下输出的 model_version（形如 lgb-lambdarank-v1-20260517-seed42）
-  ```
-
-- [ ] 推理一天
-  ```powershell
-  uv run quant infer --model-version lgb-lambdarank-v1-20260517-seed42 --date 20260516
-  ```
-
-- [ ] **M2 验收**：scores 行数严格等于 daily_quote 当日股票数
-  ```sql
-  SELECT (SELECT count(*) FROM raw.daily_quote WHERE trade_date='20260516') AS raw_n,
-         (SELECT count(*) FROM ml.scores_daily WHERE trade_date='20260516') AS scored_n;
-  ```
-
-- [ ] **M2 验收**：model.txt 能被 LightGBM CLI 独立加载
-  ```powershell
-  uv run python -c "import lightgbm as lgb; b=lgb.Booster(model_file='./artifacts/<uuid>/model.txt'); print('trees:', b.num_trees(), 'features:', len(b.feature_name()))"
-  ```
+> 训练中修复的 bug：
+> - LambdaRank 需要整数标签 → 新增 `_bin_labels_by_group()` 按每日分组分桶
+> - walk-forward 路径缺少 `progress_callback` → 已添加
+> - 推理时特征矩阵缺失股票 → 自动补齐 NaN 分数 + 排名
 
 ---
 
 ## 3. M3 Walk-Forward + 三组对照 + 前端 v1（约 2-3 小时）
 
-- [ ] 跑 Walk-Forward 训练（6 折 + embargo 21 日，**会比 M2 慢 6 倍**）
-  ```powershell
-  uv run quant train --feature-set fs_xxxxxxxx --model lgb-lambdarank --walk-forward
-  ```
+- [x] 跑 Walk-Forward 训练（6 折 + embargo 21 日）
+  > 已于 2026-05-22 完成，model_version=`lgb-lambdarank-v1-20260521-seed42`
+  > 三组对照 + 集成指标：见 `artifacts/8a2cfbbb-2fb8-4102-94b5-d30dd849864d/report.md`
 
-- [ ] 跑三组对照实验
-  ```powershell
-  uv run quant evaluate --run-id <model_run_uuid> --ab-baseline linear,gbdt
-  # 报告输出到：./artifacts/<run_id>/report.md
-  ```
+- [x] 跑三组对照实验（linear / gbdt-pointwise / lgb-lambdarank / ensemble）
 
 - [ ] **M3 阻塞门槛**（不达不能进 M4）：
   ```
   GBDT vs 线性 OOS NDCG@10 绝对值提升 ≥ 0.015（如 0.500 → ≥ 0.515）
   ```
-  - 不达 → 排查方向：标签 5 个坑实现 / 因子覆盖不足 / 中性化没生效
+  - 当前：GBDT NDCG@10=0.3868, Linear NDCG@10=0.3471, 提升=0.0397 ✅
   - 达 → 进 M4
 
 - [ ] 前端三页手测（启动 web dev server）

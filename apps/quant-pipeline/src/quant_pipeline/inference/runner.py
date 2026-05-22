@@ -35,7 +35,7 @@ from quant_pipeline.db.engine import session_scope
 from quant_pipeline.inference.score_writer import write_scores
 from quant_pipeline.quality.report import gate_check
 from quant_pipeline.utils.paths import artifact_root
-from quant_pipeline.worker.progress import update_progress
+from quant_pipeline.worker.progress import ProgressCallback, update_progress
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +144,14 @@ def _load_daily_feature_section(
 # ----------------------------------------------------------------------
 
 
+def _load_all_ts_codes(session: Session, trade_date: str) -> list[str]:
+    """从 raw.daily_quote 取当日所有 ts_code。"""
+
+    sql = text("SELECT ts_code FROM raw.daily_quote WHERE trade_date = :td ORDER BY ts_code")
+    rows = session.execute(sql, {"td": trade_date}).scalars().all()
+    return [str(r) for r in rows]
+
+
 def predict_one_day(
     model_version: str,
     trade_date: str,
@@ -203,20 +211,32 @@ def predict_one_day(
             "score": np.asarray(scores, dtype=float),
         }
     )
+
+    # 补齐 daily_quote 中缺失的股票（特征不足无法预测的填 NaN）
+    all_codes = _load_all_ts_codes(session, trade_date)
+    if all_codes:
+        existing = set(out["ts_code"])
+        missing = [c for c in all_codes if c not in existing]
+        if missing:
+            nan_rows = pd.DataFrame({"ts_code": missing, "score": np.nan})
+            out = pd.concat([out, nan_rows], ignore_index=True)
+
     # 计算 rank_in_day（按 score desc）并按 rank 排序
     out = _attach_rank_in_day(out)
     return out
 
 
 def _attach_rank_in_day(df: pd.DataFrame) -> pd.DataFrame:
-    """按 score desc 排名；同分用 method='first' 保证整数 1..N 唯一。"""
+    """按 score desc 排名；NaN 排末尾；同分用 method='first' 保证整数唯一。"""
 
     if df.empty:
         out = df.copy()
         out["rank_in_day"] = pd.Series([], dtype=int)
         return out
     n = len(df)
-    asc_rank = df["score"].rank(method="first", ascending=True).astype(int)
+    # NaN 排最后：fillna(-inf) 做 ascending rank，NaN 股票拿到最大 rank
+    filled = df["score"].fillna(-np.inf)
+    asc_rank = filled.rank(method="first", ascending=True).astype(int)
     out = df.assign(rank_in_day=(n + 1 - asc_rank).astype(int))
     return out.sort_values("score", ascending=False).reset_index(drop=True)
 
@@ -231,6 +251,7 @@ def run_inference(
     model_version: str,
     trade_date: str,
     job_id: UUID | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> int:
     """完整推理流程；返回写入 ml.scores_daily 的行数。
 
@@ -240,22 +261,25 @@ def run_inference(
         ValueError / FileNotFoundError 见各分支
     """
 
+    def _progress(progress: int, stage: str) -> None:
+        if progress_callback is not None:
+            progress_callback(progress, stage)
+        if job_id is not None:
+            update_progress(job_id, progress, stage=stage)
+
     if len(trade_date) != 8 or not trade_date.isdigit():
         raise ValueError(f"trade_date 必须是 YYYYMMDD，got {trade_date!r}")
 
-    if job_id is not None:
-        update_progress(job_id, 0, stage="infer:start")
+    _progress(0, "infer:start")
 
     # 1) 推理前必检（spec 04 §2 硬约束；不允许任何半量写入）
     gate_check(trade_date, mode="inference_pregate", strict=True, job_id=job_id)
-    if job_id is not None:
-        update_progress(job_id, 20, stage="infer:quality_passed")
+    _progress(20, "infer:quality_passed")
 
     # 2) 预测 + 3) 写库 共用同一 session 事务
     with session_scope() as session:
         df = predict_one_day(model_version, trade_date, session)
-        if job_id is not None:
-            update_progress(job_id, 70, stage="infer:scored")
+        _progress(70, "infer:scored")
         written = write_scores(
             df,
             model_version=model_version,
@@ -264,8 +288,7 @@ def run_inference(
             enforce_row_count=True,
         )
 
-    if job_id is not None:
-        update_progress(job_id, 100, stage="infer:done")
+    _progress(100, "infer:done")
 
     logger.info(
         "infer_done",
