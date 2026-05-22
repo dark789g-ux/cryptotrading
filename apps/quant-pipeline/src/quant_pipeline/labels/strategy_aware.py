@@ -3,13 +3,18 @@
 
 调用 strategy.exit_rules.simulate_exit 对每个 (signal_date, ts_code) 模拟
 "次日开盘买入 → 触发出场规则" 产生标签：
-  value       = (exit_price - buy_price) / buy_price - 双边成本
+  value       = (exit_price - buy_price) / buy_price - 双边成本（净收益）
   exit_reason = ma5_break / stop_loss / max_hold / force_close
   hold_days   = 实际持仓交易日数
 
-入场日规范（doc/04 §4.2.3）：
-  signal_date = T；buy_date = T+1（下一交易日）。
-  buy_price = T+1 日 close（M2 简化；未来回测可换 VWAP）。
+入场日规范（doc/04 §4.2.3）—— 真 T+1 入场：
+  signal_date = T；buy_date = T+1（窗口交易日历中 T 的下一交易日）。
+  buy_price = T+1 日 close_adj（后复权；M2 简化，未来回测可换 VWAP）。
+  收益率统一用后复权价 close_adj（见 spec 01）。
+
+口径声明（见 spec 02 §item-4）：
+  strategy-aware 的 value 为**净收益**（已扣 ROUND_TRIP_COST 双边成本）；
+  strategy-aware 为 **T+1 入场**。与 fwd_5d_ret（毛收益、T 日起算）口径不同。
 
 写入 factors.labels (trade_date = signal_date, ts_code,
                      scheme='strategy-aware', value, exit_reason, hold_days)。
@@ -24,12 +29,10 @@
   2. filter_suspended_on_entry     停牌：T+1 停牌 → 跳过；持仓期停牌挂起由
                                    exit_rules 内部处理（hold_days 不递增）
   3. filter_new_listing            新股：上市 < 60 个交易日 → 跳过
-  4. apply_delisting_force_close   退市：持仓期触及退市日 → 强制平仓按最后交易价
-                                   （exit_rules 已经接受 force_close_date 入参；
-                                   本函数作为兜底校正 reason）
-  5. winsorize_label_value         强右偏分布：features 层做温和截尾；labels 仅
-                                   保留原始 value（marker，便于 features.builder
-                                   引用同一个函数）
+  4. 退市 force_close              退市：force_close 完全由 simulate_exit 的
+                                   force_close_date 入参处理，无独立函数
+  5. winsorize_label_value         强右偏温和截尾在 features 层做，labels 不实现
+                                   截尾；本函数为共享实现，由 features.builder 复用
 
 CLAUDE.md 硬约束：
   - upsert 前 PK 去重（runner 负责）
@@ -39,17 +42,27 @@ CLAUDE.md 硬约束：
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, replace
-from typing import Any, Callable, Final
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Callable, Final
 
 import numpy as np
 import pandas as pd
 
+from quant_pipeline.labels._common import (
+    PROGRESS_SIMULATE_SPAN,
+    PROGRESS_SIMULATE_START,
+    dedup_labels,
+    derive_delist_map,
+    derive_limit_up_set,
+    derive_list_date_map,
+    derive_suspended_set,
+    empty_labels_frame,
+)
 from quant_pipeline.strategy.exit_rules import (
     EXIT_FORCE_CLOSE,
     EXIT_STOP_LOSS,
-    ExitOutcome,
+    MAX_HOLD_DAYS,
     default_rules,
     simulate_exit,
 )
@@ -71,7 +84,8 @@ LIMIT_TOLERANCE: Final[float] = 0.005
 # 新股门槛（doc/04 §4.3 推荐 60 个交易日）
 NEW_LISTING_MIN_DAYS: Final[int] = 60
 
-# 强右偏温和截尾（features 层用）
+# 强右偏温和截尾阈值（坑 5）。labels 不实现截尾，截尾在 features 层做；
+# 这两个常量与 winsorize_label_value 由 features.builder 复用（见函数 docstring）。
 WINSORIZE_LO: Final[float] = -0.5
 WINSORIZE_HI: Final[float] = 0.5
 
@@ -84,7 +98,7 @@ def filter_limit_up_on_entry(
     entries: pd.DataFrame,
     *,
     limit_up_set: set[tuple[str, str]],
-    entry_col: str = "entry_date",
+    entry_col: str = "buy_date",
 ) -> pd.DataFrame:
     """坑 1：T+1 涨停 → 跳过该候选。
 
@@ -113,7 +127,7 @@ def filter_suspended_on_entry(
     entries: pd.DataFrame,
     *,
     suspended_set: set[tuple[str, str]],
-    entry_col: str = "entry_date",
+    entry_col: str = "buy_date",
 ) -> pd.DataFrame:
     """坑 2：T+1 停牌 → 跳过该候选。
 
@@ -143,13 +157,15 @@ def filter_new_listing(
     list_date_map: Mapping[str, str],
     trade_dates_sorted: list[str],
     min_days: int = NEW_LISTING_MIN_DAYS,
-    entry_col: str = "entry_date",
+    entry_col: str = "buy_date",
 ) -> pd.DataFrame:
-    """坑 3：上市 < min_days 个交易日 → 跳过。
+    """坑 3：上市 < min_days 个交易日 → 跳过（向量化）。
 
     list_date_map:      ts_code → list_date YYYYMMDD（raw.stock_basic.list_date）
     trade_dates_sorted: 全交易日历升序，用于计算"上市后第 N 个交易日"
     min_days:           交易日阈值（默认 60，doc/04 §4.3）
+
+    语义：list_date 缺失、或 list_date / buy_date 不在交易日历 → 保留。
     """
 
     if entries.empty:
@@ -158,44 +174,23 @@ def filter_new_listing(
         return entries.reset_index(drop=True)
     td_to_idx = {d: i for i, d in enumerate(trade_dates_sorted)}
 
-    def _ok(row: pd.Series) -> bool:
-        ts_code = str(row["ts_code"])
-        buy_date = str(row[entry_col])
-        list_date = list_date_map.get(ts_code)
-        if list_date is None:
-            return True  # 缺数据保留，调用方需保证全量传入
-        if list_date not in td_to_idx or buy_date not in td_to_idx:
-            return True
-        return td_to_idx[buy_date] - td_to_idx[list_date] >= min_days
-
-    mask = entries.apply(_ok, axis=1)
-    dropped = int((~mask).sum())
+    buy_idx = entries[entry_col].astype(str).map(td_to_idx)
+    list_date = entries["ts_code"].astype(str).map(list_date_map)
+    list_idx = list_date.map(td_to_idx)
+    keep = (
+        list_date.isna()
+        | list_idx.isna()
+        | buy_idx.isna()
+        | ((buy_idx - list_idx) >= min_days)
+    )
+    keep = keep.to_numpy(dtype=bool)
+    dropped = int((~keep).sum())
     if dropped > 0:
         logger.warning(
             "labels_filter_new_listing",
             extra={"dropped": dropped, "min_days": min_days},
         )
-    return entries.loc[mask].reset_index(drop=True)
-
-
-def apply_delisting_force_close(
-    outcome: ExitOutcome,
-    *,
-    delist_date_map: Mapping[str, str],
-) -> ExitOutcome:
-    """坑 4：持仓期触及退市日 → 强制平仓 (exit_reason='force_close')。
-
-    simulate_exit 已经接受 force_close_date 入参；本函数作为兜底纯函数，
-    用于已生成的 outcome 上重新校正 reason —— 例如调用方先模拟时未传
-    delist_map 后续才合入退市信息的场景。
-    """
-
-    delist = delist_date_map.get(outcome.ts_code)
-    if delist is None:
-        return outcome
-    if str(outcome.exit_date) >= str(delist):
-        return replace(outcome, exit_reason=EXIT_FORCE_CLOSE)
-    return outcome
+    return entries.loc[keep].reset_index(drop=True)
 
 
 def winsorize_label_value(
@@ -204,68 +199,14 @@ def winsorize_label_value(
     lo: float = WINSORIZE_LO,
     hi: float = WINSORIZE_HI,
 ) -> pd.Series:
-    """坑 5（marker）：features 层用的温和截尾。labels 仅记录原始 value。
+    """坑 5：强右偏温和截尾。labels.runner 不调用本函数（labels 保留原始 value）。
 
-    本函数为占位 / 共享实现，labels.runner 不调用它；features.builder 可复用。
+    本函数为共享实现，实际消费方是 features.builder（features 层做温和截尾）。
     """
 
     if values.empty:
         return values
     return values.clip(lower=lo, upper=hi)
-
-
-# ----------------------------------------------------------------------
-# 辅助：从 raw 数据派生 lookup 集合
-# ----------------------------------------------------------------------
-
-def derive_limit_up_set(
-    quotes: pd.DataFrame,
-    stk_limit: pd.DataFrame | None,
-    *,
-    tolerance: float = LIMIT_TOLERANCE,
-) -> set[tuple[str, str]]:
-    """从 raw.daily_quote + raw.stk_limit 派生"次日涨停"集合。
-
-    判定：close ≥ up_limit * (1 - tolerance)
-    """
-
-    if stk_limit is None or stk_limit.empty:
-        return set()
-    merged = quotes.merge(
-        stk_limit[["ts_code", "trade_date", "up_limit"]],
-        on=["ts_code", "trade_date"],
-        how="left",
-    )
-    out: set[tuple[str, str]] = set()
-    for _, row in merged.iterrows():
-        close = float(row["close"]) if pd.notna(row["close"]) else np.nan
-        up = float(row["up_limit"]) if pd.notna(row.get("up_limit")) else np.nan
-        if np.isfinite(close) and np.isfinite(up) and close >= up * (1 - tolerance):
-            out.add((str(row["ts_code"]), str(row["trade_date"])))
-    return out
-
-
-def derive_suspended_set(suspend_d: pd.DataFrame | None) -> set[tuple[str, str]]:
-    """从 raw.suspend_d 派生 (ts_code, trade_date) 集合。"""
-
-    if suspend_d is None or suspend_d.empty:
-        return set()
-    return {
-        (str(r["ts_code"]), str(r["trade_date"]))
-        for _, r in suspend_d.iterrows()
-    }
-
-
-def derive_delist_map(delist: pd.DataFrame | None) -> dict[str, str]:
-    if delist is None or delist.empty:
-        return {}
-    return {str(r["ts_code"]): str(r["delist_date"]) for _, r in delist.iterrows()}
-
-
-def derive_list_date_map(listing: pd.DataFrame | None) -> dict[str, str]:
-    if listing is None or listing.empty:
-        return {}
-    return {str(r["ts_code"]): str(r["list_date"]) for _, r in listing.iterrows()}
 
 
 # ----------------------------------------------------------------------
@@ -276,13 +217,19 @@ def derive_list_date_map(listing: pd.DataFrame | None) -> dict[str, str]:
 class LabelInputs:
     """compute_strategy_aware_labels 的入参容器。
 
-    daily_quotes: 必须含 [ts_code, trade_date, close]；可选 [low, ma5,
-                  is_suspended, is_limit_up, is_limit_down, is_delisted]
+    daily_quotes: 必须含 [ts_code, trade_date, close, close_adj]；可选
+                  [low, low_adj, adj_factor, ma5, is_suspended, is_limit_up,
+                  is_limit_down, is_delisted]。close_adj/low_adj 为后复权价
+                  （见 spec 01）。
     stk_limit:    raw.stk_limit
     suspend_d:    raw.suspend_d（[ts_code, trade_date]）
-    delist:       raw.stock_basic 中 delist_date 不空的行
-    listing:      raw.stock_basic 中 [ts_code, list_date]
-    entries:      可选；不提供则用 daily_quotes 的全部 (ts_code, trade_date) 作为信号集
+    delist:       退市信息中 delist_date 不空的行
+    listing:      上市信息 [ts_code, list_date]
+    entries:      可选；不提供则用 daily_quotes 的全部 (ts_code, trade_date) 作为
+                  信号集。entries 的 trade_date 列含义为信号日 T。
+    end:          可选；查询区间结束日 YYYYMMDD。用于「数据末尾截断」warning 的
+                  判别（exit_date >= end 才视为缓冲尾部截断，见 spec 03 §item-5）。
+                  缺省时退化为窗口最后一个交易日。
     """
 
     daily_quotes: pd.DataFrame
@@ -291,6 +238,7 @@ class LabelInputs:
     delist: pd.DataFrame | None = None
     listing: pd.DataFrame | None = None
     entries: pd.DataFrame | None = None
+    end: str | None = None
 
 
 def _augment_quotes_for_exit(
@@ -331,6 +279,22 @@ def _augment_quotes_for_exit(
     return out
 
 
+def _prices_for_simulator(sub: pd.DataFrame) -> pd.DataFrame:
+    """把 per-stock 切片转成 simulate_exit 需要的价格表。
+
+    close_adj → close、low_adj → low（spec 01 §2.6）：模拟器消费后复权价，
+    与 exit_rules 注释「含复权」一致。raw close/low 仅用于涨停派生（已在前置
+    阶段完成），此处不再需要。
+    """
+
+    out = sub.copy()
+    if "close_adj" in out.columns:
+        out["close"] = out["close_adj"]
+    if "low_adj" in out.columns:
+        out["low"] = out["low_adj"]
+    return out
+
+
 def compute_strategy_aware_labels(
     inputs: LabelInputs,
     progress_callback: Callable[[int, str], None] | None = None,
@@ -338,69 +302,96 @@ def compute_strategy_aware_labels(
     """计算 strategy-aware 标签长表（factors.labels 直接 upsert 列）。
 
     返回 DataFrame 列：trade_date / ts_code / scheme / value / exit_reason / hold_days
-    每条返回都对应一次"signal_date=T → buy_date=T 后下一交易日 → 触发出场"的完整模拟。
 
-    M2 简化：signal_date 与 buy_date 同日（即"当日收盘信号即当日收盘买入"），
-    这与 doc/04 §4.2.3 "T 日信号 / T+1 入场" 不严格对齐，但便于第一版接通；
-    未来需切换到 T+1 入场时只需改 _build_entries 中 buy_date 的提取规则。
-    本简化下 buy_price = entry 日 close、exit_price = exit 日 close（或 stop_price）。
+    每条返回都对应一次「signal_date=T → buy_date=T+1 → 触发出场」的完整模拟：
+      - trade_date 写信号日 T；
+      - buy_price = T+1 日 close_adj；
+      - exit_price 由 simulate_exit 给出（后复权价）；
+      - value = exit_price / buy_price - 1 - ROUND_TRIP_COST（净收益）。
+    信号日为窗口最后一个交易日、取不到 T+1 → 跳过该候选（边界样本，正常）。
     """
 
     quotes = inputs.daily_quotes
     if quotes is None or quotes.empty:
         logger.warning("labels_empty_quotes")
-        return _empty_labels()
+        return empty_labels_frame()
 
-    required = {"ts_code", "trade_date", "close"}
+    required = {"ts_code", "trade_date", "close", "close_adj"}
     if not required.issubset(quotes.columns):
         raise ValueError(
             f"daily_quotes 必须含列 {required}, got {list(quotes.columns)}"
         )
 
-    # 构造候选 entries
+    # 窗口交易日历（升序去重）。trade_date 为 YYYYMMDD 定宽字符串，字典序即时序。
+    trade_dates_sorted = sorted(quotes["trade_date"].astype(str).unique().tolist())
+    next_day = {
+        d: trade_dates_sorted[i + 1]
+        for i, d in enumerate(trade_dates_sorted[:-1])
+    }
+
+    # 构造候选 entries（trade_date = 信号日 T）
     if inputs.entries is not None and not inputs.entries.empty:
         cand = inputs.entries.copy()
-        if "entry_date" not in cand.columns and "trade_date" in cand.columns:
-            cand = cand.rename(columns={"trade_date": "entry_date"})
-        cand = cand[["ts_code", "entry_date"]].copy()
+        cand = cand[["ts_code", "trade_date"]].rename(
+            columns={"trade_date": "signal_date"}
+        )
     else:
         cand = quotes[["ts_code", "trade_date"]].rename(
-            columns={"trade_date": "entry_date"}
+            columns={"trade_date": "signal_date"}
         ).copy()
     cand["ts_code"] = cand["ts_code"].astype(str)
-    cand["entry_date"] = cand["entry_date"].astype(str)
+    cand["signal_date"] = cand["signal_date"].astype(str)
+
+    # 派生 buy_date = 信号日的下一交易日；取不到 → 丢弃（窗口末日边界样本）
+    cand["buy_date"] = cand["signal_date"].map(next_day)
+    cand = cand[cand["buy_date"].notna()].reset_index(drop=True)
+    if cand.empty:
+        logger.warning("labels_no_candidates_after_t1")
+        return empty_labels_frame()
 
     # 派生 lookup
-    limit_up_set = derive_limit_up_set(quotes, inputs.stk_limit)
+    limit_up_set = derive_limit_up_set(
+        quotes, inputs.stk_limit, tolerance=LIMIT_TOLERANCE
+    )
     suspended_set = derive_suspended_set(inputs.suspend_d)
     delist_map = derive_delist_map(inputs.delist)
     list_date_map = derive_list_date_map(inputs.listing)
-    trade_dates_sorted = sorted(quotes["trade_date"].astype(str).unique().tolist())
 
-    # 5 个坑 ① ② ③
-    cand = filter_limit_up_on_entry(cand, limit_up_set=limit_up_set)
-    cand = filter_suspended_on_entry(cand, suspended_set=suspended_set)
+    # 5 个坑 ① ② ③ —— 全部以 buy_date（T+1）为准
+    cand = filter_limit_up_on_entry(
+        cand, limit_up_set=limit_up_set, entry_col="buy_date"
+    )
+    cand = filter_suspended_on_entry(
+        cand, suspended_set=suspended_set, entry_col="buy_date"
+    )
     cand = filter_new_listing(
         cand,
         list_date_map=list_date_map,
         trade_dates_sorted=trade_dates_sorted,
+        entry_col="buy_date",
     )
 
     if cand.empty:
         logger.warning("labels_no_candidates_after_filters")
-        return _empty_labels()
+        return empty_labels_frame()
 
-    # 把 is_suspended / is_delisted 注入 quotes
+    # 把 is_suspended / is_delisted 注入 quotes，再转成模拟器消费的后复权价格表
     aug_quotes = _augment_quotes_for_exit(quotes, suspended_set, delist_map)
     grouped: dict[str, pd.DataFrame] = {
-        str(c): df.sort_values("trade_date").reset_index(drop=True)
+        str(c): _prices_for_simulator(
+            df.sort_values("trade_date").reset_index(drop=True)
+        )
         for c, df in aug_quotes.groupby("ts_code", sort=False)
     }
 
+    # 数据末尾截断 warning 的判别基准：查询区间 end，缺省退化为窗口末日
+    truncation_threshold = str(inputs.end) if inputs.end else trade_dates_sorted[-1]
+
     rules = default_rules()
     records: list[dict[str, object]] = []
+    # 按信号日去重（同一票同一信号日只保留一条候选）
     cand_dedup = cand.drop_duplicates(
-        subset=["ts_code", "entry_date"], keep="first"
+        subset=["ts_code", "signal_date"], keep="first"
     ).reset_index(drop=True)
 
     total = len(cand_dedup)
@@ -408,16 +399,17 @@ def compute_strategy_aware_labels(
 
     for i, (_, e) in enumerate(cand_dedup.iterrows()):
         if progress_callback is not None and i % report_interval == 0:
-            pct = 10 + int(50 * i / total)  # 10% ~ 60% 的进度范围
+            pct = PROGRESS_SIMULATE_START + int(PROGRESS_SIMULATE_SPAN * i / total)
             progress_callback(pct, f"labels:simulate {i}/{total}")
 
         ts_code = str(e["ts_code"])
-        entry_date = str(e["entry_date"])
+        signal_date = str(e["signal_date"])
+        buy_date = str(e["buy_date"])
         sub = grouped.get(ts_code)
         if sub is None or sub.empty:
             continue
         outcome = simulate_exit(
-            buy_date=entry_date,
+            buy_date=buy_date,
             ts_code=ts_code,
             prices_df=sub,
             rules=rules,
@@ -425,19 +417,36 @@ def compute_strategy_aware_labels(
         )
         if outcome is None:
             continue
-        # 坑 4 兜底（保险）
-        outcome = apply_delisting_force_close(outcome, delist_date_map=delist_map)
 
-        entry_row = sub.loc[sub["trade_date"] == entry_date]
-        if entry_row.empty:
+        buy_row = sub.loc[sub["trade_date"] == buy_date]
+        if buy_row.empty:
             continue
-        entry_close = float(entry_row.iloc[0]["close"])
-        if not np.isfinite(entry_close) or entry_close <= 0:
+        buy_close = float(buy_row.iloc[0]["close"])
+        if not np.isfinite(buy_close) or buy_close <= 0:
             continue
-        gross = float(outcome.exit_price) / entry_close - 1.0
+        gross = float(outcome.exit_price) / buy_close - 1.0
+
+        # 数据末尾截断暴露（spec 03 §item-5）：force_close 且未达 max_hold、
+        # 非真退市、退出日落在缓冲尾部 → warning
+        if (
+            outcome.exit_reason == EXIT_FORCE_CLOSE
+            and outcome.hold_days < MAX_HOLD_DAYS
+            and ts_code not in delist_map
+            and str(outcome.exit_date) >= truncation_threshold
+        ):
+            logger.warning(
+                "labels_force_close_truncated",
+                extra={
+                    "ts_code": ts_code,
+                    "signal_date": signal_date,
+                    "hold_days": int(outcome.hold_days),
+                    "exit_date": str(outcome.exit_date),
+                },
+            )
+
         records.append(
             {
-                "trade_date": entry_date,
+                "trade_date": signal_date,
                 "ts_code": ts_code,
                 "scheme": LABEL_SCHEME,
                 "value": gross - ROUND_TRIP_COST,
@@ -448,26 +457,12 @@ def compute_strategy_aware_labels(
 
     if not records:
         logger.warning("labels_no_outcomes")
-        return _empty_labels()
+        return empty_labels_frame()
 
     out = pd.DataFrame(records)
     # 按 PK 去重（与 runner._upsert_labels 双保险；CLAUDE.md 硬约束）
-    before = len(out)
-    out = out.drop_duplicates(
-        subset=["trade_date", "ts_code", "scheme"], keep="last"
-    ).reset_index(drop=True)
-    if len(out) != before:
-        logger.warning(
-            "labels_compute_dedup",
-            extra={"raw": before, "deduped": len(out)},
-        )
+    out = dedup_labels(out, log_key="labels_compute_dedup")
     return out[["trade_date", "ts_code", "scheme", "value", "exit_reason", "hold_days"]]
-
-
-def _empty_labels() -> pd.DataFrame:
-    return pd.DataFrame(
-        columns=["trade_date", "ts_code", "scheme", "value", "exit_reason", "hold_days"]
-    )
 
 
 __all__ = [
@@ -477,17 +472,11 @@ __all__ = [
     "NEW_LISTING_MIN_DAYS",
     "WINSORIZE_LO",
     "WINSORIZE_HI",
-    # 5 个坑
+    # 5 个坑（坑 1/2/3/5 有独立纯函数；坑 4 见模块 docstring）
     "filter_limit_up_on_entry",
     "filter_suspended_on_entry",
     "filter_new_listing",
-    "apply_delisting_force_close",
     "winsorize_label_value",
-    # 辅助
-    "derive_limit_up_set",
-    "derive_suspended_set",
-    "derive_delist_map",
-    "derive_list_date_map",
     # 主流程
     "LabelInputs",
     "compute_strategy_aware_labels",

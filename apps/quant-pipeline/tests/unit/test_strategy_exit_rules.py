@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from quant_pipeline.strategy.exit_rules import (
@@ -25,6 +26,7 @@ from quant_pipeline.strategy.exit_rules import (
     MA5BreakRule,
     MaxHoldRule,
     StopLossRule,
+    _last_valid_close,
     combine_rules,
     default_rules,
     simulate_exit,
@@ -244,6 +246,58 @@ def test_combine_rules_first_match_priority() -> None:
     )
     assert out2 is not None
     assert out2.exit_reason == EXIT_BELOW_MA5
+
+
+def test_last_valid_close_backtracks_to_previous_valid() -> None:
+    """退市日 close 为 NaN，前一交易日有效 → 回溯取前一日有效 close。"""
+
+    sub = pd.DataFrame(
+        [
+            {"trade_date": "20240102", "close": 10.0},
+            {"trade_date": "20240103", "close": 10.5},
+            {"trade_date": "20240104", "close": np.nan},
+        ]
+    )
+    # up_to_idx = 2（退市日），向前回溯 → 10.5
+    assert _last_valid_close(sub, 2, entry_price=99.0) == 10.5
+
+
+def test_last_valid_close_falls_back_to_entry_price_when_all_nan() -> None:
+    """全程 close 均 NaN → 退回 entry_price，不抛错。"""
+
+    sub = pd.DataFrame(
+        [
+            {"trade_date": "20240102", "close": np.nan},
+            {"trade_date": "20240103", "close": np.nan},
+        ]
+    )
+    assert _last_valid_close(sub, 1, entry_price=12.34) == 12.34
+
+
+def test_force_close_uses_last_valid_close_on_delisting_nan() -> None:
+    """退市日 close NaN、前一日有效 → force_close 的 exit_price 取前一日有效 close。"""
+
+    rows = [
+        {"trade_date": "20240102", "close": 10.0, "low": 9.9},
+        {"trade_date": "20240103", "close": 10.5, "low": 10.4},
+        {
+            "trade_date": "20240104",
+            "close": np.nan,
+            "low": np.nan,
+            "is_delisted": True,
+        },
+    ]
+    quotes = _build_quotes(rows)
+    out = simulate_exit(
+        buy_date="20240102",
+        ts_code="000001.SZ",
+        prices_df=quotes,
+        rules=default_rules(),
+    )
+    assert out is not None
+    assert out.exit_reason == EXIT_FORCE_CLOSE
+    # 退市日 close NaN → 回溯前一日有效 close 10.5，而非 entry_price 10.0
+    assert out.exit_price == 10.5
 
 
 def test_exit_postponed_on_limit_down_day() -> None:

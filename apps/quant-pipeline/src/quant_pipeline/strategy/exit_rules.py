@@ -12,7 +12,9 @@
    - MaxHoldRule(20)     持仓达上限强制平仓
 2. combine_rules() 提供 first-match 复合规则：按列表顺序，命中即返回。
 3. simulate_exit() 模拟从 buy_date 持仓到出场，处理：
-   - 停牌：持仓挂起，hold_days 不递增，不触发规则
+   - 停牌：A 股停牌日 raw.daily_quote 无行（Tushare daily 停牌不提供数据），停牌日
+     因缺行被自然跳过，hold_days 只数实际交易日 —— 这恰好实现「停牌挂起」语义。
+     函数内 is_suspended 列为冗余防御，正常数据下恒 False（停牌日根本没有行）。
    - 退市 / 数据末尾：强制平仓 force_close
    - 涨跌停（is_limit_up / is_limit_down）：调用方在标签层处理"出场日涨跌停顺延"，
      本模块只在 ExitDecision 层提供 limit-aware 的次日成交建议（pending_exit）。
@@ -20,13 +22,13 @@
 
 接口契约：
     simulate_exit(buy_date, ts_code, prices_df, rules,
-                  *, suspend_dates=None, force_close_date=None) -> ExitOutcome | None
+                  *, force_close_date=None) -> ExitOutcome | None
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -298,6 +300,9 @@ def simulate_exit(
         持仓期内 is_suspended=True 的交易日，hold_days 不递增、规则不触发，
         相当于"等复牌"。若停牌连续到 force_close_date / 数据末尾，由
         force_close / data-end 分支兜底（exit_reason=force_close）。
+        注意：A 股停牌日 raw.daily_quote 无行（Tushare daily 停牌不提供数据），
+        停牌日因缺行被自然跳过；is_suspended 列为冗余防御，正常数据下恒 False，
+        故 `if is_suspended` 持仓期分支几乎不执行。
 
     涨跌停处理：
         当日规则触发但 is_limit_down=True → 真实卖单挂跌停板，本模块退化为
@@ -330,9 +335,9 @@ def simulate_exit(
         row = sub.iloc[i]
         td = str(row["trade_date"])
 
-        # 退市：强制平仓（按当日 close，若 close NaN 按入场价兜底）
+        # 退市：强制平仓（按当日 close，若 close NaN 回溯最近有效 close）
         if bool(row["is_delisted"]):
-            close_val = float(row["close"]) if np.isfinite(float(row["close"])) else entry_price
+            close_val = _last_valid_close(sub, i, entry_price)
             return ExitOutcome(
                 ts_code=ts_code,
                 entry_date=str(buy_date),
@@ -344,7 +349,7 @@ def simulate_exit(
 
         # 外部强制平仓（如标签层探测到的退市公告日）
         if force_close_date is not None and td >= str(force_close_date):
-            close_val = float(row["close"]) if np.isfinite(float(row["close"])) else entry_price
+            close_val = _last_valid_close(sub, i, entry_price)
             return ExitOutcome(
                 ts_code=ts_code,
                 entry_date=str(buy_date),
@@ -362,12 +367,12 @@ def simulate_exit(
 
         close_val = float(row["close"])
         if not np.isfinite(close_val):
-            # 数据缺失视为强制平仓
+            # 数据缺失视为强制平仓（close NaN → 回溯最近有效 close）
             return ExitOutcome(
                 ts_code=ts_code,
                 entry_date=str(buy_date),
                 exit_date=td,
-                exit_price=entry_price,
+                exit_price=_last_valid_close(sub, i, entry_price),
                 exit_reason=EXIT_FORCE_CLOSE,
                 hold_days=hold_days,
             )
@@ -425,9 +430,10 @@ def simulate_exit(
         )
 
     # 数据末尾未触发任何规则：force_close 按最后一日 close
+    # （close NaN → 回溯最近有效 close）
     if len(sub) > 1:
         last_row = sub.iloc[-1]
-        last_close = float(last_row["close"]) if np.isfinite(float(last_row["close"])) else entry_price
+        last_close = _last_valid_close(sub, len(sub) - 1, entry_price)
         return ExitOutcome(
             ts_code=ts_code,
             entry_date=str(buy_date),
@@ -437,6 +443,21 @@ def simulate_exit(
             hold_days=hold_days,
         )
     return None
+
+
+def _last_valid_close(sub: pd.DataFrame, up_to_idx: int, entry_price: float) -> float:
+    """从 up_to_idx 向前（含）回溯最近一个有限 close；找不到退回 entry_price。
+
+    sub 为 simulate_exit 内已切片、按日升序的 DataFrame；strategy-aware 路径下
+    sub 的 close 列已是后复权价（close_adj），回溯到的也是复权价，口径一致。
+    保留 entry_price 末兜底，避免全程无有效值时崩溃。
+    """
+
+    for j in range(up_to_idx, -1, -1):
+        c = float(sub.iloc[j]["close"])
+        if np.isfinite(c):
+            return c
+    return entry_price
 
 
 def _find_first_tradable(sub: pd.DataFrame, *, start_idx: int) -> int | None:
