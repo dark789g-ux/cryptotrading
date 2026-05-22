@@ -24,9 +24,16 @@
 
 1. **`runner.py:225` `quotes.empty`** → `raise RuntimeError`，message 含 `date_range` /
    `scheme` / `end_padded`。窗口内一行 `daily_quote` 都没有是确凿数据缺口。
-2. **`runner.py:268` `labels_df.empty`** → `raise RuntimeError`，message 含
-   `date_range` / `scheme`。candidates 被过滤光、模拟全失败都会走到这里；对真实全市场
-   区间标签不该为空。
+2. **`labels_df.empty` 抛错 —— 但要分清判定时机**：
+   - `compute_strategy_aware_labels` / `compute_fwd_5d_ret` 的**原始输出**为空 →
+     `raise RuntimeError`（candidates 被过滤光、模拟全失败属真异常）。判定点放在
+     `compute_*` 调用返回后、**fallback 的 `[start,end]` 区间过滤之前**。
+   - ⚠️ fallback 路径 `runner.py:263-265` 在 `compute_fwd_5d_ret` 之后还做一次
+     `[start,end]` 区间过滤。`compute_fwd_5d_ret` 用 `end_padded` 的 quotes，每只票
+     末 5 行被 shift 丢弃属正常；若查询区间很短且都临近 `end`，**区间过滤后**合法地
+     为空。故区间过滤**之后**再为空 → 只 `logger.warning` + `return 0`，不 raise
+     （避免把正常的小区间查询误判为失败）。
+   - message 含 `date_range` / `scheme`。
 3. **`_load_stk_limit`（`runner.py:84-85`）空返回补 `logger.warning`** —— 与
    `_load_suspend`（`runner.py:107` 已有）对齐。message 注明「stk_limit 为空 → 本次
    涨停过滤失效」。

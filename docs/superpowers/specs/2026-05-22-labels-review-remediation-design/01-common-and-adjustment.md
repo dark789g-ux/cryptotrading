@@ -19,11 +19,11 @@ labels/_common.py
 ├─ derive_suspended_set()         │ 从 strategy_aware.py 迁入（向量化版见 04 §item-6）
 ├─ derive_delist_map()            │
 ├─ derive_list_date_map()         ┘
-└─ 进度常量：
+└─ 进度常量（不变式：见下）：
      PROGRESS_LOAD          = 10
-     PROGRESS_SIMULATE_START= 10
+     PROGRESS_SIMULATE_START= 10   # 不变式 PROGRESS_SIMULATE_START == PROGRESS_LOAD
      PROGRESS_SIMULATE_SPAN = 50
-     PROGRESS_COMPUTE_DONE  = 60
+     PROGRESS_COMPUTE_DONE  = 60   # 不变式 == PROGRESS_SIMULATE_START + PROGRESS_SIMULATE_SPAN
      PROGRESS_DONE          = 100
 ```
 
@@ -98,8 +98,10 @@ ORDER BY q.ts_code, q.trade_date
 
 ### 2.4 `apply_hfq` 实现
 
-复用 `factors/runner.py:215-221` **完全相同**的公式（窗口内该票 `max(adj_factor)`
-为基准）：
+复用 `factors/runner.py:220-221` 的**代码实现**（窗口内该票 `max(adj_factor)` 为
+基准）。注：`factors/runner.py` 模块 docstring 第 15-16 行把基准描述为「窗口最后一天
+的 adj_factor」—— 因 adj_factor 随时间单调递增，「窗口末日因子」与「窗口 max」等价，
+本 spec 以代码（`max`）为准：
 
 ```python
 def apply_hfq(df: pd.DataFrame) -> pd.DataFrame:
