@@ -50,11 +50,16 @@ def compute_psi(
     curr_pct = np.where(curr_pct < eps, eps, curr_pct)
     psi = float(np.sum((curr_pct - train_pct) * np.log(curr_pct / train_pct)))
 
+    def _edge(x: float) -> float | None:
+        # ±inf 写进 jsonb 是非法 JSON（06-quality.md 问题 17）：首尾哨兵边界
+        # 用 None 表示「无界」，避免 json.dumps 产出 Infinity 这种非法字面量。
+        return float(x) if np.isfinite(x) else None
+
     bins_detail = [
         {
             "bin_id": int(i),
-            "edge_lo": float(edges[i]) if np.isfinite(edges[i]) else float(edges[i]),
-            "edge_hi": float(edges[i + 1]) if np.isfinite(edges[i + 1]) else float(edges[i + 1]),
+            "edge_lo": _edge(edges[i]),
+            "edge_hi": _edge(edges[i + 1]),
             "train_pct": float(train_pct[i]),
             "curr_pct": float(curr_pct[i]),
         }

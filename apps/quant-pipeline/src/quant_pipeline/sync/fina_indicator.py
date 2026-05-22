@@ -120,29 +120,17 @@ def sync_fina_indicator_by_ts_code(
             }
         )
 
-    # 这里 indicators 是字符串；upsert_rows 把它当文本绑定，PG 会按 jsonb 列自动转换
-    # 但为安全显式 CAST 由 SQL 处理：indicators 列在表定义里是 jsonb，
-    # psycopg2 会用 text，PG 9+ 隐式 cast 失败时再回头改 CAST。
-    # 此处用 cast 兜底：在 upsert 的 set 里 EXCLUDED.indicators 会保留为 jsonb 值。
+    # indicators 是 json 文本字符串；交给 upsert_rows 的 jsonb_cols 生成
+    # CAST(:indicators AS jsonb) 占位符，避免 driver 把 jsonb 当 text 绑定。
     with session_scope() as session:
-        # 显式 cast 写入避免 driver 把 jsonb 当 text
-        from sqlalchemy import text
-
-        col_list = "ts_code, end_date, ann_date, indicators, update_flag"
-        placeholders = ":ts_code, :end_date, :ann_date, CAST(:indicators AS jsonb), :update_flag"
-        set_clause = (
-            "indicators = EXCLUDED.indicators, update_flag = EXCLUDED.update_flag, "
-            "updated_at = now()"
+        n = upsert_rows(
+            session,
+            table=TABLE,
+            rows=rows,
+            pk_cols=PK_COLS,
+            update_cols=UPDATE_COLS,
+            jsonb_cols=("indicators",),
         )
-        sql = text(
-            f"""
-            INSERT INTO {TABLE} ({col_list})
-            VALUES ({placeholders})
-            ON CONFLICT (ts_code, end_date, ann_date) DO UPDATE SET {set_clause}
-            """
-        )
-        session.execute(sql, rows)
-        n = len(rows)
 
     return SyncReport(api_name=API_NAME, rows_upserted=n, empty_path=None, params=dict(params))
 

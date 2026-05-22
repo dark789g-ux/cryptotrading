@@ -155,7 +155,7 @@ def test_run_daily_monitor_full_path(
             "oos_metrics": {"ic": 0.08, "ndcg@10": 0.12},
         },
         load_rolling_ic=lambda mv, td, w: 0.02,
-        load_train_scores_sample=lambda mv, n_samples=5000: rng.normal(0.0, 1.0, size=2000),
+        load_train_scores_sample=lambda mv, td, n_samples=5000: rng.normal(0.0, 1.0, size=2000),
         load_current_features=lambda fs, td: _make_feat_df(500, cols, shift=3.0),
         load_train_features_sample=lambda fs, td, n_dates=60: _make_feat_df(2000, cols, shift=0.0),
     )

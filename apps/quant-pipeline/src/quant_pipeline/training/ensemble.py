@@ -45,7 +45,10 @@ def cross_sectional_zscore(
     # transform：保证输出顺序与 df 一致
     grouped = df.groupby("td", sort=False)["score"]
     means = grouped.transform("mean").to_numpy()
-    stds = grouped.transform("std").fillna(0.0).to_numpy()
+    # std 显式用 ddof=0（总体标准差）：截面 z-score 是对「当日全体样本」的标准化，
+    # 不是从样本推断总体，用总体口径语义更正确；且避免 pandas 默认 ddof=1 在小样本日
+    # （如 2 只股票）把 std 放大、z-score 被压扁。单样本日 std=0 → 下方置 0。
+    stds = grouped.transform(lambda s: s.std(ddof=0)).fillna(0.0).to_numpy()
     scores_arr = df["score"].to_numpy()
     # std=0 的日子（如同日只有 1 个样本）直接置 0；用 safe-divide 避免 RuntimeWarning
     safe_stds = np.where(stds > 0, stds, 1.0)

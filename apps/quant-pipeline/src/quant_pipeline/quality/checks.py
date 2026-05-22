@@ -3,8 +3,10 @@
 规则名 / detail 字段名严格对齐 01-pg-schema.md §4.3；不允许自创规则名。
 
 实际 check 函数已拆分到：
-  - checks_row.py   — row_count_drift + duplicate_pk
-  - checks_value.py — null_violation + extreme_value + pit_finance + adj_jump + survivor_bias + cross_table_alignment
+  - checks_row.py    — row_count_drift + duplicate_pk
+  - checks_value.py  — null_violation + extreme_value（值域类）
+  - checks_pit.py    — pit_finance + adj_jump + survivor_bias + cross_table_alignment（PIT/跨表类）
+  - checks_common.py — is_trading_day（交易日判定，跨模块共享）
 
 调用契约：
     每个 check 函数签名：
@@ -34,13 +36,15 @@ from quant_pipeline.quality.checks_row import (  # noqa: F401
     check_row_count_drift,
     make_threshold_relaxation_record,
 )
-from quant_pipeline.quality.checks_value import (  # noqa: F401
+from quant_pipeline.quality.checks_pit import (  # noqa: F401
     check_adj_jump,
     check_cross_table_alignment,
-    check_extreme_value,
-    check_null_violation,
     check_pit_finance,
     check_survivor_bias,
+)
+from quant_pipeline.quality.checks_value import (  # noqa: F401
+    check_extreme_value,
+    check_null_violation,
 )
 
 

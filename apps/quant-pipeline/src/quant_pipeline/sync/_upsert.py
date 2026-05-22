@@ -17,6 +17,21 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
+def to_str_or_none(v: Any) -> str | None:
+    """把单个值归一为 str | None。
+
+    pandas `to_dict(orient="records")` 后缺失值是 `float('nan')` 而非 `None`，
+    `nan is not None` 为 `True`，直接 `str(nan)` 会得到字符串 `"nan"` 写进库。
+    本工具统一用 `v != v` 检测 NaN（NaN 是唯一不等于自身的值）。
+    """
+
+    if v is None:
+        return None
+    if isinstance(v, float) and v != v:  # NaN
+        return None
+    return str(v)
+
+
 def dedupe_by_pk(
     df: pd.DataFrame,
     pk_cols: Sequence[str],
@@ -62,6 +77,7 @@ def upsert_rows(
     rows: Iterable[dict[str, Any]],
     pk_cols: Sequence[str],
     update_cols: Sequence[str],
+    jsonb_cols: Sequence[str] | None = None,
 ) -> int:
     """PG ON CONFLICT 批量 upsert。
 
@@ -70,15 +86,29 @@ def upsert_rows(
       rows: 已去重的字典列表
       pk_cols: 冲突键列
       update_cols: 冲突时要更新的列（updated_at 自动加）
+      jsonb_cols: 需要 `CAST(:col AS jsonb)` 的列（值应为 json 文本字符串），
+        避免 driver 把 jsonb 当 text 绑定
     """
 
     rows = list(rows)
     if not rows:
         return 0
 
+    jsonb_set = set(jsonb_cols or ())
     all_cols = list(rows[0].keys())
+    # 校验隐式契约：所有 row 的 key 集合必须与首行一致。
+    # 否则 SQLAlchemy executemany 会因缺绑定参数报错或静默错位。
+    expected = set(all_cols)
+    for i, r in enumerate(rows):
+        if set(r.keys()) != expected:
+            raise ValueError(
+                f"upsert_rows: table={table} 第 {i} 行列集合与首行不一致；"
+                f"首行 {sorted(expected)}，本行 {sorted(r.keys())}"
+            )
     col_list = ", ".join(all_cols)
-    placeholder_list = ", ".join(f":{c}" for c in all_cols)
+    placeholder_list = ", ".join(
+        f"CAST(:{c} AS jsonb)" if c in jsonb_set else f":{c}" for c in all_cols
+    )
     conflict_target = ", ".join(pk_cols)
     set_clause_parts = [f"{c} = EXCLUDED.{c}" for c in update_cols]
     set_clause_parts.append("updated_at = now()")

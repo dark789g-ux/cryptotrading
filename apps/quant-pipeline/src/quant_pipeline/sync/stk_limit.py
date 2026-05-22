@@ -79,6 +79,11 @@ def _to_float(v: Any) -> float | None:
     if v is None:
         return None
     try:
-        return float(v)
+        f = float(v)
     except (TypeError, ValueError):
         return None
+    # pandas 缺失值是 float('nan')，float(nan) 不抛异常会原样返回；
+    # NaN 入 PG numeric 列行为依赖 driver，统一归一为 None。
+    if f != f:  # NaN
+        return None
+    return f

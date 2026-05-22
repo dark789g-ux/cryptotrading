@@ -3,7 +3,9 @@
 定义：
     momentum_60d(T) = close_adj(T) / close_adj(T-60) - 1
 
-PIT 窗口：需要回看 61 个交易日 → 取 100 日历日。
+PIT 窗口：需要回看 61 个交易日。原取 100 日历日（≈61×1.6）裕度偏紧，
+春节 + 国庆叠加的极端年初窗口可能不足 61 交易日导致大面积返回 NaN
+（review §8）；提到 115 日历日。
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from quant_pipeline.factors.registry import register
 @register(factor_id="momentum_60d", factor_version="v1")
 class Momentum60d(Factor):
     category = "price"
-    pit_window_days = 100
+    pit_window_days = 115
     description = "60 日动量 close_adj(T) / close_adj(T-60) - 1"
     required_columns = ("close_adj",)
 

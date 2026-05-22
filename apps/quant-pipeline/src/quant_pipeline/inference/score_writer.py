@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -59,6 +60,11 @@ def compute_rank_in_day(df: pd.DataFrame) -> pd.DataFrame:
     """按 score 降序计算 rank_in_day（同分 method='first'，保证整数 1..N 唯一）。
 
     入参 df 必须含列 [ts_code, score]；不修改原 df，返回拷贝增加 rank_in_day 列。
+
+    NaN score 处理（评审 05-#11）：特征覆盖不足的股票 score 为 NaN。
+    `Series.rank` 默认把 NaN 排成 NaN rank，`int(...)` 会抛 ValueError；
+    这里先 `fillna(-inf)` 让 NaN 股票统一排到末尾（最大 rank），与
+    inference.runner._attach_rank_in_day 口径一致。
     """
 
     if df.empty:
@@ -67,7 +73,9 @@ def compute_rank_in_day(df: pd.DataFrame) -> pd.DataFrame:
         return out
     out = df.copy()
     n = len(out)
-    asc_rank = out["score"].rank(method="first", ascending=True).astype(int)
+    # NaN score → 排末尾：fillna(-inf) 后做升序 rank
+    filled = out["score"].fillna(-np.inf)
+    asc_rank = filled.rank(method="first", ascending=True).astype(int)
     out["rank_in_day"] = (n + 1 - asc_rank).astype(int)
     return out
 
@@ -110,7 +118,10 @@ def write_scores(
             f"got {list(df.columns) if df is not None else None}"
         )
 
-    # 去重（按 ts_code 保留最后一条；CLAUDE.md：upsert 前去重防 ON CONFLICT 单批多次冲突）
+    # 去重（按 ts_code 保留最后一条；CLAUDE.md：upsert 前去重防 ON CONFLICT 单批多次冲突）。
+    # 评审 05-#13：keep="last" 与上游 concat 顺序耦合 —— predict_one_day 把缺失股票的
+    # NaN 行 concat 在真实评分行之后，故重复键时 keep="last" 不会用 NaN 行覆盖真实评分；
+    # 上游 `missing` 列表构造保证缺失股票与已评分股票不相交，当前安全。
     if df["ts_code"].duplicated().any():
         before = len(df)
         df = df.drop_duplicates(subset=["ts_code"], keep="last").reset_index(drop=True)

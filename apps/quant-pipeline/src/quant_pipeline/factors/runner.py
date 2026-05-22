@@ -2,14 +2,12 @@
 
 职责（spec m1-factor-library §交付物 3 + 02-quant-pipeline.md §4）：
 1. 输入 date_range + factor_version + 可选 factor_ids
-2. 从 raw.trade_cal 取窗口内交易日列表
-3. 按因子集合的最大 pit_window_days 一次性预取 raw 数据
-   （raw.daily_quote / raw.adj_factor / raw.daily_basic / raw.index_member）
-4. 用 adj_factor 反推后复权 close_adj，并按当时 industry_l1 标注行业
-5. 对每个 T 日，调用每个因子的 compute
-6. 按 (trade_date, ts_code, factor_id, factor_version) **去重后** upsert 到
-   factors.daily_factors（CLAUDE.md 硬约束）
-7. 每日完成后调用 worker.progress.update_progress（如果 job_id 存在）
+2. 调 `factors.data_access` 预取窗口内 raw 数据（交易日 / panel / 行业归属 /
+   后复权 close_adj——数据访问层职责，见 review §12 拆分说明）
+3. 对每个 T 日，调用每个因子的 compute
+4. 按 (trade_date, ts_code, factor_id, factor_version) **去重后** upsert 到
+   factors.daily_factors（CLAUDE.md 硬约束，由 data_access 完成）
+5. 每日完成后调用 worker.progress.update_progress（如果 job_id 存在）
 
 PIT 安全（doc/03）：
 - 复权：用 raw.adj_factor 反推（close_adj = close * adj_factor / latest_adj_in_window）；
@@ -27,15 +25,25 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass
 from uuid import UUID
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import text
 
-from quant_pipeline.db.engine import session_scope
 from quant_pipeline.factors.base import Factor
+# 数据加载 / 复权 / upsert 已拆到 factors.data_access（review §12）。
+# 此处 re-import 这些符号以保持 `factors.runner.<name>` 的旧引用兼容：
+# - 集成测试直接 `from factors.runner import _query_trade_dates / _load_industry_pit`
+# - 单测 monkeypatch `runner_mod._query_trade_dates / load_window_data / _upsert_daily_factors`
+#   仍能命中本模块命名空间。
+from quant_pipeline.factors.data_access import (  # noqa: F401
+    RawData,
+    _load_industry_pit,
+    _query_live_universe,
+    _query_trade_dates,
+    _upsert_daily_factors,
+    load_window_data,
+)
 from quant_pipeline.factors.registry import list_factors
 from quant_pipeline.worker.progress import (
     JobCancelled,
@@ -45,235 +53,12 @@ from quant_pipeline.worker.progress import (
 
 logger = logging.getLogger(__name__)
 
-
-# ----------------------------------------------------------------------
-# 数据加载（raw schema 只读访问）
-# ----------------------------------------------------------------------
-
-@dataclass(slots=True)
-class RawData:
-    """runner 预取的窗口内 raw 数据合集。"""
-
-    # MultiIndex [trade_date, ts_code]; 列: close, vol, adj_factor, turnover_rate
-    panel: pd.DataFrame
-    # MultiIndex [trade_date, ts_code]; 单列: industry_l1
-    industry_pit: pd.DataFrame
-
-
-def _query_trade_dates(start: str, end: str) -> list[str]:
-    """从 raw.daily_quote 取 [start, end] 范围内的实际有报价日期（PIT 真值）。
-
-    若表暂不存在（Part C 未交付），返回 [] 并 warn——runner 据此跳过本轮工作。
-
-    trade_cal 仅服务于前瞻性查询（次日是否开市）；历史 PIT 计算的真值来自
-    `raw.daily_quote.trade_date`——与每日 OHLC 同表，强 PIT 安全。本函数不再依赖
-    trade_cal 的同步覆盖范围。若某日全市场零成交，daily_quote 不含该日，本函数
-    自然剔除——与 PIT 真值一致。
-    """
-
-    sql = text(
-        """
-        SELECT DISTINCT trade_date FROM raw.daily_quote
-        WHERE trade_date >= :start AND trade_date <= :end
-        ORDER BY trade_date
-        """
-    )
-    try:
-        with session_scope() as session:
-            rows = session.execute(sql, {"start": start, "end": end}).fetchall()
-        return [r[0] for r in rows]
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "trade_dates_failed",
-            extra={"start": start, "end": end, "err": str(exc)},
-        )
-        raise
-
-
-def _query_live_universe(trade_date: str) -> set[str]:
-    """取 T 日 raw.daily_quote 实际有报价的 ts_code 集合（PIT 真值 universe）。
-
-    用于 run_factors 过滤：T 日无报价的 ts_code（停牌 / 退市）即便被滚动类
-    因子用历史窗口算出值，也不应写进 T 日因子表——否则构成幸存者偏差。
-    表不可用时返回空集（调用方据此跳过当日，与 _query_trade_dates 退化一致）。
-    """
-
-    sql = text(
-        "SELECT ts_code FROM raw.daily_quote WHERE trade_date = :t"
-    )
-    try:
-        with session_scope() as session:
-            rows = session.execute(sql, {"t": trade_date}).fetchall()
-        return {r[0] for r in rows}
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "live_universe_failed",
-            extra={"trade_date": trade_date, "err": str(exc)},
-        )
-        raise
-
-
-def _load_raw_panel(start: str, end: str) -> pd.DataFrame:
-    """预取窗口内 daily_quote + adj_factor + daily_basic 的合表。
-
-    返回 MultiIndex [trade_date, ts_code]，列：
-        close, vol, adj_factor, turnover_rate
-    若 raw 表不可用，返回空 DataFrame。
-    """
-
-    sql = text(
-        """
-        SELECT q.trade_date,
-               q.ts_code,
-               q.close,
-               q.vol,
-               q.amount,
-               a.adj_factor,
-               b.turnover_rate
-        FROM raw.daily_quote q
-        LEFT JOIN raw.adj_factor a
-               ON a.ts_code = q.ts_code AND a.trade_date = q.trade_date
-        LEFT JOIN raw.daily_basic b
-               ON b.ts_code = q.ts_code AND b.trade_date = q.trade_date
-        WHERE q.trade_date >= :start AND q.trade_date <= :end
-        """
-    )
-    cols = ["trade_date", "ts_code", "close", "vol", "amount", "adj_factor", "turnover_rate"]
-    try:
-        with session_scope() as session:
-            rows = session.execute(sql, {"start": start, "end": end}).fetchall()
-        if not rows:
-            return pd.DataFrame(columns=cols).set_index(["trade_date", "ts_code"])
-        df = pd.DataFrame(rows, columns=cols).set_index(["trade_date", "ts_code"]).sort_index()
-        # 类型规整
-        for c in ("close", "vol", "amount", "adj_factor", "turnover_rate"):
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-        return df
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "raw_panel_failed",
-            extra={"start": start, "end": end, "err": str(exc)},
-        )
-        raise
-
-
-def _load_industry_pit(start: str, end: str) -> pd.DataFrame:
-    """从 raw.index_member 解析窗口内每日的个股 → industry_l1 归属（PIT 安全）。
-
-    实现：sync/index_member.py 已经把 (l1_code, l1_name, l2_code, l2_name, l3_code, l3_name)
-    同行落库，l1_code 即"申万一级行业代码"（形如 801xxx.SI）。本函数按 trade_date
-    在 raw.index_member 上反查 in_date / out_date 区间命中 T 日的行，直接取 l1_code，
-    无需 JOIN raw.index_classify。
-
-    runner 在每个 T 日单独 SELECT 一次"在 T 日有效的归属"，O(N) 次数据库查询；
-    N = 窗口交易日数（≤100）。
-
-    返回 MultiIndex [trade_date, ts_code]、单列 industry_l1。表不可用时返回空。
-    """
-
-    trade_dates = _query_trade_dates(start, end)
-    if not trade_dates:
-        return pd.DataFrame(columns=["industry_l1"])
-
-    sql = text(
-        """
-        SELECT :t AS trade_date, im.ts_code, im.l1_code AS industry_l1
-        FROM raw.index_member im
-        WHERE im.l1_code IS NOT NULL
-          AND im.in_date <= :t
-          AND (im.out_date IS NULL OR im.out_date > :t)
-        """
-    )
-    frames: list[pd.DataFrame] = []
-    try:
-        with session_scope() as session:
-            for t in trade_dates:
-                rows = session.execute(sql, {"t": t}).fetchall()
-                if rows:
-                    frames.append(
-                        pd.DataFrame(
-                            rows, columns=["trade_date", "ts_code", "industry_l1"]
-                        )
-                    )
-        if not frames:
-            return pd.DataFrame(columns=["industry_l1"])
-        out = pd.concat(frames, ignore_index=True).set_index(["trade_date", "ts_code"])
-        return out
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "index_member_failed",
-            extra={"start": start, "end": end, "err": str(exc)},
-        )
-        raise
-
-
-def load_window_data(start: str, end: str, need_industry: bool) -> RawData:
-    """预取整个窗口的 raw 数据，并完成后复权价、行业归属注入。"""
-
-    panel = _load_raw_panel(start, end)
-    if not panel.empty:
-        # 后复权：close_adj = close * adj_factor / max(adj_factor in window per ts_code)
-        # 注：max 是窗口口径的近似——doc/03 §3.2 推荐"用后复权价为基准（不随时间变化）"；
-        # 严格 PIT 实现需要在更长历史上取 latest adj_factor；本 runner 在窗口内取 max
-        # 已足够保证 T 日因子值的 PIT 正确性（不含 T+1 的复权事件）。
-        af = panel["adj_factor"]
-        max_af = af.groupby(level="ts_code").transform("max")
-        panel["close_adj"] = panel["close"] * af / max_af
-    else:
-        panel = pd.DataFrame(
-            columns=["close", "vol", "amount", "adj_factor", "turnover_rate", "close_adj"]
-        )
-
-    industry = _load_industry_pit(start, end) if need_industry else pd.DataFrame(
-        columns=["industry_l1"]
-    )
-    return RawData(panel=panel, industry_pit=industry)
-
-
-# ----------------------------------------------------------------------
-# upsert
-# ----------------------------------------------------------------------
-
-def _upsert_daily_factors(rows: list[dict[str, object]]) -> int:
-    """长格式 upsert 到 factors.daily_factors。
-
-    去重规则（CLAUDE.md 硬约束）：按 PK
-    (trade_date, ts_code, factor_id, factor_version) 去重，保留最后一条。
-    """
-
-    if not rows:
-        return 0
-    # 按 PK 去重
-    seen: dict[tuple[str, str, str, str], dict[str, object]] = {}
-    for r in rows:
-        key = (
-            str(r["trade_date"]),
-            str(r["ts_code"]),
-            str(r["factor_id"]),
-            str(r["factor_version"]),
-        )
-        seen[key] = r
-    deduped = list(seen.values())
-    if len(deduped) != len(rows):
-        logger.warning(
-            "daily_factors_dedup",
-            extra={"raw": len(rows), "deduped": len(deduped)},
-        )
-
-    sql = text(
-        """
-        INSERT INTO factors.daily_factors
-            (trade_date, ts_code, factor_id, factor_version, value)
-        VALUES
-            (:trade_date, :ts_code, :factor_id, :factor_version, :value)
-        ON CONFLICT (trade_date, ts_code, factor_id, factor_version)
-        DO UPDATE SET value = EXCLUDED.value
-        """
-    )
-    with session_scope() as session:
-        # SQLAlchemy executemany
-        session.execute(sql, deduped)
-    return len(deduped)
+__all__ = [
+    "RawData",
+    "run_factors",
+    "runner_entrypoint",
+    "load_window_data",
+]
 
 
 # ----------------------------------------------------------------------
@@ -285,27 +70,31 @@ def _slice_window_for_factor(
     industry_pit: pd.DataFrame,
     factor: Factor,
     trade_date: str,
-    trade_dates: Sequence[str],
 ) -> pd.DataFrame:
     """为某个因子在 T 日切出 PIT 窗口 DataFrame。
 
-    窗口按 pit_window_days 日历日上限近似取交易日切片：
-      从 trade_dates 中取 [..., T]，往前 N 个交易日（N 由 pit_window_days 转换）。
-    简化：直接取全部 ≤ T 的交易日（最多 100 条），因子内部自取 tail。
+    窗口取「全部 ≤ T 的交易日」切片（因子内部自取 tail）。
+
+    性能（review §6）：panel / industry_pit 在加载时已按 MultiIndex
+    [trade_date, ts_code] sort_index；trade_date 为 'YYYYMMDD' 字符串，字典序
+    与时间序一致。用 `pd.IndexSlice[:t, :]` 做 O(log n) 二分切片，避免对全 panel
+    逐行 `isin` 布尔扫描（M 因子 × N 日 × 全表的平方级开销）。
     """
 
     if panel.empty:
         return pd.DataFrame()
-    # 仅取 T 日及之前的交易日
-    dates_le_t = [d for d in trade_dates if d <= trade_date]
-    if not dates_le_t:
+    # 仅取 T 日及之前的交易日：MultiIndex 二分切片（panel 已 sort_index）
+    try:
+        sub = panel.loc[pd.IndexSlice[:trade_date, :], :]
+    except KeyError:
         return pd.DataFrame()
-    # 取窗口内的所有可用列
-    sub = panel.loc[panel.index.get_level_values("trade_date").isin(dates_le_t)]
+    if sub.empty:
+        return pd.DataFrame()
     if factor.category in ("industry", "mixed") and not industry_pit.empty:
-        ind_sub = industry_pit.loc[
-            industry_pit.index.get_level_values("trade_date").isin(dates_le_t)
-        ]
+        try:
+            ind_sub = industry_pit.loc[pd.IndexSlice[:trade_date, :], :]
+        except KeyError:
+            ind_sub = industry_pit.iloc[0:0]
         sub = sub.join(ind_sub, how="left")
     return sub
 
@@ -365,6 +154,7 @@ def run_factors(
     raw = load_window_data(fetch_start, end, need_industry=need_industry)
 
     total_upserted = 0
+    failed_dates: list[str] = []
     for idx, t in enumerate(target_dates):
         if job_id is not None and check_cancel_requested(job_id):
             raise JobCancelled
@@ -375,12 +165,23 @@ def run_factors(
         # 构成幸存者偏差（quality.checks.check_survivor_bias 会判 critical）。
         live_universe = _query_live_universe(t)
 
+        # universe 规模：用于检测某因子某日产出过稀（review §7）
+        universe_size = len(live_universe)
+
         rows: list[dict[str, object]] = []
         for f in factors:
-            sub = _slice_window_for_factor(
-                raw.panel, raw.industry_pit, f, t, trade_dates_all
-            )
+            sub = _slice_window_for_factor(raw.panel, raw.industry_pit, f, t)
             if sub.empty:
+                # review §7：窗口数据缺失（如年初窗口裕度不足、节假日叠加），
+                # 因子整日产出空——显式 warn，不静默 continue。
+                logger.warning(
+                    "factor_window_empty",
+                    extra={
+                        "factor_id": f.factor_id,
+                        "factor_version": f.factor_version,
+                        "trade_date": t,
+                    },
+                )
                 continue
             try:
                 series = f.compute(sub, t)
@@ -397,7 +198,29 @@ def run_factors(
                 )
                 continue
             if series is None or series.empty:
+                logger.warning(
+                    "factor_output_empty",
+                    extra={
+                        "factor_id": f.factor_id,
+                        "factor_version": f.factor_version,
+                        "trade_date": t,
+                    },
+                )
                 continue
+            # review §7：某因子某日产出行数远小于 universe（如窗口不足导致大面积
+            # 返回 NaN），是「静默返 NaN 污染训练数据」的前兆——显式 warn。
+            non_nan = int(series.notna().sum())
+            if universe_size > 0 and non_nan < universe_size * 0.5:
+                logger.warning(
+                    "factor_output_sparse",
+                    extra={
+                        "factor_id": f.factor_id,
+                        "factor_version": f.factor_version,
+                        "trade_date": t,
+                        "non_nan": non_nan,
+                        "universe_size": universe_size,
+                    },
+                )
             for ts_code, value in series.items():
                 # 跳过 NaN（按 long 表惯例，停牌 / 数据不足不入库）
                 if value is None or (isinstance(value, float) and np.isnan(value)):
@@ -415,18 +238,36 @@ def run_factors(
                     }
                 )
 
-        n = _upsert_daily_factors(rows)
-        total_upserted += n
+        # review §4：单日 upsert 包 try/except——DB 抖动只让当日失败并记 error，
+        # 不中断整轮 run_factors；已成功落库到 t-1 的进度不回退。
+        try:
+            n = _upsert_daily_factors(rows)
+            total_upserted += n
+        except Exception as exc:  # noqa: BLE001
+            failed_dates.append(t)
+            logger.error(
+                "daily_factors_upsert_failed",
+                extra={"trade_date": t, "rows": len(rows), "err": str(exc)},
+            )
+            n = 0
 
         # 写 progress
         if job_id is not None:
             pct = int(round((idx + 1) / max(len(target_dates), 1) * 100))
             update_progress(job_id, min(pct, 100), stage=f"factors:{t}")
 
+    if failed_dates:
+        # review §4：整轮结束后汇总告警——哪些交易日 upsert 失败需要重跑。
+        logger.warning(
+            "run_factors_partial_failure",
+            extra={"failed_dates": failed_dates, "n_failed": len(failed_dates)},
+        )
+
     return {
         "trade_dates": len(target_dates),
         "factors": len(factors),
         "rows_upserted": total_upserted,
+        "failed_dates": len(failed_dates),
     }
 
 

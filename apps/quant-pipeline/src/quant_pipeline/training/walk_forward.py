@@ -13,6 +13,14 @@ M3 引入 `PurgedWalkForwardSplit`：
 - 强制 n_folds >= 6（M3 验收门槛）
 - 强制 min_train_days >= 252（约 1 年）
 
+⚠️ OOS 覆盖范围（2026-05-23 评审 #3 如实说明）：
+  测试窗口**只覆盖数据的后半段**。`test_pool_start = min_train_days + embargo_days`，
+  n_folds 个测试窗口全部从「测试池」`[test_pool_start, N)` 里等分。
+  **前 min_train_days + embargo_days 天交易日仅作为第一折的训练垫底，永远不会
+  作为任何一折的 OOS 测试集。** 这是有意取舍：保证第一折也有 >= 252 日训练数据。
+  代价是 OOS 评估带有「只测后段」的系统性偏差——若需覆盖全时段，应改用
+  expanding-window（每折训练集扩张、测试紧随其后），M3 阶段不做此切换。
+
 保留 `SingleFoldSplit`（M2 遗留，仅用于冷启动调试）。
 """
 
@@ -106,11 +114,15 @@ class PurgedWalkForwardSplit(WalkForwardSplit):
 
     切法：
       1) 收集 df 中所有 unique trade_date 并升序
-      2) 把交易日总数 N 等分为 n_folds 个连续 **测试** 窗口（窗口大小 ≈ N // n_folds）
+      2) 取「测试池」= 交易日序列中 [test_pool_start, N) 这一段，
+         其中 test_pool_start = min_train_days + embargo_days；
+         把测试池**等分**为 n_folds 个连续 **测试** 窗口（窗口大小 ≈ 测试池 // n_folds）
       3) 第 i 折训练集 = 测试窗口前的所有交易日 → 去掉尾部 embargo_days 天
-      4) 第一折的训练长度必须 ≥ min_train_days，否则丢弃前 K 折（向后偏移），
-         若整体交易日数不足以同时满足"6 折 + min_train 252 日 + embargo 21 日"
+      4) 整体交易日数不足以同时满足"n_folds 折 + min_train + embargo"
          则抛 ValueError 让上层去补数据 / 调参数
+
+    ⚠️ 测试窗口只覆盖数据后半段（评审 #3）：前 test_pool_start 天交易日仅作训练
+       垫底，不参与任何一折 OOS。详见模块 docstring「OOS 覆盖范围」。
 
     约束（构造函数强校验）：
       - n_folds >= 6

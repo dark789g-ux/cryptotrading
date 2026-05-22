@@ -214,16 +214,53 @@ def test_duplicate_pk_critical_when_dup_found() -> None:
 # ----------------------------------------------------------------------
 
 def test_null_violation_pass() -> None:
-    session = FakeSession([])
+    # 各表当日有数据（行数 > 0）才不触发"空表"critical；无 NULL 违约 → 通过
+    session = FakeSession(
+        [
+            ("count(*) FROM raw.daily_quote WHERE", FakeResult(scalar=5000)),
+            ("count(*) FROM raw.adj_factor WHERE", FakeResult(scalar=5000)),
+        ]
+    )
     r = check_null_violation(session, "20260517", {})
     assert r.passed is True
     assert r.rule == "null_violation"
+
+
+def test_null_violation_critical_when_empty_table_on_trading_day() -> None:
+    """交易日 + 基础表当日 0 行 → 漏同步 → critical（06-quality.md 问题 3）。"""
+
+    session = FakeSession(
+        [
+            # trade_cal 确认是交易日
+            ("FROM raw.trade_cal", FakeResult(rows=[(2, 2)])),
+            # 表行数查询默认 scalar=0 → 空表
+        ]
+    )
+    r = check_null_violation(session, "20260517", {})
+    assert r.passed is False
+    assert r.level == "critical"
+    assert r.detail["reason"] == "empty_table_on_trading_day"
+
+
+def test_null_violation_skips_when_non_trading_day() -> None:
+    """非交易日 + 表空 → 合法空，不报 critical。"""
+
+    session = FakeSession(
+        [
+            # trade_cal: total=2, open_cnt=0 → 非交易日
+            ("FROM raw.trade_cal", FakeResult(rows=[(2, 0)])),
+        ]
+    )
+    r = check_null_violation(session, "20260517", {})
+    assert r.passed is True
 
 
 def test_null_violation_critical_when_ohlc_null() -> None:
     # 让 raw.daily_quote.open IS NULL 返回 3 行 + count=3
     session = FakeSession(
         [
+            # 注意顺序：更具体的 "open IS NULL" 键必须排在表行数键之前，
+            # 否则 NULL-count 查询会先命中宽泛的 "count(*) FROM ... WHERE"。
             (
                 "open IS NULL\n                LIMIT 10",
                 FakeResult(rows=[("000001.SZ",), ("000002.SZ",), ("000003.SZ",)]),
@@ -232,6 +269,9 @@ def test_null_violation_critical_when_ohlc_null() -> None:
                 "open IS NULL",  # count(*) 那条
                 FakeResult(scalar=3),
             ),
+            # 各表当日有数据，绕过"空表"分支
+            ("count(*) FROM raw.daily_quote WHERE", FakeResult(scalar=5000)),
+            ("count(*) FROM raw.adj_factor WHERE", FakeResult(scalar=5000)),
         ]
     )
     r = check_null_violation(session, "20260517", {})
@@ -389,8 +429,32 @@ def test_cross_table_alignment_critical_when_derived_lt_base() -> None:
     assert r.detail["derived_rows"] == 3000
 
 
-def test_cross_table_alignment_skips_when_base_empty() -> None:
-    session = FakeSession([("base_rows", FakeResult(rows=[(0, 0, 0, 0)]))])
+def test_cross_table_alignment_skips_when_base_empty_non_trading_day() -> None:
+    """基础表空 + 非交易日 → 合法空，info 跳过（06-quality.md 问题 2）。"""
+
+    session = FakeSession(
+        [
+            ("base_rows", FakeResult(rows=[(0, 0, 0, 0)])),
+            # trade_cal: total=2, open_cnt=0 → 非交易日
+            ("FROM raw.trade_cal", FakeResult(rows=[(2, 0)])),
+        ]
+    )
     r = check_cross_table_alignment(session, "20260517", {})
     assert r.passed is True
     assert r.level == "info"
+    assert r.detail["note"] == "non_trading_day"
+
+
+def test_cross_table_alignment_critical_when_base_empty_on_trading_day() -> None:
+    """基础表空 + 交易日 → 漏同步 → critical（06-quality.md 问题 2）。"""
+
+    session = FakeSession(
+        [
+            ("base_rows", FakeResult(rows=[(0, 0, 0, 0)])),
+            ("FROM raw.trade_cal", FakeResult(rows=[(2, 2)])),
+        ]
+    )
+    r = check_cross_table_alignment(session, "20260517", {})
+    assert r.passed is False
+    assert r.level == "critical"
+    assert r.detail["reason"] == "base_table_empty_on_trading_day"

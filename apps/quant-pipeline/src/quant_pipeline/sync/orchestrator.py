@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import text
+
 from quant_pipeline.db.engine import session_scope
 from quant_pipeline.sync.fina_indicator import sync_fina_indicator_by_ts_code
 from quant_pipeline.sync.index_classify import sync_index_classify
@@ -37,6 +39,13 @@ from quant_pipeline.worker.progress import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# index_member_all 单次行数上限：index_member.py docstring 记「2000 行」、
+# orchestrator._list_l1_codes_from_classify docstring 记「实测 3000 行截断」——
+# 两处不一致（见 review 01-sync 第 7 条，需后续以官方文档为准统一）。
+# 此处取保守下界 2000：兜底单次全量调用行数 >= 该值即视为可疑截断。
+INDEX_MEMBER_TRUNCATE_THRESHOLD = 2000
 
 
 # 固定执行顺序：trade_cal 必须最先（其它表的按日循环依赖它）
@@ -81,8 +90,6 @@ def _parse_date_range(date_range: str) -> tuple[str, str]:
 def _list_open_trade_dates(start_date: str, end_date: str) -> list[str]:
     """从 raw.trade_cal 取 [start, end] 区间内 SSE is_open=1 的 cal_date。"""
 
-    from sqlalchemy import text
-
     with session_scope() as session:
         rows = session.execute(
             text(
@@ -110,8 +117,6 @@ def _list_l1_codes_from_classify() -> list[str]:
 
     表为空时返回 []，调用方应退化为单次全量调用（向后兼容）。
     """
-
-    from sqlalchemy import text
 
     with session_scope() as session:
         rows = session.execute(
@@ -180,6 +185,20 @@ def run_sync(
         pct = int(step_idx * 100 / total_steps)
         update_progress(job_id, pct, stage=stage)
 
+    def _sub_progress(step_idx: int, done: int, total: int, stage: str) -> None:
+        """按交易日 / ts_code 循环内的子进度。
+
+        把当前 step（占 1/total_steps）内的 done/total 比例插值进总进度，
+        避免长循环（stk_limit 约 1400 个交易日 / fina_indicator 5000+ 只股票）
+        期间进度条卡死不动。
+        """
+
+        if job_id is None or total <= 0:
+            return
+        step_span = 100 / total_steps
+        pct = int(step_idx * step_span + step_span * done / total)
+        update_progress(job_id, min(pct, 100), stage=stage)
+
     if job_id is not None:
         update_progress(job_id, 0, stage="start")
 
@@ -204,6 +223,7 @@ def run_sync(
                     reports = sync_index_member(
                         client=client, l1_codes=tuple(l1_codes)
                     )
+                    _collect_reports("index_member", reports, outcome)
                 else:
                     # 兜底：index_classify 未就绪时退化为单次全量调用
                     logger.warning(
@@ -211,7 +231,27 @@ def run_sync(
                         extra={"reason": "raw.index_classify 无 L1 行业；可能导致单次行数上限截断"},
                     )
                     reports = sync_index_member(client=client)
-                _collect_reports("index_member", reports, outcome)
+                    _collect_reports("index_member", reports, outcome)
+                    # 单次全量调用可能命中 index_member_all 单次行数上限被静默截断。
+                    # 行数命中阈值即标记为可疑截断的 failed_item，避免残缺数据静默通过。
+                    fallback_rows = sum(r.rows_upserted for r in reports)
+                    if fallback_rows >= INDEX_MEMBER_TRUNCATE_THRESHOLD:
+                        outcome.failed_items.append(
+                            FailedItem(
+                                api_name="index_member_all",
+                                table="index_member",
+                                params={"mode": "fallback_single_call"},
+                                reason="index_member_truncated_suspect",
+                                rule="index_member_empty",
+                            )
+                        )
+                        logger.warning(
+                            "index_member_truncated_suspect",
+                            extra={
+                                "rows": fallback_rows,
+                                "threshold": INDEX_MEMBER_TRUNCATE_THRESHOLD,
+                            },
+                        )
 
             elif table in ("stk_limit", "suspend_d"):
                 # 按 raw.trade_cal 取开市日循环
@@ -227,13 +267,20 @@ def run_sync(
                         )
                     )
                     continue
-                for td in open_dates:
+                total_dates = len(open_dates)
+                for i, td in enumerate(open_dates):
                     _check_cancel()
                     if table == "stk_limit":
                         rep = sync_stk_limit_by_date(trade_date=td, client=client)
                     else:
                         rep = sync_suspend_by_date(trade_date=td, client=client)
                     _collect_reports(table, [rep], outcome)
+                    # 每 20 个交易日刷一次子进度，避免长循环进度条卡死
+                    if (i + 1) % 20 == 0 or (i + 1) == total_dates:
+                        _sub_progress(
+                            step_idx, i + 1, total_dates,
+                            stage=f"{table}:{td}",
+                        )
 
             elif table == "fina_indicator":
                 if not fina_indicator_ts_codes:
@@ -251,7 +298,8 @@ def run_sync(
                         )
                     )
                     continue
-                for ts_code in fina_indicator_ts_codes:
+                total_codes = len(fina_indicator_ts_codes)
+                for i, ts_code in enumerate(fina_indicator_ts_codes):
                     _check_cancel()
                     rep = sync_fina_indicator_by_ts_code(
                         ts_code=ts_code,
@@ -260,6 +308,12 @@ def run_sync(
                         client=client,
                     )
                     _collect_reports("fina_indicator", [rep], outcome)
+                    # 每 20 只股票刷一次子进度（全 A 5000+ 只串行循环耗时长）
+                    if (i + 1) % 20 == 0 or (i + 1) == total_codes:
+                        _sub_progress(
+                            step_idx, i + 1, total_codes,
+                            stage=f"fina_indicator:{ts_code}",
+                        )
 
             else:
                 outcome.errors.append(f"unknown table: {table!r}")

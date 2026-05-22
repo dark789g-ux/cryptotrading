@@ -17,12 +17,9 @@ from __future__ import annotations
 
 import inspect
 import logging
-import re
 from collections.abc import Iterable
-from pathlib import Path
 from typing import Any
 
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from quant_pipeline.quality.checks import (
@@ -54,74 +51,76 @@ def audit_rule1_finance_uses_ann_date(
 
 
 # ----------------------------------------------------------------------
-# 铁律 2：行情用 T 日盘后（静态：检查 factors/base.py PIT 窗口声明）
+# 铁律 2：行情用 T 日盘后（import factors.base.Factor 读取实际属性）
 # ----------------------------------------------------------------------
 
-# factors/base.py 抽象类应当声明 pit_window_days >= 1（Part D 交付）
-_BASE_PIT_FIELD_RE = re.compile(
-    r"pit_window_days\s*[:=]\s*(?:int\s*=\s*)?(\d+)",
-    re.MULTILINE,
-)
-
-
 def audit_rule2_market_pit_window(
-    factors_base_path: Path | None = None,
+    factor_cls: Any = None,
 ) -> CheckResult:
-    """检查 factors/base.py 是否声明了 pit_window_days >= 1（doc/03 §3.1 铁律 2）。
+    """检查 factors.base.Factor 是否声明了 pit_window_days 类属性（doc/03 §3.1 铁律 2）。
 
-    Part D 负责实现 base.py；本审计仅做静态文本扫描，发现 < 1 或未声明时 warn。
-    base.py 不存在时返回 info（M1 早期阶段可能未实装）。
+    改为 import 该类读取真实属性（06-quality.md 问题 10）：原正则静态扫描源码
+    对常量赋值 / 多行赋值 / 配置注入等写法都会误报「未声明」，极脆弱。
+
+    审计语义：base.py 抽象类必须把 `pit_window_days` 定义为契约属性（要求
+    每个子类声明 PIT 回看窗口）。抽象基类自身的默认值是 0（"未设置"哨兵），
+    故只校验「属性存在且为整型契约」，不对基类默认值强加 >= 1——子类窗口的
+    实际取值由各因子实现负责，不在本审计范围。
+
+    Args:
+        factor_cls: 测试期可注入伪类；默认 import quant_pipeline.factors.base.Factor。
+
+    import 失败（base.py 缺失 / 语法错误）→ warn（不再静默 passed=True）。
     """
 
-    if factors_base_path is None:
-        factors_base_path = (
-            Path(__file__).resolve().parent.parent / "factors" / "base.py"
-        )
+    if factor_cls is None:
+        try:
+            from quant_pipeline.factors.base import Factor as factor_cls  # type: ignore[no-redef]
+        except Exception as exc:  # noqa: BLE001 —— ImportError / 语法错误等
+            return CheckResult(
+                passed=False,
+                level="warn",
+                rule="pit_finance",
+                detail={
+                    "audit": "rule2_market_pit_window",
+                    "factor_id": "<factors.base.Factor>",
+                    "sample_ts_codes": [],
+                    "reason": f"无法 import factors.base.Factor: {exc}",
+                },
+                trade_date="00000000",
+                name="rule2_market_pit_window",
+            )
 
-    if not factors_base_path.exists():
-        return CheckResult(
-            passed=True,
-            level="info",
-            rule="pit_finance",  # 复用 rule 名（§4.3 中无独立 market PIT 规则）
-            detail={
-                "audit": "rule2_market_pit_window",
-                "factor_id": "<base.py>",
-                "sample_ts_codes": [],
-                "note": "factors/base.py not yet implemented (Part D pending)",
-            },
-            trade_date="00000000",
-            name="rule2_market_pit_window",
-        )
-
-    src = factors_base_path.read_text(encoding="utf-8")
-    matches = _BASE_PIT_FIELD_RE.findall(src)
-    if not matches:
-        return CheckResult(
-            passed=False,
-            level="warn",
-            rule="pit_finance",
-            detail={
-                "audit": "rule2_market_pit_window",
-                "factor_id": "<base.py>",
-                "sample_ts_codes": [],
-                "reason": "pit_window_days field not declared in factors/base.py",
-            },
-            trade_date="00000000",
-            name="rule2_market_pit_window",
-        )
-
-    min_window = min(int(m) for m in matches)
-    if min_window < 1:
+    # 属性必须存在（class 属性或注解契约）
+    annotations = getattr(factor_cls, "__annotations__", {}) or {}
+    has_attr = hasattr(factor_cls, "pit_window_days") or "pit_window_days" in annotations
+    if not has_attr:
         return CheckResult(
             passed=False,
             level="warn",
             rule="pit_finance",
             detail={
                 "audit": "rule2_market_pit_window",
-                "factor_id": "<base.py>",
+                "factor_id": "<factors.base.Factor>",
                 "sample_ts_codes": [],
-                "min_pit_window_days": min_window,
-                "reason": "pit_window_days < 1; T 日盘后约束未生效",
+                "reason": "Factor 类未声明 pit_window_days 契约属性",
+            },
+            trade_date="00000000",
+            name="rule2_market_pit_window",
+        )
+
+    declared_value = getattr(factor_cls, "pit_window_days", None)
+    if declared_value is not None and not isinstance(declared_value, int):
+        return CheckResult(
+            passed=False,
+            level="warn",
+            rule="pit_finance",
+            detail={
+                "audit": "rule2_market_pit_window",
+                "factor_id": "<factors.base.Factor>",
+                "sample_ts_codes": [],
+                "declared_value": repr(declared_value),
+                "reason": "pit_window_days 不是整型；契约要求整数日数",
             },
             trade_date="00000000",
             name="rule2_market_pit_window",
@@ -133,7 +132,8 @@ def audit_rule2_market_pit_window(
         rule="pit_finance",
         detail={
             "audit": "rule2_market_pit_window",
-            "min_pit_window_days": min_window,
+            "base_default_pit_window_days": declared_value,
+            "note": "Factor.pit_window_days 契约属性已声明（子类负责设具体值）",
         },
         trade_date="00000000",
         name="rule2_market_pit_window",
@@ -143,6 +143,29 @@ def audit_rule2_market_pit_window(
 # ----------------------------------------------------------------------
 # 铁律 3：因子窗口不跨未来（提供单测框架）
 # ----------------------------------------------------------------------
+
+def _normalize_yyyymmdd(value: Any) -> str | None:
+    """把任意日期表示归一化为 'YYYYMMDD'，便于字符串字面比较（06-quality.md 问题 11）。
+
+    支持：
+      - 'YYYYMMDD' / 'YYYY-MM-DD' / 'YYYY-MM-DD HH:MM:SS' 等字符串
+      - datetime / date / pandas.Timestamp（带 strftime）
+    无法解析时返回 None（调用方据此跳过该样本，不做无意义比较）。
+    """
+
+    # datetime / date / Timestamp
+    if hasattr(value, "strftime"):
+        try:
+            return value.strftime("%Y%m%d")
+        except Exception:  # noqa: BLE001
+            return None
+    s = str(value).strip()
+    # 取前 10 个字符内的数字（'2026-05-22 00:00:00' → '20260522'）
+    digits = "".join(ch for ch in s[:10] if ch.isdigit())
+    if len(digits) == 8:
+        return digits
+    return None
+
 
 def verify_factor_window_no_future(
     factor_callable: Any,
@@ -175,7 +198,12 @@ def verify_factor_window_no_future(
         if td is not None:
             if hasattr(td, "tolist"):
                 td = td.tolist()
-            used_dates = [str(d) for d in td]
+            # 归一化为 YYYYMMDD：historical_data 的 trade_date 可能是 datetime /
+            # Timestamp，直接 str() 得 '2026-05-22 00:00:00'，与入参 '20260522'
+            # 格式不一致，字符串比较无意义（06-quality.md 问题 11）。
+            used_dates = [
+                norm for d in td if (norm := _normalize_yyyymmdd(d)) is not None
+            ]
     except Exception as exc:
         return CheckResult(
             passed=False,
@@ -191,7 +219,9 @@ def verify_factor_window_no_future(
             name="rule3_factor_window_no_future",
         )
 
-    future_dates = [d for d in used_dates if d > trade_date]
+    # trade_date 入参契约即 YYYYMMDD；归一化兜底防御非常规调用。
+    norm_trade_date = _normalize_yyyymmdd(trade_date) or trade_date
+    future_dates = [d for d in used_dates if d > norm_trade_date]
     if future_dates:
         return CheckResult(
             passed=False,
@@ -241,115 +271,44 @@ def audit_ghost1_survivor_bias(
 # ----------------------------------------------------------------------
 
 def audit_ghost2_adj_trap(
-    session: Session,
-    sample_size_codes: int = 10,
-    sample_size_dates: int = 5,
+    session: Session,  # noqa: ARG001 —— 保留签名兼容；当前实现不查库
+    sample_size_codes: int = 10,  # noqa: ARG001
+    sample_size_dates: int = 5,  # noqa: ARG001
 ) -> list[CheckResult]:
-    """随机抽样 N 支股票 × M 个分红日，验证因子值用了"后复权"。
+    """复权陷阱审计 —— 当前标注「未实现」，不再给出误导性结论。
 
-    实现思路：
-      - 分红日 = adj_factor 在该 ts_code 上发生过相对变化的 trade_date
-      - 后复权约定：raw.daily_quote.close * (adj_factor_T / adj_factor_LATEST)
-        不随时间漂移；本审计抽样比对"因子使用值"和"理论后复权值"
-      - 因 factors.daily_factors 是因子值非价格，复权陷阱的最弱审计：
-        检查同一 ts_code 跨分红日的 factor_id='close_adj'（或派生量价因子）
-        是否在分红日发生异常跳变（应当平滑，因为已用 adj_factor 处理过）
+    设计原因（见 06-quality.md 问题 5）：
+      原实现用「factor 'close_adj' 在分红日相对前一日跳变 >20% 即判 critical」
+      作为复权正确性的代理，但该代理既假阳又假阴：
+        - 后复权价在分红日本就可能合法跳变 >20%（涨跌停叠加真实波动）
+          → 产生假阳性 critical，错误阻断门禁；
+        - 若因子根本未做复权，小额分红除权缺口可能仅 1-2%
+          → 真 bug 反而落在 0.8/1.2 阈值内被漏报；
+        - 0.8/1.2 阈值是无理论依据的拍脑袋常数。
+
+    正确做法需独立用 raw.adj_factor 重算后复权价并与因子落库值逐点比对，
+    属较大改动，此处不重写。当前仅产出一条 info 级「未实现」留痕，
+    使审计报告明确「此项未被审计」，而非伪装成 passed=True 的绿灯。
     """
 
-    # 找出存在 adj_jump > 1.5 的 (ts_code, trade_date) 作为"分红日候选"
-    candidate_sql = text(
-        """
-        WITH adj_series AS (
-            SELECT ts_code, trade_date, adj_factor::double precision AS af,
-                   LAG(adj_factor::double precision) OVER (
-                       PARTITION BY ts_code ORDER BY trade_date
-                   ) AS prev_af
-            FROM raw.adj_factor
+    return [
+        CheckResult(
+            passed=True,
+            level="info",
+            rule="adj_jump",
+            detail={
+                "audit": "ghost2_adj_trap",
+                "audit_status": "not_implemented",
+                "factor_id": "<close_adj>",
+                "reason": (
+                    "复权陷阱审计未实现：原「跳变幅度」代理既假阳又假阴，"
+                    "已移除以免误导。正确实现需用 adj_factor 独立重算后复权价比对。"
+                ),
+            },
+            trade_date="00000000",
+            name="ghost2_adj_trap",
         )
-        SELECT ts_code, trade_date
-        FROM adj_series
-        WHERE prev_af IS NOT NULL AND prev_af > 0
-          AND (af / prev_af > 1.5 OR prev_af / NULLIF(af, 0) > 1.5)
-        ORDER BY random()
-        LIMIT :n
-        """
-    )
-    try:
-        candidates = session.execute(
-            candidate_sql, {"n": sample_size_codes * sample_size_dates}
-        ).all()
-    except Exception as exc:
-        logger.error("ghost2_adj_trap_failed", extra={"err": str(exc)})
-        return [
-            CheckResult(
-                passed=False,
-                level="critical",
-                rule="adj_jump",
-                detail={"audit": "ghost2_adj_trap", "error": str(exc)},
-                trade_date="00000000",
-                name="ghost2_adj_trap",
-            )
-        ]
-
-    if not candidates:
-        return []
-
-    issues: list[CheckResult] = []
-    for ts_code, trade_date in candidates[: sample_size_codes * sample_size_dates]:
-        # 比对：因子表 close_adj 在分红日 vs 前一日，若变化 > 20% 视为复权未处理
-        sql = text(
-            """
-            WITH today AS (
-                SELECT value FROM factors.daily_factors
-                WHERE ts_code = :c AND trade_date = :d
-                  AND factor_id = 'close_adj'
-                LIMIT 1
-            ),
-            prev AS (
-                SELECT value FROM factors.daily_factors
-                WHERE ts_code = :c
-                  AND trade_date = (
-                      SELECT max(trade_date) FROM factors.daily_factors
-                      WHERE ts_code = :c AND trade_date < :d
-                        AND factor_id = 'close_adj'
-                  )
-                  AND factor_id = 'close_adj'
-                LIMIT 1
-            )
-            SELECT (SELECT value FROM today), (SELECT value FROM prev)
-            """
-        )
-        try:
-            row = session.execute(sql, {"c": ts_code, "d": trade_date}).first()
-        except Exception as exc:
-            logger.warning("ghost2_sample_skip", extra={"ts_code": ts_code, "date": trade_date, "err": str(exc)})
-            continue
-        if not row or row[0] is None or row[1] is None or row[1] == 0:
-            continue
-        ratio = float(row[0]) / float(row[1])
-        if ratio > 1.2 or ratio < 0.8:
-            issues.append(
-                CheckResult(
-                    passed=False,
-                    level="critical",
-                    rule="adj_jump",
-                    detail={
-                        "ts_code": ts_code,
-                        "date": trade_date,
-                        "prev_factor": float(row[1]),
-                        "curr_factor": float(row[0]),
-                        "ratio": ratio,
-                        "audit": "ghost2_adj_trap",
-                        "note": (
-                            "factor 'close_adj' jumped > 20% on a dividend day; "
-                            "可能未用后复权"
-                        ),
-                    },
-                    trade_date=trade_date,
-                    name="ghost2_adj_trap",
-                )
-            )
-    return issues
+    ]
 
 
 # ----------------------------------------------------------------------
@@ -357,83 +316,44 @@ def audit_ghost2_adj_trap(
 # ----------------------------------------------------------------------
 
 def audit_ghost3_fina_delay(
-    session: Session, sample_size: int = 10
+    session: Session,  # noqa: ARG001 —— 保留签名兼容；当前实现不查库
+    sample_size: int = 10,  # noqa: ARG001
 ) -> list[CheckResult]:
-    """随机抽样 N 个公司财报，验证 factor_value(T) only uses fina ann_date <= T。
+    """财务披露延迟审计 —— 当前标注「未实现」，不再给出误导性结论。
 
-    策略：
-      - 抽 N 个 (ts_code, ann_date) 财报样本
-      - 对每个样本，查 factors.daily_factors 中 trade_date < ann_date 且
-        factor_id 以 'fin_' 开头的记录；存在则说明用了"未发布"财务数据
+    设计原因（见 06-quality.md 问题 4）：
+      原实现的泄漏判定窗口为 [end_date, ann_date)，但：
+        - 真正的泄漏窗口应是 (-∞, ann_date)：在 end_date 之前用该期数据
+          同样是泄漏，原窗口把这部分漏掉（假阴）；
+        - 更根本的：factors.daily_factors 的 'fin_' 因子行不带「用的是哪期
+          财报」（source_ann_date）信息。因子天天计算，任意有 fin_ 因子的
+          股票只要区间内有交易日就必然命中 → 海量假阳，对真泄漏无分辨力。
+
+    正确做法需让因子表记录每行所用财报期的 source_ann_date，或独立重算比对，
+    属较大改动，此处不重写。当前仅产出一条 info 级「未实现」留痕，
+    使审计报告明确「此项未被审计」，而非伪装成 passed=True 的绿灯。
     """
 
-    sample_sql = text(
-        """
-        SELECT ts_code, ann_date, end_date
-        FROM raw.fina_indicator
-        WHERE ann_date IS NOT NULL
-        ORDER BY random()
-        LIMIT :n
-        """
-    )
-    try:
-        samples = session.execute(sample_sql, {"n": sample_size}).all()
-    except Exception as exc:
-        logger.error("ghost3_fina_delay_failed", extra={"err": str(exc)})
-        return [
-            CheckResult(
-                passed=False,
-                level="critical",
-                rule="pit_finance",
-                detail={"audit": "ghost3_fina_delay", "error": str(exc)},
-                trade_date="00000000",
-                name="ghost3_fina_delay",
-            )
-        ]
-
-    issues: list[CheckResult] = []
-    for ts_code, ann_date, end_date in samples:
-        # 在 [end_date, ann_date) 区间内，因子表用到了该公司的 fundamental 因子吗？
-        leak_sql = text(
-            """
-            SELECT factor_id, trade_date FROM factors.daily_factors
-            WHERE ts_code = :c
-              AND factor_id LIKE 'fin\\_%' ESCAPE '\\'
-              AND trade_date >= :end_d
-              AND trade_date < :ann_d
-            LIMIT 5
-            """
+    return [
+        CheckResult(
+            passed=True,
+            level="info",
+            rule="pit_finance",
+            detail={
+                "audit": "ghost3_fina_delay",
+                "audit_status": "not_implemented",
+                "factor_id": "<fin_*>",
+                "sample_ts_codes": [],
+                "reason": (
+                    "财务延迟审计未实现：因子表缺少 source_ann_date，"
+                    "无法把因子值回溯到所用财报期；原 [end_date, ann_date) "
+                    "窗口既假阳又假阴，已移除以免误导。"
+                ),
+            },
+            trade_date="00000000",
+            name="ghost3_fina_delay",
         )
-        try:
-            leaks = session.execute(
-                leak_sql,
-                {"c": ts_code, "end_d": end_date, "ann_d": ann_date},
-            ).all()
-        except Exception as exc:
-            logger.warning("ghost3_sample_skip", extra={"ts_code": ts_code, "ann_date": ann_date, "err": str(exc)})
-            continue
-
-        # 仅当确实"在 ann_date 之前"已经写入了对应财务期 fundamental 因子时报警
-        # 因子写入时间无法 100% 推断财务期归属，本检查仅作样本启发式
-        if leaks:
-            issues.append(
-                CheckResult(
-                    passed=False,
-                    level="warn",
-                    rule="pit_finance",
-                    detail={
-                        "factor_id": leaks[0][0],
-                        "sample_ts_codes": [ts_code],
-                        "ann_date": ann_date,
-                        "end_date": end_date,
-                        "leaked_trade_dates": [str(r[1]) for r in leaks],
-                        "audit": "ghost3_fina_delay",
-                    },
-                    trade_date=str(leaks[0][1]),
-                    name="ghost3_fina_delay",
-                )
-            )
-    return issues
+    ]
 
 
 # ----------------------------------------------------------------------
@@ -444,20 +364,24 @@ def run_full_audit(
     session: Session,
     sample_trade_dates: Iterable[str],
     *,
-    factors_base_path: Path | None = None,
+    factor_cls: Any = None,
     ghost2_sample_codes: int = 10,
     ghost2_sample_dates: int = 5,
     ghost3_sample_size: int = 10,
 ) -> list[CheckResult]:
-    """执行三铁律 + 三幽灵 Bug 全套审计，返回全部未通过的 CheckResult。"""
+    """执行三铁律 + 三幽灵 Bug 全套审计，返回全部未通过的 CheckResult。
+
+    注：ghost2/ghost3 当前为「未实现」状态，会返回一条 info 级留痕（非绿灯），
+    使审计报告明确标注「此项未审计」（见 06-quality.md 问题 4/5）。
+    """
 
     dates = list(sample_trade_dates)
     results: list[CheckResult] = []
 
     # 铁律 1
     results.extend(audit_rule1_finance_uses_ann_date(session, dates))
-    # 铁律 2（静态）
-    rule2 = audit_rule2_market_pit_window(factors_base_path=factors_base_path)
+    # 铁律 2（import factors.base.Factor 读取契约属性）
+    rule2 = audit_rule2_market_pit_window(factor_cls=factor_cls)
     if not rule2.passed:
         results.append(rule2)
     # 铁律 3 由单测 fixture 调用 verify_factor_window_no_future；此处不连库

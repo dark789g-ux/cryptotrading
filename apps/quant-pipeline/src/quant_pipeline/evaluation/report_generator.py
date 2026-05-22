@@ -36,6 +36,9 @@ _EXPECTED_RANGES = {
     "portfolio_annual_after_cost": (0.0, None, "单笔净收益中位数应 > 0"),
 }
 
+# Sharpe 可靠性阈值：单折 portfolio trade 笔数低于此值时 Sharpe 极不稳定（评审 05-#9）
+_MIN_RELIABLE_SHARPE_TRADES = 20
+
 
 def _format_metric(v: Any) -> str:
     if v is None:
@@ -137,6 +140,21 @@ def _troubleshooting(summary: dict[str, dict[str, Any]]) -> str:
             if lower is not None and v < lower:
                 notes.append(f"- ⚠️ [{model}] {msg}（实测 {v:.4f}）")
 
+    # 小样本 Sharpe 不可靠（评审 05-#9）：任一折 portfolio trade 笔数 < 20 时标注。
+    # walk-forward 单折测试集可能只有几笔 trade，Sharpe 极不稳定。
+    small_sample_models: set[str] = set()
+    for model, m in summary.items():
+        for f in m.get("fold_metrics", []):
+            n_tr = f.get("portfolio_n_trades")
+            if isinstance(n_tr, (int, float)) and n_tr < _MIN_RELIABLE_SHARPE_TRADES:
+                small_sample_models.add(model)
+    if small_sample_models:
+        notes.append(
+            f"- ⚠️ Sharpe 小样本不可靠：模型 {sorted(small_sample_models)} 存在 "
+            f"trade 笔数 < {_MIN_RELIABLE_SHARPE_TRADES} 的折，其 Sharpe 数值波动极大，"
+            "不应据此做模型决策。"
+        )
+
     if not notes:
         notes.append("- ✅ 所有指标在 doc/05 §5.7 期望区间内。")
     return "\n".join(notes)
@@ -160,7 +178,8 @@ def generate_report(
         model_version, feature_set_id, hyperparams, walk_forward_params:
             元数据
         compare_summary: ab_compare.compare_three 的返回
-        ensemble_daily_returns: 可选 ensemble 模型的合并 daily returns（Series, idx=trade_date）
+        ensemble_daily_returns: 可选 ensemble 模型的逐笔 trade 净收益（Series, idx=入场日；
+            值为多日持仓净收益率，非日收益）
         output_dir: 默认 artifact_dir(model_run_id)
 
     Returns:
@@ -202,11 +221,12 @@ def generate_report(
     if ensemble_daily_returns is not None and not ensemble_daily_returns.empty:
         ensemble_daily_returns.to_csv(daily_csv_path, header=True, encoding="utf-8")
         sections.append(
-            f"- ensemble daily returns 已写入 `daily_returns.csv`（{len(ensemble_daily_returns)} 行）"
+            f"- ensemble 逐笔 trade 净收益已写入 `daily_returns.csv`"
+            f"（{len(ensemble_daily_returns)} 笔；index 为入场日，值为多日持仓净收益率）"
         )
         sections.append("- 建议读者用 pandas / Excel 打开 csv 自行绘图")
     else:
-        sections.append("- ensemble daily returns 缺失（fold 数为 0 或评估失败）")
+        sections.append("- ensemble 逐笔 trade 净收益缺失（fold 数为 0 或评估失败）")
     sections.append("")
 
     sections.append("## 排查建议\n")

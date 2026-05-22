@@ -92,7 +92,13 @@ def _load_labels(scheme: str, start: str, end: str) -> pd.DataFrame:
 
 
 def _load_mv_map(start: str, end: str) -> pd.DataFrame:
-    """从 raw.daily_basic 加载流通市值 mv（按 PIT 安全：trade_date 直接对应）。"""
+    """从 raw.daily_basic 加载**总市值** total_mv（按 PIT 安全：trade_date 直接对应）。
+
+    注：market-cap 中性化口径取 Tushare `daily_basic.total_mv`（总市值）。
+    spec（doc/量化）未明确要求总市值 vs 流通市值（circ_mv）——本实现沿用现有
+    SQL 已落地的 `total_mv` 列，并保持注释 / 变量名一致（review §9）。
+    如后续 spec 要求改用流通市值，仅需把列名换成 `circ_mv` 并同步本注释。
+    """
 
     sql = text(
         """
@@ -192,9 +198,15 @@ def _upsert_feature_matrix(
     if matrix.empty:
         return 0
 
+    # to_dict("records") 比 iterrows() 快一个数量级（百万行级别）：iterrows
+    # 每行构造一个 Series 对象，开销极大（review §16）。
+    present_factor_ids = [fid for fid in factor_ids if fid in matrix.columns]
     rows: list[dict[str, Any]] = []
-    for _, r in matrix.iterrows():
-        feat = {fid: (float(r[fid]) if pd.notna(r[fid]) else None) for fid in factor_ids if fid in r}
+    for r in matrix.to_dict("records"):
+        feat = {
+            fid: (float(r[fid]) if pd.notna(r[fid]) else None)
+            for fid in present_factor_ids
+        }
         rows.append(
             {
                 "trade_date": str(r["trade_date"]),
@@ -265,6 +277,20 @@ def build_feature_matrix(
     labels = _load_labels(label_scheme, start, end)
     industry_map = _load_industry_map(start, end)
     mv_map = _load_mv_map(start, end)
+
+    # review §17：industry_map / mv_map 为空会让中性化静默退化（仅 builder 内部
+    # warn 一次）。在 runner 层把「中性化输入缺失」作为独立 warn 透出到 job 日志，
+    # 便于排查「job 成功但特征未中性化」。
+    if industry_map.empty:
+        logger.warning(
+            "feature_matrix_industry_map_empty",
+            extra={"date_range": date_range, "effect": "中性化退化为全市场 z-score"},
+        )
+    if mv_map.empty:
+        logger.warning(
+            "feature_matrix_mv_map_empty",
+            extra={"date_range": date_range, "effect": "跳过市值中性化"},
+        )
 
     if daily_factors.empty or labels.empty:
         feature_set_id = build_feature_set_id(factor_version, label_scheme)

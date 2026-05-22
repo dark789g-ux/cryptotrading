@@ -34,9 +34,12 @@ import pandas as pd
 from sqlalchemy import text
 
 from quant_pipeline.db.engine import session_scope
+from quant_pipeline.quality.monitor_loaders import build_default_loaders
 from quant_pipeline.quality.psi_utils import (
     IC_DROP_RATIO,
     IC_ROLLING_WINDOW,
+    PSI_CRITICAL_THRESHOLD,  # noqa: F401 —— re-export 供测试/调用方读阈值
+    PSI_WARN_THRESHOLD,  # noqa: F401
     compute_psi,
     psi_level,
     safe_skew,
@@ -46,173 +49,9 @@ from quant_pipeline.worker.progress import update_progress, warn_with_quality_re
 logger = logging.getLogger(__name__)
 
 
-# ----------------------------------------------------------------------
-# DB 加载（生产）
-# ----------------------------------------------------------------------
-
-
-def _load_current_scores(model_version: str, trade_date: str) -> pd.DataFrame:
-    sql = text(
-        """
-        SELECT ts_code, score
-        FROM ml.scores_daily
-        WHERE model_version = :mv AND trade_date = :td
-        """
-    )
-    with session_scope() as session:
-        rows = session.execute(sql, {"mv": model_version, "td": trade_date}).mappings().all()
-    return pd.DataFrame([{"ts_code": r["ts_code"], "score": float(r["score"])} for r in rows])
-
-
-def _load_train_oos_metrics(model_version: str) -> dict[str, Any]:
-    sql = text(
-        """
-        SELECT id, oos_metrics, feature_set_id
-        FROM ml.model_runs
-        WHERE model_version = :mv
-        ORDER BY created_at DESC
-        LIMIT 1
-        """
-    )
-    with session_scope() as session:
-        row = session.execute(sql, {"mv": model_version}).mappings().first()
-    if row is None:
-        raise ValueError(f"ml.model_runs 找不到 model_version={model_version!r}")
-    return {
-        "model_run_id": str(row["id"]),
-        "feature_set_id": row["feature_set_id"],
-        "oos_metrics": dict(row["oos_metrics"] or {}),
-    }
-
-
-def _load_rolling_ic(model_version: str, end_date: str, window: int) -> float:
-    """计算滚动 window 日 IC 均值：用 ml.scores_daily JOIN factors.labels (strategy-aware)。
-
-    若 ml.scores_daily 无足量数据，返回 NaN。
-    """
-
-    sql = text(
-        """
-        WITH dates AS (
-            SELECT DISTINCT trade_date
-            FROM ml.scores_daily
-            WHERE model_version = :mv AND trade_date <= :td
-            ORDER BY trade_date DESC
-            LIMIT :w
-        ),
-        joined AS (
-            SELECT s.trade_date, s.ts_code, s.score, l.value AS label
-            FROM ml.scores_daily s
-            JOIN factors.labels l
-              ON l.trade_date = s.trade_date AND l.ts_code = s.ts_code
-            WHERE s.model_version = :mv
-              AND s.trade_date IN (SELECT trade_date FROM dates)
-        )
-        SELECT trade_date, score, label FROM joined
-        """
-    )
-    with session_scope() as session:
-        rows = (
-            session.execute(sql, {"mv": model_version, "td": end_date, "w": window})
-            .mappings()
-            .all()
-        )
-    if not rows:
-        return float("nan")
-    df = pd.DataFrame([dict(r) for r in rows])
-    # 按 trade_date 求截面 IC，再对 window 内的 IC 求均值
-    ics: list[float] = []
-    for _td, g in df.groupby("trade_date"):
-        if len(g) < 2:
-            continue
-        s = g["score"].to_numpy(dtype=float)
-        y = g["label"].to_numpy(dtype=float)
-        if np.std(s) < 1e-12 or np.std(y) < 1e-12:
-            continue
-        ics.append(float(np.corrcoef(s, y)[0, 1]))
-    if not ics:
-        return float("nan")
-    return float(np.mean(ics))
-
-
-def _load_train_scores_sample(model_version: str, n_samples: int = 5000) -> np.ndarray:
-    """取该 model_version 历史 ml.scores_daily 作为 train 分布的代理。
-
-    若历史无样本（首次推理后立即监控），返回空数组。
-    """
-
-    sql = text(
-        """
-        SELECT score
-        FROM ml.scores_daily
-        WHERE model_version = :mv
-        ORDER BY trade_date DESC
-        LIMIT :lim
-        """
-    )
-    with session_scope() as session:
-        rows = session.execute(sql, {"mv": model_version, "lim": n_samples}).all()
-    return np.asarray([float(r[0]) for r in rows], dtype=float)
-
-
-def _load_current_features(feature_set_id: str, trade_date: str) -> pd.DataFrame:
-    sql = text(
-        """
-        SELECT ts_code, features
-        FROM factors.feature_matrix
-        WHERE feature_set_id = :fs AND trade_date = :td
-        """
-    )
-    with session_scope() as session:
-        rows = (
-            session.execute(sql, {"fs": feature_set_id, "td": trade_date})
-            .mappings()
-            .all()
-        )
-    records: list[dict[str, Any]] = []
-    for r in rows:
-        feats = dict(r["features"]) if r["features"] else {}
-        rec = {"ts_code": r["ts_code"], **{k: float(v) if v is not None else np.nan
-                                            for k, v in feats.items()}}
-        records.append(rec)
-    return pd.DataFrame(records)
-
-
-def _load_train_features_sample(
-    feature_set_id: str,
-    trade_date: str,
-    n_dates: int = 60,
-) -> pd.DataFrame:
-    """取该 feature_set 距 trade_date 之前 n_dates 个交易日的全样本，作为训练分布代理。"""
-
-    sql = text(
-        """
-        WITH dates AS (
-            SELECT DISTINCT trade_date
-            FROM factors.feature_matrix
-            WHERE feature_set_id = :fs AND trade_date < :td
-            ORDER BY trade_date DESC
-            LIMIT :n
-        )
-        SELECT ts_code, features
-        FROM factors.feature_matrix
-        WHERE feature_set_id = :fs
-          AND trade_date IN (SELECT trade_date FROM dates)
-        """
-    )
-    with session_scope() as session:
-        rows = (
-            session.execute(sql, {"fs": feature_set_id, "td": trade_date, "n": n_dates})
-            .mappings()
-            .all()
-        )
-    records: list[dict[str, Any]] = []
-    for r in rows:
-        feats = dict(r["features"]) if r["features"] else {}
-        rec = {"ts_code": r["ts_code"], **{k: float(v) if v is not None else np.nan
-                                            for k, v in feats.items()}}
-        records.append(rec)
-    return pd.DataFrame(records)
+# DB loader 段已抽到 monitor_loaders.py（06-quality.md 问题 12 行数 + 问题 13
+# 单 session 复用）。run_daily_monitor 只开一个 session_scope，经
+# build_default_loaders 把同一 session 绑进默认 loader 闭包。
 
 
 # ----------------------------------------------------------------------
@@ -231,7 +70,10 @@ def _check_ic_drop(
         return None
     if abs(train_ic) < 1e-9:
         return None
-    if rolling_ic < train_ic * IC_DROP_RATIO:
+    # 用 |IC| 比较预测力，避免负 IC 模型判据失效（见 06-quality.md 问题 7）：
+    # 直接 `rolling_ic < train_ic * 0.5` 在 train_ic<0 时阈值反而抬高，更难触发。
+    # 预测力 ≈ |IC|；滚动 |IC| 跌破训练期 |IC| 的一半即视为衰减。
+    if abs(rolling_ic) < abs(train_ic) * IC_DROP_RATIO:
         detail = {
             "model_version": model_version,
             "recent_ic": float(rolling_ic),
@@ -280,6 +122,16 @@ def _check_score_distribution_drift(
         "bins": bins,
     }
     if level is None:
+        # PSI 无法计算（train 近似常数 → edges 塌陷）时 compute_psi 返回 NaN。
+        # 不能静默当作"无漂移"（06-quality.md 问题 16）：产出一条 info 级留痕，
+        # 使 ml.quality_reports 明确记录"本日 PSI 不可计算"而非伪装成绿灯。
+        if np.isnan(psi):
+            warn_with_quality_report(
+                rule="score_distribution_drift",
+                trade_date=trade_date,
+                detail={**detail, "psi_status": "not_computable"},
+                level="info",
+            )
         return None
     warn_with_quality_report(
         rule="score_distribution_drift",
@@ -375,19 +227,28 @@ def run_daily_monitor(
     if job_id is not None:
         update_progress(job_id, 0, stage="monitor:start")
 
-    # 默认 loader
-    load_current_scores = load_current_scores or _load_current_scores
-    load_train_oos_metrics = load_train_oos_metrics or _load_train_oos_metrics
-    load_rolling_ic = load_rolling_ic or _load_rolling_ic
-    load_train_scores_sample = load_train_scores_sample or _load_train_scores_sample
-    load_current_features = load_current_features or _load_current_features
-    load_train_features_sample = (
-        load_train_features_sample or _load_train_features_sample
-    )
+    # 单 session 贯穿整个 monitor（06-quality.md 问题 13）：避免每个 loader
+    # 各开一个事务、读到不同时刻快照。默认 loader 经 build_default_loaders
+    # 绑定到这同一个 session；测试注入的 loader 各自独立、不受影响。
+    with session_scope() as session:
+        defaults = build_default_loaders(session)
+        load_current_scores = load_current_scores or defaults["load_current_scores"]
+        load_train_oos_metrics = (
+            load_train_oos_metrics or defaults["load_train_oos_metrics"]
+        )
+        load_rolling_ic = load_rolling_ic or defaults["load_rolling_ic"]
+        load_train_scores_sample = (
+            load_train_scores_sample or defaults["load_train_scores_sample"]
+        )
+        load_current_features = (
+            load_current_features or defaults["load_current_features"]
+        )
+        load_train_features_sample = (
+            load_train_features_sample or defaults["load_train_features_sample"]
+        )
 
-    # 1) 取当日 scores（若未指定 model_version 则自动选）
-    if model_version is None:
-        with session_scope() as session:
+        # 1) 取当日 scores（若未指定 model_version 则自动选）
+        if model_version is None:
             row = session.execute(
                 text(
                     """
@@ -400,17 +261,44 @@ def run_daily_monitor(
                 ),
                 {"td": date},
             ).first()
-        if row is None:
-            logger.warning("monitor_no_scores_today", extra={"date": date})
-            if job_id is not None:
-                update_progress(job_id, 100, stage="monitor:done")
-            return {
-                "date": date,
-                "model_version": None,
-                "issues": [],
-                "note": "no_scores_today",
-            }
-        model_version = str(row[0])
+            if row is None:
+                logger.warning("monitor_no_scores_today", extra={"date": date})
+                if job_id is not None:
+                    update_progress(job_id, 100, stage="monitor:done")
+                return {
+                    "date": date,
+                    "model_version": None,
+                    "issues": [],
+                    "note": "no_scores_today",
+                }
+            model_version = str(row[0])
+
+        return _run_monitor_body(
+            date=date,
+            model_version=model_version,
+            job_id=job_id,
+            load_current_scores=load_current_scores,
+            load_train_oos_metrics=load_train_oos_metrics,
+            load_rolling_ic=load_rolling_ic,
+            load_train_scores_sample=load_train_scores_sample,
+            load_current_features=load_current_features,
+            load_train_features_sample=load_train_features_sample,
+        )
+
+
+def _run_monitor_body(
+    *,
+    date: str,
+    model_version: str,
+    job_id: UUID | None,
+    load_current_scores: Any,
+    load_train_oos_metrics: Any,
+    load_rolling_ic: Any,
+    load_train_scores_sample: Any,
+    load_current_features: Any,
+    load_train_features_sample: Any,
+) -> dict[str, Any]:
+    """run_daily_monitor 的核心计算段（model_version 已解析、loader 已绑定）。"""
 
     if job_id is not None:
         update_progress(job_id, 10, stage="monitor:model_resolved")
@@ -437,7 +325,7 @@ def run_daily_monitor(
         issues.append(res_ic)
 
     # 3) 评分分布漂移
-    train_scores_arr = load_train_scores_sample(model_version)
+    train_scores_arr = load_train_scores_sample(model_version, date)
     curr_scores_arr = (
         curr_scores_df["score"].to_numpy(dtype=float)
         if not curr_scores_df.empty

@@ -4,7 +4,7 @@
     close_to_high_60d(T) = close_adj(T) / max(close_adj[T-59..T])
 
 值域 (0, 1]；越接近 1 表示当前价距离 60 日新高越近（强势）。
-PIT 窗口：100 日历日。
+PIT 窗口：需 60 交易日。原 100 日历日裕度偏紧，提到 115（review §8）。
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ _N = 60
 @register(factor_id="close_to_high_60d", factor_version="v1")
 class CloseToHigh60d(Factor):
     category = "price"
-    pit_window_days = 100
+    pit_window_days = 115
     description = "close_adj(T) / max(close_adj[T-59..T])"
     required_columns = ("close_adj",)
 

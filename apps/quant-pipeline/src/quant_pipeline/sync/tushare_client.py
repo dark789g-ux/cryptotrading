@@ -39,6 +39,10 @@ EMPTY_PATH_DATA_NULL = "data_null"
 EMPTY_PATH_ITEMS_EMPTY = "items_empty"
 EMPTY_PATH_CODE_NONZERO = "code_nonzero"
 
+# 无日期语义接口（如 index_classify / index_member_all）写 quality_reports 时
+# 用此哨兵值，避免用「今天」伪造 trade_date 把错误归因到运行当天。
+QUALITY_DATE_SENTINEL = "00000000"
+
 
 @dataclass(frozen=True)
 class FetchResult:
@@ -110,6 +114,13 @@ class TushareClient:
     # 限频
     # ------------------------------------------------------------------
     def _rate_limit_sleep(self) -> None:
+        """限频 sleep。
+
+        注意：`_last_call_ts` 是无锁实例字段，**非线程安全**。
+        本客户端仅设计为单线程顺序使用（sync orchestrator 串行调用）；
+        多线程共享同一 client 时限频间隔不保证准确。
+        """
+
         elapsed = time.monotonic() - self._last_call_ts
         if elapsed < self._min_interval:
             time.sleep(self._min_interval - elapsed)
@@ -146,10 +157,29 @@ class TushareClient:
             or params.get("start_date")
         )
         if not td or len(td) != 8 or not td.isdigit():
-            # 退化：用今日 UTC 日期（YYYYMMDD），让 quality_reports 仍可写
-            from datetime import UTC, datetime
+            # 无日期语义的接口（index_classify / index_member_all 等）用固定哨兵值，
+            # 不伪造「今天」——否则会把空数据错误归因到运行当天，且 A 股北京时区
+            # 与 UTC 当日可能差 1 天。
+            td = QUALITY_DATE_SENTINEL
 
-            td = datetime.now(UTC).strftime("%Y%m%d")
+        # ------------- 循环外预解析 method -------------
+        # method 不可用属于客户端代码 bug（mock 不全 / tushare 版本差异），
+        # 必须直接 raise，不能进重试循环伪装成 code_nonzero 空数据路径。
+        pro = self._get_pro()
+        direct_method = getattr(pro, api_name, None)
+        if direct_method is not None:
+            def _call(**params: Any) -> Any:
+                return direct_method(**params)
+        else:
+            query_method = getattr(pro, "query", None)
+            if query_method is None:
+                raise AttributeError(
+                    f"TuShare pro 对象既无 {api_name!r} 方法也无 query 方法；"
+                    "客户端配置 / mock / tushare 版本异常"
+                )
+
+            def _call(**params: Any) -> Any:
+                return query_method(api_name, **params)
 
         # ------------- retry + 限频 -------------
         last_exc: Exception | None = None
@@ -157,14 +187,7 @@ class TushareClient:
         for attempt in range(1, self._max_retries + 1):
             self._rate_limit_sleep()
             try:
-                pro = self._get_pro()
-                method = getattr(pro, api_name, None)
-                if method is None:
-                    # 用 query 兜底（doc/tushare_info.md 示例：pro.query(api_name, ...)）
-                    method = pro.query
-                    df = method(api_name, **params)
-                else:
-                    df = method(**params)
+                df = _call(**params)
             except Exception as exc:  # noqa: BLE001 —— retry 视情况记 warn
                 last_exc = exc
                 logger.warning(
@@ -188,7 +211,9 @@ class TushareClient:
 
         # ------------- 三种空数据路径分别 warn 双写 -------------
 
-        # 路径 1：data_null —— pro_api 返回 None（极少见，但 tushare 偶发）
+        # 路径 1：data_null —— pro_api 调用未抛异常但返回 None。
+        # 真实 tushare 正常情况下返回 DataFrame（空时为空 DataFrame），
+        # 此路径主要覆盖 mock / 异常 driver 返回 None 的防御场景，保留不删。
         if df is None and last_exc is None:
             warn_with_quality_report(
                 rule=f"{api_name}_empty",

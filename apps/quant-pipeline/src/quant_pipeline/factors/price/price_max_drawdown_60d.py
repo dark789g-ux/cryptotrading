@@ -5,7 +5,7 @@
     drawdown_t = close_adj(t) / max(close_adj[T-59..t]) - 1
     price_max_drawdown_60d = min(drawdown_t) over the window  （负值）
 
-PIT 窗口：100 日历日。
+PIT 窗口：需 60 交易日。原 100 日历日裕度偏紧，提到 115（review §8）。
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ _N = 60
 @register(factor_id="price_max_drawdown_60d", factor_version="v1")
 class PriceMaxDrawdown60d(Factor):
     category = "price"
-    pit_window_days = 100
+    pit_window_days = 115
     description = "60 日 close_adj 序列上的最大回撤（负值）"
     required_columns = ("close_adj",)
 

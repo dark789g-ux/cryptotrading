@@ -1,4 +1,4 @@
-"""RSI 14（Wilder 平滑）。
+"""RSI 14（Wilder 平滑的 EMA 近似）。
 
 定义：
     daily_change = close_adj(t) - close_adj(t-1)
@@ -7,7 +7,14 @@
     avg_down_t = ((N-1) * avg_down_{t-1} + down_t) / N
     rsi = 100 - 100 / (1 + avg_up / avg_down)
 
-N=14；首个 avg 用前 14 日简单均值初始化。
+N=14。
+
+⚠ 实现说明（review §15）：本实现用 `ewm(alpha=1/N, adjust=False)` 做 Wilder
+平滑——这是教科书 Wilder RSI 的 **EMA 近似**，**不**用「前 N 日简单均值」做首值
+初始化。`adjust=False` 的 ewm 首个有效值是纯 EMA 种子（第一个 up/down 值本身），
+之后递推与 Wilder 的 `((N-1)·prev + x)/N` 完全等价。差异仅在序列最前端，
+`min_periods=N` 已保证前 N 个点为 NaN；配合下方 burn-in 窗口，对 T 日因子值
+影响可忽略。如需教科书严格 Wilder（首值 = 前 N 日 SMA），需改为手写递推。
 PIT 窗口：N + 一些 burn-in（Wilder 平滑收敛慢）取 60 日历日（约 37 交易日）。
 """
 

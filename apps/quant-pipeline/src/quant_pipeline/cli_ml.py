@@ -6,21 +6,13 @@
 from __future__ import annotations
 
 import typer
-from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
+from quant_pipeline.cli_common import (
+    console,
+    make_progress_callback as _make_progress_callback,
+)
 from quant_pipeline.config.logging import setup_logging
-
-console = Console(force_terminal=True)
-
-
-def _make_progress_callback(progress: Progress, task_id: int):
-    """创建 CLI 进度回调函数，用于 runner 报告进度。"""
-
-    def callback(pct: int, stage: str) -> None:
-        progress.update(task_id, completed=pct, description=f"[cyan]{stage}")
-
-    return callback
 
 
 def cmd_train(

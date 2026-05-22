@@ -9,10 +9,10 @@ Create Date: 2026-05-22
 
 背景：
 - strategy-aware 切真 T+1 入场后，trade_date 明确为信号日 T；
-- strategy-aware（净收益，扣 ROUND_TRIP_COST）与 fwd_5d_ret（毛收益，不扣）
-  写同一张 factors.labels，口径不同但表上无任何声明 —— 评审第 4 条「静默不一致」。
-- 本 migration 给 factors.labels 的 trade_date / value 列加 COMMENT，把口径差异
-  显式落到 schema 上。
+- 项目决策：两 scheme（strategy-aware / fwd_5d_ret）的 value 口径统一为**毛收益**
+  （不扣交易成本，成本由 portfolio 评估层扣减）—— 评审第 4 条「静默不一致」的处置。
+- 本 migration 给 factors.labels 的 trade_date / value 列加 COMMENT，把口径
+  显式落到 schema 上：value 统一毛收益，trade_date 的入场时点两 scheme 不同。
 
 约束：
 - factors.labels 是 PARTITION BY RANGE (trade_date) 的分区表，COMMENT ON COLUMN
@@ -37,8 +37,8 @@ _COMMENT_TRADE_DATE: str = (
     "信号日（YYYYMMDD）。strategy-aware：T+1 入场；fwd_5d_ret：T 日起算。"
 )
 _COMMENT_VALUE: str = (
-    "标签收益率。strategy-aware=净收益（扣双边成本 ROUND_TRIP_COST）；"
-    "fwd_5d_ret=毛收益（不扣成本，学术 baseline 口径）。"
+    "标签收益率（毛收益，不扣交易成本）。strategy-aware 与 fwd_5d_ret 口径统一为"
+    "毛收益，交易成本由 portfolio 评估层统一扣减。"
 )
 
 

@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from quant_pipeline.quality.pit_audit import (
@@ -48,44 +46,40 @@ def test_rule1_finance_uses_ann_date_critical_when_null_ann() -> None:
 
 
 # ----------------------------------------------------------------------
-# 铁律 2：行情用 T 日盘后（factors/base.py 静态扫描）
+# 铁律 2：行情用 T 日盘后（import factors.base.Factor 读取契约属性）
 # ----------------------------------------------------------------------
 
-def test_rule2_market_pit_window_pass(tmp_path: Path) -> None:
-    base_py = tmp_path / "base.py"
-    base_py.write_text(
-        "class Factor:\n    pit_window_days: int = 1\n",
-        encoding="utf-8",
-    )
-    r = audit_rule2_market_pit_window(factors_base_path=base_py)
+def test_rule2_market_pit_window_pass_when_attr_declared() -> None:
+    class _FakeFactorCls:
+        pit_window_days: int = 0  # 抽象基类默认 0 是合法哨兵
+
+    r = audit_rule2_market_pit_window(factor_cls=_FakeFactorCls)
     assert r.passed is True
-    assert r.detail["min_pit_window_days"] == 1
+    assert r.level == "info"
 
 
-def test_rule2_market_pit_window_warn_when_declared_zero(tmp_path: Path) -> None:
-    base_py = tmp_path / "base.py"
-    base_py.write_text(
-        "class Factor:\n    pit_window_days: int = 0\n",
-        encoding="utf-8",
-    )
-    r = audit_rule2_market_pit_window(factors_base_path=base_py)
+def test_rule2_market_pit_window_warn_when_attr_missing() -> None:
+    class _FakeFactorCls:
+        name: str = ""
+
+    r = audit_rule2_market_pit_window(factor_cls=_FakeFactorCls)
     assert r.passed is False
     assert r.level == "warn"
 
 
-def test_rule2_market_pit_window_warn_when_not_declared(tmp_path: Path) -> None:
-    base_py = tmp_path / "base.py"
-    base_py.write_text(
-        "class Factor:\n    name: str\n",
-        encoding="utf-8",
-    )
-    r = audit_rule2_market_pit_window(factors_base_path=base_py)
+def test_rule2_market_pit_window_warn_when_attr_not_int() -> None:
+    class _FakeFactorCls:
+        pit_window_days = "bad"
+
+    r = audit_rule2_market_pit_window(factor_cls=_FakeFactorCls)
     assert r.passed is False
     assert r.level == "warn"
 
 
-def test_rule2_market_pit_window_info_when_base_missing(tmp_path: Path) -> None:
-    r = audit_rule2_market_pit_window(factors_base_path=tmp_path / "absent.py")
+def test_rule2_market_pit_window_real_factor_class() -> None:
+    """默认 import 真实 factors.base.Factor：属性已声明 → pass。"""
+
+    r = audit_rule2_market_pit_window()
     assert r.passed is True
     assert r.level == "info"
 
@@ -139,70 +133,35 @@ def test_rule3_factor_window_no_future_critical_when_future_used() -> None:
 
 
 # ----------------------------------------------------------------------
-# 幽灵 Bug 2：复权陷阱
+# 幽灵 Bug 2：复权陷阱 —— 已标注「未实现」（06-quality.md 问题 5）
 # ----------------------------------------------------------------------
 
-def test_ghost2_adj_trap_no_candidates() -> None:
-    session = FakeSession([("adj_series", FakeResult(rows=[]))])
+def test_ghost2_adj_trap_returns_not_implemented_marker() -> None:
+    """ghost2 不再用"跳变幅度"代理（既假阳又假阴），改为返回 info 级未实现留痕。"""
+
+    session = FakeSession([])
     issues = audit_ghost2_adj_trap(session, sample_size_codes=2, sample_size_dates=1)
-    assert issues == []
-
-
-def test_ghost2_adj_trap_flags_factor_jump() -> None:
-    # 第一个 SQL 返回候选 (ts, date)；后续 close_adj 比对返回值 prev=1.0 curr=2.0
-    session = FakeSession(
-        [
-            (
-                "adj_series",
-                FakeResult(rows=[("000001.SZ", "20240620")]),
-            ),
-            (
-                "factor_id = 'close_adj'",
-                FakeResult(rows=[(2.0, 1.0)]),
-            ),
-        ]
-    )
-    issues = audit_ghost2_adj_trap(session, sample_size_codes=1, sample_size_dates=1)
     assert len(issues) == 1
-    assert issues[0].rule == "adj_jump"
-    assert issues[0].level == "critical"
+    res = issues[0]
+    assert res.passed is True  # 不是 critical 失败
+    assert res.level == "info"  # 但仍会 emit 留痕，非静默绿灯
+    assert res.detail["audit_status"] == "not_implemented"
 
 
 # ----------------------------------------------------------------------
-# 幽灵 Bug 3：财务披露延迟
+# 幽灵 Bug 3：财务披露延迟 —— 已标注「未实现」（06-quality.md 问题 4）
 # ----------------------------------------------------------------------
 
-def test_ghost3_fina_delay_no_leaks() -> None:
-    session = FakeSession(
-        [
-            (
-                "FROM raw.fina_indicator",
-                FakeResult(rows=[("000001.SZ", "20240428", "20240331")]),
-            ),
-            # leak_sql 默认返回空
-        ]
-    )
-    issues = audit_ghost3_fina_delay(session, sample_size=1)
-    assert issues == []
+def test_ghost3_fina_delay_returns_not_implemented_marker() -> None:
+    """ghost3 原 [end_date, ann_date) 窗口既假阳又假阴，改为返回 info 级未实现留痕。"""
 
-
-def test_ghost3_fina_delay_flags_leak() -> None:
-    session = FakeSession(
-        [
-            (
-                "FROM raw.fina_indicator",
-                FakeResult(rows=[("000001.SZ", "20240428", "20240331")]),
-            ),
-            (
-                "factor_id LIKE 'fin\\_%'",
-                FakeResult(rows=[("fin_roe", "20240410")]),
-            ),
-        ]
-    )
+    session = FakeSession([])
     issues = audit_ghost3_fina_delay(session, sample_size=1)
     assert len(issues) == 1
-    assert issues[0].rule == "pit_finance"
-    assert issues[0].detail["leaked_trade_dates"] == ["20240410"]
+    res = issues[0]
+    assert res.passed is True
+    assert res.level == "info"
+    assert res.detail["audit_status"] == "not_implemented"
 
 
 # ----------------------------------------------------------------------

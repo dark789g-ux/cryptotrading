@@ -27,8 +27,7 @@ class _FakePro:
         self.df = df
         self.calls = 0
 
-    # 当 method 名 == 接口名时，TushareClient 直接走 getattr
-    def trade_cal(self, **params: Any) -> Any:
+    def _respond(self) -> Any:
         self.calls += 1
         if self.behavior == "ok":
             return self.df
@@ -39,6 +38,14 @@ class _FakePro:
         if self.behavior == "exception":
             raise RuntimeError("simulated tushare error")
         raise AssertionError(self.behavior)
+
+    # 当 method 名 == 接口名时，TushareClient 直接走 getattr
+    def trade_cal(self, **params: Any) -> Any:
+        return self._respond()
+
+    # query 兜底路径：接口名无同名方法时 TushareClient 调用 pro.query(api_name, ...)
+    def query(self, api_name: str, **params: Any) -> Any:
+        return self._respond()
 
 
 def _make_client(fake: _FakePro) -> TushareClient:
@@ -145,3 +152,35 @@ def test_trade_date_inferred_for_quality_report() -> None:
     with patch("quant_pipeline.sync.tushare_client.warn_with_quality_report") as warn_mock:
         client.fetch("fina_indicator", ts_code="600000.SH", ann_date="20240315")
     assert warn_mock.call_args.kwargs["trade_date"] == "20240315"
+
+
+def test_quality_date_sentinel_for_no_date_api() -> None:
+    """无日期语义接口（index_classify）应使用哨兵值而非伪造今日日期。"""
+
+    from quant_pipeline.sync.tushare_client import QUALITY_DATE_SENTINEL
+
+    fake = _FakePro("items_empty")
+    client = _make_client(fake)
+
+    with patch("quant_pipeline.sync.tushare_client.warn_with_quality_report") as warn_mock:
+        client.fetch("index_classify", src="SW2021", level="L1")
+    assert warn_mock.call_args.kwargs["trade_date"] == QUALITY_DATE_SENTINEL
+
+
+class _ProWithoutQuery:
+    """既无目标接口方法也无 query 方法的坏 pro 对象。"""
+
+
+def test_missing_method_and_query_raises_not_swallowed() -> None:
+    """method 与 query 都不可用时应直接 raise，不进重试循环伪装成空数据。"""
+
+    import pytest
+
+    client = TushareClient(
+        token="dummy",
+        min_interval_seconds=0.0,
+        max_retries=3,
+        pro_api_factory=lambda _t: _ProWithoutQuery(),
+    )
+    with pytest.raises(AttributeError):
+        client.fetch("trade_cal", exchange="SSE", trade_date="20240102")

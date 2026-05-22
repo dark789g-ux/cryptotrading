@@ -60,3 +60,25 @@ def ensure_artifact_dir(run_id: UUID | str) -> Path:
     target = artifact_dir(run_id)
     target.mkdir(parents=True, exist_ok=True)
     return target
+
+
+def resolve_artifact_local_path(artifact_uri_str: str) -> Path:
+    """把入库的 POSIX 相对路径 `./artifacts/<uuid>/model.txt` 还原为本地绝对 Path。
+
+    评审 05-#10：原本 inference.runner 与 evaluation.shap_explainer 各有一份完全相同的
+    `_resolve_artifact_local_path`，统一抽到此处。
+
+    artifact_root() 已封装 ARTIFACT_DIR 环境变量与默认值；本函数剥掉 uri 前缀的
+    `.` / `artifacts` 段后，拼到 artifact_root 之下。
+    """
+
+    p = PurePosixPath(artifact_uri_str)
+    parts = p.parts
+    if parts and parts[0] in (".", "artifacts"):
+        idx = 0
+        while idx < len(parts) and parts[idx] in (".", "artifacts"):
+            idx += 1
+        rel_parts = parts[idx:]
+    else:
+        rel_parts = parts
+    return artifact_root().joinpath(*rel_parts)

@@ -12,25 +12,16 @@ Part E 追加 quality 子命令（check / pit-audit）。
 
 from __future__ import annotations
 
-from typing import Callable
-
 import typer
-from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from quant_pipeline import __version__
+from quant_pipeline.cli_common import (
+    console,
+    make_progress_callback as _make_progress_callback,
+    validate_date_range,
+)
 from quant_pipeline.config.logging import setup_logging
-
-console = Console(force_terminal=True)
-
-
-def _make_progress_callback(progress: Progress, task_id: int) -> Callable[[int, str], None]:
-    """创建 CLI 进度回调函数，用于 runner 报告进度。"""
-
-    def callback(pct: int, stage: str) -> None:
-        progress.update(task_id, completed=pct, description=f"[cyan]{stage}")
-
-    return callback
 
 app = typer.Typer(
     name="quant",
@@ -155,6 +146,14 @@ def sync_raw(
     setup_logging()
     from quant_pipeline.sync.orchestrator import DEFAULT_TABLES, run_sync
 
+    # 问题 8：CLI 层先校验 date_range，与 worker dispatcher 路径一致，
+    # 不把格式错误一路下传到 orchestrator 才报。
+    try:
+        validate_date_range(date_range)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+
     tables_tuple: tuple[str, ...]
     if tables.strip():
         tables_tuple = tuple(t.strip() for t in tables.split(",") if t.strip())
@@ -231,6 +230,12 @@ def labels_build(
     setup_logging()
     from quant_pipeline.labels.runner import compute_labels
 
+    try:
+        validate_date_range(date_range)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+
     if progress:
         with Progress(
             SpinnerColumn(),
@@ -286,6 +291,12 @@ def features_build(
     setup_logging()
     from quant_pipeline.features.runner import build_feature_matrix
 
+    try:
+        validate_date_range(date_range)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+
     if progress:
         with Progress(
             SpinnerColumn(),
@@ -335,6 +346,12 @@ def factors_compute(
 
     setup_logging()
     from quant_pipeline.factors.runner import run_factors
+
+    try:
+        validate_date_range(date_range)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
 
     ids = tuple(s.strip() for s in factor_ids.split(",") if s.strip()) or None
     out = run_factors(

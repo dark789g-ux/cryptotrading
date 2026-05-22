@@ -1,23 +1,27 @@
 """Dispatcher：把 Job 路由到对应 runner。
 
-M0 阶段仅实现 run_type='noop'（直接 success 0→100）；其它 run_type 一律
-status='failed' + error_text='not implemented in M0'。
+_ROUTES 覆盖全部 run_type（noop / sync / factors / quality / labels /
+features / train / infer / optuna / seed_avg / monitor）。未知 run_type
+直接置 failed 终态。
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 import traceback
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
 
+from quant_pipeline.config.settings import get_settings
 from quant_pipeline.db.engine import session_scope
 from quant_pipeline.worker.poller import Job
 from quant_pipeline.worker.progress import (
     JobCancelled,
     check_cancel_requested,
+    heartbeat,
     update_progress,
 )
 
@@ -38,10 +42,6 @@ def _runner_noop(job: Job) -> None:
     if check_cancel_requested(job.id):
         raise JobCancelled
     update_progress(job.id, 100, stage="done")
-
-
-def _runner_not_implemented(job: Job) -> None:
-    raise NotImplementedError(f"run_type={job.run_type!r} not implemented in M0")
 
 
 def _runner_factors(job: Job) -> None:
@@ -292,6 +292,16 @@ _ROUTES = {
 # Job 终态写入助手
 # ----------------------------------------------------------------------
 
+# ── attempts 自增语义（问题 2，写死，勿改）─────────────────────────────
+# 单一来源：**poll 统一自增 attempts**（poller.py 的 `attempts = attempts + 1`
+# 对任何 pending→running 转换生效，含首次领取）。
+# 因此凡是把 job 置回 'pending' 的代码路径——reaper 回收、_finalize_job 失败
+# 重试——一律 **不得** 改动 attempts，交由下一次 poll 自增。
+# 重试预算判断 `attempts < max_attempts` 读的是「本次运行所用的 attempts
+# 值」（poll 领取时已自增过），成立即表示还有下一次运行的预算。
+# ──────────────────────────────────────────────────────────────────────
+
+
 def _finalize_job(
     job_id: UUID,
     *,
@@ -300,17 +310,25 @@ def _finalize_job(
     error_text: str | None = None,
     blocked_reason: str | None = None,
 ) -> None:
+    """写 job 终态（success / failed / cancelled / blocked）。
+
+    终态写入时一并清 cancel_requested（问题 3）：否则被取消的 job 若后续
+    重新进入 pending（手工改、或失败重试），check_cancel_requested 会立刻
+    返回 True 让 runner 一启动就被取消，无法摆脱。
+    """
+
     with session_scope() as session:
         session.execute(
             text(
                 """
                 UPDATE ml.jobs
-                SET status         = :status,
-                    progress       = :progress,
-                    error_text     = :error_text,
-                    blocked_reason = :blocked_reason,
-                    finished_at    = now(),
-                    heartbeat_at   = now()
+                SET status           = :status,
+                    progress         = :progress,
+                    error_text       = :error_text,
+                    blocked_reason   = :blocked_reason,
+                    cancel_requested = false,
+                    finished_at      = now(),
+                    heartbeat_at     = now()
                 WHERE id = :job_id
                 """
             ),
@@ -322,6 +340,83 @@ def _finalize_job(
                 "job_id": job_id,
             },
         )
+
+
+def _requeue_job(job_id: UUID, *, error_text: str | None = None) -> None:
+    """把失败的 job 置回 pending 以便重试（问题 1）。
+
+    清 started_at / heartbeat_at / finished_at / blocked_reason，保留
+    error_text 记录上一次失败原因。**不动 attempts**（见上方语义注释，
+    由下一次 poll 自增）。
+    """
+
+    with session_scope() as session:
+        session.execute(
+            text(
+                """
+                UPDATE ml.jobs
+                SET status         = 'pending',
+                    progress       = 0,
+                    error_text     = :error_text,
+                    blocked_reason = NULL,
+                    started_at     = NULL,
+                    heartbeat_at   = NULL,
+                    finished_at    = NULL
+                WHERE id = :job_id
+                """
+            ),
+            {"error_text": error_text, "job_id": job_id},
+        )
+
+
+# ----------------------------------------------------------------------
+# 后台 heartbeat 线程（问题 4）
+# ----------------------------------------------------------------------
+
+class _HeartbeatThread:
+    """runner 执行期间周期刷新 heartbeat_at 的后台守护线程。
+
+    问题 4：长任务（sync/train/optuna）若两次 update_progress 间隔 >
+    reaper stale 阈值，reaper 会把仍在运行的 job 误判超时并重置 pending，
+    导致同一 job 被并发跑两遍。本线程独立于 runner 进度回调，按
+    worker_heartbeat_interval_seconds 周期刷 heartbeat_at，保证 running
+    job 在真正存活时不被回收。
+
+    - daemon 线程：worker 进程退出不被它阻塞。
+    - heartbeat 失败仅 logger.warning，不影响 runner（DB 抖动不应误杀任务）。
+    - 通过 threading.Event 精确等待，stop() 后线程立即退出。
+    """
+
+    def __init__(self, job_id: UUID, interval_seconds: float) -> None:
+        self._job_id = job_id
+        # 间隔下限 1s，避免配置成 0 时空转打满 DB
+        self._interval = max(1.0, float(interval_seconds))
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            name=f"heartbeat-{job_id}",
+            daemon=True,
+        )
+
+    def _run(self) -> None:
+        # 先等一个间隔再刷：poll 领取时已写过一次 heartbeat_at
+        while not self._stop.wait(self._interval):
+            try:
+                heartbeat(self._job_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "heartbeat_failed",
+                    extra={"job_id": str(self._job_id), "err": str(exc)},
+                )
+
+    def __enter__(self) -> "_HeartbeatThread":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._stop.set()
+        # 给线程一点时间收尾；daemon 线程即便没 join 上也不阻塞进程退出
+        self._thread.join(timeout=self._interval + 1.0)
 
 
 # ----------------------------------------------------------------------
@@ -348,8 +443,10 @@ class Dispatcher:
         # 延迟 import 避免循环依赖
         from quant_pipeline.quality.runner import QualityGateBlocked
 
+        hb_interval = get_settings().worker_heartbeat_interval_seconds
         try:
-            runner(job)
+            with _HeartbeatThread(job.id, hb_interval):
+                runner(job)
         except JobCancelled:
             logger.info("job_cancelled", extra={"job_id": str(job.id)})
             _finalize_job(job.id, status="cancelled")
@@ -364,24 +461,35 @@ class Dispatcher:
                 blocked_reason=exc.rule,
                 error_text=f"quality gate blocked: {exc.rule}\n{exc.detail}",
             )
-        except NotImplementedError as exc:
-            # M0 占位：明确告知尚未实现
-            logger.warning(
-                "run_type_not_implemented",
-                extra={"job_id": str(job.id), "run_type": job.run_type},
-            )
-            _finalize_job(
-                job.id,
-                status="failed",
-                error_text=f"not implemented in M0: {exc}",
-            )
         except Exception as exc:  # noqa: BLE001 —— 任何未捕获异常须落 error_text（04 §1）
             tb = traceback.format_exc()
-            logger.error(
-                "job_failed",
-                extra={"job_id": str(job.id), "run_type": job.run_type, "err": str(exc)},
-            )
-            _finalize_job(job.id, status="failed", error_text=tb)
+            # 问题 1：runner 主动失败也走重试预算，attempts < max_attempts
+            # 时置回 pending（由下一次 poll 重新领取并自增 attempts），
+            # 否则才置 failed 终态。
+            if job.attempts < job.max_attempts:
+                logger.warning(
+                    "job_failed_will_retry",
+                    extra={
+                        "job_id": str(job.id),
+                        "run_type": job.run_type,
+                        "attempts": job.attempts,
+                        "max_attempts": job.max_attempts,
+                        "err": str(exc),
+                    },
+                )
+                _requeue_job(job.id, error_text=tb)
+            else:
+                logger.error(
+                    "job_failed",
+                    extra={
+                        "job_id": str(job.id),
+                        "run_type": job.run_type,
+                        "attempts": job.attempts,
+                        "max_attempts": job.max_attempts,
+                        "err": str(exc),
+                    },
+                )
+                _finalize_job(job.id, status="failed", error_text=tb)
         else:
             _finalize_job(job.id, status="success", progress=100)
 
@@ -390,28 +498,37 @@ class Dispatcher:
 # Reaper（02-quant-pipeline.md §4 + 00-index.md §3）
 # ----------------------------------------------------------------------
 
-def reap_stale_running_jobs(stale_minutes: int = 3) -> int:
+def reap_stale_running_jobs(stale_minutes: float = 3) -> int:
     """回收 heartbeat 超时的 running 行；返回被回收的行数。
 
     规则：status='running' AND heartbeat_at < now() - interval '<stale> min'
-      - attempts < max_attempts → 重置为 pending（reaper 自加 attempts 由下一次 poll 完成）
+      - attempts < max_attempts → 重置为 pending
       - 否则 → status='failed' + error_text='heartbeat_timeout'
+
+    attempts 自增语义见 _finalize_job 上方注释：reaper 重置 pending 时
+    **不动 attempts**，由下一次 poll 统一自增。`s.attempts < s.max_attempts`
+    读的是本次运行所用的 attempts 值。
     """
 
+    # 问题 6：interval 改用 make_interval + 绑定参数，与项目其它处一致。
+    # make_interval(mins =>) 仅收整数，故以 secs（double precision）传入，
+    # 支持浮点分钟。
     sql = text(
-        f"""
+        """
         WITH stale AS (
             SELECT id, attempts, max_attempts
             FROM ml.jobs
             WHERE status = 'running'
-              AND heartbeat_at < now() - interval '{int(stale_minutes)} min'
+              AND heartbeat_at < now() - make_interval(secs => :stale_secs)
             FOR UPDATE SKIP LOCKED
         ),
         retry AS (
             UPDATE ml.jobs j
             SET status       = 'pending',
+                progress     = 0,
                 heartbeat_at = NULL,
-                started_at   = NULL
+                started_at   = NULL,
+                finished_at  = NULL
             FROM stale s
             WHERE j.id = s.id
               AND s.attempts < s.max_attempts
@@ -431,7 +548,7 @@ def reap_stale_running_jobs(stale_minutes: int = 3) -> int:
         """
     )
     with session_scope() as session:
-        row = session.execute(sql).first()
+        row = session.execute(sql, {"stale_secs": float(stale_minutes) * 60.0}).first()
         count = int(row[0]) if row else 0
     if count:
         logger.warning("reaper_reaped", extra={"reaped": count})

@@ -33,29 +33,59 @@ REQUIRED: dict[str, set[str]] = {
     "ml.quality_reports": {"trade_date", "level", "rule", "detail"},
 }
 
+# 必须是 timestamptz（timestamp with time zone）的时间列（CLAUDE.md 硬约束
+# "时间列一律 timestamptz"）。若被误建为无 TZ 的 timestamp，worker 的
+# `heartbeat_at < now() - interval` 比对会按错误 TZ 漂移。仅校验确实存在
+# 于 REQUIRED 中的列；raw.trade_cal.cal_date 是 A 股交易日历日期列。
+TIMESTAMPTZ_COLUMNS: dict[str, set[str]] = {
+    "ml.jobs": {"heartbeat_at", "started_at", "finished_at", "created_at"},
+}
+
 
 def validate_schema(session: Session) -> None:
-    """校验 DB schema 与 REQUIRED 契约一致。失败则 raise RuntimeError。"""
+    """校验 DB schema 与 REQUIRED 契约一致。失败则 raise RuntimeError。
+
+    校验两件事：
+    1. REQUIRED 中的表/列存在；
+    2. TIMESTAMPTZ_COLUMNS 中的时间列类型为 timestamp with time zone
+       （问题 5：契约原先只查列存在，不查类型）。
+    """
     rows = session.execute(text("""
-        SELECT table_schema || '.' || table_name AS tbl, column_name
+        SELECT table_schema || '.' || table_name AS tbl, column_name, data_type
         FROM information_schema.columns
         WHERE table_schema IN ('raw', 'public', 'factors', 'ml')
     """)).fetchall()
 
     actual: dict[str, set[str]] = defaultdict(set)
-    for tbl, col in rows:
+    data_types: dict[tuple[str, str], str] = {}
+    for tbl, col, data_type in rows:
         actual[tbl].add(col)
+        data_types[(tbl, col)] = data_type
 
-    missing: list[str] = []
+    problems: list[str] = []
     for table, required_cols in REQUIRED.items():
         if table not in actual:
-            missing.append(f"  缺失表: {table}")
+            problems.append(f"  缺失表: {table}")
             continue
         for col in required_cols:
             if col not in actual[table]:
-                missing.append(f"  缺失列: {table}.{col}")
+                problems.append(f"  缺失列: {table}.{col}")
 
-    if missing:
-        raise RuntimeError("Schema 契约校验失败:\n" + "\n".join(missing))
+    # 时间列类型校验
+    for table, tz_cols in TIMESTAMPTZ_COLUMNS.items():
+        if table not in actual:
+            continue  # 缺表已在上面报过
+        for col in tz_cols:
+            if col not in actual[table]:
+                continue  # 缺列已在上面报过
+            data_type = data_types.get((table, col))
+            if data_type != "timestamp with time zone":
+                problems.append(
+                    f"  时间列类型错误: {table}.{col} 应为 "
+                    f"'timestamp with time zone'，实际 '{data_type}'"
+                )
+
+    if problems:
+        raise RuntimeError("Schema 契约校验失败:\n" + "\n".join(problems))
 
     logger.info("schema_contract_ok", extra={"tables": len(REQUIRED)})

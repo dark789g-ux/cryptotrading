@@ -3,7 +3,7 @@
 
 调用 strategy.exit_rules.simulate_exit 对每个 (signal_date, ts_code) 模拟
 "次日开盘买入 → 触发出场规则" 产生标签：
-  value       = (exit_price - buy_price) / buy_price - 双边成本（净收益）
+  value       = (exit_price - buy_price) / buy_price（毛收益，未扣成本）
   exit_reason = ma5_break / stop_loss / max_hold / force_close
   hold_days   = 实际持仓交易日数
 
@@ -12,9 +12,11 @@
   buy_price = T+1 日 close_adj（后复权；M2 简化，未来回测可换 VWAP）。
   收益率统一用后复权价 close_adj（见 spec 01）。
 
-口径声明（见 spec 02 §item-4）：
-  strategy-aware 的 value 为**净收益**（已扣 ROUND_TRIP_COST 双边成本）；
-  strategy-aware 为 **T+1 入场**。与 fwd_5d_ret（毛收益、T 日起算）口径不同。
+口径声明（见 spec 02 §item-4，项目决策）：
+  strategy-aware 的 value 为**毛收益**（不扣交易成本）；交易成本由 portfolio
+  评估层统一扣减。两 scheme（strategy-aware / fwd_5d_ret）value 口径统一为毛收益，
+  彼此可比。strategy-aware 与 fwd_5d_ret 的差异仅在入场时点（T+1 vs T 日起算）
+  与出场规则。ROUND_TRIP_COST 常量保留并导出，供 portfolio 评估层引用。
 
 写入 factors.labels (trade_date = signal_date, ts_code,
                      scheme='strategy-aware', value, exit_reason, hold_days)。
@@ -69,7 +71,9 @@ from quant_pipeline.strategy.exit_rules import (
 
 logger = logging.getLogger(__name__)
 
-# 双边成本（doc/量化/04 §4.2 推荐）
+# 双边成本（doc/量化/04 §4.2 推荐）。
+# labels.value 不再扣此成本（项目决策：label 输出毛收益）；保留并导出供
+# portfolio 评估层在组合收益上统一扣减。
 COMMISSION_BUY: Final[float] = 0.001
 COMMISSION_SELL: Final[float] = 0.001
 STAMP_TAX_SELL: Final[float] = 0.001
@@ -307,7 +311,7 @@ def compute_strategy_aware_labels(
       - trade_date 写信号日 T；
       - buy_price = T+1 日 close_adj；
       - exit_price 由 simulate_exit 给出（后复权价）；
-      - value = exit_price / buy_price - 1 - ROUND_TRIP_COST（净收益）。
+      - value = exit_price / buy_price - 1（毛收益，不扣成本；成本由 portfolio 扣）。
     信号日为窗口最后一个交易日、取不到 T+1 → 跳过该候选（边界样本，正常）。
     """
 
@@ -449,7 +453,8 @@ def compute_strategy_aware_labels(
                 "trade_date": signal_date,
                 "ts_code": ts_code,
                 "scheme": LABEL_SCHEME,
-                "value": gross - ROUND_TRIP_COST,
+                # 毛收益（项目决策）：不扣 ROUND_TRIP_COST，成本由 portfolio 评估层扣
+                "value": gross,
                 "exit_reason": outcome.exit_reason,
                 "hold_days": int(outcome.hold_days),
             }

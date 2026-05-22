@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any
 from uuid import UUID
 
@@ -38,7 +38,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from quant_pipeline.db.engine import session_scope
-from quant_pipeline.utils.paths import artifact_root
+from quant_pipeline.utils.paths import resolve_artifact_local_path
 
 logger = logging.getLogger(__name__)
 
@@ -48,21 +48,11 @@ DEFAULT_TOP_K = 20
 
 
 # ----------------------------------------------------------------------
-# 工具：artifact_uri → 本地 Path（与 inference 同款）
+# 工具：artifact_uri → 本地 Path（评审 05-#10：实现统一到 utils.paths）
 # ----------------------------------------------------------------------
 
-
-def _resolve_artifact_local_path(artifact_uri_str: str) -> Path:
-    p = PurePosixPath(artifact_uri_str)
-    parts = p.parts
-    if parts and parts[0] in (".", "artifacts"):
-        idx = 0
-        while idx < len(parts) and parts[idx] in (".", "artifacts"):
-            idx += 1
-        rel_parts = parts[idx:]
-    else:
-        rel_parts = parts
-    return artifact_root().joinpath(*rel_parts)
+# 保留旧私名做别名，兼容既有单测 `shap_explainer._resolve_artifact_local_path`
+_resolve_artifact_local_path = resolve_artifact_local_path
 
 
 def _load_model_run_row(model_run_id: str) -> dict[str, Any]:
@@ -87,7 +77,11 @@ def _load_sample_features(
 ) -> pd.DataFrame:
     """从 factors.feature_matrix 取 n_samples 行截面样本（按 trade_date desc 取最近的）。
 
-    实际取数：先取最近 n_samples / 5 个交易日的全样本，再随机抽 n_samples 行。
+    实际取数（评审 05-#12 修正 docstring 与实现一致）：
+      SQL `ORDER BY trade_date DESC, ts_code LIMIT n_samples*3` 先取最近的
+      `n_samples*3` 行候选，再随机抽 `n_samples` 行。
+      注意：`LIMIT` 按行截断，最旧的那个交易日可能只取到部分股票（样本不完整）；
+      SHAP 仅做因子重要性抽样估计，对截面完整性不敏感，此截断可接受。
     """
 
     sql = text(
@@ -112,8 +106,10 @@ def _load_sample_features(
     records: list[dict[str, Any]] = []
     for r in rows:
         feats = dict(r["features"]) if r["features"] else {}
-        rec = {col: float(feats.get(col, np.nan)) if feats.get(col) is not None else np.nan
-               for col in feature_columns}
+        rec: dict[str, Any] = {}
+        for col in feature_columns:
+            v = feats.get(col)
+            rec[col] = float(v) if v is not None else np.nan
         records.append(rec)
     df = pd.DataFrame.from_records(records, columns=feature_columns)
     if len(df) > n_samples:

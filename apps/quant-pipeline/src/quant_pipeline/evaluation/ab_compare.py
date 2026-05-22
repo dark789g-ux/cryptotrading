@@ -115,7 +115,9 @@ def _fold_predict_three(
         early_stopping_rounds=lgb_early_stopping_rounds,
         seed=seed,
     )
-    scores_lambdarank = np.asarray(lambdarank_booster.predict(X_test.values), dtype=np.float64)
+    # 评审 05-#6：传 DataFrame 而非 .values，让 LightGBM 按列名校验顺序，
+    # 与 inference 的列顺序契约一致（用 ndarray 时 LightGBM 不校验列序）。
+    scores_lambdarank = np.asarray(lambdarank_booster.predict(X_test), dtype=np.float64)
 
     return {
         "linear": scores_linear,
@@ -133,8 +135,14 @@ def _evaluate_one_model(
     top_k: int = 20,
     commission_rate: float = 0.0003,
     slippage_bps: float = 5.0,
-) -> dict[str, float]:
-    """单模单折评估：NDCG@5/10 + IC + RankIC + portfolio 单笔净收益中位数。"""
+) -> tuple[dict[str, float], pd.Series]:
+    """单模单折评估：NDCG@5/10 + IC + RankIC + portfolio 单笔净收益中位数。
+
+    Returns:
+        (metrics_dict, portfolio_daily_returns)
+        第二项是该折 portfolio 的逐笔 trade 净收益序列（评审 04-#6：供
+        compare_three 直接拼出 ensemble daily returns，免去重训）。
+    """
 
     labels = y_test.to_numpy(dtype=np.float64)
     ndcg5 = ndcg_at_k(scores, labels, groups_test, k=5)
@@ -165,18 +173,23 @@ def _evaluate_one_model(
         slippage_bps=slippage_bps,
     )
 
-    return {
+    metrics = {
         "ndcg@5": ndcg5,
         "ndcg@10": ndcg10,
         "ic": ic,
         "rank_ic": rank_ic,
-        # 止血（2026-05-22）：portfolio 已放弃年化（见 portfolio.py 文件头）。
-        # JSON 字段名暂留 `portfolio_annual_after_cost` 不改（避免 DB/server/前端连锁
-        # 改动），但其值现在是"每日 Top-K 篮子净收益的中位数"，非年化。彻底重命名
-        # 留待事件驱动持仓回测任务。
+        # 字段名 `portfolio_annual_after_cost` 暂留不改（避免 DB/server/前端连锁改动），
+        # 其值现在是"逐笔多日 trade 净收益的中位数"（见 portfolio.py 文件头口径修正）。
+        # 彻底重命名留待事件驱动持仓回测任务。
         "portfolio_annual_after_cost": float(portfolio["net_return_median"]),
         "sharpe": float(portfolio["sharpe"]) if not np.isnan(portfolio["sharpe"]) else float("nan"),
+        # portfolio trade 笔数：report_generator 据此标注小样本 Sharpe 不可靠（评审 05-#9）
+        "portfolio_n_trades": int(portfolio["n_days"]),
     }
+    daily_returns = portfolio.get("daily_returns", pd.Series(dtype=float))
+    if not isinstance(daily_returns, pd.Series):
+        daily_returns = pd.Series(dtype=float)
+    return metrics, daily_returns
 
 
 def compare_three(
@@ -207,6 +220,10 @@ def compare_three(
 
     Returns:
         {model_name: {ndcg_at_5_mean, ..., fold_metrics: [...]}, ...}
+
+        其中 `summary["ensemble"]["daily_returns_combined"]` 额外携带 ensemble 在所有
+        OOS 折上的逐笔 trade 净收益序列（pd.Series）。评审 04-#6：报告生成直接读它，
+        不必再调 build_ensemble_daily_returns 重训三组模型。
     """
 
     if not {"trade_date", "ts_code"}.issubset(df_features.columns):
@@ -215,6 +232,8 @@ def compare_three(
         raise ValueError("df_features / X_all / y_all 行数必须一致")
 
     fold_results: dict[str, list[dict[str, float]]] = {name: [] for name in MODEL_NAMES}
+    # 评审 04-#6：累积 ensemble 每折的 portfolio daily returns，免去事后重训
+    ensemble_daily_chunks: list[pd.Series] = []
     splits_list = list(splits)
     total_folds = len(splits_list)
     if total_folds == 0:
@@ -249,7 +268,7 @@ def compare_three(
         all_preds["ensemble"] = ensemble_scores
 
         for name in MODEL_NAMES:
-            metrics = _evaluate_one_model(
+            metrics, daily_returns = _evaluate_one_model(
                 scores=all_preds[name],
                 test_df=df_test_part,
                 y_test=y_test,
@@ -260,6 +279,8 @@ def compare_three(
             )
             metrics["fold"] = fold_i
             fold_results[name].append(metrics)
+            if name == "ensemble" and not daily_returns.empty:
+                ensemble_daily_chunks.append(daily_returns)
 
         if progress_callback is not None:
             try:
@@ -286,6 +307,15 @@ def compare_three(
             "fold_metrics": folds,
             "n_folds": len(folds),
         }
+
+    # 评审 04-#6：ensemble 在所有 OOS 折上的逐笔 trade 净收益（已合并、按入场日排序）。
+    # 报告生成直接读此字段，免去 build_ensemble_daily_returns 重训三组模型。
+    if "ensemble" in summary:
+        if ensemble_daily_chunks:
+            combined = pd.concat(ensemble_daily_chunks).sort_index()
+        else:
+            combined = pd.Series(dtype=float)
+        summary["ensemble"]["daily_returns_combined"] = combined
     return summary
 
 

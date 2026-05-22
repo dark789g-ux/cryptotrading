@@ -20,7 +20,6 @@ from quant_pipeline.labels.fallback import (
 )
 from quant_pipeline.labels.strategy_aware import (
     LABEL_SCHEME,
-    ROUND_TRIP_COST,
     LabelInputs,
     compute_strategy_aware_labels,
     filter_limit_up_on_entry,
@@ -214,8 +213,9 @@ def test_compute_strategy_aware_labels_max_hold_value_t1_entry() -> None:
     buy_close = quotes.iloc[1]["close_adj"]
     # hold_days=20：从 buy_date(i=1) 起第 20 个交易日决策日 = i=1+20 = i=21
     exit_close = quotes.iloc[21]["close_adj"]
+    # 项目决策：label 输出毛收益，不扣 ROUND_TRIP_COST
     expected_gross = exit_close / buy_close - 1.0
-    assert row["value"] == pytest.approx(expected_gross - ROUND_TRIP_COST, abs=1e-6)
+    assert row["value"] == pytest.approx(expected_gross, abs=1e-6)
 
 
 def test_compute_strategy_aware_labels_skips_last_day_signal() -> None:

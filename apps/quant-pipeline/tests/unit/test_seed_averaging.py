@@ -37,8 +37,9 @@ def test_train_seed_average_runs_five_seeds_and_writes_parent(
 
     call_seeds: list[int] = []
 
-    def _fake_train(*, feature_set_id, model, walk_forward, seed, job_id):
+    def _fake_train(*, feature_set_id, model, walk_forward, seed, job_id, with_shap=True):
         call_seeds.append(seed)
+        assert with_shap is False, "子 seed 训练必须 with_shap=False（评审 04-#11）"
         return _FakeResult(
             uuid4(),
             f"lgb-lambdarank-v1-20260517-seed{seed}",
@@ -97,7 +98,7 @@ def test_train_seed_average_propagates_child_failure(
 
     call_seeds: list[int] = []
 
-    def _flaky_train(*, feature_set_id, model, walk_forward, seed, job_id):
+    def _flaky_train(*, feature_set_id, model, walk_forward, seed, job_id, with_shap=True):
         call_seeds.append(seed)
         if seed == 456:
             raise RuntimeError("training failed")

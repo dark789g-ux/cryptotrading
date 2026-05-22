@@ -8,7 +8,7 @@
   industry_code  str  行业代码（如 110000）
   src            str  SW2014 / SW2021
 
-按 (src, level) 组合拉取；7 个组合（SW2014 L1/L2/L3 + SW2021 L1/L2/L3 + 兜底全量）。
+按 (src, level) 组合拉取；6 个组合（SW2021 L1/L2/L3 + SW2014 L1/L2/L3）。
 PK：(src, index_code)
 """
 
@@ -18,7 +18,7 @@ import logging
 from typing import Any
 
 from quant_pipeline.db.engine import session_scope
-from quant_pipeline.sync._upsert import dedupe_by_pk, upsert_rows
+from quant_pipeline.sync._upsert import dedupe_by_pk, to_str_or_none, upsert_rows
 from quant_pipeline.sync.trade_cal import SyncReport
 from quant_pipeline.sync.tushare_client import TushareClient
 
@@ -81,16 +81,10 @@ def sync_index_classify(
             {
                 "src": str(r["src"]),
                 "index_code": str(r["index_code"]),
-                "industry_code": (
-                    str(r["industry_code"]) if r["industry_code"] is not None else None
-                ),
-                "industry_name": (
-                    str(r["industry_name"]) if r["industry_name"] is not None else None
-                ),
-                "parent_code": (
-                    str(r["parent_code"]) if r["parent_code"] is not None else None
-                ),
-                "level": str(r["level"]) if r["level"] is not None else None,
+                "industry_code": to_str_or_none(r["industry_code"]),
+                "industry_name": to_str_or_none(r["industry_name"]),
+                "parent_code": to_str_or_none(r["parent_code"]),
+                "level": to_str_or_none(r["level"]),
             }
             for r in df.to_dict(orient="records")
         ]

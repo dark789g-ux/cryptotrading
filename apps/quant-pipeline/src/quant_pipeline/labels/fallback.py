@@ -4,11 +4,12 @@
 简单 5 日后向收益率（毛收益，未扣交易成本）：
     value = close_adj[t+5] / close_adj[t] - 1
 
-口径声明（见 spec 02 §item-4）：
+口径声明（见 spec 02 §item-4，项目决策）：
   - value 为**毛收益**（未扣交易成本）。`fwd_5d_ret` 是 **T 日起算**的简单前向
     收益，无 T+1 入场概念 —— 学术 baseline / 单因子 IC 研究惯例用毛收益。
-  - 与 strategy-aware（净收益、扣 ROUND_TRIP_COST、T+1 入场）口径不同；两 scheme
-    写同一张 factors.labels，切 scheme 重训前须知晓此差异。
+  - strategy-aware 的 value 同为毛收益（T+1 入场）；两 scheme value 口径统一为
+    毛收益、彼此可比，交易成本由 portfolio 评估层统一扣减。差异仅在入场时点
+    与出场规则。两 scheme 写同一张 factors.labels。
 
 适用场景（doc/04 §4.2.8）：
   - 因子研究阶段（单因子 IC）

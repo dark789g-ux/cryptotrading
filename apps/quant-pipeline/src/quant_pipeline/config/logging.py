@@ -41,7 +41,9 @@ class JsonFormatter(logging.Formatter):
                 payload[key] = value
         if record.exc_info:
             payload["exc"] = self.formatException(record.exc_info)
-        return json.dumps(payload, ensure_ascii=False)
+        # default=str：extra 透传的不可序列化对象（numpy 标量、Path、UUID 等）
+        # 兜底转字符串，避免 json.dumps 抛 TypeError 拖垮日志（问题 11）。
+        return json.dumps(payload, ensure_ascii=False, default=str)
 
 
 def setup_logging(level: int = logging.INFO) -> None:

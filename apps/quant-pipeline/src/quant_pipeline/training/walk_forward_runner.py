@@ -9,32 +9,24 @@ import logging
 from typing import Any
 from uuid import UUID, uuid4
 
-import numpy as np
 import pandas as pd
 
 from quant_pipeline.evaluation.ab_compare import MODEL_NAMES, compare_three
-from quant_pipeline.evaluation.portfolio import compute_portfolio_metrics
+from quant_pipeline.training.group_utils import build_groups
 from quant_pipeline.training.lightgbm_lambdarank import (
     DEFAULT_HYPERPARAMS,
     DEFAULT_NUM_BOOST_ROUND,
     train_lambdarank,
 )
 from quant_pipeline.training.walk_forward import PurgedWalkForwardSplit
-from quant_pipeline.utils.paths import (
-    artifact_dir,
-    artifact_uri,
-    ensure_artifact_dir,
-)
+from quant_pipeline.utils.paths import artifact_dir
 from quant_pipeline.worker.progress import update_progress
 
 logger = logging.getLogger(__name__)
 
-
-def build_groups(df: pd.DataFrame) -> np.ndarray:
-    """以 trade_date 为 query group；返回每日样本数数组（顺序与 df 一致）。"""
-
-    counts = df.groupby("trade_date", sort=False).size().to_numpy()
-    return counts.astype(np.int64)
+# summary 内不能进 JSON（oos_metrics）的 key：fold_metrics 是明细列表、
+# daily_returns_combined 是 pd.Series（评审 04-#6 新增）。
+_NON_JSON_SUMMARY_KEYS = {"fold_metrics", "daily_returns_combined"}
 
 
 def train_walk_forward(
@@ -52,12 +44,15 @@ def train_walk_forward(
     insert_model_run: Any,
     write_artifact: Any,
     progress_callback: Any = None,
+    today_yyyymmdd: str | None = None,
 ) -> Any:
     """M3 Walk-Forward + 三组对照 + 集成。
 
     Args:
         insert_model_run: runner._insert_model_run 回调（避免循环引用）
         write_artifact: runner._write_artifact 回调
+        today_yyyymmdd: 可注入今天日期（YYYYMMDD），用于 model_version；
+            默认 None 时取 datetime.now(UTC)（评审 04-#7：跨 UTC 午夜可控）
     """
 
     from quant_pipeline.training.runner import TrainResult
@@ -140,12 +135,13 @@ def train_walk_forward(
             "embargo_days": wf_embargo_days,
             "min_train_days": wf_min_train_days,
         },
+        # 排除 fold_metrics（明细另存）与 daily_returns_combined（pd.Series 不可 JSON）
         "ab_summary": {
-            name: {k: v for k, v in m.items() if k != "fold_metrics"}
+            name: {k: v for k, v in m.items() if k not in _NON_JSON_SUMMARY_KEYS}
             for name, m in summary.items()
         },
         "ensemble_metrics": {
-            k: v for k, v in ensemble_summary.items() if k != "fold_metrics"
+            k: v for k, v in ensemble_summary.items() if k not in _NON_JSON_SUMMARY_KEYS
         },
         "models_compared": list(MODEL_NAMES),
     }
@@ -154,16 +150,18 @@ def train_walk_forward(
     run_id = uuid4()
     from datetime import datetime, timezone
 
-    today_yyyymmdd = datetime.now(timezone.utc).strftime("%Y%m%d")
-    model_version = f"lgb-lambdarank-v1-{today_yyyymmdd}-seed{seed}"
+    today = today_yyyymmdd or datetime.now(timezone.utc).strftime("%Y%m%d")
+    model_version = f"lgb-lambdarank-v1-{today}-seed{seed}"
 
     used_hp: dict[str, Any] = dict(DEFAULT_HYPERPARAMS)
     if hyperparams:
         used_hp.update(hyperparams)
     used_hp["num_boost_round"] = lgb_num_boost_round
-    used_hp["best_iteration"] = int(
-        final_booster.best_iteration or final_booster.current_iteration()
-    )
+    # 评审 04-#5：final_booster 用全量数据训练且关闭早停（early_stopping_rounds=None），
+    # best_iteration 恒为 0 → current_iteration() = num_boost_round。无早停时
+    # best_iteration 无意义，直接记 num_boost_round 并标注 early_stopping=False。
+    used_hp["best_iteration"] = lgb_num_boost_round
+    used_hp["early_stopping"] = False
     used_hp["seed"] = seed
 
     train_dates_used = sorted(df_train["trade_date"].astype(str).unique().tolist())
@@ -187,14 +185,10 @@ def train_walk_forward(
     model_uri, _meta_uri = write_artifact(run_id, final_booster, meta)
 
     # 生成报告
-    daily_returns_combined = build_ensemble_daily_returns(
-        summary, df_train, X_all, y_all, splits,
-        seed=seed,
-        top_k=top_k,
-        commission_rate=commission_rate,
-        slippage_bps=slippage_bps,
-        lgb_hyperparams=hyperparams,
-        lgb_num_boost_round=lgb_num_boost_round,
+    # 评审 04-#6：ensemble OOS daily returns 由 compare_three 在每折评估时已算出并
+    # 累积到 summary["ensemble"]["daily_returns_combined"]，直接取用，不再重训三组模型。
+    daily_returns_combined = ensemble_summary.get(
+        "daily_returns_combined", pd.Series(dtype=float)
     )
 
     from quant_pipeline.evaluation.report_generator import generate_report
@@ -268,77 +262,7 @@ def train_walk_forward(
     )
 
 
-def build_ensemble_daily_returns(
-    summary: dict[str, dict[str, Any]],
-    df_train: pd.DataFrame,
-    X_all: pd.DataFrame,
-    y_all: pd.Series,
-    splits: list[tuple[np.ndarray, np.ndarray]],
-    *,
-    seed: int,
-    top_k: int,
-    commission_rate: float,
-    slippage_bps: float,
-    lgb_hyperparams: dict[str, Any] | None,
-    lgb_num_boost_round: int,
-) -> pd.Series:
-    """重跑一次三组模型 + ensemble 合成出 portfolio daily returns（合并所有 fold test 段）。
-
-    报告生成需要"ensemble 在所有 OOS 段上的 daily returns"，最廉价的方法是直接重跑一次。
-    若担心耗时，未来可在 compare_three 中缓存。
-    """
-
-    from quant_pipeline.training.ensemble import ensemble_average
-    from quant_pipeline.training.gbdt_pointwise import (
-        predict_gbdt_pointwise,
-        train_gbdt_pointwise,
-    )
-    from quant_pipeline.training.linear_baseline import predict_linear, train_linear
-
-    if not splits:
-        return pd.Series(dtype=float)
-
-    combined: list[pd.Series] = []
-    for train_idx, test_idx in splits:
-        X_train = X_all.iloc[train_idx].reset_index(drop=True)
-        y_train = y_all.iloc[train_idx].reset_index(drop=True)
-        X_test = X_all.iloc[test_idx].reset_index(drop=True)
-        y_test = y_all.iloc[test_idx].reset_index(drop=True)
-        df_test = df_train.iloc[test_idx].reset_index(drop=True)
-        groups_train = build_groups(df_train.iloc[train_idx].reset_index(drop=True))
-
-        lin = train_linear(X_train, y_train, seed=seed)
-        s_lin = predict_linear(lin, X_test)
-        gbdt = train_gbdt_pointwise(
-            X_train, y_train, hyperparams=lgb_hyperparams,
-            num_boost_round=lgb_num_boost_round, early_stopping_rounds=None, seed=seed,
-        )
-        s_gbdt = predict_gbdt_pointwise(gbdt, X_test)
-        lr = train_lambdarank(
-            X_train, y_train, groups_train,
-            hyperparams=lgb_hyperparams,
-            num_boost_round=lgb_num_boost_round, early_stopping_rounds=None, seed=seed,
-        )
-        s_lr = np.asarray(lr.predict(X_test.values), dtype=np.float64)
-
-        td = df_test["trade_date"].astype(str).to_numpy()
-        ens = ensemble_average(
-            {"linear": s_lin, "gbdt-pointwise": s_gbdt, "lgb-lambdarank": s_lr},
-            td,
-        )
-
-        scores_df = pd.DataFrame(
-            {"trade_date": td, "ts_code": df_test["ts_code"].to_numpy(), "score": ens}
-        )
-        label_df = pd.DataFrame(
-            {"trade_date": td, "ts_code": df_test["ts_code"].to_numpy(), "label": y_test.to_numpy()}
-        )
-        port = compute_portfolio_metrics(
-            scores_df, label_df,
-            top_k=top_k, commission_rate=commission_rate, slippage_bps=slippage_bps,
-        )
-        combined.append(port["daily_returns"])
-
-    if not combined:
-        return pd.Series(dtype=float)
-    return pd.concat(combined).sort_index()
+# 评审 04-#6：原 `build_ensemble_daily_returns` 会重训 6 折 × 3 模型再算一遍
+# ensemble portfolio daily returns（翻倍训练成本，且重训时 LambdaRank 误用了未做
+# 截面 rank 的连续 label）。已删除：compare_three 在每折评估时直接累积 ensemble 的
+# 逐笔 trade 净收益到 summary["ensemble"]["daily_returns_combined"]。

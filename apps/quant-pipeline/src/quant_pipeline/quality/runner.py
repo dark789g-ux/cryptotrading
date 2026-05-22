@@ -67,17 +67,30 @@ def run_checks(
 
     params = params or {}
 
-    # 阈值放宽留痕（spec 04 §2）
-    relaxation_threshold = float(params.get("row_count_drift_threshold", 0.05))
+    # 阈值放宽留痕（spec 04 §2）。不止 row_count_drift_threshold——
+    # adj_jump_ratio_threshold / extreme_sigma 放宽（变松）同样必须留痕
+    # （06-quality.md 问题 15）。各阈值"变松"的方向不同：
+    #   - row_count_drift_threshold：调高 → 更松（默认 0.05）
+    #   - adj_jump_ratio_threshold：调高 → 更松（默认 5.0）
+    #   - extreme_sigma：调高 → 更松（默认 10.0）
     relaxation_records: list[CheckResult] = []
-    if relaxation_threshold > 0.05:
-        relaxation_records.append(
-            make_threshold_relaxation_record(
-                trade_date=trade_date,
-                original=0.05,
-                relaxed=relaxation_threshold,
+    _RELAXABLE: tuple[tuple[str, str, float], ...] = (
+        ("row_count_drift_threshold", "row_count_drift", 0.05),
+        ("adj_jump_ratio_threshold", "adj_jump", 5.0),
+        ("extreme_sigma", "extreme_value", 10.0),
+    )
+    for param_name, rule_name, default in _RELAXABLE:
+        relaxed = float(params.get(param_name, default))
+        if relaxed > default:  # 三项默认都是"调高即放宽"
+            relaxation_records.append(
+                make_threshold_relaxation_record(
+                    trade_date=trade_date,
+                    original=default,
+                    relaxed=relaxed,
+                    rule=rule_name,
+                    param_name=param_name,
+                )
             )
-        )
 
     results: list[CheckResult] = []
     with session_scope() as session:
@@ -89,15 +102,18 @@ def run_checks(
                     "check_internal_error",
                     extra={"check": name, "trade_date": trade_date},
                 )
-                # 失败的检查本身不入 ml.quality_reports；让 dispatcher 看到 critical
-                # 通过抛异常路径，落 ml.jobs.error_text。但 strict=False 时跳过。
+                # 检查执行失败必须等同于"不通过"（CLAUDE.md 数据完整性硬约束：
+                # 崩溃不得伪装成 passed=True）。strict 模式直接 raise；
+                # 非 strict 模式产出一条真实的 critical 失败结果，使 critical_count
+                # 自增、passed=False，并经 emit 双写 ml.quality_reports。
                 if strict:
                     raise
                 results.append(
                     CheckResult(
-                        passed=True,  # 不重复写 quality_reports
-                        level="info",
-                        rule="duplicate_pk",  # 占位 rule（不会 emit）
+                        passed=False,
+                        level="critical",
+                        # name 取自 ALL_CHECKS，本身即合法 rule 名（见 report.ALLOWED_RULES）
+                        rule=name,
                         detail={"check": name, "internal_error": str(exc)},
                         trade_date=trade_date,
                         name=name,

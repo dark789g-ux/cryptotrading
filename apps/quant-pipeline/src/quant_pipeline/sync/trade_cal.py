@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from quant_pipeline.db.engine import session_scope
-from quant_pipeline.sync._upsert import dedupe_by_pk, upsert_rows
+from quant_pipeline.sync._upsert import dedupe_by_pk, to_str_or_none, upsert_rows
 from quant_pipeline.sync.tushare_client import TushareClient
 
 logger = logging.getLogger(__name__)
@@ -80,17 +80,40 @@ def sync_trade_cal(
         df = df[["exchange", "cal_date", "is_open", "pretrade_date"]]
         df = dedupe_by_pk(df, PK_COLS, api_name=API_NAME)
 
-        rows = [
-            {
-                "exchange": str(r["exchange"]),
-                "cal_date": str(r["cal_date"]),
-                "is_open": int(r["is_open"]),
-                "pretrade_date": (
-                    str(r["pretrade_date"]) if r["pretrade_date"] is not None else None
-                ),
-            }
-            for r in df.to_dict(orient="records")
-        ]
+        # is_open 是核心字段（后续所有按交易日循环的表都依赖它）。
+        # 缺失（None / NaN）的行不能默默 int() 抛异常让整张表 fetch 失败，
+        # 也不能伪造 0/1——显式 warn + drop。
+        rows: list[dict[str, Any]] = []
+        dropped_is_open = 0
+        for r in df.to_dict(orient="records"):
+            is_open_raw = r["is_open"]
+            if is_open_raw is None or (
+                isinstance(is_open_raw, float) and is_open_raw != is_open_raw
+            ):
+                dropped_is_open += 1
+                continue
+            try:
+                is_open_v = int(is_open_raw)
+            except (TypeError, ValueError):
+                dropped_is_open += 1
+                continue
+            rows.append(
+                {
+                    "exchange": str(r["exchange"]),
+                    "cal_date": str(r["cal_date"]),
+                    "is_open": is_open_v,
+                    "pretrade_date": to_str_or_none(r["pretrade_date"]),
+                }
+            )
+        if dropped_is_open:
+            logger.warning(
+                "trade_cal_is_open_missing",
+                extra={
+                    "api_name": API_NAME,
+                    "exchange": exch,
+                    "dropped": dropped_is_open,
+                },
+            )
         with session_scope() as session:
             n = upsert_rows(
                 session,

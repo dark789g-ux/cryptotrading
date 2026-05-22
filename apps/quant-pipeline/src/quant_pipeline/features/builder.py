@@ -118,6 +118,34 @@ def pivot_factors_long_to_wide(daily_factors: pd.DataFrame) -> pd.DataFrame:
     return wide
 
 
+def _grouped_zscore(
+    df: pd.DataFrame,
+    group_keys: list[str] | str,
+    cols: list[str],
+) -> pd.DataFrame:
+    """对 `cols` 按 `group_keys` 分组做 z-score（单一实现，供各中性化函数复用）。
+
+    实现细节（统一处所，避免散落副本各自实现导致 bug，见 review §10）：
+      - `transform("mean")` 取组均值，`transform` + `std(ddof=0)` 取组标准差；
+      - sd 缺失 / 过小（< _STD_EPS）的组：z 置 0，避免除 0；
+      - **整组恒为常数 / 全 NaN 的列会落入此分支被置 0**——调用方需在外层检测并告警
+        （见 review §3：整列算不出来不能静默以全 0 进训练矩阵）。
+
+    入参 `df` 会被原地修改并返回（cols 列被替换为 z-score 值）。
+    """
+
+    grouped = df.groupby(group_keys, sort=False)
+    for col in cols:
+        mu = grouped[col].transform("mean")
+        sd = grouped[col].transform(lambda s: s.std(ddof=0))
+        # 当 sd 缺失 / 过小：z 置 0，避免除 0
+        valid = sd.fillna(0.0) >= _STD_EPS
+        safe = sd.where(valid, other=1.0)
+        z = (df[col] - mu) / safe
+        df[col] = z.where(valid, other=0.0)
+    return df
+
+
 def neutralize_by_industry(
     wide: pd.DataFrame,
     industry_map: pd.DataFrame,
@@ -147,15 +175,7 @@ def neutralize_by_industry(
     # 无行业归属的行：先标记为占位行业（不与其它行业混在一起做 z-score）
     df["industry_l1"] = df["industry_l1"].fillna("__UNK__")
 
-    grouped = df.groupby(["trade_date", "industry_l1"], sort=False)
-    for col in factor_cols:
-        mu = grouped[col].transform("mean")
-        sd = grouped[col].transform(lambda s: s.std(ddof=0))
-        # 当 sd 缺失 / 过小：填 0，避免除 0
-        safe = sd.where(sd.fillna(0.0) >= _STD_EPS, other=1.0)
-        z = (df[col] - mu) / safe
-        z = z.where(sd.fillna(0.0) >= _STD_EPS, other=0.0)
-        df[col] = z
+    df = _grouped_zscore(df, ["trade_date", "industry_l1"], factor_cols)
 
     df = df.drop(columns=["industry_l1"]).set_index(["trade_date", "ts_code"]).sort_index()
     return df
@@ -166,16 +186,10 @@ def _standardize_cross_sectional(wide: pd.DataFrame) -> pd.DataFrame:
 
     if wide.empty:
         return wide
-    out = wide.copy()
-    grouped = out.groupby(level="trade_date", sort=False)
-    for col in out.columns:
-        mu = grouped[col].transform("mean")
-        sd = grouped[col].transform(lambda s: s.std(ddof=0))
-        safe = sd.where(sd.fillna(0.0) >= _STD_EPS, other=1.0)
-        z = (out[col] - mu) / safe
-        z = z.where(sd.fillna(0.0) >= _STD_EPS, other=0.0)
-        out[col] = z
-    return out
+    out = wide.reset_index()
+    factor_cols = [c for c in out.columns if c not in ("trade_date", "ts_code")]
+    out = _grouped_zscore(out, "trade_date", factor_cols)
+    return out.set_index(["trade_date", "ts_code"]).sort_index()
 
 
 def standardize_cross_sectional(wide: pd.DataFrame) -> pd.DataFrame:
@@ -264,11 +278,20 @@ def neutralize_by_industry_and_market_cap(
 ) -> pd.DataFrame:
     """市值 + 行业双重中性化（spec m2 §3 + doc/07）。
 
-    实现策略（截面线性回归残差化的简化版）：
+    实现策略（截面线性回归残差化的**简化近似**）：
       step1: 行业内 z-score（取出行业平均）
-      step2: 对 log(mv) 同样取截面 z-score 后，从每个因子里减去 (β × mv_z)
+      step2: 对 log(mv) 取**全市场截面** z-score 后，从每个因子里减去 (β × mv_z)，
+             β 为该因子对 mv_z 的全市场截面单变量回归系数。
 
-    mv_map: 列 [trade_date, ts_code, mv]（raw.daily_basic.mv 流通市值）。
+    ⚠ 近似偏差说明（review §2）：step2 的 β 是**全市场截面**单变量回归，而非
+    行业哑变量 + log(mv) 的多元 OLS。若某行业整体偏小盘，行业中性化后再叠加
+    全市场 mv 残差化，会把「行业=小盘」的信息重新部分混入，得到的不是严格
+    「行业内 + 市值内」的干净残差。这是**已知并接受的近似**：MVP 阶段 GBDT
+    对该量级偏差不敏感；如需严格残差化，应改为按 (trade_date) 截面做
+    「行业哑变量 + mv_log」多元 OLS 并取残差（见 doc/07 §7.3）。本实现不构成
+    前视偏差，仅是中性化口径的近似。
+
+    mv_map: 列 [trade_date, ts_code, mv]（raw.daily_basic.total_mv 总市值）。
     mv 缺失行：仅做行业中性化（不强行 drop）。
     """
 
@@ -300,37 +323,32 @@ def neutralize_by_industry_and_market_cap(
     grp = df.groupby("trade_date", sort=False)["mv_log"]
     mu = grp.transform("mean")
     sd = grp.transform(lambda s: s.std(ddof=0))
-    mv_z = (df["mv_log"] - mu) / sd.where(sd.fillna(0.0) >= _STD_EPS, other=1.0)
-    mv_z = mv_z.where(sd.fillna(0.0) >= _STD_EPS, other=0.0)
+    valid_z = sd.fillna(0.0) >= _STD_EPS
+    mv_z = (df["mv_log"] - mu) / sd.where(valid_z, other=1.0)
+    mv_z = mv_z.where(valid_z, other=0.0)
     mv_z = mv_z.fillna(0.0)
+    df["__mv_z"] = mv_z
+
+    # var(mv_z) 按 trade_date：用 transform 而非 groupby.apply。
+    # transform 永远返回与 df 对齐、同长度的 Series，与 pandas 版本无关；
+    # groupby.apply 在 pandas ≥2.2 对返回 Series 的处理已变更（review §1）。
+    grp = df.groupby("trade_date", sort=False)
+    vz_broadcast = grp["__mv_z"].transform(lambda s: float(np.var(s.values, ddof=0)))
+    vz_valid = vz_broadcast >= _STD_EPS
+    ez = grp["__mv_z"].transform("mean")
 
     # 每个因子按截面对 mv_z 做最小二乘残差化：f_neu = f - β * mv_z
     # β = cov(f, mv_z) / var(mv_z)；按 trade_date 分组
-    df["__mv_z"] = mv_z
-    grp = df.groupby("trade_date", sort=False)
     for col in factor_cols:
-        # 按 trade_date 计算 β 与 mv_z 的均值（fillna(0) 后均值=0）；
-        # cov(f,z) = E[f*z] - E[f]*E[z]，var(z) = E[z^2] - E[z]^2
-        ez = grp["__mv_z"].transform("mean")
-        ezz = grp.apply(
-            lambda g: pd.Series(
-                {"vz": float(np.var(g["__mv_z"].values, ddof=0))}
-            )
-        )["vz"]
-        # 把 vz 按 trade_date 广播
-        vz_map = ezz.to_dict()
-        vz_broadcast = df["trade_date"].map(vz_map).astype(float)
-
+        # cov(f,z) = E[f*z] - E[f]*E[z]
         ef = grp[col].transform("mean")
-        # E[f*z] 按截面
-        df["__fz"] = df[col].astype(float) * df["__mv_z"].astype(float)
-        efz = grp["__fz"].transform("mean")
+        fz = df[col].astype(float) * df["__mv_z"].astype(float)
+        efz = fz.groupby(df["trade_date"], sort=False).transform("mean")
         cov_fz = efz - ef * ez
 
-        beta = cov_fz / vz_broadcast.where(vz_broadcast >= _STD_EPS, other=1.0)
-        beta = beta.where(vz_broadcast >= _STD_EPS, other=0.0)
+        beta = cov_fz / vz_broadcast.where(vz_valid, other=1.0)
+        beta = beta.where(vz_valid, other=0.0)
         df[col] = df[col].astype(float) - beta * df["__mv_z"].astype(float)
-        df = df.drop(columns=["__fz"])
 
     df = df.drop(columns=["mv_log", "__mv_z"]).set_index(["trade_date", "ts_code"]).sort_index()
     return df
@@ -399,6 +417,23 @@ def build_feature_matrix_from_frames(
             matrix=pd.DataFrame(),
         )
 
+    # ⓪ 死因子检测（review §3）：某因子原始值整列全 NaN，会在 z-score 阶段被
+    #   静默置 0，以「全 0 常数列」进训练矩阵且不触发 ⑦ 的 dropna，无人察觉。
+    #   此处显式告警并剔除该因子列——空数据不得静默跳过（CLAUDE.md 硬约束）。
+    dead_factors = [c for c in wide.columns if wide[c].isna().all()]
+    if dead_factors:
+        logger.warning(
+            "feature_matrix_dead_factors_dropped",
+            extra={"dead_factors": dead_factors, "n": len(dead_factors)},
+        )
+        wide = wide.drop(columns=dead_factors)
+        if wide.empty or wide.shape[1] == 0:
+            return FeatureMatrixBundle(
+                feature_set_id=feature_set_id,
+                factor_ids=[],
+                matrix=pd.DataFrame(),
+            )
+
     # ① 行业中位数填充（spec 要求）
     industry_df = industry_map if industry_map is not None else pd.DataFrame()
     wide_filled = impute_missing_with_industry_median(wide, industry_df)
@@ -419,6 +454,21 @@ def build_feature_matrix_from_frames(
         standardized = standardize_cross_sectional(neutralized)
     else:
         standardized = neutralized
+
+    # ④.5 死因子复检（review §3）：中性化 / z-score 后某因子若整列恒为 0
+    #     （例如截面方差始终为 0、被 _grouped_zscore 全部置 0），等同常数列，
+    #     对模型无信息且会污染特征重要性——显式告警（不剔除，保留列对齐，
+    #     由下游模型层 / 健康度报告决定是否使用）。
+    if not standardized.empty:
+        const_zero = [
+            c for c in standardized.columns
+            if (standardized[c].fillna(0.0) == 0.0).all()
+        ]
+        if const_zero:
+            logger.warning(
+                "feature_matrix_constant_zero_factors",
+                extra={"factors": const_zero, "n": len(const_zero)},
+            )
 
     # ⑤ 与 labels 内连接
     merged = merge_with_labels(standardized, labels, label_scheme=label_scheme)

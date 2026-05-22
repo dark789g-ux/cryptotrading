@@ -156,7 +156,7 @@ def test_run_daily_monitor_returns_summary_with_all_loaders_mocked(
             "oos_metrics": {"ic": 0.04},
         },
         load_rolling_ic=lambda mv, td, w: 0.005,  # < 0.02 → critical
-        load_train_scores_sample=lambda mv: rng.normal(size=2000),
+        load_train_scores_sample=lambda mv, td, n_samples=5000: rng.normal(size=2000),
         load_current_features=lambda fs, td: pd.DataFrame(
             {"ts_code": ["a", "b"], "f0": [0.1, 0.2]}
         ),

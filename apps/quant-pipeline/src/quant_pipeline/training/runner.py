@@ -18,7 +18,16 @@ M3 升级：
 
 model_version 命名（硬约束）：`<algo>-v1-<YYYYMMDD>-seed<N>`
 
-Walk-Forward + ensemble 逻辑已拆分到 walk_forward_runner.py。
+标签口径（贯穿全链路；2026-05-23 修正）：
+  feature_matrix.label 是原始连续收益率，**全链路保持连续不分桶**。
+  LambdaRank 要求整数 gain，只在 `train_lambdarank` 调用入口处对 y_train 做一次
+  截面 rank（见 ab_compare._label_to_cross_sectional_rank / tuning._label_to_int_rank）；
+  评估（IC / RankIC / portfolio）一律用原始连续 label。曾经在此层用
+  `_bin_labels_by_group` 把连续 label 提前分桶成 0..4 整数再下传，导致回归目标被压成
+  5 档台阶、评估指标全部失真，已移除。
+
+Walk-Forward + ensemble 逻辑已拆分到 walk_forward_runner.py；
+单 fold 通路已拆分到 single_fold_runner.py。
 """
 
 from __future__ import annotations
@@ -27,9 +36,8 @@ import json
 import logging
 import shutil
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import numpy as np
 import pandas as pd
@@ -37,15 +45,8 @@ from sqlalchemy import text
 
 from quant_pipeline.db.engine import session_scope
 from quant_pipeline.quality.report import gate_check
-from quant_pipeline.training.lightgbm_lambdarank import (
-    DEFAULT_EARLY_STOPPING_ROUNDS,
-    DEFAULT_HYPERPARAMS,
-    DEFAULT_NUM_BOOST_ROUND,
-    train_lambdarank,
-)
-from quant_pipeline.training.walk_forward import SingleFoldSplit
+from quant_pipeline.training.group_utils import build_groups, flatten_features
 from quant_pipeline.utils.paths import (
-    artifact_dir,
     artifact_uri,
     ensure_artifact_dir,
 )
@@ -114,53 +115,10 @@ def _latest_trade_date_from_features(df: pd.DataFrame) -> str:
     return str(df["trade_date"].astype(str).max())
 
 
-def _build_groups(df: pd.DataFrame) -> np.ndarray:
-    """以 trade_date 为 query group；返回每日样本数数组（顺序与 df 一致）。"""
-
-    counts = df.groupby("trade_date", sort=False).size().to_numpy()
-    return counts.astype(np.int64)
-
-
-def _bin_labels_by_group(
-    y: pd.Series,
-    df: pd.DataFrame,
-    n_bins: int = 5,
-) -> pd.Series:
-    """按每日分组将连续标签分桶为整数（0..n_bins-1）。
-
-    LambdaRank 需要整数标签表示相关性等级。
-    每个交易日内，按标签值排名后均匀分桶。
-    """
-
-    result = pd.Series(index=y.index, dtype=int)
-    for trade_date, group_df in df.groupby("trade_date", sort=False):
-        idx = group_df.index
-        y_group = y.loc[idx]
-        if len(y_group) == 0:
-            continue
-        # 按排名分桶：rank 1..N → bin 0..n_bins-1
-        ranks = y_group.rank(method="first", ascending=True)
-        bins = ((ranks - 1) * n_bins / len(y_group)).astype(int).clip(0, n_bins - 1)
-        result.loc[idx] = bins
-    return result
-
-
-def _flatten_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """把 features:dict 列展平为多列。"""
-
-    if df.empty:
-        return pd.DataFrame(), []
-    feature_keys: list[str] = sorted(
-        {k for row in df["features"] if isinstance(row, dict) for k in row.keys()}
-    )
-    if not feature_keys:
-        raise ValueError("feature_matrix.features 为空，没有可训练的列")
-    records = [
-        {k: row.get(k, np.nan) if isinstance(row, dict) else np.nan for k in feature_keys}
-        for row in df["features"]
-    ]
-    X = pd.DataFrame.from_records(records, columns=feature_keys)
-    return X, feature_keys
+# #14：group / features 工具已统一到 training.group_utils；此处保留旧私名做别名，
+# 兼容 ab_compare 等模块 `from quant_pipeline.training.runner import _flatten_features`。
+_build_groups = build_groups
+_flatten_features = flatten_features
 
 
 # ----------------------------------------------------------------------
@@ -277,6 +235,7 @@ def train_model(
     hyperparams: dict[str, Any] | None = None,
     walk_forward_params: dict[str, Any] | None = None,
     with_shap: bool = True,
+    today_yyyymmdd: str | None = None,
 ) -> TrainResult:
     """完整训练通路。
 
@@ -287,6 +246,9 @@ def train_model(
         n_folds (默认 6) / embargo_days (默认 21) / min_train_days (默认 252)
         top_k (默认 20) / commission_rate (默认 0.0003) / slippage_bps (默认 5)
         lgb_num_boost_round / lgb_early_stopping_rounds
+
+    today_yyyymmdd: 可注入今天日期（YYYYMMDD）用于 model_version / trained_at；
+        默认 None 时由各子通路硬取 datetime.now(UTC)。注入后跨 UTC 午夜运行也可控。
     """
 
     def _progress(progress: int, stage: str) -> None:
@@ -322,8 +284,8 @@ def train_model(
     X_all = X_all.loc[valid_mask].reset_index(drop=True)
     y_all = y_all.loc[valid_mask].reset_index(drop=True)
 
-    # LambdaRank 需要整数标签（0..K），按每日分组分桶
-    y_all = _bin_labels_by_group(y_all, df_train, n_bins=5)
+    # 标签保持原始连续值（不分桶）；LambdaRank 需要的整数 gain 由
+    # compare_three / _train_single_fold 在 train_lambdarank 入口处单独做截面 rank。
 
     if walk_forward:
         from quant_pipeline.training.walk_forward_runner import train_walk_forward
@@ -342,9 +304,12 @@ def train_model(
             insert_model_run=_insert_model_run,
             write_artifact=_write_artifact,
             progress_callback=_progress,
+            today_yyyymmdd=today_yyyymmdd,
         )
     else:
-        result = _train_single_fold(
+        from quant_pipeline.training.single_fold_runner import train_single_fold
+
+        result = train_single_fold(
             feature_set_id=feature_set_id,
             df_train=df_train,
             X_all=X_all,
@@ -354,7 +319,10 @@ def train_model(
             job_id=job_id,
             hyperparams=hyperparams,
             latest_trade_date=latest_trade_date,
+            insert_model_run=_insert_model_run,
+            write_artifact=_write_artifact,
             progress_callback=_progress,
+            today_yyyymmdd=today_yyyymmdd,
         )
 
     # M4 Part L 后置钩子：SHAP 解释（默认开；失败不阻塞主流程，写 quality_reports）
@@ -374,144 +342,6 @@ def train_model(
             )
 
     return result
-
-
-# ----------------------------------------------------------------------
-# M2 单 fold 通路（保留）
-# ----------------------------------------------------------------------
-
-
-def _train_single_fold(
-    *,
-    feature_set_id: str,
-    df_train: pd.DataFrame,
-    X_all: pd.DataFrame,
-    y_all: pd.Series,
-    feature_cols: list[str],
-    seed: int,
-    job_id: UUID | None,
-    hyperparams: dict[str, Any] | None,
-    latest_trade_date: str,
-    progress_callback: ProgressCallback,
-) -> TrainResult:
-    splitter = SingleFoldSplit(train_ratio=0.7, embargo_days=0)
-    (train_idx, test_idx) = next(splitter.split(df_train))
-
-    X_train = X_all.iloc[train_idx].reset_index(drop=True)
-    y_train = y_all.iloc[train_idx].reset_index(drop=True)
-    df_train_part = df_train.iloc[train_idx].reset_index(drop=True)
-    groups_train = _build_groups(df_train_part)
-
-    X_test = X_all.iloc[test_idx].reset_index(drop=True)
-    y_test = y_all.iloc[test_idx].reset_index(drop=True)
-    df_test_part = df_train.iloc[test_idx].reset_index(drop=True)
-    groups_test = _build_groups(df_test_part)
-
-    booster = train_lambdarank(
-        X_train,
-        y_train,
-        groups_train,
-        valid_data=(X_test, y_test, groups_test),
-        hyperparams=hyperparams,
-        seed=seed,
-        early_stopping_rounds=DEFAULT_EARLY_STOPPING_ROUNDS,
-        num_boost_round=DEFAULT_NUM_BOOST_ROUND,
-    )
-
-    progress_callback(50, "train:fit_done")
-
-    scores_test = booster.predict(X_test.values)
-    ndcg10 = _ndcg_at_k(scores_test, y_test.to_numpy(), groups_test, k=10)
-    ndcg5 = _ndcg_at_k(scores_test, y_test.to_numpy(), groups_test, k=5)
-    ic = _pearson_ic(scores_test, y_test.to_numpy())
-    rank_ic = _spearman_rank_ic(scores_test, y_test.to_numpy())
-
-    oos_metrics: dict[str, Any] = {
-        "ndcg@5": ndcg5,
-        "ndcg@10": ndcg10,
-        "ic": ic,
-        "rank_ic": rank_ic,
-        "portfolio_annual_after_cost": None,
-        "fold_metrics": [
-            {"fold": 0, "ndcg@10": ndcg10, "ndcg@5": ndcg5, "ic": ic, "rank_ic": rank_ic}
-        ],
-        "n_train": int(len(X_train)),
-        "n_test": int(len(X_test)),
-        "n_test_groups": int(len(groups_test)),
-        "walk_forward": False,
-    }
-
-    progress_callback(75, "train:eval_done")
-
-    run_id = uuid4()
-    today_yyyymmdd = datetime.now(timezone.utc).strftime("%Y%m%d")
-    model_version = f"lgb-lambdarank-v1-{today_yyyymmdd}-seed{seed}"
-
-    used_hp: dict[str, Any] = dict(DEFAULT_HYPERPARAMS)
-    if hyperparams:
-        used_hp.update(hyperparams)
-    used_hp["num_boost_round"] = DEFAULT_NUM_BOOST_ROUND
-    used_hp["best_iteration"] = int(booster.best_iteration or booster.current_iteration())
-    used_hp["seed"] = seed
-
-    train_dates_used = sorted(df_train_part["trade_date"].astype(str).unique().tolist())
-    valid_dates_used = sorted(df_test_part["trade_date"].astype(str).unique().tolist())
-
-    meta = {
-        "model_run_id": str(run_id),
-        "model_version": model_version,
-        "feature_set_id": feature_set_id,
-        "feature_columns": feature_cols,
-        "feature_columns_order": feature_cols,
-        "factor_ids": feature_cols,
-        "hyperparams": used_hp,
-        "oos_metrics": oos_metrics,
-        "trained_at_utc": datetime.now(timezone.utc).isoformat(),
-        "latest_train_date": latest_trade_date,
-        "train_dates": train_dates_used,
-        "valid_dates": valid_dates_used,
-        "seed": seed,
-    }
-
-    model_uri, _meta_uri = _write_artifact(run_id, booster, meta)
-
-    try:
-        _insert_model_run(
-            run_id,
-            job_id=job_id,
-            model_version=model_version,
-            feature_set_id=feature_set_id,
-            hyperparams=used_hp,
-            oos_metrics=oos_metrics,
-            artifact_uri_str=model_uri,
-        )
-    except Exception:
-        try:
-            shutil.rmtree(artifact_dir(run_id), ignore_errors=True)
-        except Exception:  # noqa: BLE001
-            pass
-        raise
-
-    progress_callback(100, "train:done")
-
-    logger.info(
-        "train_done",
-        extra={
-            "model_run_id": str(run_id),
-            "model_version": model_version,
-            "ndcg@10": ndcg10,
-            "ic": ic,
-            "n_train": int(len(X_train)),
-            "n_test": int(len(X_test)),
-        },
-    )
-
-    return TrainResult(
-        model_run_id=run_id,
-        model_version=model_version,
-        artifact_uri=model_uri,
-        oos_metrics=oos_metrics,
-    )
 
 
 # ----------------------------------------------------------------------

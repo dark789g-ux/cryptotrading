@@ -4,8 +4,9 @@
 1. 启动时先跑一次 reaper
 2. 之后循环：poll → 若有 job 则 dispatch；无 job 则 sleep poll_interval
 3. 每 reaper_interval_seconds 跑一次 reaper
-4. heartbeat 在 runner 内部由 update_progress 顺带刷新；M0 dispatcher 周期短，
-   暂未单独起 heartbeat 线程（M1 长任务起后台 thread 周期刷）
+4. heartbeat：Dispatcher.dispatch 在 runner 执行期间起后台守护线程
+   （_HeartbeatThread），按 worker_heartbeat_interval_seconds 周期刷
+   heartbeat_at，长任务不再被 reaper 误杀。update_progress 仍会顺带刷。
 """
 
 from __future__ import annotations

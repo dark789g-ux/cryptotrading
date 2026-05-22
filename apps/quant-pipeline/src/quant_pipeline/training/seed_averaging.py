@@ -181,12 +181,16 @@ def train_seed_average(
                 child_job_id = None
 
         try:
+            # 评审 04-#11：子 seed 训练关闭 SHAP（with_shap=False）。
+            # 5 seed 各跑一次 SHAP 纯属浪费——seed averaging 的产物是聚合 model_run，
+            # 单个子 seed 的 SHAP 解释不会被消费。
             result = train_fn(
                 feature_set_id=feature_set_id,
                 model="lgb-lambdarank",
                 walk_forward=walk_forward,
                 seed=seed,
                 job_id=child_job_id,
+                with_shap=False,
             )
         except Exception as exc:
             if child_job_id is not None:
@@ -204,7 +208,9 @@ def train_seed_average(
 
         if parent_job_id is not None:
             done = i + 1
-            pct = min(95, int(done / total * 90))
+            # 评审 04-#17：原 `done/total*90` 最后一档恒为 90 到不了 95；
+            # 改用 *95，最后一个 seed 完成时为 95，余下 5% 留给 ensemble 落库 → 100。
+            pct = min(95, int(done / total * 95))
             try:
                 update_progress(
                     parent_job_id,

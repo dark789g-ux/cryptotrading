@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -32,35 +32,20 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from quant_pipeline.db.engine import session_scope
-from quant_pipeline.inference.score_writer import write_scores
+from quant_pipeline.inference.score_writer import compute_rank_in_day, write_scores
 from quant_pipeline.quality.report import gate_check
-from quant_pipeline.utils.paths import artifact_root
+from quant_pipeline.utils.paths import resolve_artifact_local_path
 from quant_pipeline.worker.progress import ProgressCallback, update_progress
 
 logger = logging.getLogger(__name__)
 
 
 # ----------------------------------------------------------------------
-# 工具：artifact_uri 还原本地 Path
+# 工具：artifact_uri 还原本地 Path（评审 05-#10：实现统一到 utils.paths）
 # ----------------------------------------------------------------------
 
-
-def _resolve_artifact_local_path(artifact_uri_str: str) -> Path:
-    """把入库的 POSIX 相对路径 `./artifacts/<uuid>/model.txt` 还原为本地绝对 Path。
-
-    artifact_root() 已封装 ARTIFACT_DIR 环境变量与默认值。
-    """
-
-    p = PurePosixPath(artifact_uri_str)
-    parts = p.parts
-    if parts and parts[0] in (".", "artifacts"):
-        idx = 0
-        while idx < len(parts) and parts[idx] in (".", "artifacts"):
-            idx += 1
-        rel_parts = parts[idx:]
-    else:
-        rel_parts = parts
-    return artifact_root().joinpath(*rel_parts)
+# 保留旧私名做别名，兼容既有单测 `from ...inference.runner import _resolve_artifact_local_path`
+_resolve_artifact_local_path = resolve_artifact_local_path
 
 
 def _load_model_run(session: Session, *, model_version: str | None, model_run_id: str | None) -> dict[str, Any]:
@@ -69,11 +54,15 @@ def _load_model_run(session: Session, *, model_version: str | None, model_run_id
     if not model_version and not model_run_id:
         raise ValueError("必须提供 model_version 或 model_run_id 之一")
     if model_version:
+        # 01-pg-schema §ml.model_runs 已建 `UNIQUE INDEX (model_version)`，
+        # 同名 model_version 至多一行；`ORDER BY created_at DESC` 为防御性写法
+        # （若唯一约束未来被移除，取最新 artifact 而非 PG 物理顺序的随机行）。
         sql = text(
             """
             SELECT id, model_version, feature_set_id, artifact_uri
             FROM ml.model_runs
             WHERE model_version = :mv
+            ORDER BY created_at DESC
             LIMIT 1
             """
         )
@@ -218,6 +207,19 @@ def predict_one_day(
         existing = set(out["ts_code"])
         missing = [c for c in all_codes if c not in existing]
         if missing:
+            # 评审 05-#4：NaN score 行会让 write_scores 的 enforce_row_count 凑齐行数、
+            # 把「特征覆盖不足」伪装成「所有股票均有评分」。显式 warn 暴露覆盖缺口。
+            logger.warning(
+                "inference_missing_feature_codes",
+                extra={
+                    "trade_date": trade_date,
+                    "model_version": model_version,
+                    "n_scored": int(len(existing)),
+                    "n_missing": len(missing),
+                    "n_total_daily_quote": len(all_codes),
+                    "missing_ts_codes": missing[:50],
+                },
+            )
             nan_rows = pd.DataFrame({"ts_code": missing, "score": np.nan})
             out = pd.concat([out, nan_rows], ignore_index=True)
 
@@ -227,17 +229,15 @@ def predict_one_day(
 
 
 def _attach_rank_in_day(df: pd.DataFrame) -> pd.DataFrame:
-    """按 score desc 排名；NaN 排末尾；同分用 method='first' 保证整数唯一。"""
+    """按 score desc 排名 + 按 rank 排序。
 
-    if df.empty:
-        out = df.copy()
-        out["rank_in_day"] = pd.Series([], dtype=int)
+    评审 05-#11：rank 计算统一复用 score_writer.compute_rank_in_day（已含 NaN 处理），
+    避免两份重复实现漂移。本函数在其基础上额外按 score 降序排序输出。
+    """
+
+    out = compute_rank_in_day(df)
+    if out.empty:
         return out
-    n = len(df)
-    # NaN 排最后：fillna(-inf) 做 ascending rank，NaN 股票拿到最大 rank
-    filled = df["score"].fillna(-np.inf)
-    asc_rank = filled.rank(method="first", ascending=True).astype(int)
-    out = df.assign(rank_in_day=(n + 1 - asc_rank).astype(int))
     return out.sort_values("score", ascending=False).reset_index(drop=True)
 
 
@@ -273,6 +273,10 @@ def run_inference(
     _progress(0, "infer:start")
 
     # 1) 推理前必检（spec 04 §2 硬约束；不允许任何半量写入）
+    # 评审 05-#8：gate_check 内部若写 quality_reports，用的是其自身的 session_scope，
+    # 与下方 scores 写入的事务**不在同一事务**。这是有意为之 —— gate 失败抛
+    # QualityGateBlocked 后 scores 一行不写，但 gate 的 quality 诊断记录需独立保留
+    # 供排查（否则 gate 失败回滚会连诊断一起丢）。
     gate_check(trade_date, mode="inference_pregate", strict=True, job_id=job_id)
     _progress(20, "infer:quality_passed")
 

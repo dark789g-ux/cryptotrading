@@ -80,7 +80,22 @@ def train_linear(
     # seed 写到 hyperparams 元数据但不传 Ridge
     params_for_model = {k: v for k, v in params.items()}
 
-    # 用 0 填充 NaN（Ridge 不接受 NaN；上层 runner 已过滤 label NaN，但 X 可能含 NaN）
+    # 用 0 填充 NaN（Ridge 不接受 NaN；上层 runner 已过滤 label NaN，但 X 可能含 NaN）。
+    # 评审 04-#16：对未标准化的原始量纲因子，fillna(0.0) 不是中性填充（0 可能落在
+    # 因子分布的极端位置）；GBDT/LambdaRank 原生支持 NaN，三组对照的输入口径并不一致。
+    # 短期无法统一口径，至少把 NaN 比例 warn 出来让数据质量可见。
+    n_cells = int(X.size)
+    n_nan = int(X.isna().to_numpy().sum()) if n_cells > 0 else 0
+    if n_nan > 0:
+        logger.warning(
+            "linear_baseline_feature_nan_filled_with_zero",
+            extra={
+                "n_nan_cells": n_nan,
+                "n_total_cells": n_cells,
+                "nan_ratio": round(n_nan / n_cells, 6) if n_cells > 0 else 0.0,
+                "note": "fillna(0.0) 对原始量纲因子非中性；与 GBDT/LambdaRank 原生 NaN 口径不一致",
+            },
+        )
     X_clean = X.fillna(0.0).to_numpy(dtype=np.float64)
     y_clean = y.to_numpy(dtype=np.float64)
 

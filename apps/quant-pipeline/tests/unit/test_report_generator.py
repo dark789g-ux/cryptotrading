@@ -125,7 +125,7 @@ def test_generate_report_no_daily_returns(tmp_path: Path) -> None:
     )
     assert (tmp_path / "report.md").exists()
     assert not (tmp_path / "daily_returns.csv").exists()
-    assert "daily returns 缺失" in content
+    assert "trade 净收益缺失" in content
 
 
 def test_generate_report_flags_gap_below_threshold(tmp_path: Path) -> None:
@@ -160,3 +160,40 @@ def test_generate_report_flags_gap_meets_threshold(tmp_path: Path) -> None:
     )
     # 应有 ✅ 标记
     assert "✅" in content
+
+
+def test_troubleshooting_map_key_matches_expected_ranges() -> None:
+    """评审 05-#15：_troubleshooting 的 map_key 与 _EXPECTED_RANGES 的 key 必须一致。
+
+    两处手工维护，漂移会导致 KeyError；本测试断言 key 集合相等。
+    """
+
+    import inspect
+
+    from quant_pipeline.evaluation import report_generator as rg
+
+    src = inspect.getsource(rg._troubleshooting)
+    # _troubleshooting 内部对每个 _EXPECTED_RANGES key 取 map_key[key]，
+    # 若 map_key 缺 key 会 KeyError；这里直接断言每个 key 都能被处理。
+    for key in rg._EXPECTED_RANGES:
+        assert f'"{key}"' in src, f"_troubleshooting 的 map_key 缺少 {key}"
+
+
+def test_generate_report_flags_small_sample_sharpe(tmp_path: Path) -> None:
+    """评审 05-#9：任一折 portfolio trade 笔数 < 20 时报告应标注 Sharpe 不可靠。"""
+
+    summary = _mock_summary()
+    # 给 lgb-lambdarank 的 fold 注入小样本 trade 笔数
+    for f in summary["lgb-lambdarank"]["fold_metrics"]:
+        f["portfolio_n_trades"] = 5
+    content, _ = generate_report(
+        model_run_id=str(uuid4()),
+        model_version="x",
+        feature_set_id="fs_v1",
+        hyperparams={},
+        walk_forward_params={},
+        compare_summary=summary,
+        ensemble_daily_returns=None,
+        output_dir=tmp_path,
+    )
+    assert "Sharpe 小样本不可靠" in content
