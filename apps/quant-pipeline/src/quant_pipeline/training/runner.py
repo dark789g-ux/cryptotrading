@@ -236,6 +236,7 @@ def train_model(
     walk_forward_params: dict[str, Any] | None = None,
     with_shap: bool = True,
     today_yyyymmdd: str | None = None,
+    extra_hyperparams: dict[str, Any] | None = None,
 ) -> TrainResult:
     """完整训练通路。
 
@@ -261,6 +262,16 @@ def train_model(
         raise ValueError(
             f"M2/M3 只支持 model='lgb-lambdarank'（其它后续里程碑接入），got {model!r}"
         )
+
+    # D-23：train_e2e 编排把 factor_version / label_scheme / new_listing_min_days
+    # 通过 extra_hyperparams 透传进 ml.model_runs.hyperparams。
+    # merge 顺序：调用方 hyperparams 在前，extra_hyperparams 覆盖（让 e2e 元字段
+    # 即便与既有键冲突也优先生效，避免被 LightGBM 调参字段覆盖）。
+    # 老调用方（runner_entrypoint / CLI train）不传 extra_hyperparams，行为不变。
+    if extra_hyperparams:
+        merged_hyperparams: dict[str, Any] = dict(hyperparams or {})
+        merged_hyperparams.update(extra_hyperparams)
+        hyperparams = merged_hyperparams
 
     _progress(0, "train:start")
 

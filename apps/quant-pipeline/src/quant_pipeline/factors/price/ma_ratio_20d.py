@@ -16,9 +16,6 @@ from quant_pipeline.factors.registry import register
 
 @register(factor_id="ma_ratio_20d", factor_version="v1")
 class MaRatio20d(Factor):
-    category = "price"
-    pit_window_days = 35
-    description = "close_adj(T) / MA20(close_adj)"
     required_columns = ("close_adj",)
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

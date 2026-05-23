@@ -17,9 +17,6 @@ from quant_pipeline.factors.registry import register
 
 @register(factor_id="volume_ratio_20d", factor_version="v1")
 class VolumeRatio20d(Factor):
-    category = "price"
-    pit_window_days = 35
-    description = "20 日成交量比 vol(T) / mean(vol[T-20..T-1])"
     required_columns = ("vol",)
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

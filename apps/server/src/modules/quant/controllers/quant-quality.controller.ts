@@ -1,5 +1,6 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { QuantQualityService } from '../services/quant-quality.service';
+import { AdminGuard } from '../../../auth/admin.guard';
 import {
   validateQualityByDateParam,
   validateQualityLevelQuery,
@@ -15,6 +16,7 @@ import {
  * 路由顺序：先声明字面量子路径 `recent`，再声明 `:date` 通配，避免 `recent` 被吞为 `date`。
  */
 @Controller('quant/quality')
+@UseGuards(AdminGuard)
 export class QuantQualityController {
   constructor(private readonly svc: QuantQualityService) {}
 

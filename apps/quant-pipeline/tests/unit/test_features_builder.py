@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
@@ -24,6 +26,7 @@ from quant_pipeline.features.builder import (
     neutralize_by_industry,
     neutralize_by_industry_and_market_cap,
     pivot_factors_long_to_wide,
+    resolve_feature_set_id,
     standardize_cross_sectional,
     winsorize_factors,
 )
@@ -34,30 +37,200 @@ from quant_pipeline.features.builder import (
 # ----------------------------------------------------------------------
 
 def test_feature_set_id_is_deterministic() -> None:
-    a = build_feature_set_id("v1", "strategy-aware")
-    b = build_feature_set_id("v1", "strategy-aware")
+    a = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=60)
+    b = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=60)
     assert a == b
     assert a.startswith("fs_")
     assert len(a) == 3 + 12  # "fs_" + 12 hex
 
 
 def test_feature_set_id_changes_on_inputs() -> None:
-    a = build_feature_set_id("v1", "strategy-aware")
-    b = build_feature_set_id("v2", "strategy-aware")
-    c = build_feature_set_id("v1", "fwd_5d_ret")
-    d = build_feature_set_id("v1", "strategy-aware", neutralize_cols=("industry_l1",))
-    e = build_feature_set_id("v1", "strategy-aware", robust_z=False)
-    assert len({a, b, c, d, e}) == 5
+    a = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=60)
+    b = build_feature_set_id("v2", "strategy-aware", new_listing_min_days=60)
+    c = build_feature_set_id("v1", "fwd_5d_ret", new_listing_min_days=60)
+    d = build_feature_set_id(
+        "v1", "strategy-aware", new_listing_min_days=60,
+        neutralize_cols=("industry_l1",),
+    )
+    e = build_feature_set_id(
+        "v1", "strategy-aware", new_listing_min_days=60, robust_z=False,
+    )
+    f = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=30)
+    assert len({a, b, c, d, e, f}) == 6
 
 
 def test_feature_set_id_neutralize_cols_order_invariant() -> None:
     a = build_feature_set_id(
-        "v1", "strategy-aware", neutralize_cols=("industry_l1", "mv")
+        "v1", "strategy-aware", new_listing_min_days=60,
+        neutralize_cols=("industry_l1", "mv"),
     )
     b = build_feature_set_id(
-        "v1", "strategy-aware", neutralize_cols=("mv", "industry_l1")
+        "v1", "strategy-aware", new_listing_min_days=60,
+        neutralize_cols=("mv", "industry_l1"),
     )
     assert a == b
+
+
+# ----------------------------------------------------------------------
+# 哈希契约升级（spec 03 D-22）：factor_ids 顺序无关 + new_listing_min_days
+# ----------------------------------------------------------------------
+
+def test_feature_set_id_factor_ids_order_invariant() -> None:
+    """D-22：factor_ids 元组顺序不影响哈希。
+
+    sorted() 在 builder 侧保证；与 DB 唯一索引 md5(array_to_string(...))
+    的对齐依赖 runner 写入侧也 sorted。
+    """
+
+    a = build_feature_set_id(
+        "v1", "strategy-aware", new_listing_min_days=60,
+        factor_ids=("f1", "f2"),
+    )
+    b = build_feature_set_id(
+        "v1", "strategy-aware", new_listing_min_days=60,
+        factor_ids=("f2", "f1"),
+    )
+    assert a == b
+
+
+def test_feature_set_id_factor_ids_membership_changes_hash() -> None:
+    """factor_ids 内容变化（即使长度相同）必须产生不同 ID。"""
+
+    a = build_feature_set_id(
+        "v1", "strategy-aware", new_listing_min_days=60,
+        factor_ids=("f1", "f2"),
+    )
+    b = build_feature_set_id(
+        "v1", "strategy-aware", new_listing_min_days=60,
+        factor_ids=("f1", "f3"),
+    )
+    assert a != b
+
+
+def test_feature_set_id_new_listing_min_days_changes_hash() -> None:
+    """D-12：new_listing_min_days 不同 → 不同 ID。"""
+
+    a = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=0)
+    b = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=60)
+    c = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=250)
+    assert len({a, b, c}) == 3
+
+
+def test_feature_set_id_new_listing_min_days_type_coerced_to_int() -> None:
+    """spec 03 §哈希契约升级：强制 int(new_listing_min_days)，
+    防 60 vs '60' / 60.0 → 不同 hash。
+
+    传入 True/False（int 子类）会被 int() 当 1/0 处理——这里只验证
+    int 与 等价 float / numpy 整型不会产生不同 hash。
+    """
+
+    import numpy as np
+
+    a = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=60)
+    b = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=int(np.int64(60)))
+    assert a == b
+
+
+# ----------------------------------------------------------------------
+# resolve_feature_set_id 预查复用（spec 03 D-16）
+# ----------------------------------------------------------------------
+
+class _FakeRow:
+    """模拟 sqlalchemy Row：支持 ``row[0]`` 取首列。"""
+
+    def __init__(self, values: tuple) -> None:
+        self._v = values
+
+    def __getitem__(self, idx: int):
+        return self._v[idx]
+
+
+class _FakeResult:
+    def __init__(self, row: _FakeRow | None) -> None:
+        self._row = row
+
+    def fetchone(self) -> _FakeRow | None:
+        return self._row
+
+
+class _FakeConn:
+    """duck-type conn：记录 execute 调用，按预设返回行。
+
+    spec 03：``resolve_feature_set_id`` 用 conn.execute(text(sql), params)
+    取一行，命中返回老 ID，未命中返回 None。
+    """
+
+    def __init__(self, row: _FakeRow | None = None) -> None:
+        self._row = row
+        self.calls: list[tuple[Any, dict[str, Any]]] = []
+
+    def execute(self, sql: Any, params: dict[str, Any]) -> _FakeResult:
+        self.calls.append((sql, params))
+        return _FakeResult(self._row)
+
+
+def test_resolve_feature_set_id_hit_returns_existing_id() -> None:
+    """预查命中：返回 (老 ID, True)，即便新哈希与之不同也复用老 ID。"""
+
+    conn = _FakeConn(row=_FakeRow(("fs_legacy00000",)))
+    fsid, reused = resolve_feature_set_id(
+        conn,
+        factor_version="v1",
+        label_scheme="strategy-aware",
+        new_listing_min_days=60,
+        factor_ids=("f1", "f2"),
+    )
+    assert reused is True
+    assert fsid == "fs_legacy00000"
+
+    # 验证传给 SQL 的 params 与 DB 唯一索引表达式对齐
+    assert len(conn.calls) == 1
+    _sql, params = conn.calls[0]
+    assert params["fv"] == "v1"
+    assert params["sc"] == "strategy-aware"
+    assert params["nd"] == 60
+    # fmd5 由 sorted(factor_ids) join ',' 后 md5 折算
+    import hashlib as _h
+    expected = _h.md5("f1,f2".encode("utf-8")).hexdigest()
+    assert params["fmd5"] == expected
+
+
+def test_resolve_feature_set_id_miss_returns_new_id() -> None:
+    """未命中：返回 (新哈希 ID, False)。"""
+
+    conn = _FakeConn(row=None)
+    fsid, reused = resolve_feature_set_id(
+        conn,
+        factor_version="v1",
+        label_scheme="strategy-aware",
+        new_listing_min_days=60,
+        factor_ids=("f1", "f2"),
+    )
+    assert reused is False
+    assert fsid.startswith("fs_")
+    # 与 build_feature_set_id 在同输入下的结果一致
+    expected = build_feature_set_id(
+        "v1", "strategy-aware", new_listing_min_days=60,
+        factor_ids=("f1", "f2"),
+    )
+    assert fsid == expected
+
+
+def test_resolve_feature_set_id_factor_ids_order_query_invariant() -> None:
+    """预查 SQL 的 fmd5 与 factor_ids 顺序无关（builder 与索引侧三处对齐）。"""
+
+    conn1 = _FakeConn(row=None)
+    conn2 = _FakeConn(row=None)
+    id1, _ = resolve_feature_set_id(
+        conn1, factor_version="v1", label_scheme="strategy-aware",
+        new_listing_min_days=60, factor_ids=("f1", "f2"),
+    )
+    id2, _ = resolve_feature_set_id(
+        conn2, factor_version="v1", label_scheme="strategy-aware",
+        new_listing_min_days=60, factor_ids=("f2", "f1"),
+    )
+    assert id1 == id2
+    assert conn1.calls[0][1]["fmd5"] == conn2.calls[0][1]["fmd5"]
 
 
 # ----------------------------------------------------------------------
@@ -249,6 +422,7 @@ def test_build_feature_matrix_end_to_end_with_labels() -> None:
         industry_map=industry,
         factor_version="v1",
         label_scheme="strategy-aware",
+        new_listing_min_days=60,
         mv_map=None,
     )
     assert bundle.feature_set_id.startswith("fs_")
@@ -285,6 +459,7 @@ def test_build_feature_matrix_label_winsorize_applied() -> None:
         industry_map=industry,
         factor_version="v1",
         label_scheme="strategy-aware",
+        new_listing_min_days=60,
         mv_map=None,
         label_winsorize=(-0.5, 0.5),
     )

@@ -25,9 +25,6 @@ from quant_pipeline.factors.registry import register
 
 @register(factor_id="industry_momentum_20d", factor_version="v1")
 class IndustryMomentum20d(Factor):
-    category = "industry"
-    pit_window_days = 35
-    description = "行业内股票 pct_chg 均值的 20 日累计；贴回个股"
     required_columns = ("close_adj", "industry_l1")
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

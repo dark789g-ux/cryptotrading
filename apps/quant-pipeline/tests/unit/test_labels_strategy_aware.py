@@ -20,7 +20,9 @@ from quant_pipeline.labels.fallback import (
 )
 from quant_pipeline.labels.strategy_aware import (
     LABEL_SCHEME,
+    NEW_LISTING_MIN_DAYS,
     LabelInputs,
+    _validate_min_days,
     compute_strategy_aware_labels,
     filter_limit_up_on_entry,
     filter_new_listing,
@@ -394,3 +396,197 @@ def test_compute_fwd_5d_ret_vectorized_matches_legacy() -> None:
     pd.testing.assert_frame_equal(
         new_sorted, legacy_sorted, check_dtype=False, check_like=True
     )
+
+
+# ----------------------------------------------------------------------
+# _validate_min_days：合法/非法值边界
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("v", [0, 1, 30, 60, 90, 250])
+def test_validate_min_days_accepts_legal_int(v: int) -> None:
+    # 不抛即通过
+    _validate_min_days(v)
+
+
+@pytest.mark.parametrize("v", [-1, 251, 1000, -1000])
+def test_validate_min_days_rejects_out_of_range(v: int) -> None:
+    with pytest.raises(ValueError, match="new_listing_min_days"):
+        _validate_min_days(v)
+
+
+@pytest.mark.parametrize("v", ["60", 60.0, None, [], True, False])
+def test_validate_min_days_rejects_wrong_type(v: object) -> None:
+    with pytest.raises(ValueError, match="new_listing_min_days"):
+        _validate_min_days(v)
+
+
+# ----------------------------------------------------------------------
+# LabelInputs.new_listing_min_days 在 compute_strategy_aware_labels 内的传导
+# ----------------------------------------------------------------------
+
+def _make_multi_stock_quotes(
+    *,
+    listing_offset: int,
+    n_days: int = 80,
+) -> tuple[pd.DataFrame, pd.DataFrame, str]:
+    """构造两只票的连涨行情 + listing 信息。
+
+    000001.SZ：list_date = "20200101"（早于数据窗口，不在 trade_dates 内 →
+                          filter_new_listing 语义为「保留」，代表"老股")
+    000002.SZ：list_date = trade_dates[listing_offset]（在窗口内，可被过滤）
+
+    返回 (quotes, listing, signal_date)；signal_date 取 dates[5]，让
+    000002.SZ 的 buy_date - list_date 距离始终偏小（用于触发过滤）。
+    """
+
+    dates = pd.bdate_range("2024-01-02", periods=n_days).strftime("%Y%m%d").tolist()
+    rows = []
+    for ts in ("000001.SZ", "000002.SZ"):
+        for i, d in enumerate(dates):
+            close = 10.0 * (1.01 ** i)
+            rows.append(
+                {
+                    "ts_code": ts,
+                    "trade_date": d,
+                    "close": close,
+                    "low": close * 0.999,
+                    "adj_factor": 1.0,
+                    "close_adj": close,
+                    "low_adj": close * 0.999,
+                }
+            )
+    quotes = pd.DataFrame(rows)
+    listing = pd.DataFrame(
+        [
+            # list_date 不在 trade_dates_sorted → filter_new_listing 视为"保留"，
+            # 这正是"上市极早、肯定不是新股"的等价语义。
+            {"ts_code": "000001.SZ", "list_date": "20200101"},
+            {"ts_code": "000002.SZ", "list_date": dates[listing_offset]},
+        ]
+    )
+    signal_date = dates[5]
+    return quotes, listing, signal_date
+
+
+def test_label_inputs_default_uses_60_when_none() -> None:
+    """new_listing_min_days=None → 默认 60。
+
+    000002.SZ 上市 5 个交易日（< 60）→ T+1 (=第 7 个交易日) 距上市仅 6 日，应被过滤。
+    """
+
+    quotes, listing, signal_date = _make_multi_stock_quotes(listing_offset=5)
+    entries = pd.DataFrame(
+        [
+            {"ts_code": "000001.SZ", "trade_date": signal_date},
+            {"ts_code": "000002.SZ", "trade_date": signal_date},
+        ]
+    )
+    out = compute_strategy_aware_labels(
+        LabelInputs(
+            daily_quotes=quotes,
+            listing=listing,
+            entries=entries,
+            new_listing_min_days=None,
+        )
+    )
+    # 000002.SZ 被过滤，仅老股留下
+    assert out["ts_code"].tolist() == ["000001.SZ"]
+
+
+def test_label_inputs_zero_disables_filter() -> None:
+    """new_listing_min_days=0 → 不过滤（0 是合法值，不能被 `if min_days:` 判 falsy）。"""
+
+    quotes, listing, signal_date = _make_multi_stock_quotes(listing_offset=5)
+    entries = pd.DataFrame(
+        [
+            {"ts_code": "000001.SZ", "trade_date": signal_date},
+            {"ts_code": "000002.SZ", "trade_date": signal_date},
+        ]
+    )
+    out = compute_strategy_aware_labels(
+        LabelInputs(
+            daily_quotes=quotes,
+            listing=listing,
+            entries=entries,
+            new_listing_min_days=0,
+        )
+    )
+    assert set(out["ts_code"].tolist()) == {"000001.SZ", "000002.SZ"}
+
+
+def test_label_inputs_min_days_30_filters_below_threshold() -> None:
+    """min_days=30：000002.SZ 距上市 6 日 < 30 → 过滤；000001.SZ 老股留下。"""
+
+    quotes, listing, signal_date = _make_multi_stock_quotes(listing_offset=5)
+    entries = pd.DataFrame(
+        [
+            {"ts_code": "000001.SZ", "trade_date": signal_date},
+            {"ts_code": "000002.SZ", "trade_date": signal_date},
+        ]
+    )
+    out = compute_strategy_aware_labels(
+        LabelInputs(
+            daily_quotes=quotes,
+            listing=listing,
+            entries=entries,
+            new_listing_min_days=30,
+        )
+    )
+    assert out["ts_code"].tolist() == ["000001.SZ"]
+
+
+def test_label_inputs_min_days_250_filters_almost_all() -> None:
+    """min_days=250：80 个交易日窗口内，两只票 list_date 都在窗口起始 →
+    距 buy_date 最多 ~6 个交易日 << 250 → 全过滤。
+
+    本测试覆写 listing 表（两只票 list_date 都在窗口内），不沿用 helper
+    中"老股 list_date 在窗口外被保留"的语义。
+    """
+
+    quotes, _, signal_date = _make_multi_stock_quotes(listing_offset=0)
+    # 与 helper 不同：两只票 list_date 均在窗口内，让 filter 实质生效
+    dates = sorted(quotes["trade_date"].unique().tolist())
+    listing = pd.DataFrame(
+        [
+            {"ts_code": "000001.SZ", "list_date": dates[0]},
+            {"ts_code": "000002.SZ", "list_date": dates[0]},
+        ]
+    )
+    entries = pd.DataFrame(
+        [
+            {"ts_code": "000001.SZ", "trade_date": signal_date},
+            {"ts_code": "000002.SZ", "trade_date": signal_date},
+        ]
+    )
+    out = compute_strategy_aware_labels(
+        LabelInputs(
+            daily_quotes=quotes,
+            listing=listing,
+            entries=entries,
+            new_listing_min_days=250,
+        )
+    )
+    assert out.empty
+
+
+@pytest.mark.parametrize("bad", [-1, 251, "60", 60.0])
+def test_label_inputs_invalid_min_days_raises(bad: object) -> None:
+    """非法 min_days → ValueError；由 worker 顶层捕获标记 job=failed。"""
+
+    quotes, listing, signal_date = _make_multi_stock_quotes(listing_offset=5)
+    entries = pd.DataFrame([{"ts_code": "000001.SZ", "trade_date": signal_date}])
+    with pytest.raises(ValueError, match="new_listing_min_days"):
+        compute_strategy_aware_labels(
+            LabelInputs(
+                daily_quotes=quotes,
+                listing=listing,
+                entries=entries,
+                new_listing_min_days=bad,  # type: ignore[arg-type]
+            )
+        )
+
+
+def test_new_listing_min_days_constant_value() -> None:
+    """常量值锁定为 60（防误改 → 影响默认语义）。"""
+
+    assert NEW_LISTING_MIN_DAYS == 60

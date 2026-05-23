@@ -8,10 +8,12 @@ import {
   Query,
   Req,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { QuantJobsService } from '../services/quant-jobs.service';
 import { validateCreateJob } from '../dto/create-job.dto';
 import { validateJobQuery } from '../dto/job-query.dto';
+import { AdminGuard } from '../../../auth/admin.guard';
 import type { RequestWithUser } from '../../../auth/shared/auth.types';
 
 /**
@@ -28,6 +30,7 @@ import type { RequestWithUser } from '../../../auth/shared/auth.types';
  *   `quant-jobs-sse.controller.ts`（M2 阶段为 polling 占位，M4 升级到 PG LISTEN/NOTIFY）。
  */
 @Controller('quant/jobs')
+@UseGuards(AdminGuard)
 export class QuantJobsController {
   constructor(private readonly svc: QuantJobsService) {}
 

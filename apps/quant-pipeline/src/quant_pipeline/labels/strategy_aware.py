@@ -88,6 +88,24 @@ LIMIT_TOLERANCE: Final[float] = 0.005
 # 新股门槛（doc/04 §4.3 推荐 60 个交易日）
 NEW_LISTING_MIN_DAYS: Final[int] = 60
 
+
+def _validate_min_days(v: object) -> None:
+    """校验 new_listing_min_days：必须是 int 且 0 <= v <= 250。
+
+    禁止 bool（`bool` 是 `int` 子类，True/False 会误通过）；
+    禁止 float（即使整数值 60.0 也拒绝，避免外部参数类型漂移）；
+    禁止字符串 "60"。任何非法值抛 ValueError，由 worker 顶层捕获并标记 job=failed。
+    """
+
+    if isinstance(v, bool) or not isinstance(v, int):
+        raise ValueError(
+            f"new_listing_min_days must be int in [0,250], got {v!r}"
+        )
+    if v < 0 or v > 250:
+        raise ValueError(
+            f"new_listing_min_days must be int in [0,250], got {v!r}"
+        )
+
 # 强右偏温和截尾阈值（坑 5）。labels 不实现截尾，截尾在 features 层做；
 # 这两个常量与 winsorize_label_value 由 features.builder 复用（见函数 docstring）。
 WINSORIZE_LO: Final[float] = -0.5
@@ -243,6 +261,9 @@ class LabelInputs:
     listing: pd.DataFrame | None = None
     entries: pd.DataFrame | None = None
     end: str | None = None
+    # 新股门槛交易日阈值。None → 走默认 NEW_LISTING_MIN_DAYS（60）；
+    # 0 是合法值表示完全不过滤。禁忌写法：`if min_days:`（0 会被判 falsy）。
+    new_listing_min_days: int | None = None
 
 
 def _augment_quotes_for_exit(
@@ -368,10 +389,18 @@ def compute_strategy_aware_labels(
     cand = filter_suspended_on_entry(
         cand, suspended_set=suspended_set, entry_col="buy_date"
     )
+    # None → 默认 60；0 是合法值表示不过滤（禁 `if min_days:`，0 会被判 falsy）
+    min_days = (
+        inputs.new_listing_min_days
+        if inputs.new_listing_min_days is not None
+        else NEW_LISTING_MIN_DAYS
+    )
+    _validate_min_days(min_days)
     cand = filter_new_listing(
         cand,
         list_date_map=list_date_map,
         trade_dates_sorted=trade_dates_sorted,
+        min_days=min_days,
         entry_col="buy_date",
     )
 
@@ -477,6 +506,8 @@ __all__ = [
     "NEW_LISTING_MIN_DAYS",
     "WINSORIZE_LO",
     "WINSORIZE_HI",
+    # 校验函数（fallback.py 复用；worker.train_e2e_runner 校验范围一致）
+    "_validate_min_days",
     # 5 个坑（坑 1/2/3/5 有独立纯函数；坑 4 见模块 docstring）
     "filter_limit_up_on_entry",
     "filter_suspended_on_entry",

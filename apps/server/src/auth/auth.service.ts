@@ -19,6 +19,7 @@ import {
   normalizeEmail,
   toAuthUser,
 } from './shared/auth.utils';
+import { isAdminUser } from './admin.guard';
 import {
   AcceptInvitationDto,
   AuthUserDto,
@@ -116,8 +117,17 @@ export class AuthService {
     return { ok: true };
   }
 
-  me(user: AuthUserDto): { user: AuthUserDto } {
-    return { user };
+  /**
+   * `GET /api/auth/me` 响应。
+   *
+   * 追加 `is_admin: boolean`（spec 2026-05-23-factor-registry-frontend-design 03-backend.md）：
+   *   前端用此字段隐藏「量化」菜单 + 路由守卫拒入 /quant/*；与 AdminGuard 同源
+   *   （都判 `user.role === 'admin'`），避免 admin 判定的两套真理。
+   *
+   * 字段命名 `is_admin`（snake_case），与既有 `expires_at` / `job_id` 等响应风格一致。
+   */
+  me(user: AuthUserDto): { user: AuthUserDto; is_admin: boolean } {
+    return { user, is_admin: isAdminUser(user) };
   }
 
   async changePassword(

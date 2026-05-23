@@ -21,8 +21,10 @@ from sqlalchemy import text
 
 from quant_pipeline.db.engine import session_scope
 from quant_pipeline.features.builder import (
+    DEFAULT_NEUTRALIZE_COLS,
+    DEFAULT_ROBUST_Z,
     build_feature_matrix_from_frames,
-    build_feature_set_id,
+    resolve_feature_set_id,
 )
 from quant_pipeline.worker.progress import (
     JobCancelled,
@@ -32,6 +34,43 @@ from quant_pipeline.worker.progress import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _load_factor_ids(session: Any, factor_version: str) -> list[str]:
+    """从 factors.daily_factors 拉取该 factor_version 下出现过的所有 factor_id，
+    再用 registry 的 `list_active(factor_version)` 过滤掉 `enabled=false` 的因子。
+
+    spec 2026-05-23-factor-registry-frontend-design 02-pipeline-refactor.md：
+    feature_set_id 哈希契约里的 `sorted_factor_ids` 应来自"启用集合"，
+    启停一个因子 → 哈希变化 → 新 feature_set_id。这里做"DB 数据 ∩ 启用集合"
+    交集：既排除掉历史遗留的、已停用因子，也防止因 registry 缓存未加载导致
+    SQL 拉到的 id 没经过 enabled 过滤就进哈希。
+
+    spec 03：调用方拿到结果后必须 ``tuple(sorted(...))`` 排序，再传入
+    :func:`resolve_feature_set_id` 与写入侧 INSERT——三处对 factor_ids 的
+    排序约定一致，DB 唯一索引（``factors._factor_ids_hash(factor_ids)``）
+    才能稳定命中。
+    """
+
+    sql = text(
+        """
+        SELECT DISTINCT factor_id
+          FROM factors.daily_factors
+         WHERE factor_version = :v
+        """
+    )
+    rows = session.execute(sql, {"v": factor_version}).fetchall()
+    in_db = {r[0] for r in rows}
+
+    # 启用集合：依赖调用方（train_e2e_runner）已在入口 `reload_from_db()`。
+    # 若 `_meta_cache` 为空，`list_active` 抛 `FactorMetaMissing`——这里**不**
+    # 用 try/except 兜底成 in_db 全集，避免静默吞错（CLAUDE.md）。
+    from quant_pipeline.factors.registry import list_active
+
+    active = {f.factor_id for f in list_active(factor_version)}
+
+    # 交集：DB 有数据 + registry 已启用
+    return sorted(in_db & active)
 
 
 def _load_daily_factors(
@@ -158,18 +197,30 @@ def _load_industry_map(start: str, end: str) -> pd.DataFrame:
 
 
 def _upsert_feature_set(
-    *, feature_set_id: str, factor_version: str, scheme: str, factor_ids: list[str]
+    *,
+    feature_set_id: str,
+    factor_version: str,
+    scheme: str,
+    factor_ids: list[str],
+    new_listing_min_days: int,
 ) -> None:
+    """spec 03：INSERT ... ON CONFLICT DO NOTHING（不再 UPDATE）。
+
+    - 预查复用机制（D-16）已在 :func:`resolve_feature_set_id` 处保证命中
+      老行；走到这里若 PK 冲突说明同 ID 已存在，metadata 列保留原值即可。
+    - 写入的 ``factor_ids`` text[] 由调用方保证已排序（与 builder 哈希侧、
+      DB 唯一索引侧三处对齐）。
+    """
+
     sql = text(
         """
         INSERT INTO factors.feature_sets
-            (feature_set_id, factor_version, scheme, factor_ids, created_at)
+            (feature_set_id, factor_version, scheme, factor_ids,
+             new_listing_min_days, created_at)
         VALUES
-            (:feature_set_id, :factor_version, :scheme, CAST(:factor_ids AS text[]), now())
-        ON CONFLICT (feature_set_id)
-        DO UPDATE SET factor_version = EXCLUDED.factor_version,
-                      scheme         = EXCLUDED.scheme,
-                      factor_ids     = EXCLUDED.factor_ids
+            (:feature_set_id, :factor_version, :scheme,
+             CAST(:factor_ids AS text[]), :new_listing_min_days, now())
+        ON CONFLICT (feature_set_id) DO NOTHING
         """
     )
     with session_scope() as session:
@@ -180,6 +231,7 @@ def _upsert_feature_set(
                 "factor_version": factor_version,
                 "scheme": scheme,
                 "factor_ids": "{" + ",".join(f'"{f}"' for f in factor_ids) + "}",
+                "new_listing_min_days": int(new_listing_min_days),
             },
         )
 
@@ -250,12 +302,15 @@ def build_feature_matrix(
     factor_version: str,
     label_scheme: str,
     date_range: str,
+    new_listing_min_days: int,
     job_id: UUID | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> str:
     """构建并落库 feature_matrix；返回 feature_set_id。
 
     参数：
+        new_listing_min_days：新股门槛（spec 03 D-11/D-12 必填，进 feature_set_id
+            哈希并写入 ``factors.feature_sets.new_listing_min_days`` 列）
         progress_callback: 可选，CLI 终端进度条回调 (progress, stage) -> None
     """
 
@@ -272,6 +327,31 @@ def build_feature_matrix(
     if job_id is not None and check_cancel_requested(job_id):
         raise JobCancelled
     _progress(10, "features:load")
+
+    # spec 03：预先拉一遍 factor_ids 列表用于哈希 + 预查复用。
+    # tuple(sorted(...)) 是「三处排序约定一致」的关键——builder 哈希侧、DB
+    # 唯一索引（factors._factor_ids_hash(factor_ids)）侧、写入侧都依赖此排序。
+    with session_scope() as _session:
+        factor_ids = tuple(sorted(_load_factor_ids(_session, factor_version)))
+
+        # 预查复用：哈希契约升级后，老 row 与新跑同逻辑元组 → 复用老 ID
+        fsid, reused = resolve_feature_set_id(
+            _session,
+            factor_version=factor_version,
+            label_scheme=label_scheme,
+            new_listing_min_days=new_listing_min_days,
+            factor_ids=factor_ids,
+        )
+    if reused:
+        logger.info(
+            "feature_set_reused",
+            extra={
+                "feature_set_id": fsid,
+                "factor_version": factor_version,
+                "scheme": label_scheme,
+                "new_listing_min_days": int(new_listing_min_days),
+            },
+        )
 
     daily_factors = _load_daily_factors(factor_version, start, end)
     labels = _load_labels(label_scheme, start, end)
@@ -293,18 +373,27 @@ def build_feature_matrix(
         )
 
     if daily_factors.empty or labels.empty:
-        feature_set_id = build_feature_set_id(factor_version, label_scheme)
         logger.warning(
             "feature_matrix_inputs_empty",
             extra={
+                "feature_set_id": fsid,
                 "factor_version": factor_version,
                 "label_scheme": label_scheme,
                 "factors_rows": len(daily_factors),
                 "labels_rows": len(labels),
             },
         )
+        # 即便数据为空，也要写一行 feature_sets 元数据以确保 fsid 可被后续 train
+        # 阶段引用（保持端到端 job 的 result_payload.feature_set_id 不悬空）。
+        _upsert_feature_set(
+            feature_set_id=fsid,
+            factor_version=factor_version,
+            scheme=label_scheme,
+            factor_ids=list(factor_ids),
+            new_listing_min_days=new_listing_min_days,
+        )
         _progress(100, "features:empty")
-        return feature_set_id
+        return fsid
 
     _progress(30, "features:compute")
 
@@ -315,42 +404,55 @@ def build_feature_matrix(
         mv_map=mv_map if not mv_map.empty else None,
         factor_version=factor_version,
         label_scheme=label_scheme,
+        new_listing_min_days=new_listing_min_days,
+        factor_ids=factor_ids,
     )
+    # builder 自算的 ID 与预查得到的 fsid 应一致（reused=False 时），不一致
+    # 即三处排序约定破裂——以 fsid 为准并 warn，便于 surface 出来排查。
+    if bundle.feature_set_id != fsid:
+        logger.warning(
+            "feature_set_id_mismatch_using_resolved",
+            extra={"resolved": fsid, "builder": bundle.feature_set_id},
+        )
 
     _progress(70, "features:upsert")
 
     _upsert_feature_set(
-        feature_set_id=bundle.feature_set_id,
+        feature_set_id=fsid,
         factor_version=factor_version,
         scheme=label_scheme,
-        factor_ids=bundle.factor_ids,
+        factor_ids=list(factor_ids),
+        new_listing_min_days=new_listing_min_days,
     )
     n = _upsert_feature_matrix(
-        feature_set_id=bundle.feature_set_id,
+        feature_set_id=fsid,
         matrix=bundle.matrix,
         factor_ids=bundle.factor_ids,
     )
     logger.info(
         "feature_matrix_written",
         extra={
-            "feature_set_id": bundle.feature_set_id,
+            "feature_set_id": fsid,
             "rows": n,
             "factor_count": len(bundle.factor_ids),
+            "reused_feature_set_id": reused,
         },
     )
 
     _progress(100, "features:done")
-    return bundle.feature_set_id
+    return fsid
 
 
 def runner_entrypoint(job: object) -> None:
     """供 worker.dispatcher 调用。
 
-    job.params schema（01-pg-schema §4.1）：
+    job.params schema（spec 03 D-11/D-12 升级后）::
+
         {
             "factor_version": "v1",
             "label_scheme": "strategy-aware",
-            "date_range": "YYYYMMDD:YYYYMMDD"
+            "date_range": "YYYYMMDD:YYYYMMDD",
+            "new_listing_min_days": 60         # 必填，[0,250]
         }
     """
 
@@ -358,16 +460,28 @@ def runner_entrypoint(job: object) -> None:
     factor_version = params.get("factor_version")
     label_scheme = params.get("label_scheme")
     date_range = params.get("date_range")
-    if not factor_version or not label_scheme or not date_range:
+    new_listing_min_days = params.get("new_listing_min_days")
+    if (
+        not factor_version
+        or not label_scheme
+        or not date_range
+        or new_listing_min_days is None
+    ):
         raise ValueError(
-            f"features job missing required params: factor_version/label_scheme/date_range, "
-            f"got {params!r}"
+            "features job missing required params: factor_version / label_scheme / "
+            f"date_range / new_listing_min_days, got {params!r}"
+        )
+    if not isinstance(new_listing_min_days, int) or isinstance(new_listing_min_days, bool):
+        raise ValueError(
+            f"new_listing_min_days must be int, got {type(new_listing_min_days).__name__}"
+            f"={new_listing_min_days!r}"
         )
     job_id = getattr(job, "id", None)
     build_feature_matrix(
         factor_version=str(factor_version),
         label_scheme=str(label_scheme),
         date_range=str(date_range),
+        new_listing_min_days=int(new_listing_min_days),
         job_id=job_id,
     )
 

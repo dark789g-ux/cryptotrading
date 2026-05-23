@@ -24,9 +24,6 @@ from quant_pipeline.factors.registry import register
 
 @register(factor_id="amihud_illiq_20d", factor_version="v1")
 class AmihudIlliq20d(Factor):
-    category = "price"
-    pit_window_days = 35
-    description = "Amihud 非流动性: mean(|daily_ret| / amount) 过去 20 个交易日"
     required_columns = ("close_adj", "amount")
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

@@ -7,6 +7,7 @@ features / train / infer / optuna / seed_avg / monitor）。未知 run_type
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import traceback
@@ -24,6 +25,7 @@ from quant_pipeline.worker.progress import (
     heartbeat,
     update_progress,
 )
+from quant_pipeline.worker.train_e2e_runner import StepError, run_train_e2e
 
 logger = logging.getLogger(__name__)
 
@@ -268,6 +270,92 @@ def _runner_monitor(job: Job) -> None:
     _entry(job)
 
 
+def _make_progress_callback(job_id: UUID) -> "Any":
+    """构造一个把进度回写 ml.jobs 的 callback，供 train_e2e_runner 使用。
+
+    train_e2e_runner 自己不直接调 `update_progress`：让父 callback 承担写库，
+    子 runner 透过 `make_scaled_callback` 缩放后再触达父 callback。
+    """
+
+    def _cb(progress: int, stage: str) -> None:
+        update_progress(job_id, progress, stage=stage)
+
+    return _cb
+
+
+def _runner_train_e2e(job: Job) -> None:
+    """train_e2e runner（D-2）：单 job 顺序跑 labels → features → train。
+
+    - StepError：写 `[step:<name>] <traceback>` 到 error_text 后 raise
+      （outer dispatcher 仍会调 `_finalize_job(... error_text=tb)` 覆盖，但 tb
+      文本里 `StepError.__str__` 也带 `[step:<name>]` 前缀，符合 D-18）。
+    - JobCancelled：直抛，outer dispatcher 写 status='cancelled'。
+    - 其他 Exception（含 `_validate_params` 抛的 ValueError）：标 `[step:validate]`。
+
+    成功时写 `ml.jobs.result_payload`（D-13）。
+    """
+
+    progress_cb = _make_progress_callback(job.id)
+    try:
+        result = run_train_e2e(job.id, job.params or {}, progress_cb)
+    except StepError as se:
+        # full_tb 拿到 original 异常的完整堆栈（包含触发点的代码上下文），
+        # 比仅打印 StepError 本身更利于排查
+        full_tb = "".join(
+            traceback.format_exception(
+                type(se.original), se.original, se.original.__traceback__
+            )
+        )
+        _update_job_error(job.id, f"[step:{se.step}] {full_tb}")
+        raise
+    except JobCancelled:
+        raise
+    except Exception:  # noqa: BLE001 —— validate 阶段任意异常都进 [step:validate]
+        _update_job_error(
+            job.id, f"[step:validate] {traceback.format_exc()}"
+        )
+        raise
+
+    _update_job_result(job.id, result)
+
+
+def _update_job_result(job_id: UUID, result: dict[str, Any]) -> None:
+    """把 train_e2e 的返回 dict 写到 ml.jobs.result_payload（D-13）。
+
+    仅在成功时调用；失败时保持 result_payload 为 NULL / 空，让上游 SSE
+    bridge 不展示半成品。
+    """
+
+    payload = json.dumps(result, ensure_ascii=False)
+    with session_scope() as session:
+        session.execute(
+            text(
+                """
+                UPDATE ml.jobs
+                SET result_payload = CAST(:rp AS jsonb)
+                WHERE id = :id
+                """
+            ),
+            {"id": job_id, "rp": payload},
+        )
+
+
+def _update_job_error(job_id: UUID, error_text: str) -> None:
+    """单独写 error_text（不触发终态、不发 NOTIFY）。
+
+    `_finalize_job` 在终态写入时也会写 error_text；这里先于 raise 写一次，
+    保证哪怕 outer dispatcher 因为某些边界路径漏写，也至少有 step-prefixed
+    错误留底。outer dispatcher 后续的 `_finalize_job` 会用完整 traceback
+    覆盖本字段（覆盖 tb 仍包含 StepError.__str__ 的 `[step:<name>]` 前缀）。
+    """
+
+    with session_scope() as session:
+        session.execute(
+            text("UPDATE ml.jobs SET error_text = :e WHERE id = :id"),
+            {"e": error_text, "id": job_id},
+        )
+
+
 # run_type → runner 路由表
 _ROUTES = {
     "noop": _runner_noop,
@@ -285,6 +373,8 @@ _ROUTES = {
     "optuna": _runner_optuna,
     "seed_avg": _runner_seed_avg,
     "monitor": _runner_monitor,
+    # spec 2026-05-23 train_e2e + 新股门槛
+    "train_e2e": _runner_train_e2e,
 }
 
 

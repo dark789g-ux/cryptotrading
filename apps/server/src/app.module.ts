@@ -70,6 +70,7 @@ import { MlJobEntity } from './entities/ml/ml-job.entity';
 import { MlModelRunEntity } from './entities/ml/ml-model-run.entity';
 import { MlScoreDailyEntity } from './entities/ml/ml-score-daily.entity';
 import { MlQualityReportEntity } from './entities/ml/ml-quality-report.entity';
+import { FactorDefinitionEntity } from './entities/ml/factor-definition.entity';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -140,6 +141,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           MlScoreDailyEntity,
           MlQualityReportEntity,
           // ----
+          // factors.factor_definitions（因子元数据 admin API，新 spec 2026-05-23-factor-registry-frontend-design）
+          FactorDefinitionEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],

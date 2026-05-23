@@ -116,6 +116,7 @@ const runTypeOptions: RunTypeOption[] = [
   { label: 'labels', value: 'labels' },
   { label: 'features', value: 'features' },
   { label: 'train', value: 'train' },
+  { label: 'train_e2e', value: 'train_e2e' },
   { label: 'infer', value: 'infer' },
   { label: 'optuna', value: 'optuna' },
   { label: 'seed_avg', value: 'seed_avg' },

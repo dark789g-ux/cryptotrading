@@ -31,9 +31,6 @@ _N = 14
 
 @register(factor_id="rsi_14", factor_version="v1")
 class Rsi14(Factor):
-    category = "price"
-    pit_window_days = 60
-    description = "RSI(14) with Wilder smoothing"
     required_columns = ("close_adj",)
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

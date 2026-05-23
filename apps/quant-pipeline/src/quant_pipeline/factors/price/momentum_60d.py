@@ -18,9 +18,6 @@ from quant_pipeline.factors.registry import register
 
 @register(factor_id="momentum_60d", factor_version="v1")
 class Momentum60d(Factor):
-    category = "price"
-    pit_window_days = 115
-    description = "60 日动量 close_adj(T) / close_adj(T-60) - 1"
     required_columns = ("close_adj",)
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

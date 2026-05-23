@@ -7,9 +7,12 @@
 //   2) 用 @UseGuards(SseTokenGuard) 接管鉴权，校验 query 上的短期 token
 // 见 03-nestjs-vue.md §1 SSE 鉴权方案 + guards/sse-token.guard.ts 顶注。
 
-import { Controller, Logger, Param, Req, Sse, UseGuards } from '@nestjs/common';
+import { Controller, ForbiddenException, Logger, Param, Req, Sse, UseGuards } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import { Observable } from 'rxjs';
+import { Repository } from 'typeorm';
 import { Public } from '../../../auth/decorators/public.decorator';
+import { UserEntity } from '../../../users/entities/user.entity';
 import { SseTokenGuard } from '../guards/sse-token.guard';
 import { QuantJobsService } from '../services/quant-jobs.service';
 import { PgListenService, type MlJobProgressEvent } from '../realtime/pg-listen.service';
@@ -43,6 +46,8 @@ export class QuantJobsSseController {
   constructor(
     private readonly jobs: QuantJobsService,
     private readonly pgListen: PgListenService,
+    @InjectRepository(UserEntity)
+    private readonly users: Repository<UserEntity>,
   ) {}
 
   @Public() // 跳过全局 AuthGuard；下面 SseTokenGuard 接管鉴权
@@ -50,8 +55,26 @@ export class QuantJobsSseController {
   @Sse(':id/stream')
   stream(
     @Param('id') id: string,
-    @Req() req: { on?: (ev: string, cb: () => void) => void } | undefined,
+    @Req()
+    req:
+      | {
+          on?: (ev: string, cb: () => void) => void;
+          sseTokenPayload?: { job_id: string; user_id: string };
+        }
+      | undefined,
   ): Observable<SseMessageEvent> {
+    // 二次校验：SseTokenGuard 已校验 token 签名 + job_id 对齐，
+    // 但 token 颁发时该 user 是 admin、之后可能被降级（`UPDATE users SET role='user'`）。
+    // 在 Observable 内首次异步查 DB 拿当前 role，非 admin 则 subscriber.error 关流。
+    // 不在 token 内编码 role，避免 stale 角色被复用。
+    // （spec 03-backend.md「SSE 守卫」节，refactor 2026-05-23 由 env 白名单改为 users.role）
+    const tokenUserId = req?.sseTokenPayload?.user_id;
+    if (!tokenUserId) {
+      this.logger.warn(
+        `sse_stream_reject reason=token_missing_user_id job_id=${id}`,
+      );
+      throw new ForbiddenException('需要管理员权限');
+    }
     return new Observable<SseMessageEvent>((subscriber) => {
       let closed = false;
       const safeNext = (msg: SseMessageEvent) => {
@@ -67,12 +90,26 @@ export class QuantJobsSseController {
         }
       };
 
-      // 1) 快照：建连瞬间立即 SELECT 一次当前 progress 推给客户端
+      // 0) admin 二次校验：DB 查 users.role；非 admin 直接 subscriber.error 关流。
+      //    放在 Observable 内是为了避免在 stream() 同步路径上做 await；
+      //    EventSource 客户端收到 error 后会自动 disconnect。
+      // 1) 快照：admin 校验通过后立即 SELECT 一次当前 progress 推给客户端
       //    findOne 抛错（NotFoundException）会通过 subscriber.error 透传给客户端关闭流
-      this.jobs
-        .findOne(id)
+      this.users
+        .findOne({ where: { id: tokenUserId }, select: { id: true, role: true } })
+        .then((user) => {
+          if (closed) return null;
+          if (!user || user.role !== 'admin') {
+            this.logger.warn(
+              `sse_stream_reject reason=user_not_admin job_id=${id} token_user_id=${tokenUserId}`,
+            );
+            subscriber.error(new ForbiddenException('需要管理员权限'));
+            return null;
+          }
+          return this.jobs.findOne(id);
+        })
         .then((row) => {
-          if (closed) return;
+          if (closed || !row) return;
           safeNext(this.toMessage(row));
           if (TERMINAL_STATUSES.has(row.status)) {
             // 已经终态：再补一条 complete 后关流，订阅 PG 也无意义

@@ -19,9 +19,6 @@ _N = 60
 
 @register(factor_id="close_to_high_60d", factor_version="v1")
 class CloseToHigh60d(Factor):
-    category = "price"
-    pit_window_days = 115
-    description = "close_adj(T) / max(close_adj[T-59..T])"
     required_columns = ("close_adj",)
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

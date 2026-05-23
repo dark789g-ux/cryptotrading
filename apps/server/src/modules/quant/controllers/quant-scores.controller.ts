@@ -1,5 +1,6 @@
-import { BadRequestException, Controller, Get, Param, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { QuantScoresService } from '../services/quant-scores.service';
+import { AdminGuard } from '../../../auth/admin.guard';
 import {
   validateScoresCompareQuery,
   validateScoresDailyQuery,
@@ -14,6 +15,7 @@ import {
  *   AuthGuard 已通过 APP_GUARD 注册为全局守卫；本 Controller **禁止**再加 `@UseGuards(AuthGuard)`。
  */
 @Controller('quant/scores')
+@UseGuards(AdminGuard)
 export class QuantScoresController {
   constructor(private readonly svc: QuantScoresService) {}
 

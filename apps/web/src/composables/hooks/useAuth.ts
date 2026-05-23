@@ -42,7 +42,16 @@ async function refreshMe() {
 }
 
 export function useAuth() {
-  const isAdmin = computed(() => user.value?.role === 'admin')
+  /**
+   * isAdmin getter 优先采用后端 `is_admin`（factor-registry-frontend spec：基于
+   * `ADMIN_USER_IDS` env 白名单）；后端尚未升级时回退到旧的 role 判定。
+   */
+  const isAdmin = computed(() => {
+    const u = user.value
+    if (!u) return false
+    if (typeof u.is_admin === 'boolean') return u.is_admin
+    return u.role === 'admin'
+  })
 
   async function ensureLoaded(force = false) {
     if (ready.value && !force) return

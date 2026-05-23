@@ -215,6 +215,13 @@ def labels_build(
         "--date-range",
         help="信号日范围 YYYYMMDD:YYYYMMDD",
     ),
+    new_listing_min_days: int = typer.Option(
+        60,
+        "--new-listing-min-days",
+        min=0,
+        max=250,
+        help="新股过滤门槛（交易日，0 表示不过滤；fwd_5d_ret 需 listing 表辅助）",
+    ),
     progress: bool = typer.Option(
         False,
         "--progress",
@@ -249,11 +256,17 @@ def labels_build(
             n = compute_labels(
                 scheme=scheme,
                 date_range=date_range,
+                new_listing_min_days=new_listing_min_days,
                 job_id=None,
                 progress_callback=callback,
             )
     else:
-        n = compute_labels(scheme=scheme, date_range=date_range, job_id=None)
+        n = compute_labels(
+            scheme=scheme,
+            date_range=date_range,
+            new_listing_min_days=new_listing_min_days,
+            job_id=None,
+        )
 
     typer.echo(f"labels build scheme={scheme} {date_range}: rows_upserted={n}")
 
@@ -279,6 +292,13 @@ def features_build(
         ...,
         "--date-range",
         help="构建窗口 YYYYMMDD:YYYYMMDD",
+    ),
+    new_listing_min_days: int = typer.Option(
+        60,
+        "--new-listing-min-days",
+        min=0,
+        max=250,
+        help="新股过滤门槛（交易日，0 表示不过滤；与 train_e2e 一致）",
     ),
     progress: bool = typer.Option(
         False,
@@ -311,6 +331,7 @@ def features_build(
                 factor_version=factor_version,
                 label_scheme=label_scheme,
                 date_range=date_range,
+                new_listing_min_days=new_listing_min_days,
                 job_id=None,
                 progress_callback=callback,
             )
@@ -319,6 +340,7 @@ def features_build(
             factor_version=factor_version,
             label_scheme=label_scheme,
             date_range=date_range,
+            new_listing_min_days=new_listing_min_days,
             job_id=None,
         )
 

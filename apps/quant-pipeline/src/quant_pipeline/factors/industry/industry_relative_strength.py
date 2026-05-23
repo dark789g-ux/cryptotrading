@@ -19,9 +19,6 @@ from quant_pipeline.factors.registry import register
 
 @register(factor_id="industry_relative_strength", factor_version="v1")
 class IndustryRelativeStrength(Factor):
-    category = "industry"
-    pit_window_days = 35
-    description = "alpha_vs_industry: stock_ret_20d - industry_mean_ret_20d"
     required_columns = ("close_adj", "industry_l1")
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

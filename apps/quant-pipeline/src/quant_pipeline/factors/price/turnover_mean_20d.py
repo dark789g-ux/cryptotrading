@@ -17,9 +17,6 @@ from quant_pipeline.factors.registry import register
 
 @register(factor_id="turnover_mean_20d", factor_version="v1")
 class TurnoverMean20d(Factor):
-    category = "price"
-    pit_window_days = 35
-    description = "20 日换手率均值（含 T 日）"
     required_columns = ("turnover_rate",)
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

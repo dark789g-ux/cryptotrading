@@ -30,6 +30,41 @@ class JobCancelled(Exception):
     """job 被请求取消时由 runner 抛出，dispatcher 捕获后写 status='cancelled'。"""
 
 
+def make_scaled_callback(
+    parent_cb: ProgressCallback | None,
+    lo: int,
+    hi: int,
+) -> ProgressCallback:
+    """把子 runner 的 0-100 进度缩放到 parent 的 [lo, hi] 整数区间。
+
+    train_e2e 编排（spec 04）专用：labels=[0,30] / features=[30,60] / train=[60,100]。
+
+    - parent_cb=None → 返回静默 no-op，便于子 runner 不感知。
+    - 入参 pct 超出 [0,100] 自动 clamp，避免子 runner 偏差污染父进度。
+    - lo/hi 不在 [0,100] 或 hi<lo 抛 ValueError（构造时即拒绝，不延迟到首次调用）。
+    - 整除 // 100 防浮点漂移：例如 (lo,hi)=(0,30), pct=50 → 0 + (30*50)//100 = 15。
+    """
+
+    if not (isinstance(lo, int) and isinstance(hi, int)):
+        raise ValueError(f"lo/hi must be int, got lo={lo!r} hi={hi!r}")
+    if not (0 <= lo <= hi <= 100):
+        raise ValueError(f"invalid scale window: [{lo},{hi}]")
+
+    if parent_cb is None:
+        def _noop(pct: int, msg: str) -> None:  # noqa: ARG001
+            return None
+        return _noop
+
+    span = hi - lo
+
+    def scaled(pct: int, msg: str) -> None:
+        clamped = max(0, min(100, int(pct)))
+        scaled_pct = lo + (span * clamped) // 100  # 整除避免浮点漂移
+        parent_cb(scaled_pct, msg)
+
+    return scaled
+
+
 # NOTIFY 通道名（与 NestJS SSE bridge 约定一致）
 _NOTIFY_CHANNEL = "ml_job_progress"
 

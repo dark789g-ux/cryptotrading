@@ -19,7 +19,7 @@
  *   GET /api/quant/quality/:date             当日数据质量报告
  *   GET /api/quant/quality/recent            最近 N 日数据质量报告
  */
-import { API_BASE, post, request } from '../client'
+import { API_BASE, patch, post, request } from '../client'
 import { appendQueryParam } from '../query'
 
 // ---------- 后端原始响应类型（与 J 服务端字段名 1:1） ----------
@@ -122,6 +122,7 @@ export type JobRunType =
   | 'infer'
   | 'optuna'
   | 'seed_avg'
+  | 'train_e2e'
 
 export type JobStatus =
   | 'pending'
@@ -185,6 +186,44 @@ export interface JobProgressEvent {
   job_id: string
   progress: number
   stage: string
+}
+
+// ---------- 因子清单（factor-registry-frontend，2026-05-23 spec） ----------
+
+/**
+ * `factors.factor_definitions` 行（DB 单一权威；契约采用 snake_case 与后端对齐）。
+ * 详见 docs/superpowers/specs/2026-05-23-factor-registry-frontend-design/04-frontend.md
+ */
+export interface FactorDefinition {
+  factor_id: string
+  factor_version: string
+  description: string
+  formula: string | null
+  /** 计算依赖的原始列名集合，仅供前端只读展示 */
+  data_source: string[] | null
+  category: 'price' | 'industry' | 'fundamental' | 'mixed'
+  pit_window_days: number
+  pit_anchor: 'trade_date' | 'ann_date'
+  enabled: boolean
+  display_order: number
+  /** UTC 墙钟字符串 */
+  updated_at: string
+  updated_by: string | null
+}
+
+/** PATCH 编辑负载（partial update；formula / data_source 由代码维护，不允许前端写） */
+export interface UpdateFactorPatch {
+  description?: string
+  category?: FactorDefinition['category']
+  pit_window_days?: number
+  pit_anchor?: FactorDefinition['pit_anchor']
+  enabled?: boolean
+  display_order?: number
+}
+
+export interface ListFactorsQuery {
+  enabled?: boolean
+  category?: string
 }
 
 // ---------- 查询参数 ----------
@@ -397,6 +436,44 @@ export const quantApi = {
   getQualityByDate(date: string): Promise<{ trade_date: string; items: QualityItem[] }> {
     return request<{ trade_date: string; items: QualityItem[] }>(
       `${API_BASE}/quant/quality/${encodeURIComponent(date)}`,
+    )
+  },
+
+  // ============ 因子清单（factor-registry-frontend，2026-05-23 spec） ============
+
+  /**
+   * 列出全部因子定义。后端 `GET /quant/factors`，filter 在 query 上下放。
+   * 返回字段 snake_case，对齐 DB 行。
+   */
+  listFactors(query: ListFactorsQuery = {}): Promise<{ items: FactorDefinition[] }> {
+    const qs = new URLSearchParams()
+    if (typeof query.enabled === 'boolean') {
+      qs.set('enabled', query.enabled ? 'true' : 'false')
+    }
+    appendQueryParam(qs, 'category', query.category)
+    const s = qs.toString()
+    return request<{ items: FactorDefinition[] }>(
+      `${API_BASE}/quant/factors${s ? `?${s}` : ''}`,
+    )
+  },
+
+  /** 可用因子类别列表（用于筛选下拉）。后端 `GET /quant/factors/categories` */
+  listFactorCategories(): Promise<{ items: string[] }> {
+    return request<{ items: string[] }>(`${API_BASE}/quant/factors/categories`)
+  },
+
+  /**
+   * 编辑一行因子。后端 `PATCH /quant/factors/:id/:version`。
+   * 仅在下一次 train_e2e job 启动时生效（registry.reload_from_db）。
+   */
+  updateFactor(
+    id: string,
+    version: string,
+    body: UpdateFactorPatch,
+  ): Promise<{ item: FactorDefinition }> {
+    return patch<{ item: FactorDefinition }>(
+      `${API_BASE}/quant/factors/${encodeURIComponent(id)}/${encodeURIComponent(version)}`,
+      body,
     )
   },
 

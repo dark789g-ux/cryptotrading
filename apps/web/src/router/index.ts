@@ -85,38 +85,45 @@ const routes: any[] = [
     path: '/quant',
     name: 'quant-overview',
     component: () => import('../views/quant/QuantOverviewView.vue'),
-    meta: { title: '量化总览' },
+    meta: { title: '量化总览', requireAdmin: true },
   },
   {
     path: '/quant/scores',
     name: 'quant-scores',
     component: () => import('../views/quant/QuantScoresView.vue'),
-    meta: { title: '量化评分' },
+    meta: { title: '量化评分', requireAdmin: true },
   },
   {
     path: '/quant/runs',
     name: 'quant-runs',
     component: () => import('../views/quant/QuantRunsView.vue'),
-    meta: { title: '量化训练 Run' },
+    meta: { title: '量化训练 Run', requireAdmin: true },
   },
   {
     path: '/quant/runs/:id',
     name: 'quant-run-detail',
     component: () => import('../views/quant/QuantRunDetailView.vue'),
-    meta: { title: '量化训练 Run 详情' },
+    meta: { title: '量化训练 Run 详情', requireAdmin: true },
   },
   {
     path: '/quant/jobs',
     name: 'quant-jobs',
     component: () => import('../views/quant/QuantJobsView.vue'),
-    meta: { title: '量化作业队列' },
+    meta: { title: '量化作业队列', requireAdmin: true },
   },
   {
     // 占位：M4 后续里程碑落实 quality 详情页；当前 Overview 告警条 link 兜底落 Overview
     path: '/quant/quality/:date',
     name: 'quant-quality-detail',
     component: () => import('../views/quant/QuantOverviewView.vue'),
-    meta: { title: '量化数据质量详情' },
+    meta: { title: '量化数据质量详情', requireAdmin: true },
+  },
+  {
+    // factor-registry-frontend spec：因子清单（admin-only）
+    path: '/quant/factors',
+    name: 'quant-factors',
+    component: () => import('../views/quant/QuantFactorsView.vue'),
+    meta: { title: '量化因子清单', requireAdmin: true },
   },
 ]
 
@@ -148,6 +155,12 @@ router.beforeEach(async (to) => {
 
   if (to.meta.adminOnly && !auth.isAdmin.value) {
     return { name: 'backtest' }
+  }
+
+  // factor-registry-frontend spec：`/quant/*` 整树受 requireAdmin 守卫
+  // 非 admin 一律回首页（本 spec 不新建 ForbiddenView，YAGNI）
+  if (to.meta.requireAdmin && !auth.isAdmin.value) {
+    return { path: '/' }
   }
 
   return true

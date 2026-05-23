@@ -20,9 +20,6 @@ _N = 60
 
 @register(factor_id="price_max_drawdown_60d", factor_version="v1")
 class PriceMaxDrawdown60d(Factor):
-    category = "price"
-    pit_window_days = 115
-    description = "60 日 close_adj 序列上的最大回撤（负值）"
     required_columns = ("close_adj",)
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

@@ -19,9 +19,6 @@ from quant_pipeline.factors.registry import register
 
 @register(factor_id="volatility_20d", factor_version="v1")
 class Volatility20d(Factor):
-    category = "price"
-    pit_window_days = 35
-    description = "20 日对数收益率标准差"
     required_columns = ("close_adj",)
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

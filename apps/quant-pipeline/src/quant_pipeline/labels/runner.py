@@ -247,16 +247,19 @@ def compute_labels(
     *,
     scheme: str,
     date_range: str,
+    new_listing_min_days: int | None = None,
     job_id: UUID | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> int:
     """计算并 upsert 标签；返回写入的行数。
 
     参数：
-        scheme:            "strategy-aware"（M2 暂仅支持）
-        date_range:        "YYYYMMDD:YYYYMMDD"
-        job_id:            可选，传入则在每日完成后写 progress
-        progress_callback: 可选，CLI 终端进度条回调 (progress, stage) -> None
+        scheme:                "strategy-aware" / "fwd_5d_ret"
+        date_range:            "YYYYMMDD:YYYYMMDD"
+        new_listing_min_days:  新股门槛交易日阈值。None → 走默认 60；0 表示不过滤。
+                               非法值由 _validate_min_days 抛 ValueError。
+        job_id:                可选，传入则在每日完成后写 progress
+        progress_callback:     可选，CLI 终端进度条回调 (progress, stage) -> None
     """
 
     def _progress(progress: int, stage: str) -> None:
@@ -311,6 +314,7 @@ def compute_labels(
                 listing=listing if not listing.empty else None,
                 entries=entries,
                 end=end,
+                new_listing_min_days=new_listing_min_days,
             ),
             progress_callback=_progress if progress_callback is not None else None,
         )
@@ -321,12 +325,14 @@ def compute_labels(
                 f"date_range={date_range!r} scheme={scheme!r}"
             )
     else:
-        # fwd_5d_ret 兜底（doc/04 §4.1）
+        # fwd_5d_ret 兜底（doc/04 §4.1）。listing 透传以支持新股过滤（D-1 缺口补齐）。
         labels_df = compute_fwd_5d_ret(
             FallbackInputs(
                 daily_quotes=quotes,
                 suspended_set=derive_suspended_set(suspend if not suspend.empty else None),
                 delist_map=derive_delist_map(delist if not delist.empty else None),
+                listing=listing if not listing.empty else None,
+                new_listing_min_days=new_listing_min_days,
             )
         )
         # compute_* 原始输出（区间过滤前）为空 → 真异常
@@ -376,10 +382,14 @@ def runner_entrypoint(job: object) -> None:
         raise ValueError(
             f"labels job missing required params: scheme/date_range, got {params!r}"
         )
+    # new_listing_min_days 可选；None 时由 compute_labels 走默认 60。
+    # 校验由下游 _validate_min_days 抛 ValueError，worker 顶层捕获标记 job=failed。
+    new_listing_min_days = params.get("new_listing_min_days")
     job_id = getattr(job, "id", None)
     compute_labels(
         scheme=str(scheme),
         date_range=str(date_range),
+        new_listing_min_days=new_listing_min_days,
         job_id=job_id,
     )
 

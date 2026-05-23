@@ -15,23 +15,36 @@
         />
       </n-form-item>
 
-      <!-- run_type='train' -->
+      <!-- run_type='train'：mode 切换（D-8 默认端到端） -->
       <template v-if="form.run_type === 'train'">
-        <n-form-item label="feature_set_id" required>
-          <n-input v-model:value="form.train.feature_set_id" placeholder="如：fs-v1-20260517" />
+        <n-form-item label="模式">
+          <n-switch v-model:value="modeIsE2E" data-testid="mode-switch">
+            <template #checked>端到端</template>
+            <template #unchecked>使用现有 feature_set</template>
+          </n-switch>
         </n-form-item>
-        <n-form-item label="模型">
-          <n-select v-model:value="form.train.model" :options="trainModelOptions" />
-        </n-form-item>
-        <n-form-item label="Walk-Forward">
-          <n-switch v-model:value="form.train.walk_forward" />
-        </n-form-item>
-        <n-form-item label="随机种子（可选）">
-          <n-input-number v-model:value="form.train.seed" :min="0" clearable />
-        </n-form-item>
+
+        <!-- 端到端字段块（D-19 子组件） -->
+        <TrainE2EFields v-if="modeIsE2E" v-model="form.e2e" />
+
+        <!-- 老 existing feature_set 模式（保留） -->
+        <template v-else>
+          <n-form-item label="feature_set_id" required>
+            <n-input v-model:value="form.train.feature_set_id" placeholder="如：fs-v1-20260517" />
+          </n-form-item>
+          <n-form-item label="模型">
+            <n-select v-model:value="form.train.model" :options="trainModelOptions" />
+          </n-form-item>
+          <n-form-item label="Walk-Forward">
+            <n-switch v-model:value="form.train.walk_forward" />
+          </n-form-item>
+          <n-form-item label="随机种子（可选）">
+            <n-input-number v-model:value="form.train.seed" :min="0" clearable />
+          </n-form-item>
+        </template>
       </template>
 
-      <!-- run_type='optuna' -->
+      <!-- run_type='optuna'（D-9 不动） -->
       <template v-else-if="form.run_type === 'optuna'">
         <n-form-item label="feature_set_id" required>
           <n-input v-model:value="form.optuna.feature_set_id" />
@@ -44,7 +57,7 @@
         </n-form-item>
       </template>
 
-      <!-- run_type='seed_avg' -->
+      <!-- run_type='seed_avg'（D-9 不动） -->
       <template v-else-if="form.run_type === 'seed_avg'">
         <n-form-item label="基础 model_version" required>
           <n-input v-model:value="form.seed_avg.model_version_base"
@@ -65,7 +78,13 @@
 
     <template #actions>
       <n-button @click="onCancel">取消</n-button>
-      <n-button type="primary" :loading="submitting" :disabled="!canSubmit" @click="onSubmit">
+      <n-button
+        type="primary"
+        :loading="submitting"
+        :disabled="!canSubmit"
+        data-testid="train-submit-btn"
+        @click="onSubmit"
+      >
         提交
       </n-button>
     </template>
@@ -81,6 +100,9 @@ import {
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import AppModal from '@/components/common/AppModal.vue'
+import TrainE2EFields from '@/components/quant/train-modal/TrainE2EFields.vue'
+import type { E2EFormModel } from '@/components/quant/train-modal/TrainE2EFields.vue'
+import { buildJobPayload } from '@/components/quant/train-modal/buildParams'
 import { quantApi, type JobRunType } from '@/api/modules/quant'
 
 const props = defineProps<{ show: boolean }>()
@@ -123,6 +145,15 @@ const form = reactive({
     walk_forward: true,
     seed: null as number | null,
   },
+  e2e: {
+    factor_version: '',
+    label_scheme: 'strategy-aware',
+    new_listing_min_days: null,
+    date_range: null,
+    model: 'lgb-lambdarank',
+    walk_forward: true,
+    seed: null,
+  } as E2EFormModel,
   optuna: {
     feature_set_id: '',
     n_trials: 50,
@@ -134,6 +165,8 @@ const form = reactive({
   },
 })
 
+/** D-8：默认端到端 */
+const modeIsE2E = ref(true)
 const submitting = ref(false)
 const errorText = ref('')
 
@@ -143,6 +176,15 @@ function onRunTypeChange(v: JobRunType) {
 }
 
 const canSubmit = computed(() => {
+  if (form.run_type === 'train' && modeIsE2E.value) {
+    const e = form.e2e
+    return e.factor_version.trim().length > 0
+      && !!e.label_scheme
+      && Array.isArray(e.date_range)
+      && typeof e.date_range[0] === 'number'
+      && typeof e.date_range[1] === 'number'
+      && !!e.model
+  }
   switch (form.run_type) {
     case 'train':
       return form.train.feature_set_id.trim().length > 0
@@ -150,13 +192,13 @@ const canSubmit = computed(() => {
       return form.optuna.feature_set_id.trim().length > 0 && form.optuna.n_trials > 0
     case 'seed_avg':
       return form.seed_avg.model_version_base.trim().length > 0
-        && parseSeeds(form.seed_avg.seedsText).length > 0
+        && parseLocalSeeds(form.seed_avg.seedsText).length > 0
     default:
       return false
   }
 })
 
-function parseSeeds(text: string): number[] {
+function parseLocalSeeds(text: string): number[] {
   return text
     .split(/[,，\s]+/)
     .map(x => x.trim())
@@ -165,33 +207,8 @@ function parseSeeds(text: string): number[] {
     .filter(n => Number.isFinite(n) && Number.isInteger(n))
 }
 
-function buildParams(): Record<string, unknown> {
-  switch (form.run_type) {
-    case 'train': {
-      const p: Record<string, unknown> = {
-        feature_set_id: form.train.feature_set_id.trim(),
-        model: form.train.model,
-        walk_forward: form.train.walk_forward,
-      }
-      if (form.train.seed !== null && form.train.seed !== undefined) {
-        p.seed = form.train.seed
-      }
-      return p
-    }
-    case 'optuna':
-      return {
-        feature_set_id: form.optuna.feature_set_id.trim(),
-        n_trials: form.optuna.n_trials,
-        space: form.optuna.space.trim(),
-      }
-    case 'seed_avg':
-      return {
-        model_version_base: form.seed_avg.model_version_base.trim(),
-        seeds: parseSeeds(form.seed_avg.seedsText),
-      }
-    default:
-      return {}
-  }
+function buildParams() {
+  return buildJobPayload(form, modeIsE2E.value)
 }
 
 async function onSubmit() {
@@ -199,12 +216,18 @@ async function onSubmit() {
   submitting.value = true
   errorText.value = ''
   try {
+    const payload = buildParams()
     const job = await quantApi.createJob({
-      run_type: form.run_type,
-      params: buildParams(),
+      run_type: payload.run_type,
+      params: payload.params,
       priority: form.priority,
     })
-    msg.success(`已提交，job_id=${job.id.slice(0, 8)}…`)
+    if (form.run_type === 'train' && modeIsE2E.value) {
+      // D-20：长任务排队提示
+      msg.success('作业已入队。端到端训练预计 20-40 分钟，期间其他 pending 作业会排队。')
+    } else {
+      msg.success(`已提交，job_id=${job.id.slice(0, 8)}…`)
+    }
     emit('submitted', job.id)
     emit('update:show', false)
     router.push({ name: 'quant-jobs', query: { highlight: job.id } })
@@ -226,4 +249,7 @@ watch(
     if (!v) errorText.value = ''
   },
 )
+
+// 暴露给单测：直接拿到内部 reactive form / mode / canSubmit / buildParams
+defineExpose({ form, modeIsE2E, canSubmit, buildParams })
 </script>

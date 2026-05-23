@@ -21,9 +21,6 @@ from quant_pipeline.factors.registry import register
 
 @register(factor_id="industry_rank_in_sector_mom20", factor_version="v1")
 class IndustryRankInSector(Factor):
-    category = "industry"
-    pit_window_days = 35
-    description = "20 日动量在所属一级行业内的横截面 pct_rank（[0,1]）"
     required_columns = ("close_adj", "industry_l1")
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

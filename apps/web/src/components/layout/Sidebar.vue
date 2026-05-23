@@ -86,6 +86,7 @@ const activeKey = computed(() => {
   if (name === 'quant-jobs') return 'quant-jobs'
   if (name === 'quant-runs' || name === 'quant-run-detail') return 'quant-runs'
   if (name === 'quant-scores') return 'quant-scores'
+  if (name === 'quant-factors') return 'quant-factors'
   if (name?.startsWith('quant')) return 'quant-overview'
   return name
 })
@@ -100,17 +101,23 @@ const menuOptions = computed(() => [
   { label: '策略条件', key: 'strategy-conditions', icon: renderIcon(AnalyticsOutline) },
   { label: '资金流向', key: 'money-flow', icon: renderIcon(SwapHorizontalOutline) },
   { label: '每日复盘', key: 'daily-review', icon: renderIcon(NewspaperOutline) },
-  {
-    label: '量化',
-    key: 'quant',
-    icon: renderIcon(StatsChartOutline),
-    children: [
-      { label: '总览', key: 'quant-overview' },
-      { label: '评分', key: 'quant-scores' },
-      { label: '训练 Run', key: 'quant-runs' },
-      { label: '作业队列', key: 'quant-jobs' },
-    ],
-  },
+  // factor-registry-frontend spec：/quant/* 整树 admin-only，菜单同步隐藏
+  ...(auth.isAdmin.value
+    ? [
+        {
+          label: '量化',
+          key: 'quant',
+          icon: renderIcon(StatsChartOutline),
+          children: [
+            { label: '总览', key: 'quant-overview' },
+            { label: '评分', key: 'quant-scores' },
+            { label: '训练 Run', key: 'quant-runs' },
+            { label: '作业队列', key: 'quant-jobs' },
+            { label: '因子清单', key: 'quant-factors' },
+          ],
+        },
+      ]
+    : []),
   { label: '工具', key: 'tools', icon: renderIcon(CalculatorOutline) },
   { label: '系统设置', key: 'settings', icon: renderIcon(SettingsOutline) },
 ])
@@ -120,7 +127,14 @@ const handleMenuSelect = (key: string) => {
   router.push({ name: key })
 }
 
-const QUANT_CHILD_KEYS = ['quant-overview', 'quant-scores', 'quant-runs', 'quant-jobs', 'quant-run-detail']
+const QUANT_CHILD_KEYS = [
+  'quant-overview',
+  'quant-scores',
+  'quant-runs',
+  'quant-jobs',
+  'quant-run-detail',
+  'quant-factors',
+]
 
 const expandedKeys = ref<string[]>([])
 

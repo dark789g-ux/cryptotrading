@@ -105,3 +105,51 @@ pnpm --filter @cryptotrading/web lint:quant-lines || exit 1
   "priority": 100
 }
 ```
+
+### 端到端训练模式（train_e2e）
+
+新建训练作业时，默认走"端到端"模式 —— 填一张表后，worker 自动按顺序跑：
+1. **labels build**（进度 0-30%）
+2. **features build**（进度 30-60%）→ 产出 `feature_set_id`
+3. **train**（进度 60-100%）
+
+切换到"使用现有 feature_set"可走老路径（直接指定 `feature_set_id`）。
+
+字段表（端到端模式）：
+
+| 字段 | 控件 | 说明 |
+|---|---|---|
+| `factor_version` | `n-input` | 纯文本，必填（D-10，仓库无 `GET /factor-versions` 接口） |
+| `label_scheme` | `n-select` | `strategy-aware` / `fwd_5d_ret`（D-1：fwd_5d_ret 也加新股过滤） |
+| `new_listing_min_days` | `n-input-number` | 0-250，clearable；留空 = 走后端默认 60 |
+| `date_range` | `n-date-picker daterange` | 本地午夜 ms；提取 YYYYMMDD 用 `getFullYear/getMonth/getDate`（CLAUDE.md 硬约束） |
+| `model` | `n-select` | `lgb-lambdarank` / `linear` / `gbdt` |
+| `walk_forward` | `n-switch` | 默认 true |
+| `seed` | `n-input-number` | clearable；留空 → 默认 42 |
+
+子组件位于 `components/quant/train-modal/TrainE2EFields.vue`（D-19 预拆，便于隔离测试）；
+参数装配工具位于 `components/quant/train-modal/buildParams.ts`，单测 `__tests__/QuantTrainTriggerModal.spec.ts` 覆盖：默认端到端、mode 切换、必填校验、buildParams 输出、`formatDateRange` 本地午夜不漂移。
+
+注意：
+- 端到端模式预计 20-40 分钟，期间其他 pending 作业会排队（D-5、D-20 toast 提示）
+- `new_listing_min_days` 默认 60（交易日），0 等价不过滤
+- 元信息（`factor_version` / `label_scheme` / `new_listing_min_days`）写入 `ml.model_runs.hyperparams` 便于审计（D-14）
+- `HyperparamsPanel` 零修改（D-21），自动遍历 `hyperparams` 对象渲染所有 key，新跑的 train_e2e 自然多出三行
+
+提交 payload 样例（端到端）：
+
+```json
+{
+  "run_type": "train_e2e",
+  "params": {
+    "factor_version": "v1",
+    "label_scheme": "strategy-aware",
+    "new_listing_min_days": 60,
+    "date_range": "20260509:20260511",
+    "model": "lgb-lambdarank",
+    "walk_forward": true,
+    "seed": 42
+  },
+  "priority": 100
+}
+```

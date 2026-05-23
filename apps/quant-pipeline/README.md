@@ -28,7 +28,18 @@ uv run quant labels build --scheme strategy-aware --date-range 20240601:20240630
 uv run quant features build --factor-version v1 --label-scheme strategy-aware --date-range 20240601:20240630
 uv run quant train  --feature-set fs_xxxxxxxx --model lgb-lambdarank
 uv run quant infer  --model-version <model_version> --date 20240628
+
+# 端到端训练（labels → features → train 三步串成单 job，spec 2026-05-23）
+# TODO: CLI `quant train-e2e` 子命令暂未实装，目前仅通过 ml.jobs 入口触发
+# （NestJS POST /api/quant/jobs body 含 run_type='train_e2e'）
+uv run quant train-e2e --factor-version v1 --label-scheme strategy-aware `
+  --new-listing-min-days 60 --date-range 20240601:20240630 --model lgb-lambdarank
 ```
+
+`run_type='train_e2e'` 由 worker 顺序执行 labels → features → train，进度按
+`0-30 / 30-60 / 60-100` 切片回写 ml.jobs.progress；成功后写 `result_payload`
+含 `feature_set_id` + `model_version`，失败时 `error_text` 首行带
+`[step:<labels|features|train|validate>]` 前缀（spec 04 §dispatcher 接线）。
 
 ## Windows uv 上手
 

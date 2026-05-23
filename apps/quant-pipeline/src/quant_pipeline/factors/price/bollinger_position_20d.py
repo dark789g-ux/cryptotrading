@@ -24,9 +24,6 @@ _N = 20
 
 @register(factor_id="bollinger_position_20d", factor_version="v1")
 class BollingerPosition20d(Factor):
-    category = "price"
-    pit_window_days = 35
-    description = "(close - lower_band) / (upper_band - lower_band) over 20d, k=2"
     required_columns = ("close_adj",)
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

@@ -21,9 +21,6 @@ from quant_pipeline.factors.registry import register
 
 @register(factor_id="momentum_20d_neu", factor_version="v1")
 class IndustryNeutralMomentum(Factor):
-    category = "industry"
-    pit_window_days = 35
-    description = "momentum_20d 减去行业内均值（行业中性化）"
     required_columns = ("close_adj", "industry_l1")
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

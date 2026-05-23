@@ -5,6 +5,7 @@ import { MlJobEntity } from '../../entities/ml/ml-job.entity';
 import { MlModelRunEntity } from '../../entities/ml/ml-model-run.entity';
 import { MlScoreDailyEntity } from '../../entities/ml/ml-score-daily.entity';
 import { MlQualityReportEntity } from '../../entities/ml/ml-quality-report.entity';
+import { UserEntity } from '../../users/entities/user.entity';
 import { QuantJobsService } from './services/quant-jobs.service';
 import { SseTokenService } from './services/sse-token.service';
 import { QuantScoresService } from './services/quant-scores.service';
@@ -17,6 +18,7 @@ import { QuantRunsController } from './controllers/quant-runs.controller';
 import { QuantQualityController } from './controllers/quant-quality.controller';
 import { SseTokenGuard } from './guards/sse-token.guard';
 import { PgListenService } from './realtime/pg-listen.service';
+import { FactorsModule } from './factors/factors.module';
 
 /**
  * `apps/server/src/modules/quant/`：量化模型训练相关 HTTP 表面。
@@ -56,7 +58,11 @@ import { PgListenService } from './realtime/pg-listen.service';
       MlModelRunEntity,
       MlScoreDailyEntity,
       MlQualityReportEntity,
+      // SSE 流接口二次校验当前 user.role（refactor 2026-05-23 由 env 白名单改为 DB role）
+      UserEntity,
     ]),
+    // 因子元数据 admin 管理 API（spec 2026-05-23-factor-registry-frontend-design）
+    FactorsModule,
   ],
   controllers: [
     QuantJobsController,

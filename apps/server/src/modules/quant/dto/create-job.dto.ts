@@ -36,6 +36,7 @@ export const ALLOWED_RUN_TYPES: readonly MlJobRunType[] = [
   'infer',
   'optuna',
   'seed_avg',
+  'train_e2e',
 ] as const;
 
 export interface ValidatedCreateJob {

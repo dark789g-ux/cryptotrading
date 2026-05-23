@@ -20,10 +20,11 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 import numpy as np
 import pandas as pd
+from sqlalchemy import text
 
 from quant_pipeline.labels.strategy_aware import (
     WINSORIZE_HI as LABEL_WINSORIZE_HI,
@@ -63,32 +64,123 @@ def build_feature_set_id(
     factor_version: str,
     label_scheme: str,
     *,
+    new_listing_min_days: int,
     neutralize_cols: tuple[str, ...] = DEFAULT_NEUTRALIZE_COLS,
     robust_z: bool = DEFAULT_ROBUST_Z,
+    factor_ids: tuple[str, ...] = (),
 ) -> str:
     """生成 feature_set_id（确定性 SHA256 前 12 位 hash）。
 
-    输入字段（spec m2 §交付物 3 严格要求）：
-        factor_version    所选因子版本
-        label_scheme      标签方案
-        neutralize_cols   中性化使用的列（顺序无关）
-        robust_z          是否启用 robust z-score（截尾后再 z-score）
+    输入字段（spec 03 §哈希契约升级）：
+        factor_version          所选因子版本
+        label_scheme            标签方案
+        new_listing_min_days    新股门槛（D-12：必填，强制 int 防 60 vs '60'）
+        neutralize_cols         中性化使用的列（顺序无关）
+        robust_z                是否启用 robust z-score（截尾后再 z-score）
+        factor_ids              参与构建的因子 ID 列表（D-22：顺序无关，sorted 入哈希）
 
     同输入 → 同 id，便于未来增量。形如 `fs_<sha12>`。
+
+    注意：本次升级（spec 03）相对旧版增加了 ``new_listing_min_days`` 与
+    ``factor_ids`` 两项，**同一份历史逻辑配置会产生与旧版不同的 ID**——
+    这是设计中的一次性升级，已通过 :func:`resolve_feature_set_id` 的预查
+    复用机制（D-16）兜底，避免对历史 feature_sets 行的语义重复写入。
     """
 
     payload = json.dumps(
         {
             "factor_version": factor_version,
             "label_scheme": label_scheme,
+            "new_listing_min_days": int(new_listing_min_days),
             "neutralize_cols": sorted(neutralize_cols),
             "robust_z": bool(robust_z),
+            "factor_ids": sorted(factor_ids),
         },
         sort_keys=True,
         ensure_ascii=False,
     )
     sha = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
     return f"fs_{sha}"
+
+
+def resolve_feature_set_id(
+    conn: Any,
+    *,
+    factor_version: str,
+    label_scheme: str,
+    new_listing_min_days: int,
+    factor_ids: tuple[str, ...],
+    neutralize_cols: tuple[str, ...] = DEFAULT_NEUTRALIZE_COLS,
+    robust_z: bool = DEFAULT_ROBUST_Z,
+) -> tuple[str, bool]:
+    """预查复用 feature_set_id（D-16）。
+
+    步骤：
+      1. 用新哈希契约（含 new_listing_min_days + factor_ids）算出 ``new_id``
+      2. SELECT 同逻辑元组（factor_version, scheme, new_listing_min_days,
+         factors._factor_ids_hash(factor_ids)）是否已有行
+         - 命中 → 返回 (老 ID, True)（避免哈希契约升级导致语义重复写入）
+         - 未命中 → 返回 (new_id, False)，由调用方负责后续 upsert
+
+    与 DB 唯一索引 ``feature_sets_logical_key_uidx`` 的契约：
+      索引表达式按 IMMUTABLE wrapper ``factors._factor_ids_hash(factor_ids)``
+      折成定长哈希（内部仍是 md5(array_to_string(...,','))），见 20260523_0001
+      migration。索引内**不**含 ORDER BY，依赖**写入侧 factor_ids 已排序**。
+      故调用本函数前，``factor_ids`` 必须由调用方（runner._load_factor_ids
+      之后）``tuple(sorted(...))`` 排序，三处（写入侧 / builder 哈希侧 /
+      预查 SQL 侧）才能一致命中。
+    """
+
+    new_id = build_feature_set_id(
+        factor_version,
+        label_scheme,
+        new_listing_min_days=new_listing_min_days,
+        neutralize_cols=neutralize_cols,
+        robust_z=robust_z,
+        factor_ids=factor_ids,
+    )
+
+    # 与 DB 唯一索引表达式 factors._factor_ids_hash(factor_ids) 对齐：
+    # 该函数内部是 md5(array_to_string(factor_ids, ','))，所以本侧也用 ',' 拼接
+    # + md5（依赖写入侧已排序，本侧 sorted 仅为防御）。
+    fmd5 = hashlib.md5(",".join(sorted(factor_ids)).encode("utf-8")).hexdigest()
+
+    sql = text(
+        """
+        SELECT feature_set_id
+          FROM factors.feature_sets
+         WHERE factor_version = :fv
+           AND scheme         = :sc
+           AND new_listing_min_days = :nd
+           AND md5(array_to_string(factor_ids, ',')) = :fmd5
+         LIMIT 1
+        """
+    )
+    row = conn.execute(
+        sql,
+        {
+            "fv": factor_version,
+            "sc": label_scheme,
+            "nd": int(new_listing_min_days),
+            "fmd5": fmd5,
+        },
+    ).fetchone()
+
+    if row is not None:
+        existing_id = row[0]
+        if existing_id != new_id:
+            logger.info(
+                "feature_set_id_reused",
+                extra={
+                    "existing_id": existing_id,
+                    "would_be_new_id": new_id,
+                    "factor_version": factor_version,
+                    "scheme": label_scheme,
+                    "new_listing_min_days": int(new_listing_min_days),
+                },
+            )
+        return existing_id, True
+    return new_id, False
 
 
 def pivot_factors_long_to_wide(daily_factors: pd.DataFrame) -> pd.DataFrame:
@@ -384,7 +476,9 @@ def build_feature_matrix_from_frames(
     industry_map: pd.DataFrame | None,
     factor_version: str,
     label_scheme: str,
+    new_listing_min_days: int,
     mv_map: pd.DataFrame | None = None,
+    factor_ids: tuple[str, ...] = (),
     neutralize_cols: tuple[str, ...] = DEFAULT_NEUTRALIZE_COLS,
     robust_z: bool = DEFAULT_ROBUST_Z,
     label_winsorize: tuple[float, float] = (LABEL_WINSORIZE_LO, LABEL_WINSORIZE_HI),
@@ -405,8 +499,10 @@ def build_feature_matrix_from_frames(
     feature_set_id = build_feature_set_id(
         factor_version,
         label_scheme,
+        new_listing_min_days=new_listing_min_days,
         neutralize_cols=neutralize_cols,
         robust_z=robust_z,
+        factor_ids=factor_ids,
     )
 
     wide = pivot_factors_long_to_wide(daily_factors)
@@ -505,6 +601,7 @@ __all__ = [
     "DEFAULT_NEUTRALIZE_COLS",
     "DEFAULT_ROBUST_Z",
     "build_feature_set_id",
+    "resolve_feature_set_id",
     "pivot_factors_long_to_wide",
     "neutralize_by_industry",
     "neutralize_by_industry_and_market_cap",

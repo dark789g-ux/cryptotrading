@@ -7,6 +7,12 @@ export interface AuthUser {
   email: string
   displayName: string
   role: UserRole
+  /**
+   * factor-registry-frontend spec：后端基于 `ADMIN_USER_IDS` 白名单计算的 admin 标识。
+   * 与 role 不强耦合（admin 名单走 env，不引入 roles 表）。snake_case 与后端响应直接对齐。
+   * 未升级 server 时此字段缺省，前端回退到 `role === 'admin'` 判定。
+   */
+  is_admin?: boolean
 }
 
 export interface BootstrapStatus {

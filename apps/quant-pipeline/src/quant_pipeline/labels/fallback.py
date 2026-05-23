@@ -35,6 +35,11 @@ from typing import Final
 import pandas as pd
 
 from quant_pipeline.labels._common import dedup_labels, empty_labels_frame
+from quant_pipeline.labels.strategy_aware import (
+    NEW_LISTING_MIN_DAYS,
+    _validate_min_days,
+    filter_new_listing,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +59,10 @@ class FallbackInputs:
     daily_quotes: pd.DataFrame
     suspended_set: set[tuple[str, str]] | None = None
     delist_map: Mapping[str, str] | None = None
+    # 新股过滤（D-1 缺口补齐）：listing 为 None 时跳过过滤（向后兼容老调用方）；
+    # new_listing_min_days 为 None 时走默认 NEW_LISTING_MIN_DAYS(60)，0 表示不过滤。
+    listing: pd.DataFrame | None = None
+    new_listing_min_days: int | None = None
 
 
 def compute_fwd_5d_ret(inputs: FallbackInputs) -> pd.DataFrame:
@@ -129,6 +138,40 @@ def compute_fwd_5d_ret(inputs: FallbackInputs) -> pd.DataFrame:
             "hold_days": FWD_HORIZON_DAYS,
         }
     )
+
+    # 新股过滤（D-1 缺口补齐）：仅当显式传入 listing 时启用，向后兼容老调用方。
+    # 锚列用 trade_date（SubAgent 实测；fwd_5d_ret 无 T+1 入场概念，T 日即起算日）。
+    if inputs.listing is not None:
+        min_days = (
+            inputs.new_listing_min_days
+            if inputs.new_listing_min_days is not None
+            else NEW_LISTING_MIN_DAYS
+        )
+        _validate_min_days(min_days)
+        # min_days=0 显式短路，避免白跑一遍 filter_new_listing
+        if min_days > 0:
+            listing_df = inputs.listing
+            if not listing_df.empty:
+                list_date_map = dict(
+                    zip(
+                        listing_df["ts_code"].astype(str),
+                        listing_df["list_date"].astype(str),
+                    )
+                )
+                # 用 quotes 自身派生交易日历（已用 end_padded，覆盖出参 trade_date 全集）
+                trade_dates_sorted = sorted(
+                    quotes["trade_date"].astype(str).unique().tolist()
+                )
+                out = filter_new_listing(
+                    out,
+                    list_date_map=list_date_map,
+                    trade_dates_sorted=trade_dates_sorted,
+                    min_days=min_days,
+                    entry_col="trade_date",
+                )
+                if out.empty:
+                    logger.warning("fallback_labels_all_filtered_new_listing")
+                    return empty_labels_frame()
     out = dedup_labels(out, log_key="fallback_labels_dedup")
     return out[["trade_date", "ts_code", "scheme", "value", "exit_reason", "hold_days"]]
 

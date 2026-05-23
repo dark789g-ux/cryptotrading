@@ -23,9 +23,6 @@ from quant_pipeline.factors.registry import register
 
 @register(factor_id="sector_volume_concentration", factor_version="v1")
 class SectorVolumeConcentration(Factor):
-    category = "industry"
-    pit_window_days = 5
-    description = "行业内成交量赫芬达尔指数（HHI）；贴回个股"
     required_columns = ("vol", "industry_l1")
 
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:

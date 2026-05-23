@@ -25,7 +25,8 @@ export type MlJobRunType =
   | 'train'
   | 'infer'
   | 'optuna'
-  | 'seed_avg';
+  | 'seed_avg'
+  | 'train_e2e';
 
 @Entity({ schema: 'ml', name: 'jobs' })
 @Index(['status', 'priority', 'createdAt'])
@@ -90,4 +91,17 @@ export class MlJobEntity {
 
   @Column({ name: 'finished_at', type: 'timestamptz', nullable: true })
   finishedAt: Date | null;
+
+  /**
+   * train_e2e 等流水线 run_type 完成后回写的结果摘要(D-13)。
+   *
+   * 典型字段:
+   * - `feature_set_id`：worker labels→features 阶段派生出的 feature_set 主键
+   * - `step_snapshots`：各 step 进度/耗时快照
+   *
+   * 老 run_type(train/optuna/seed_avg/...)默认为空对象,前端 RunDetail 缺字段不展示(D-21)。
+   * jsonb 列在 NestJS 侧不强类型映射 —— 仅做透传,字段 schema 见 spec 04 文档。
+   */
+  @Column({ name: 'result_payload', type: 'jsonb', default: () => "'{}'::jsonb" })
+  resultPayload: Record<string, unknown>;
 }
