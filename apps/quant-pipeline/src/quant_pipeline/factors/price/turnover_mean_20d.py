@@ -15,7 +15,7 @@ from quant_pipeline.factors.base import Factor
 from quant_pipeline.factors.registry import register
 
 
-@register(factor_id="turnover_mean_20d", factor_version="v1")
+@register(factor_id="turnover_mean_20d", factor_version="v1", min_trade_days=20)
 class TurnoverMean20d(Factor):
     required_columns = ("turnover_rate",)
 
@@ -24,7 +24,7 @@ class TurnoverMean20d(Factor):
         if trade_date not in tr.index:
             return pd.Series(dtype=float)
         tr = tr.loc[:trade_date]
-        if len(tr) < 20:
+        if len(tr) < self.min_trade_days:
             return pd.Series(dtype=float)
         out = tr.tail(20).mean()
         return out.astype(float)

@@ -21,7 +21,7 @@ from quant_pipeline.factors.base import Factor
 from quant_pipeline.factors.registry import register
 
 
-@register(factor_id="sector_volume_concentration", factor_version="v1")
+@register(factor_id="sector_volume_concentration", factor_version="v1", min_trade_days=1)
 class SectorVolumeConcentration(Factor):
     required_columns = ("vol", "industry_l1")
 

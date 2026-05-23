@@ -54,6 +54,17 @@ class FactorMeta:
     pit_anchor: str
     enabled: bool
     display_order: int
+    min_trade_days: int = 0
+
+
+class FactorMetaMismatch(RuntimeError):
+    """Python 子类装饰器声明 与 DB factor_definitions 不一致。
+
+    抛出场景：
+      - 子类 ``@register(min_trade_days=N)`` 声明值与 DB
+        ``factor_definitions.min_trade_days`` 不同
+      - fail-fast：worker 启动失败比"静默用某一方默认值"安全
+    """
 
 
 # (factor_id, factor_version) → FactorMeta（DB 拉取后填）
@@ -65,6 +76,10 @@ _REGISTRY_CLASSES: dict[tuple[str, str], type[Factor]] = {}
 # (factor_id, factor_version) → Factor 实例（首次需要时材料化）
 _REGISTRY_INSTANCES: dict[tuple[str, str], Factor] = {}
 
+# (factor_id, factor_version) → @register 装饰器传入的声明（dict 形式，方便扩展）
+# 仅由装饰器写入，校验时与 _meta_cache 比对
+_CLASS_DECLARATIONS: dict[tuple[str, str], dict[str, object]] = {}
+
 
 T = TypeVar("T", bound=Factor)
 
@@ -74,14 +89,25 @@ T = TypeVar("T", bound=Factor)
 # ---------------------------------------------------------------------------
 
 
-def register(factor_id: str, factor_version: str) -> Callable[[type[T]], type[T]]:
+def register(
+    *,
+    factor_id: str,
+    factor_version: str,
+    min_trade_days: int,
+) -> Callable[[type[T]], type[T]]:
     """类装饰器：登记 Factor 子类。**不立即实例化**——实例化推迟到
     `get_factor` / `list_factors`，避免在 DB 缓存未加载时抛 FactorMetaMissing。
 
     用法：
-        @register(factor_id='momentum_20d', factor_version='v1')
+        @register(factor_id='momentum_20d', factor_version='v1', min_trade_days=21)
         class Momentum20d(Factor):
             ...
+
+    参数：
+        factor_id:        因子唯一标识（与 DB factor_definitions.factor_id 对齐）
+        factor_version:   因子版本（与 DB factor_definitions.factor_version 对齐）
+        min_trade_days:   compute() 需要的最少交易日数（必填，不给默认值，
+                          强制每个子类显式声明；与 DB 双向校验）
 
     重复注册抛 ValueError（CLAUDE.md：暴露权衡，不要静默覆盖）。
     """
@@ -98,6 +124,7 @@ def register(factor_id: str, factor_version: str) -> Callable[[type[T]], type[T]
                 f"factor_version={factor_version!r}; cls={cls.__name__}"
             )
         _REGISTRY_CLASSES[key] = cls
+        _CLASS_DECLARATIONS[key] = {"min_trade_days": min_trade_days}
         return cls
 
     return _decorator
@@ -205,7 +232,8 @@ def load_from_db() -> None:
     sql = text(
         """
         SELECT factor_id, factor_version, description, category,
-               pit_window_days, pit_anchor, enabled, display_order
+               pit_window_days, pit_anchor, enabled, display_order,
+               min_trade_days
           FROM factors.factor_definitions
         """
     )
@@ -229,10 +257,14 @@ def load_from_db() -> None:
             pit_anchor=r[5],
             enabled=bool(r[6]),
             display_order=int(r[7]),
+            min_trade_days=int(r[8]),
         )
         _meta_cache[(meta.factor_id, meta.factor_version)] = meta
 
     logger.info("factor_meta_loaded_from_db", extra={"n": len(_meta_cache)})
+
+    # 加载完缓存立即做 Python ↔ DB 一致性校验，不一致 fail-fast
+    _validate_class_db_consistency()
 
 
 def reload_from_db() -> None:
@@ -241,17 +273,41 @@ def reload_from_db() -> None:
     load_from_db()
 
 
+def _validate_class_db_consistency() -> None:
+    """对每个已注册 Factor 子类，校验装饰器声明的 min_trade_days
+    与 DB 一致。不一致 → fail-fast。
+
+    - 已注册子类但 `_meta_cache` 缺对应行 → 抛 `FactorMetaMissing`
+    - 子类声明值 ≠ DB 值 → 抛 `FactorMetaMismatch`
+
+    在 `load_from_db()` 末尾自动调用；worker 启动失败比"静默用某一方默认值"安全。
+    """
+
+    for key, declared in _CLASS_DECLARATIONS.items():
+        db_meta = _meta_cache.get(key)
+        if db_meta is None:
+            raise FactorMetaMissing(key[0], key[1])
+        declared_mtd = declared["min_trade_days"]
+        if declared_mtd != db_meta.min_trade_days:
+            raise FactorMetaMismatch(
+                f"min_trade_days drift for {key[0]}/{key[1]}: "
+                f"class declared={declared_mtd} "
+                f"DB={db_meta.min_trade_days}"
+            )
+
+
 # ---------------------------------------------------------------------------
 # 测试 / 工具
 # ---------------------------------------------------------------------------
 
 
 def clear_registry() -> None:
-    """测试专用：清空 registry 类登记 + 实例缓存 + 元数据缓存。"""
+    """测试专用：清空 registry 类登记 + 实例缓存 + 元数据缓存 + 装饰器声明。"""
 
     _REGISTRY_CLASSES.clear()
     _REGISTRY_INSTANCES.clear()
     _meta_cache.clear()
+    _CLASS_DECLARATIONS.clear()
 
 
 # 兼容旧 API：部分老测试通过 `from quant_pipeline.factors.registry import _REGISTRY`

@@ -17,7 +17,7 @@ from quant_pipeline.factors.base import Factor
 from quant_pipeline.factors.registry import register
 
 
-@register(factor_id="volatility_20d", factor_version="v1")
+@register(factor_id="volatility_20d", factor_version="v1", min_trade_days=21)
 class Volatility20d(Factor):
     required_columns = ("close_adj",)
 
@@ -26,7 +26,7 @@ class Volatility20d(Factor):
         if trade_date not in close.index:
             return pd.Series(dtype=float)
         close = close.loc[:trade_date]
-        if len(close) < 21:
+        if len(close) < self.min_trade_days:
             return pd.Series(dtype=float)
         log_close = np.log(close.tail(21))
         log_ret = log_close.diff().tail(20)  # 20 个收益率

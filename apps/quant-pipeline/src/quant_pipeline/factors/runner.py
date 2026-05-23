@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 
 from quant_pipeline.factors.base import Factor
+from quant_pipeline.factors.constants import RETRY_WINDOW_MULTIPLIER
 # 数据加载 / 复权 / upsert 已拆到 factors.data_access（review §12）。
 # 此处 re-import 这些符号以保持 `factors.runner.<name>` 的旧引用兼容：
 # - 集成测试直接 `from factors.runner import _query_trade_dates / _load_industry_pit`
@@ -42,9 +43,16 @@ from quant_pipeline.factors.data_access import (  # noqa: F401
     _query_live_universe,
     _query_trade_dates,
     _upsert_daily_factors,
+    count_trade_days_in_window,
     load_window_data,
+    shift_calendar_days,
+    trade_cal_covers,
 )
 from quant_pipeline.factors.registry import list_factors
+from quant_pipeline.factors.runner_window_guard import (
+    _emit_job_warning,
+    load_window_increment,
+)
 from quant_pipeline.worker.progress import (
     JobCancelled,
     check_cancel_requested,
@@ -97,6 +105,117 @@ def _slice_window_for_factor(
             ind_sub = industry_pit.iloc[0:0]
         sub = sub.join(ind_sub, how="left")
     return sub
+
+
+def _apply_pit_window_guard(
+    *,
+    factor: Factor,
+    trade_date: str,
+    sub: pd.DataFrame,
+    raw: RawData,
+    job_id: object | None,
+) -> pd.DataFrame | None:
+    """PIT 窗口护门：实测交易日数不足时扩窗 ×2 重试，仍不足则 skip。
+
+    返回值：
+      - DataFrame：可直接喂给 ``factor.compute``（可能是原 sub，也可能是扩窗后的子集）
+      - None：本因子当天 skip（已写 warning）
+
+    spec §3.2.2 / §3.2.3 完整伪代码已在 03-runtime-guard.md。
+    """
+
+    min_td = getattr(factor, "min_trade_days", 0) or 0
+    if min_td <= 0:
+        # 未声明 min_trade_days：保留旧行为（factor.compute 内部自有 `if len(close) < N`
+        # 守门），护门不生效。Agent B 完成 16 因子回填后此分支不再触发。
+        return sub
+
+    window_start = shift_calendar_days(trade_date, -factor.pit_window_days)
+
+    # 前置归因：先确认 trade_cal 真覆盖了这段时间
+    if not trade_cal_covers(None, window_start, trade_date):
+        logger.warning(
+            "trade_cal_not_synced",
+            extra={
+                "factor_id": factor.factor_id,
+                "trade_date": trade_date,
+                "window_start": window_start,
+                "remedy": "请先同步 raw.trade_cal 到该日期范围，再重跑因子",
+            },
+        )
+        _emit_job_warning(
+            job_id if isinstance(job_id, UUID) else None,
+            "trade_cal_not_synced",
+            factor_id=factor.factor_id,
+            factor_version=factor.factor_version,
+            trade_date=trade_date,
+            window_start=window_start,
+        )
+        return None
+
+    actual_td = count_trade_days_in_window(None, window_start, trade_date)
+    if actual_td >= min_td:
+        return sub   # 正常路径
+
+    # 第一次告警
+    logger.warning(
+        "factor_window_short",
+        extra={
+            "factor_id": factor.factor_id,
+            "factor_version": factor.factor_version,
+            "trade_date": trade_date,
+            "declared_pit_window": factor.pit_window_days,
+            "actual_trade_days": actual_td,
+            "min_trade_days": min_td,
+        },
+    )
+    _emit_job_warning(
+        job_id if isinstance(job_id, UUID) else None,
+        "factor_window_short",
+        factor_id=factor.factor_id,
+        factor_version=factor.factor_version,
+        trade_date=trade_date,
+        declared_pit_window=factor.pit_window_days,
+        actual_trade_days=actual_td,
+        min_trade_days=min_td,
+    )
+
+    # 动态扩窗 ×2 重试
+    retry_window_days = factor.pit_window_days * RETRY_WINDOW_MULTIPLIER
+    retry_start = shift_calendar_days(trade_date, -retry_window_days)
+    retry_td = count_trade_days_in_window(None, retry_start, trade_date)
+
+    if retry_td < min_td:
+        logger.warning(
+            "factor_window_retry_failed",
+            extra={
+                "factor_id": factor.factor_id,
+                "trade_date": trade_date,
+                "retry_window_days": retry_window_days,
+                "retry_trade_days": retry_td,
+                "min_trade_days": min_td,
+            },
+        )
+        _emit_job_warning(
+            job_id if isinstance(job_id, UUID) else None,
+            "factor_window_retry_failed",
+            factor_id=factor.factor_id,
+            factor_version=factor.factor_version,
+            trade_date=trade_date,
+            retry_window_days=retry_window_days,
+            retry_trade_days=retry_td,
+            min_trade_days=min_td,
+        )
+        return None
+
+    # 重试成功：增量拉数据并切片到扩窗范围
+    return load_window_increment(
+        factor=factor,
+        retry_start=retry_start,
+        trade_date=trade_date,
+        base_panel=raw.panel,
+        base_industry_pit=raw.industry_pit,
+    )
 
 
 def run_factors(
@@ -183,6 +302,16 @@ def run_factors(
                     },
                 )
                 continue
+
+            # === PIT 窗口运行时护门（spec 2026-05-23-pit-window-guard-design §3.2）===
+            # min_trade_days==0 视为"未声明"，跳过护门（兼容尚未回填 min_trade_days
+            # 的旧因子；CLAUDE.md 暴露权衡：选择"不阻断老因子"而非"全部强制"）。
+            sub = _apply_pit_window_guard(
+                factor=f, trade_date=t, sub=sub, raw=raw, job_id=job_id,
+            )
+            if sub is None:
+                continue   # 护门判定跳过该因子当天
+
             try:
                 series = f.compute(sub, t)
             except Exception as exc:  # noqa: BLE001

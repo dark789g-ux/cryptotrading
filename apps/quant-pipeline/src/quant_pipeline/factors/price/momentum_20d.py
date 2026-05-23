@@ -17,7 +17,7 @@ from quant_pipeline.factors.base import Factor
 from quant_pipeline.factors.registry import register
 
 
-@register(factor_id="momentum_20d", factor_version="v1")
+@register(factor_id="momentum_20d", factor_version="v1", min_trade_days=21)
 class Momentum20d(Factor):
     required_columns = ("close_adj",)
 
@@ -29,7 +29,7 @@ class Momentum20d(Factor):
             return pd.Series(dtype=float)
         # 在窗口内只保留 T 及之前
         close = close.loc[:trade_date]
-        if len(close) < 21:
+        if len(close) < self.min_trade_days:
             return pd.Series(dtype=float)
         # T-20 即倒数第 21 个交易日；T 即最后一个
         c_t = close.iloc[-1]

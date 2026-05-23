@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import math
 from collections.abc import Iterable
 from typing import Any
 
@@ -354,6 +355,81 @@ def audit_ghost3_fina_delay(
             name="ghost3_fina_delay",
         )
     ]
+
+
+# ----------------------------------------------------------------------
+# 启动期：PIT 窗口必须覆盖 min_trade_days × 系数
+# （spec 2026-05-23-pit-window-guard-design §6.4）
+# ----------------------------------------------------------------------
+
+def audit_pit_window_covers_min_trade_days(factors: list[Any]) -> list[CheckResult]:
+    """对每个已注册 factor，校验 ``pit_window_days >= ceil(min_trade_days × PIT_WINDOW_COEFFICIENT)``。
+
+    与 DB CHECK 约束重复，但 fail-fast 在 worker 启动期暴露，
+    比等到第一次 runner 跑因子时再炸要早（spec §6.4）。
+
+    Args:
+        factors: ``list[Factor]``——已 ``registry.load_from_db() + list_factors()``
+                 实例化好的因子列表，每个实例必须能读 ``min_trade_days /
+                 pit_window_days / factor_id / factor_version``。
+
+    Returns:
+        失败因子的 ``CheckResult`` 列表（passed 的不返回，info 级"未声明"不阻断）。
+
+    spec 与代码契约冲突的权衡（CLAUDE.md "暴露权衡"）：
+      - spec 06 §6.4 指定 ``trade_date='STARTUP'``，但 ``CheckResult.__post_init__``
+        强制 trade_date 为 8 位数字（report.py 现状）。此处使用 ``'00000000'``
+        占位，detail 内 ``phase='startup'`` 显式标注启动期语义。
+      - rule 名必须在 ``ALLOWED_RULES`` 内：spec 用 ``'pit_window_coverage'`` 但
+        该规则名未在 01-pg-schema §4.3 注册，故用最接近的 ``'pit_finance'``
+        + detail 内 ``audit='pit_window_covers_min_trade_days'`` 分组。
+    """
+
+    # 延迟 import 避免循环：constants 在 factors 子包内，pit_audit 启动期才用到。
+    from quant_pipeline.factors.constants import PIT_WINDOW_COEFFICIENT
+
+    out: list[CheckResult] = []
+    for f in factors:
+        min_td = getattr(f, "min_trade_days", 0) or 0
+        if min_td <= 0:
+            # 未声明（Agent B 回填中）：info 级留痕，不阻断启动
+            out.append(CheckResult(
+                passed=True,
+                level="info",
+                rule="pit_finance",
+                detail={
+                    "audit": "pit_window_covers_min_trade_days",
+                    "phase": "startup",
+                    "factor_id": getattr(f, "factor_id", "<unknown>"),
+                    "factor_version": getattr(f, "factor_version", ""),
+                    "reason": "min_trade_days 未声明（=0），跳过窗口覆盖校验",
+                },
+                trade_date="00000000",
+                name="pit_window_covers_min_trade_days",
+            ))
+            continue
+
+        required = math.ceil(min_td * PIT_WINDOW_COEFFICIENT)
+        declared = getattr(f, "pit_window_days", 0)
+        if declared < required:
+            out.append(CheckResult(
+                passed=False,
+                level="critical",
+                rule="pit_finance",
+                detail={
+                    "audit": "pit_window_covers_min_trade_days",
+                    "phase": "startup",   # spec 06 §6.4 的 STARTUP 语义占位
+                    "factor_id": getattr(f, "factor_id", "<unknown>"),
+                    "factor_version": getattr(f, "factor_version", ""),
+                    "declared": declared,
+                    "required": required,
+                    "min_trade_days": min_td,
+                    "coefficient": PIT_WINDOW_COEFFICIENT,
+                },
+                trade_date="00000000",
+                name="pit_window_covers_min_trade_days",
+            ))
+    return out
 
 
 # ----------------------------------------------------------------------

@@ -16,7 +16,7 @@ from quant_pipeline.factors.base import Factor
 from quant_pipeline.factors.registry import register
 
 
-@register(factor_id="momentum_60d", factor_version="v1")
+@register(factor_id="momentum_60d", factor_version="v1", min_trade_days=61)
 class Momentum60d(Factor):
     required_columns = ("close_adj",)
 
@@ -25,7 +25,7 @@ class Momentum60d(Factor):
         if trade_date not in close.index:
             return pd.Series(dtype=float)
         close = close.loc[:trade_date]
-        if len(close) < 61:
+        if len(close) < self.min_trade_days:
             return pd.Series(dtype=float)
         c_t = close.iloc[-1]
         c_lag = close.iloc[-61]

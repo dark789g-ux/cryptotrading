@@ -367,13 +367,45 @@ def factors_compute(
     """
 
     setup_logging()
+    from quant_pipeline.factors.registry import (
+        import_all_factors,
+        list_factors,
+        reload_from_db,
+    )
     from quant_pipeline.factors.runner import run_factors
+    from quant_pipeline.quality.pit_audit import (
+        audit_pit_window_covers_min_trade_days,
+    )
 
     try:
         validate_date_range(date_range)
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
+
+    # 启动期 PIT 窗口护门校验（spec 2026-05-23-pit-window-guard-design §6.4）：
+    # pit_window_days 必须 >= ceil(min_trade_days × PIT_WINDOW_COEFFICIENT)，
+    # 不通过则拒启动；info 级"未声明"不阻断。
+    import_all_factors()
+    reload_from_db()
+    all_factors = list_factors(factor_version=version)
+    audit_results = audit_pit_window_covers_min_trade_days(all_factors)
+    failed = [r for r in audit_results if not r.passed]
+    if failed:
+        typer.echo(
+            f"启动期 PIT 窗口护门失败：{len(failed)} 个因子的 pit_window_days "
+            f"不满足 ceil(min_trade_days × 系数) 下限，拒启动。",
+            err=True,
+        )
+        for r in failed:
+            d = r.detail
+            typer.echo(
+                f"  ! factor_id={d.get('factor_id')} version={d.get('factor_version')} "
+                f"declared={d.get('declared')} required={d.get('required')} "
+                f"(min_trade_days={d.get('min_trade_days')} × coef={d.get('coefficient')})",
+                err=True,
+            )
+        raise typer.Exit(code=3)
 
     ids = tuple(s.strip() for s in factor_ids.split(",") if s.strip()) or None
     out = run_factors(

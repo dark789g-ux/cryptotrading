@@ -22,7 +22,7 @@ from quant_pipeline.factors.base import Factor
 from quant_pipeline.factors.registry import register
 
 
-@register(factor_id="amihud_illiq_20d", factor_version="v1")
+@register(factor_id="amihud_illiq_20d", factor_version="v1", min_trade_days=21)
 class AmihudIlliq20d(Factor):
     required_columns = ("close_adj", "amount")
 
@@ -34,7 +34,7 @@ class AmihudIlliq20d(Factor):
         close = close.loc[:trade_date]
         amount = amount.loc[:trade_date]
         # 需要至少 21 天历史以算出 20 个日收益率
-        if len(close) < 21:
+        if len(close) < self.min_trade_days:
             return pd.Series(dtype=float)
         # 日收益率（最近 20 天）
         ret = close.pct_change().iloc[-20:]

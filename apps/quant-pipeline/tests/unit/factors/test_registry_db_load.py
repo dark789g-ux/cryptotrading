@@ -60,26 +60,29 @@ def _baseline_rows() -> list[tuple]:
 
     列顺序对齐 registry.load_from_db 的 SELECT：
       factor_id, factor_version, description, category,
-      pit_window_days, pit_anchor, enabled, display_order
+      pit_window_days, pit_anchor, enabled, display_order, min_trade_days
+
+    min_trade_days 与子类 ``@register(min_trade_days=N)`` 必须一致，
+    否则 load_from_db 末尾的 ``_validate_class_db_consistency`` 会 fail-fast。
     """
 
     return [
-        ("momentum_20d", "v1", "DB 描述: 20d", "price", 35, "trade_date", True, 140),
-        ("momentum_60d", "v1", "DB 描述: 60d", "price", 115, "trade_date", True, 150),
-        ("amihud_illiq_20d", "v1", "Amihud", "price", 35, "trade_date", True, 100),
-        ("bollinger_position_20d", "v1", "Bollinger", "price", 35, "trade_date", True, 110),
-        ("close_to_high_60d", "v1", "close_to_high", "price", 115, "trade_date", True, 120),
-        ("ma_ratio_20d", "v1", "ma_ratio", "price", 35, "trade_date", True, 130),
-        ("price_max_drawdown_60d", "v1", "max_dd", "price", 115, "trade_date", True, 160),
-        ("rsi_14", "v1", "rsi_14", "price", 60, "trade_date", True, 170),
-        ("turnover_mean_20d", "v1", "turnover", "price", 35, "trade_date", True, 180),
-        ("volatility_20d", "v1", "vol", "price", 35, "trade_date", True, 190),
-        ("volume_ratio_20d", "v1", "vol_ratio", "price", 35, "trade_date", True, 200),
-        ("industry_momentum_20d", "v1", "ind_mom", "industry", 35, "trade_date", True, 300),
-        ("momentum_20d_neu", "v1", "ind_neu", "industry", 35, "trade_date", True, 310),
-        ("industry_rank_in_sector_mom20", "v1", "ind_rank", "industry", 35, "trade_date", True, 320),
-        ("industry_relative_strength", "v1", "ind_rel", "industry", 35, "trade_date", True, 330),
-        ("sector_volume_concentration", "v1", "hhi", "industry", 5, "trade_date", True, 340),
+        ("momentum_20d", "v1", "DB 描述: 20d", "price", 42, "trade_date", True, 140, 21),
+        ("momentum_60d", "v1", "DB 描述: 60d", "price", 122, "trade_date", True, 150, 61),
+        ("amihud_illiq_20d", "v1", "Amihud", "price", 42, "trade_date", True, 100, 21),
+        ("bollinger_position_20d", "v1", "Bollinger", "price", 40, "trade_date", True, 110, 20),
+        ("close_to_high_60d", "v1", "close_to_high", "price", 120, "trade_date", True, 120, 60),
+        ("ma_ratio_20d", "v1", "ma_ratio", "price", 40, "trade_date", True, 130, 20),
+        ("price_max_drawdown_60d", "v1", "max_dd", "price", 120, "trade_date", True, 160, 60),
+        ("rsi_14", "v1", "rsi_14", "price", 60, "trade_date", True, 170, 15),
+        ("turnover_mean_20d", "v1", "turnover", "price", 40, "trade_date", True, 180, 20),
+        ("volatility_20d", "v1", "vol", "price", 42, "trade_date", True, 190, 21),
+        ("volume_ratio_20d", "v1", "vol_ratio", "price", 42, "trade_date", True, 200, 21),
+        ("industry_momentum_20d", "v1", "ind_mom", "industry", 42, "trade_date", True, 300, 21),
+        ("momentum_20d_neu", "v1", "ind_neu", "industry", 42, "trade_date", True, 310, 21),
+        ("industry_rank_in_sector_mom20", "v1", "ind_rank", "industry", 42, "trade_date", True, 320, 21),
+        ("industry_relative_strength", "v1", "ind_rel", "industry", 42, "trade_date", True, 330, 21),
+        ("sector_volume_concentration", "v1", "hhi", "industry", 5, "trade_date", True, 340, 1),
     ]
 
 
@@ -121,39 +124,36 @@ def test_reload_from_db_refreshes_cache(monkeypatch: pytest.MonkeyPatch) -> None
     from quant_pipeline.factors.registry import load_from_db, reload_from_db
 
     load_from_db()
-    assert _meta_cache[("momentum_20d", "v1")].pit_window_days == 35
+    assert _meta_cache[("momentum_20d", "v1")].pit_window_days == 42
 
-    # 第二轮：把 momentum_20d 的窗口改成 42
+    # 第二轮：把 momentum_20d 的窗口改成 50（保持 >= min_trade_days*2 = 42）
     rows_v2 = [
-        ("momentum_20d", "v1", "new desc", "price", 42, "trade_date", True, 140),
+        ("momentum_20d", "v1", "new desc", "price", 50, "trade_date", True, 140, 21),
         *rows_v1[1:],
     ]
     _patch_session_scope(monkeypatch, rows_v2)
     reload_from_db()
-    assert _meta_cache[("momentum_20d", "v1")].pit_window_days == 42
+    assert _meta_cache[("momentum_20d", "v1")].pit_window_days == 50
     assert _meta_cache[("momentum_20d", "v1")].description == "new desc"
 
 
 def test_missing_meta_raises_factor_meta_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """类已注册但 DB 无对应行 → 实例化抛 FactorMetaMissing。"""
+    """类已注册但 DB 无对应行 → ``load_from_db`` 末尾的 Python ↔ DB
+    一致性校验 fail-fast，抛 FactorMetaMissing。
+
+    PIT 窗口护门接入后，校验从"懒实例化时"提前到了"DB 加载完成时"——
+    worker 启动期立即暴露 DB 漂移，比等到第一次跑因子再炸要早。
+    """
 
     # load 一组**缺 momentum_20d** 的 rows
     rows = [r for r in _baseline_rows() if r[0] != "momentum_20d"]
     _patch_session_scope(monkeypatch, rows)
-    from quant_pipeline.factors.registry import (
-        _REGISTRY_INSTANCES,
-        get_factor,
-        load_from_db,
-    )
-
-    load_from_db()
-    # 同步清掉旧实例（load_from_db 内部已 clear，但保险显式调用）
-    _REGISTRY_INSTANCES.pop(("momentum_20d", "v1"), None)
+    from quant_pipeline.factors.registry import load_from_db
 
     with pytest.raises(FactorMetaMissing) as ei:
-        get_factor("momentum_20d", "v1")
+        load_from_db()
     assert ei.value.factor_id == "momentum_20d"
 
 
@@ -165,8 +165,8 @@ def test_disabled_factor_excluded_from_list_active(
     rows = _baseline_rows()
     # 把 amihud_illiq_20d 改成 disabled
     rows = [
-        (fid, fver, desc, cat, win, anc, (fid != "amihud_illiq_20d"), order)
-        for (fid, fver, desc, cat, win, anc, _, order) in rows
+        (fid, fver, desc, cat, win, anc, (fid != "amihud_illiq_20d"), order, mtd)
+        for (fid, fver, desc, cat, win, anc, _, order, mtd) in rows
     ]
     _patch_session_scope(monkeypatch, rows)
     from quant_pipeline.factors.registry import load_from_db
@@ -202,8 +202,8 @@ def test_feature_set_id_changes_on_enabled_toggle(
 
     # 第二轮：把 amihud_illiq_20d 关掉
     rows = [
-        (fid, fver, desc, cat, win, anc, (fid != "amihud_illiq_20d"), order)
-        for (fid, fver, desc, cat, win, anc, _, order) in _baseline_rows()
+        (fid, fver, desc, cat, win, anc, (fid != "amihud_illiq_20d"), order, mtd)
+        for (fid, fver, desc, cat, win, anc, _, order, mtd) in _baseline_rows()
     ]
     _patch_session_scope(monkeypatch, rows)
     load_from_db()

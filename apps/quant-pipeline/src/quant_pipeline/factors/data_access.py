@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from functools import lru_cache
 
 import pandas as pd
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from quant_pipeline.db.engine import session_scope
 
@@ -249,6 +252,115 @@ def _upsert_daily_factors(rows: list[dict[str, object]]) -> int:
     return len(deduped)
 
 
+# ----------------------------------------------------------------------
+# PIT 窗口护门工具（spec 2026-05-23-pit-window-guard-design §3.1）
+# ----------------------------------------------------------------------
+#
+# 给 factors.runner 在调 compute 前做"窗口内实际交易日数"实测使用。
+# - count_trade_days_in_window: 查 raw.trade_cal 算 [start, end] 闭区间 is_open=1 天数
+# - trade_cal_covers:           判断 raw.trade_cal 是否覆盖该区间（前置归因）
+# - shift_calendar_days:        日历日偏移（不是交易日 shift）
+#
+# LRU 缓存策略：进程级 (start, end, exchange) → count，job 内反复调用零成本。
+# trade_cal 表新行写入需重启 worker 才生效，不构成正确性问题（worker 是长进程，
+# trade_cal 由独立 sync job 同步，运行中的 factors job 不会等待）。
+
+
+@lru_cache(maxsize=4096)
+def _count_trade_days_cached(start_date: str, end_date: str, exchange: str) -> int:
+    """LRU 缓存内层：用独立 session 查询。
+
+    与外层 ``count_trade_days_in_window`` 拆分的原因：``functools.lru_cache``
+    无法以 ``Session`` 作 key（不可哈希；且不同 session 应共享同一份 trade_cal
+    结果，session 不影响 cache 命中）。本函数自取 session，主调路径不传 session。
+    """
+
+    sql = text(
+        """
+        SELECT COUNT(*) FROM raw.trade_cal
+        WHERE exchange = :ex AND is_open = 1
+          AND cal_date BETWEEN :s AND :e
+        """
+    )
+    with session_scope() as session:
+        n = session.execute(sql, {"ex": exchange, "s": start_date, "e": end_date}).scalar()
+    return int(n or 0)
+
+
+def count_trade_days_in_window(
+    session: Session | None,
+    start_date: str,
+    end_date: str,
+    exchange: str = "SSE",
+) -> int:
+    """查 raw.trade_cal，返回 [start_date, end_date] 闭区间内 is_open=1 的天数。
+
+    使用 LRU 缓存按 (start, end, exchange) 命中：同 job 内反复调用零成本。
+
+    Args:
+        session: 兼容旧调用签名；当前实现 LRU 缓存层会自取 session，本参数仅作
+            语义占位（runner 侧仍按事务边界传入 session，未来若改为单 session
+            执行时无需改调用方）。
+        start_date: 'YYYYMMDD'
+        end_date:   'YYYYMMDD'，含
+        exchange:   交易所代码，默认 'SSE'
+    """
+
+    return _count_trade_days_cached(start_date, end_date, exchange)
+
+
+def trade_cal_covers(
+    session: Session | None,
+    start_date: str,
+    end_date: str,
+    exchange: str = "SSE",
+) -> bool:
+    """检查 raw.trade_cal 是否覆盖 [start_date, end_date]。
+
+    用途：runner 触发 factor_window_short 时，先用本函数区分
+      - True  → trade_cal 已覆盖，确属"窗口内交易日不足"
+      - False → trade_cal 未同步到这段时间，归因不同（应 warn trade_cal_not_synced）
+
+    Args:
+        session: 兼容签名占位，实际查询走独立 session。
+    """
+
+    del session  # 与 count_trade_days_in_window 同样取消 session 依赖，统一接口
+
+    sql = text(
+        "SELECT MIN(cal_date), MAX(cal_date) FROM raw.trade_cal WHERE exchange = :ex"
+    )
+    try:
+        with session_scope() as s:
+            row = s.execute(sql, {"ex": exchange}).first()
+    except Exception as exc:  # noqa: BLE001
+        # raw.trade_cal 缺失 / DB 不通：返回 False 让上层归因为 trade_cal_not_synced
+        logger.warning(
+            "trade_cal_query_failed",
+            extra={"exchange": exchange, "err": str(exc)},
+        )
+        return False
+    if row is None or row[0] is None:
+        return False
+    cal_min, cal_max = row
+    return cal_min <= start_date and end_date <= cal_max
+
+
+def shift_calendar_days(yyyymmdd: str, delta: int) -> str:
+    """按日历日加减（**不是交易日 shift**）。
+
+    显式命名为 "calendar_days" 是因为 PIT 窗口本身就是日历日窗口，
+    与"按交易日 shift"区分清楚，避免后续调用方误用。
+
+    Args:
+        yyyymmdd: 'YYYYMMDD'
+        delta:    天数（可正可负）
+    """
+
+    d = datetime.strptime(yyyymmdd, "%Y%m%d") + timedelta(days=delta)
+    return d.strftime("%Y%m%d")
+
+
 __all__ = [
     "RawData",
     "_query_trade_dates",
@@ -257,4 +369,7 @@ __all__ = [
     "_load_industry_pit",
     "load_window_data",
     "_upsert_daily_factors",
+    "count_trade_days_in_window",
+    "trade_cal_covers",
+    "shift_calendar_days",
 ]

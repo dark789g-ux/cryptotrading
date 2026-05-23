@@ -19,7 +19,7 @@ from quant_pipeline.factors.base import Factor
 from quant_pipeline.factors.registry import register
 
 
-@register(factor_id="industry_rank_in_sector_mom20", factor_version="v1")
+@register(factor_id="industry_rank_in_sector_mom20", factor_version="v1", min_trade_days=21)
 class IndustryRankInSector(Factor):
     required_columns = ("close_adj", "industry_l1")
 
@@ -28,7 +28,7 @@ class IndustryRankInSector(Factor):
         if trade_date not in close.index:
             return pd.Series(dtype=float)
         close = close.loc[:trade_date]
-        if len(close) < 21:
+        if len(close) < self.min_trade_days:
             return pd.Series(dtype=float)
         mom = close.iloc[-1] / close.iloc[-21] - 1.0
         ind_t = df["industry_l1"].xs(trade_date, level="trade_date")

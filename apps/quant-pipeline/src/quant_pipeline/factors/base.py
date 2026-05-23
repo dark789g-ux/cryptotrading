@@ -97,6 +97,7 @@ class Factor(ABC):
     pit_window_days: int = 0
     pit_anchor: PitAnchor = "trade_date"
     description: str = ""
+    min_trade_days: int = 0  # 由 _meta_cache 注入；0 = 未声明哨兵
 
     def __init__(self) -> None:
         # 延迟 import 防循环：base.py ↔ registry.py
@@ -111,6 +112,7 @@ class Factor(ABC):
         self.pit_window_days = meta.pit_window_days
         self.pit_anchor = meta.pit_anchor  # type: ignore[assignment]
         self.description = meta.description
+        self.min_trade_days = meta.min_trade_days
 
     @abstractmethod
     def compute(self, df: pd.DataFrame, trade_date: str) -> pd.Series:
@@ -143,5 +145,6 @@ class Factor(ABC):
             "pit_window_days": self.pit_window_days,
             "pit_anchor": self.pit_anchor,
             "description": self.description,
+            "min_trade_days": self.min_trade_days,
             "required_columns": list(self.required_columns),
         }

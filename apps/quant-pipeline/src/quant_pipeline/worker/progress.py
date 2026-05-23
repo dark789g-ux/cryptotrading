@@ -72,27 +72,73 @@ _NOTIFY_CHANNEL = "ml_job_progress"
 _PAYLOAD_MAX_BYTES = 1024
 
 
-def _build_notify_payload(job_id: UUID, progress: int, stage: str | None) -> str:
-    payload = {
+def _build_notify_payload(
+    job_id: UUID,
+    progress: int,
+    stage: str | None,
+    warnings_summary: dict[str, int] | None = None,
+) -> str:
+    payload: dict[str, Any] = {
         "job_id": str(job_id),
         "progress": int(progress),
         "stage": stage or "",
     }
+    if warnings_summary:
+        # spec 06 §6.2：SSE payload 形态扩展 warnings_summary。
+        # 仅在非空时附带；空 dict 不加，保持兼容旧消费端。
+        payload["warnings_summary"] = warnings_summary
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     if len(encoded.encode("utf-8")) > _PAYLOAD_MAX_BYTES:
-        raise ValueError(
-            f"NOTIFY payload exceeds {_PAYLOAD_MAX_BYTES} bytes (got {len(encoded)})"
-        )
+        # 超长时降级：丢掉 warnings_summary 后再编码（详情走 GET 全量回拉，
+        # spec 06 §6.3.1）。比"NOTIFY 整条丢弃"更安全。
+        payload.pop("warnings_summary", None)
+        encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        if len(encoded.encode("utf-8")) > _PAYLOAD_MAX_BYTES:
+            raise ValueError(
+                f"NOTIFY payload exceeds {_PAYLOAD_MAX_BYTES} bytes (got {len(encoded)})"
+            )
     return encoded
 
 
+def _count_warnings_by_type(session: Any, job_id: UUID) -> dict[str, int]:
+    """从 ``ml.jobs.warnings`` JSONB 数组聚合 ``{type: count}`` 计数。
+
+    用 ``jsonb_array_elements`` 展开 JSONB 数组后 GROUP BY type。
+    warnings 列缺失 / 空数组时返回 {}。
+
+    spec 06 §6.2：SSE 推送 warnings_summary（聚合计数），详情走 GET 回拉。
+    """
+
+    sql = text(
+        """
+        SELECT elem->>'type' AS type, COUNT(*) AS cnt
+        FROM ml.jobs j,
+             LATERAL jsonb_array_elements(COALESCE(j.warnings, '[]'::jsonb)) AS elem
+        WHERE j.id = :id
+        GROUP BY elem->>'type'
+        """
+    )
+    try:
+        rows = session.execute(sql, {"id": job_id}).fetchall()
+    except Exception as exc:  # noqa: BLE001
+        # warnings 列尚未 migration 落地 / 查询失败：不影响 progress 主路径
+        logger.warning(
+            "warnings_summary_query_failed",
+            extra={"job_id": str(job_id), "err": str(exc)},
+        )
+        return {}
+    return {str(r[0]): int(r[1]) for r in rows if r[0] is not None}
+
+
 def update_progress(job_id: UUID, progress: int, stage: str | None = None) -> None:
-    """同事务内 UPDATE ml.jobs + NOTIFY ml_job_progress。"""
+    """同事务内 UPDATE ml.jobs + NOTIFY ml_job_progress。
+
+    spec 06 §6.2 扩展：NOTIFY payload 增加 ``warnings_summary``（按 type 聚合的计数）。
+    payload 超长时降级丢 warnings_summary（前端走 GET 全量回拉）。
+    """
 
     if not 0 <= progress <= 100:
         raise ValueError(f"progress must be in [0, 100], got {progress}")
-
-    payload = _build_notify_payload(job_id, progress, stage)
 
     with session_scope() as session:
         session.execute(
@@ -107,6 +153,9 @@ def update_progress(job_id: UUID, progress: int, stage: str | None = None) -> No
             ),
             {"progress": progress, "stage": stage, "job_id": job_id},
         )
+        # 读 warnings 聚合 summary（同事务内，与 UPDATE 一致快照）
+        warnings_summary = _count_warnings_by_type(session, job_id)
+        payload = _build_notify_payload(job_id, progress, stage, warnings_summary)
         # NOTIFY 只接受字面量字符串通道名 + 字符串 payload；用 pg_notify 函数形式参数化
         session.execute(
             text("SELECT pg_notify(:channel, :payload)"),

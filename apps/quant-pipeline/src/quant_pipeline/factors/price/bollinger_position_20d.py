@@ -22,7 +22,7 @@ from quant_pipeline.factors.registry import register
 _N = 20
 
 
-@register(factor_id="bollinger_position_20d", factor_version="v1")
+@register(factor_id="bollinger_position_20d", factor_version="v1", min_trade_days=20)
 class BollingerPosition20d(Factor):
     required_columns = ("close_adj",)
 
@@ -31,7 +31,7 @@ class BollingerPosition20d(Factor):
         if trade_date not in close.index:
             return pd.Series(dtype=float)
         close = close.loc[:trade_date]
-        if len(close) < _N:
+        if len(close) < self.min_trade_days:
             return pd.Series(dtype=float)
         window = close.tail(_N)
         mid = window.mean()

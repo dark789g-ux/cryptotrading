@@ -15,7 +15,7 @@ from quant_pipeline.factors.base import Factor
 from quant_pipeline.factors.registry import register
 
 
-@register(factor_id="volume_ratio_20d", factor_version="v1")
+@register(factor_id="volume_ratio_20d", factor_version="v1", min_trade_days=21)
 class VolumeRatio20d(Factor):
     required_columns = ("vol",)
 
@@ -24,7 +24,7 @@ class VolumeRatio20d(Factor):
         if trade_date not in vol.index:
             return pd.Series(dtype=float)
         vol = vol.loc[:trade_date]
-        if len(vol) < 21:
+        if len(vol) < self.min_trade_days:
             return pd.Series(dtype=float)
         v_t = vol.iloc[-1]
         v_mean = vol.iloc[-21:-1].mean()  # 不含 T 日

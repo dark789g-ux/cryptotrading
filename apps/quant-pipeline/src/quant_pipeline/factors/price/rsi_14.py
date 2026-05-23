@@ -29,7 +29,7 @@ from quant_pipeline.factors.registry import register
 _N = 14
 
 
-@register(factor_id="rsi_14", factor_version="v1")
+@register(factor_id="rsi_14", factor_version="v1", min_trade_days=15)
 class Rsi14(Factor):
     required_columns = ("close_adj",)
 
@@ -38,7 +38,7 @@ class Rsi14(Factor):
         if trade_date not in close.index:
             return pd.Series(dtype=float)
         close = close.loc[:trade_date]
-        if len(close) < _N + 1:
+        if len(close) < self.min_trade_days:
             return pd.Series(dtype=float)
         delta = close.diff().dropna(how="all")
         up = delta.clip(lower=0)

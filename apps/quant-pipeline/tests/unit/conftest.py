@@ -39,25 +39,25 @@ def _ensure_factors_loaded() -> None:
     from quant_pipeline.factors.registry import FactorMeta, _meta_cache
 
     _META_SEED = [
-        # (factor_id, category, pit_window_days, pit_anchor, description, display_order)
-        ("amihud_illiq_20d", "price", 35, "trade_date", "Amihud 非流动性（20 日均值）", 100),
-        ("bollinger_position_20d", "price", 35, "trade_date", "布林带相对位置（20 日，k=2）", 110),
-        ("close_to_high_60d", "price", 115, "trade_date", "60 日内收盘价相对最高价", 120),
-        ("ma_ratio_20d", "price", 35, "trade_date", "20 日均线偏离度", 130),
-        ("momentum_20d", "price", 35, "trade_date", "20 日动量", 140),
-        ("momentum_60d", "price", 115, "trade_date", "60 日动量", 150),
-        ("price_max_drawdown_60d", "price", 115, "trade_date", "60 日最大回撤（负值）", 160),
-        ("rsi_14", "price", 60, "trade_date", "相对强弱指标 RSI(14)", 170),
-        ("turnover_mean_20d", "price", 35, "trade_date", "20 日换手率均值（含 T 日）", 180),
-        ("volatility_20d", "price", 35, "trade_date", "20 日对数收益率标准差", 190),
-        ("volume_ratio_20d", "price", 35, "trade_date", "20 日成交量比", 200),
-        ("industry_momentum_20d", "industry", 35, "trade_date", "行业 20 日动量（行业内 pct_chg 均值累计，贴回个股）", 300),
-        ("momentum_20d_neu", "industry", 35, "trade_date", "行业中性化的 20 日动量（个股 - 行业均值）", 310),
-        ("industry_rank_in_sector_mom20", "industry", 35, "trade_date", "20 日动量在所属一级行业内的横截面 pct_rank（[0,1]）", 320),
-        ("industry_relative_strength", "industry", 35, "trade_date", "个股 20 日收益相对行业均值的超额", 330),
-        ("sector_volume_concentration", "industry", 5, "trade_date", "行业内成交量赫芬达尔指数（HHI），贴回个股", 340),
+        # (factor_id, category, pit_window_days, pit_anchor, description, display_order, min_trade_days)
+        ("amihud_illiq_20d", "price", 42, "trade_date", "Amihud 非流动性（20 日均值）", 100, 21),
+        ("bollinger_position_20d", "price", 40, "trade_date", "布林带相对位置（20 日，k=2）", 110, 20),
+        ("close_to_high_60d", "price", 120, "trade_date", "60 日内收盘价相对最高价", 120, 60),
+        ("ma_ratio_20d", "price", 40, "trade_date", "20 日均线偏离度", 130, 20),
+        ("momentum_20d", "price", 42, "trade_date", "20 日动量", 140, 21),
+        ("momentum_60d", "price", 122, "trade_date", "60 日动量", 150, 61),
+        ("price_max_drawdown_60d", "price", 120, "trade_date", "60 日最大回撤（负值）", 160, 60),
+        ("rsi_14", "price", 60, "trade_date", "相对强弱指标 RSI(14)", 170, 15),
+        ("turnover_mean_20d", "price", 40, "trade_date", "20 日换手率均值（含 T 日）", 180, 20),
+        ("volatility_20d", "price", 42, "trade_date", "20 日对数收益率标准差", 190, 21),
+        ("volume_ratio_20d", "price", 42, "trade_date", "20 日成交量比", 200, 21),
+        ("industry_momentum_20d", "industry", 42, "trade_date", "行业 20 日动量（行业内 pct_chg 均值累计，贴回个股）", 300, 21),
+        ("momentum_20d_neu", "industry", 42, "trade_date", "行业中性化的 20 日动量（个股 - 行业均值）", 310, 21),
+        ("industry_rank_in_sector_mom20", "industry", 42, "trade_date", "20 日动量在所属一级行业内的横截面 pct_rank（[0,1]）", 320, 21),
+        ("industry_relative_strength", "industry", 42, "trade_date", "个股 20 日收益相对行业均值的超额", 330, 21),
+        ("sector_volume_concentration", "industry", 5, "trade_date", "行业内成交量赫芬达尔指数（HHI），贴回个股", 340, 1),
     ]
-    for fid, cat, win, anchor, desc, order in _META_SEED:
+    for fid, cat, win, anchor, desc, order, mtd in _META_SEED:
         _meta_cache[(fid, "v1")] = FactorMeta(
             factor_id=fid,
             factor_version="v1",
@@ -67,6 +67,7 @@ def _ensure_factors_loaded() -> None:
             pit_anchor=anchor,
             enabled=True,
             display_order=order,
+            min_trade_days=mtd,
         )
     # 同步清空惰性实例缓存，避免上一次测试遗留的"按旧元数据实例化"的对象
     from quant_pipeline.factors.registry import _REGISTRY_INSTANCES

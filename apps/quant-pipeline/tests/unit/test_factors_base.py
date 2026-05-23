@@ -38,7 +38,7 @@ def test_register_writes_registry_and_rejects_duplicate() -> None:
 
     from quant_pipeline.factors.registry import _REGISTRY_CLASSES
 
-    @register(factor_id="dummy_test_only", factor_version="v1")
+    @register(factor_id="dummy_test_only", factor_version="v1", min_trade_days=5)
     class _A(_NoopFactor):
         pass
 
@@ -52,6 +52,7 @@ def test_register_writes_registry_and_rejects_duplicate() -> None:
         pit_anchor="trade_date",
         enabled=True,
         display_order=1,
+        min_trade_days=5,
     )
 
     inst = get_factor("dummy_test_only", "v1")
@@ -60,14 +61,17 @@ def test_register_writes_registry_and_rejects_duplicate() -> None:
 
     with pytest.raises(ValueError, match="already registered"):
 
-        @register(factor_id="dummy_test_only", factor_version="v1")
+        @register(factor_id="dummy_test_only", factor_version="v1", min_trade_days=5)
         class _B(_NoopFactor):
             pass
 
     # 测试后清理：避免污染后续测试
+    from quant_pipeline.factors.registry import _CLASS_DECLARATIONS
+
     _REGISTRY_CLASSES.pop(("dummy_test_only", "v1"), None)
     _REGISTRY_INSTANCES.pop(("dummy_test_only", "v1"), None)
     _meta_cache.pop(("dummy_test_only", "v1"), None)
+    _CLASS_DECLARATIONS.pop(("dummy_test_only", "v1"), None)
 
 
 def test_list_factors_filters() -> None:
@@ -109,7 +113,7 @@ def test_factor_init_raises_when_meta_missing() -> None:
 
     from quant_pipeline.factors.registry import _REGISTRY_CLASSES
 
-    @register(factor_id="meta_missing_probe", factor_version="v1")
+    @register(factor_id="meta_missing_probe", factor_version="v1", min_trade_days=3)
     class _Probe(_NoopFactor):
         pass
 
@@ -119,5 +123,8 @@ def test_factor_init_raises_when_meta_missing() -> None:
     assert ei.value.factor_id == "meta_missing_probe"
     assert ei.value.factor_version == "v1"
 
+    from quant_pipeline.factors.registry import _CLASS_DECLARATIONS
+
     _REGISTRY_CLASSES.pop(("meta_missing_probe", "v1"), None)
     _REGISTRY_INSTANCES.pop(("meta_missing_probe", "v1"), None)
+    _CLASS_DECLARATIONS.pop(("meta_missing_probe", "v1"), None)

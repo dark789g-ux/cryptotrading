@@ -17,7 +17,7 @@ from quant_pipeline.factors.registry import register
 _N = 60
 
 
-@register(factor_id="close_to_high_60d", factor_version="v1")
+@register(factor_id="close_to_high_60d", factor_version="v1", min_trade_days=60)
 class CloseToHigh60d(Factor):
     required_columns = ("close_adj",)
 
@@ -26,7 +26,7 @@ class CloseToHigh60d(Factor):
         if trade_date not in close.index:
             return pd.Series(dtype=float)
         close = close.loc[:trade_date]
-        if len(close) < _N:
+        if len(close) < self.min_trade_days:
             return pd.Series(dtype=float)
         window = close.tail(_N)
         high = window.max()
