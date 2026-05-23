@@ -1,5 +1,11 @@
 # 03 Python 后端:labels + features + 预查复用
 
+## 前置依赖确认
+
+- `labels/strategy_aware.py::filter_new_listing` **已支持** `min_days` / `entry_col` 两个 kwarg(实测 line 105 / 134 / 164),本 PR 直接复用,不修改其签名
+- `labels/strategy_aware.py::_validate_min_days`(本 PR 新增)与 `worker/train_e2e_runner.py::_validate_params` 校验范围一致(`0 <= x <= 250`)
+- fallback.py 当前**未引入** `filter_new_listing`,本 PR 从 strategy_aware 导入复用,不在 fallback 中复制函数体
+
 ## labels 层
 
 ### `labels/strategy_aware.py`
@@ -208,9 +214,10 @@ def resolve_feature_set_id(
 ```
 
 **与 DB 唯一索引的契约**:
-- 索引表达式:`md5(array_to_string(factor_ids, ','))`
-- builder 端排序:`sorted(factor_ids)` 后 `",".join(...)`
-- **必须保证**:DB 写入前 builder 也对 factor_ids 排序后写入,否则索引的 md5 与 builder 算的 md5 不一致 → 预查永远不命中
+- 索引表达式:`md5(array_to_string(factor_ids, ','))`(无显式 ORDER BY,故依赖**写入侧已排序**)
+- 排序责任:由 `features/runner.py::build_feature_matrix` 在 `_load_factor_ids` 之后 `tuple(sorted(...))` 排序,再调用 `resolve_feature_set_id` 与 `INSERT INTO factors.feature_sets`,保证写入的 `factor_ids` text[] 自然有序
+- builder 端 `build_feature_set_id` 内 `sorted(factor_ids)` 仅参与哈希计算,**不**负责 DB 写入侧的排序
+- **必须保证**:写入侧 = builder 哈希侧 = 预查 SQL 侧 三处对 factor_ids 的排序约定一致,否则预查永不命中
 
 ### `features/runner.py`
 
@@ -260,69 +267,8 @@ def build_feature_matrix(
 
 ## 单测覆盖
 
-`apps/quant-pipeline/tests/unit/` 下三个文件新增/修改:
+详见 [06-testing-and-acceptance.md](./06-testing-and-acceptance.md#labels--features-单测) 集中列出。覆盖点摘要:
 
-### `test_labels_strategy_aware.py`
-
-```python
-@pytest.mark.parametrize("min_days", [0, 30, 60, 90, 250])
-def test_strategy_aware_min_days_param(min_days, sample_inputs):
-    inputs = LabelInputs(**sample_inputs, new_listing_min_days=min_days)
-    df = compute_strategy_aware_labels(inputs)
-    # min_days=0 → 不过滤;min_days=250 → 几乎全过滤
-
-def test_strategy_aware_min_days_invalid():
-    for bad in [-1, 251, "60", 60.0]:
-        with pytest.raises(ValueError, match="new_listing_min_days"):
-            compute_strategy_aware_labels(LabelInputs(..., new_listing_min_days=bad))
-```
-
-### `test_labels_fallback.py`(D-1 缺口测试)
-
-```python
-def test_fwd_5d_ret_filters_new_listing(fixture_with_new_stock_in_first_60d):
-    df = compute_fwd_5d_ret(FallbackInputs(..., listing=listing_df,
-                                           new_listing_min_days=60))
-    assert not df["ts_code"].eq("301234.SZ").any()    # 新股已过滤
-
-def test_fwd_5d_ret_min_days_zero_skips_filter(...):
-    df = compute_fwd_5d_ret(FallbackInputs(..., listing=listing_df,
-                                           new_listing_min_days=0))
-    assert df["ts_code"].eq("301234.SZ").any()        # 新股保留
-```
-
-### `test_features_builder.py`
-
-```python
-def test_build_feature_set_id_stable_across_factor_id_order():
-    a = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=60,
-                              factor_ids=("f1","f2"))
-    b = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=60,
-                              factor_ids=("f2","f1"))
-    assert a == b
-
-def test_build_feature_set_id_differs_by_min_days():
-    a = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=30,
-                              factor_ids=("f1",))
-    b = build_feature_set_id("v1", "strategy-aware", new_listing_min_days=60,
-                              factor_ids=("f1",))
-    assert a != b
-
-def test_resolve_feature_set_id_reuses_old_id(pg_conn):
-    pg_conn.execute("""
-        INSERT INTO factors.feature_sets
-            (feature_set_id, factor_version, scheme, factor_ids, new_listing_min_days)
-        VALUES ('fs_legacy', 'v1', 'strategy-aware', ARRAY['f1'], 60)
-    """)
-    fsid, reused = resolve_feature_set_id(
-        pg_conn, factor_version="v1", label_scheme="strategy-aware",
-        new_listing_min_days=60, factor_ids=("f1",))
-    assert (fsid, reused) == ("fs_legacy", True)
-
-def test_resolve_feature_set_id_writes_new_when_no_match(pg_conn):
-    fsid, reused = resolve_feature_set_id(
-        pg_conn, factor_version="v1", label_scheme="strategy-aware",
-        new_listing_min_days=30, factor_ids=("f_new",))
-    assert reused is False
-    assert fsid.startswith("fs_")
-```
+- `test_labels_strategy_aware.py`:`min_days = 0 / 30 / 60 / 250` 边界 + 非法值(`-1` / `251` / `"60"` / `60.0`)抛 ValueError
+- `test_labels_fallback.py`(D-1 缺口):fwd_5d_ret + listing 过滤新股;`min_days=0` 不过滤
+- `test_features_builder.py`:factor_ids 顺序不影响哈希;`min_days` 变化产生不同 ID;`resolve_feature_set_id` 命中老行 / 写新行

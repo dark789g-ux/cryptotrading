@@ -4,15 +4,9 @@
 
 ### `apps/server/src/entities/ml/ml-job.entity.ts`
 
-```typescript
-export type MlJobRunType =
-  | 'noop' | 'sync' | 'quality' | 'factors' | 'labels' | 'features'
-  | 'train' | 'infer' | 'optuna' | 'seed_avg'
-  | 'train_e2e';   // ← 新增
+实体类改动详见 [02-db-schema.md](./02-db-schema.md#操作-c-实体层同步)(`MlJobRunType` 联合类型加 `'train_e2e'`、新增 `result_payload` 列)。
 
-@Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
-result_payload!: Record<string, unknown>;   // ← 新增列
-```
+**注意**:仓库当前**无** `apps/server/src/entities/factors/feature-set.entity.ts`(实测 `apps/server/src/entities/` 下无 factors 子目录)。本 PR **不新建该实体类**——`new_listing_min_days` 列以 raw SQL 写入 / 查询即可,jsonb-like 字段在 NestJS 侧无强类型映射需求。后续若引入 TypeORM 强映射,再单独新建。
 
 ### `apps/server/src/modules/quant/dto/create-job.dto.ts`
 
@@ -28,25 +22,9 @@ export const ALLOWED_RUN_TYPES = [
 
 **不在 NestJS 端做 params 字段校验** —— 保持与现有 `train` / `optuna` 一致(透传 jsonb)。新增 run_type 不引入 DTO 分支负担。
 
-### NestJS 单测 `dto/__tests__/create-job.dto.spec.ts`
+### NestJS 单测
 
-```typescript
-it('accepts train_e2e run_type', () => {
-  expect(validateCreateJob({
-    run_type: 'train_e2e',
-    params: {
-      factor_version: 'v1', label_scheme: 'strategy-aware',
-      new_listing_min_days: 60, date_range: '20240601:20240630',
-      model: 'lgb-lambdarank', walk_forward: true, seed: 42,
-    },
-  })).toEqual(expect.any(Object));
-});
-
-it('rejects unknown run_type', () => {
-  expect(() => validateCreateJob({ run_type: 'train_e2e_extra', params: {} }))
-    .toThrow(/run_type/);
-});
-```
+详见 [06-testing-and-acceptance.md](./06-testing-and-acceptance.md#nestjs-单测) 集中列出。
 
 ## 前端类型层
 
@@ -63,79 +41,43 @@ export type JobRunType =
 
 ### 新文件 `apps/web/src/components/quant/train-modal/TrainE2EFields.vue`
 
-职责:仅渲染端到端模式的表单字段块。父组件通过 `v-model` 透传所有字段。
+职责:仅渲染端到端模式的表单字段块。父组件通过 `v-model:modelValue` 透传 `E2EFormModel` 对象。
 
-```vue
-<template>
-  <n-form-item label="factor_version" required>
-    <n-input v-model:value="model.factor_version"
-             placeholder="如 v1(纯文本,无下拉,D-10)" />
-  </n-form-item>
-  <n-form-item label="label_scheme" required>
-    <n-select v-model:value="model.label_scheme" :options="schemeOptions" />
-  </n-form-item>
-  <n-form-item label="new_listing_min_days">
-    <n-input-number v-model:value="model.new_listing_min_days"
-                    :min="0" :max="250" clearable :placeholder="60" />
-  </n-form-item>
-  <n-form-item label="date_range" required>
-    <n-date-picker v-model:value="model.date_range"
-                   type="daterange"
-                   :default-value="defaultRange" />
-  </n-form-item>
-  <n-divider />
-  <n-form-item label="模型" required>
-    <n-select v-model:value="model.model" :options="modelOptions" />
-  </n-form-item>
-  <n-form-item label="walk_forward">
-    <n-switch v-model:value="model.walk_forward" />
-  </n-form-item>
-  <n-form-item label="seed">
-    <n-input-number v-model:value="model.seed" clearable :placeholder="42" />
-  </n-form-item>
-</template>
+**Props 接口**:
 
-<script setup lang="ts">
-import { computed } from 'vue';
-import { NFormItem, NInput, NInputNumber, NSelect,
-         NDatePicker, NDivider, NSwitch, type SelectOption } from 'naive-ui';
-
+```typescript
 export interface E2EFormModel {
   factor_version: string;
   label_scheme: 'strategy-aware' | 'fwd_5d_ret';
-  new_listing_min_days: number | null;
-  date_range: [number, number] | null;       // 本地午夜 ms
+  new_listing_min_days: number | null;        // null = 走后端默认 60
+  date_range: [number, number] | null;        // 本地午夜 ms,符合 CLAUDE.md
   model: 'lgb-lambdarank' | 'linear' | 'gbdt';
   walk_forward: boolean;
   seed: number | null;
 }
+```
 
-const props = defineProps<{ modelValue: E2EFormModel }>();
-const emit = defineEmits<{ 'update:modelValue': [v: E2EFormModel] }>();
+**字段渲染清单**(每一行 = 一个 `n-form-item`,从上到下):
 
-const model = computed({
-  get: () => props.modelValue,
-  set: (v) => emit('update:modelValue', v),
-});
+| 字段 | 控件 | 校验 / 默认 |
+|---|---|---|
+| `factor_version` | `n-input` | required;placeholder `"如 v1(纯文本,无下拉,D-10)"` |
+| `label_scheme` | `n-select` | required;options `[strategy-aware, fwd_5d_ret]` |
+| `new_listing_min_days` | `n-input-number` | `min=0 max=250 clearable`;placeholder `60` |
+| `date_range` | `n-date-picker type="daterange"` | required;`:default-value` 取近 30 天 |
+| ─── 分隔 ─── | `n-divider` | |
+| `model` | `n-select` | required;options `[lgb-lambdarank, linear, gbdt]` |
+| `walk_forward` | `n-switch` | |
+| `seed` | `n-input-number` | `clearable`;placeholder `42` |
 
-const schemeOptions: SelectOption[] = [
-  { label: 'strategy-aware(策略感知)', value: 'strategy-aware' },
-  { label: 'fwd_5d_ret(5 日远期收益,兜底)', value: 'fwd_5d_ret' },
-];
-const modelOptions: SelectOption[] = [
-  { label: 'lgb-lambdarank', value: 'lgb-lambdarank' },
-  { label: 'linear', value: 'linear' },
-  { label: 'gbdt', value: 'gbdt' },
-];
+**`defaultRange` computed 实现**(本地午夜口径,符合 CLAUDE.md 硬约束):
 
+```typescript
 const defaultRange = computed<[number, number]>(() => {
-  // CLAUDE.md 硬约束:n-date-picker 本地午夜口径,禁 getUTC*
   const now = new Date();
   const end = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const start = end - 30 * 86400_000;
-  return [start, end];
+  return [end - 30 * 86400_000, end];
 });
-</script>
 ```
 
 **文件估行**:80-100 行,远低于 500 上限。

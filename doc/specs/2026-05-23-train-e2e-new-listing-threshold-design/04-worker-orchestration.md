@@ -84,8 +84,8 @@ class ValidatedParams:
     robust_z: bool | None                     # None 走 builder default
 
 
-class _StepError(Exception):
-    """内部包装,带 step 名,顶层捕获重写 error_text 首行。"""
+class StepError(Exception):
+    """带 step 名的包装异常,顶层捕获重写 error_text 首行。公开类(无下划线前缀),允许 dispatcher 直接 import。"""
     def __init__(self, step: str, original: BaseException):
         super().__init__(f"[step:{step}] {original}")
         self.step = step
@@ -133,75 +133,25 @@ def _validate_params(params: dict[str, Any]) -> ValidatedParams:
 
 ### 三步执行 + 顶层编排
 
+三个 `_step_labels` / `_step_features` / `_step_train` 私有函数**共享同一模式**:
+
+1. `logger.info("train_e2e[%s] step=<name> start ...")`
+2. `try: <子 runner>(... progress_callback=make_scaled_callback(cb, lo, hi))`
+3. `except JobCancelled: raise`
+4. `except Exception as e: raise StepError("<name>", e) from e`
+5. `logger.info("train_e2e[%s] step=<name> done ...")`
+
+差异点(其它代码完全一致):
+
+| step | 子 runner | (lo, hi) | 入参关键字段 | 返回 |
+|---|---|---|---|---|
+| labels | `compute_labels` | (0, 30) | `scheme, date_range, new_listing_min_days` | None |
+| features | `build_feature_matrix` | (30, 60) | `factor_version, label_scheme, date_range, new_listing_min_days` | `bundle.feature_set_id: str` |
+| train | `train_model` | (60, 100) | `feature_set_id, model, walk_forward, seed, extra_hyperparams={factor_version, label_scheme, new_listing_min_days}` | `result: dict` |
+
+顶层 `run_train_e2e` 编排:
+
 ```python
-def _step_labels(p: ValidatedParams, job_id: UUID, cb: ProgressCallback) -> None:
-    logger.info("train_e2e[%s] step=labels start scheme=%s min_days=%d range=%s",
-                job_id, p.label_scheme, p.new_listing_min_days, p.date_range)
-    try:
-        compute_labels(
-            scheme=p.label_scheme,
-            date_range=p.date_range,
-            new_listing_min_days=p.new_listing_min_days,
-            job_id=job_id,
-            progress_callback=make_scaled_callback(cb, 0, 30),
-        )
-    except JobCancelled:
-        raise
-    except Exception as e:
-        raise _StepError("labels", e) from e
-    logger.info("train_e2e[%s] step=labels done", job_id)
-
-
-def _step_features(p: ValidatedParams, job_id: UUID, cb: ProgressCallback) -> str:
-    logger.info("train_e2e[%s] step=features start factor_version=%s",
-                job_id, p.factor_version)
-    try:
-        bundle = build_feature_matrix(
-            factor_version=p.factor_version,
-            label_scheme=p.label_scheme,
-            date_range=p.date_range,
-            new_listing_min_days=p.new_listing_min_days,
-            job_id=job_id,
-            progress_callback=make_scaled_callback(cb, 30, 60),
-        )
-        feature_set_id = bundle.feature_set_id
-    except JobCancelled:
-        raise
-    except Exception as e:
-        raise _StepError("features", e) from e
-    logger.info("train_e2e[%s] step=features done feature_set_id=%s",
-                job_id, feature_set_id)
-    return feature_set_id
-
-
-def _step_train(p: ValidatedParams, job_id: UUID, feature_set_id: str,
-                cb: ProgressCallback) -> dict[str, Any]:
-    logger.info("train_e2e[%s] step=train start feature_set_id=%s model=%s",
-                job_id, feature_set_id, p.model)
-    extra_hyperparams = {
-        "factor_version": p.factor_version,
-        "label_scheme": p.label_scheme,
-        "new_listing_min_days": p.new_listing_min_days,
-    }
-    try:
-        result = train_model(
-            feature_set_id=feature_set_id,
-            model=p.model,
-            walk_forward=p.walk_forward,
-            seed=p.seed,
-            extra_hyperparams=extra_hyperparams,   # D-23
-            job_id=job_id,
-            progress_callback=make_scaled_callback(cb, 60, 100),
-        )
-    except JobCancelled:
-        raise
-    except Exception as e:
-        raise _StepError("train", e) from e
-    logger.info("train_e2e[%s] step=train done model_version=%s",
-                job_id, result.get("model_version"))
-    return result
-
-
 def run_train_e2e(job_id: UUID, params: dict[str, Any],
                   progress_callback: ProgressCallback) -> dict[str, Any]:
     p = _validate_params(params)
@@ -253,7 +203,7 @@ def train_model(
 
 ```python
 import traceback, json
-from quant_pipeline.worker.train_e2e_runner import run_train_e2e, _StepError
+from quant_pipeline.worker.train_e2e_runner import run_train_e2e, StepError
 
 _ROUTES: dict[str, Callable[..., Any]] = {
     "noop": _runner_noop,
@@ -268,7 +218,7 @@ def _runner_train_e2e(job) -> None:
     progress_cb = _make_progress_callback(job.id)
     try:
         result = run_train_e2e(job.id, job.params, progress_cb)
-    except _StepError as se:
+    except StepError as se:
         full_tb = "".join(traceback.format_exception(
             type(se.original), se.original, se.original.__traceback__))
         _update_job_error(job.id, f"[step:{se.step}] {full_tb}")
@@ -302,35 +252,16 @@ def _update_job_error(job_id: UUID, error_text: str) -> None:
 - 不在 `_runner_train_e2e` 写 `status='failed'`,由 dispatcher 顶层统一处理
 - `result_payload` 仅在成功时写;失败时保持空 `{}`
 
-## CLI(可选)
+## CLI(在范围内,可选实现优先级低)
 
-`apps/quant-pipeline/src/quant_pipeline/cli.py` 顶层加 `train-e2e` 子命令:
+`apps/quant-pipeline/src/quant_pipeline/cli.py` 顶层加 `train-e2e` 子命令,接收与 worker `_validate_params` 一致的 7 个参数(`factor_version` / `label_scheme` / `new_listing_min_days` / `date_range` / `model` / `walk_forward` / `seed`),内部直接调用 `run_train_e2e(uuid4(), params, stdout_cb)`。用途:CI 集成测试或排查 worker 编排 bug 时绕过 ml.jobs 表。**实现优先级低**,若 PR 周期紧可放到后续 PR。
 
-```python
-@app.command("train-e2e")
-def cli_train_e2e(
-    factor_version: str = typer.Option(...),
-    label_scheme: str = typer.Option(...),
-    new_listing_min_days: int = typer.Option(60),
-    date_range: str = typer.Option(...),
-    model: str = typer.Option("lgb-lambdarank"),
-    walk_forward: bool = typer.Option(True),
-    seed: int = typer.Option(42),
-) -> None:
-    """本地跑端到端流水线(不走 worker)。"""
-    params = dict(factor_version=factor_version, label_scheme=label_scheme,
-                  new_listing_min_days=new_listing_min_days, date_range=date_range,
-                  model=model, walk_forward=walk_forward, seed=seed)
-    fake_job_id = uuid4()
+调用示例:
 
-    def stdout_cb(pct: int, msg: str) -> None:
-        typer.echo(f"[{pct:3d}%] {msg}")
-
-    result = run_train_e2e(fake_job_id, params, stdout_cb)
-    typer.echo(f"DONE: {result}")
+```powershell
+uv run quant train-e2e --factor-version v1 --label-scheme strategy-aware `
+  --new-listing-min-days 30 --date-range 20240601:20240630 --model lgb-lambdarank
 ```
-
-**用途**:CI 集成测试 / 排查 worker 编排 bug 时绕过 ml.jobs 表。
 
 ## 单测覆盖
 
@@ -342,7 +273,8 @@ def cli_train_e2e(
 |---|---|---|
 | `min_days=0` 被误判 falsy | `_validate_params` | 显式 `isinstance(int) and 0 <= x <= 250`,不用 `if min_days:` |
 | 进度跨子 runner 浮点漂移 | `make_scaled_callback` | 整除 `// 100` 锁定 |
-| dispatcher 异常未带 step 名 | `_runner_train_e2e` | `_StepError` 包装一律带 `[step:<name>]` 前缀 |
+| dispatcher 异常未带 step 名 | `_runner_train_e2e` | `StepError`(公开类,非 `StepError`)包装一律带 `[step:<name>]` 前缀 |
 | 长任务期间用户取消未响应 | `_step_*` 入口前 | `check_cancel_requested(job_id)` |
 | `train_model` 没 `extra_hyperparams` 入口 | `training/runner.py` | D-23 显式加 kwarg |
 | `_update_job_error` 函数不存在 | dispatcher.py | 本 PR 内顺手加(15 行) |
+| `new_listing_min_days` None 语义跨入口不对称 | runner.py 接受 None 兜底 60 / worker 拒绝 None | **train_e2e 入口要求必填 int**(前端 `?? 60` 保证);labels 独立 run_type CLI 入口允许 None(老兼容) |

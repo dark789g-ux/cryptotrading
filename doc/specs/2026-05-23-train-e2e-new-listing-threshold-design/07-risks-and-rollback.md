@@ -2,7 +2,7 @@
 
 ## 风险登记
 
-### R-1 ⚠️ feature_set_id 哈希契约升级 → 历史推理路径
+### R-1 feature_set_id 哈希契约升级 → 历史推理路径
 
 **风险**:历史 `ml.model_runs` 行的 `feature_set_id` 是按老哈希算法算的(不含 `new_listing_min_days` / `factor_ids`)。改造后,如果对老模型做推理,推理 pipeline 用模型行里的 `feature_set_id` 反查 `factors.feature_sets`,然后用反查到的配置(含回填的 `new_listing_min_days=60`)重算当天特征。问题:
 
@@ -18,7 +18,7 @@
 
 **严重度**:中 —— 若线上无 fwd_5d_ret 模型在推理,实际无影响。
 
-### R-2 ⚠️ `neutralize_cols / robust_z` 假设破坏
+### R-2 `neutralize_cols / robust_z` 假设破坏
 
 **风险**:D-17 假设所有 feature_sets 行用的 `neutralize_cols=['industry_l1','mv'] + robust_z=true` 默认值。如果历史有异值:
 

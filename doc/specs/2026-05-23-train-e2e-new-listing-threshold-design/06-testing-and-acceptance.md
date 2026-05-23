@@ -1,165 +1,35 @@
 # 06 测试矩阵 + 验收命令 + 手工 e2e
 
-## 单测覆盖矩阵
+## 单测覆盖矩阵(Python,`apps/quant-pipeline/tests/unit/`)
 
-### Python(`apps/quant-pipeline/tests/unit/`)
-
-| 文件 | 新增 / 修改 case |
+| 文件 | 新增 / 修改的 case 与不变量 |
 |---|---|
-| `test_labels_strategy_aware.py` | `min_days = 0 / 30 / 60 / 90 / 250` 边界 case;非法值(-1 / 251 / "60" / 60.0)抛 ValueError |
-| `test_labels_fallback.py`(D-1 缺口) | fwd_5d_ret + listing 过滤新股;min_days=0 不过滤 |
-| `test_features_builder.py` | factor_ids 顺序不影响哈希;min_days 变化产生不同 ID;`resolve_feature_set_id` 命中老行 / 写新行 |
-| `test_progress.py` | `make_scaled_callback` 三个 case:正常窗口缩放、超界 clamp、无效窗口抛 ValueError |
-| `test_train_e2e_runner.py`(新) | params 校验 8 个非法 case;三步顺序;cancel 在 step 边界抛出;`_StepError` 包裹原异常 |
+| `test_labels_strategy_aware.py` | (1) `min_days = 0 / 30 / 60 / 90 / 250` 边界 case;(2) 非法值 `-1 / 251 / "60" / 60.0` 抛 `ValueError`;(3) `min_days=0` → 无过滤;`min_days=250` → 几乎全过滤 |
+| `test_labels_fallback.py`(D-1 缺口) | (1) fwd_5d_ret + listing → 上市 < 60 日的新股被过滤;(2) `min_days=0` 跳过 filter_new_listing;(3) listing=None 时向后兼容(不过滤) |
+| `test_features_builder.py` | (1) `build_feature_set_id` 对 factor_ids 顺序不敏感(`("f1","f2")` 与 `("f2","f1")` 等价);(2) `new_listing_min_days` 不同 → 不同 ID;(3) `resolve_feature_set_id` 命中预先 INSERT 的老行(返回 `(fs_legacy, True)`);(4) 无命中时返回 `(new_id, False)` |
+| `test_progress.py` | (1) `make_scaled_callback` 正常窗口缩放(`pct=0/50/100` → `lo/中点/hi`);(2) 超界 clamp(`-10 → lo`、`150 → hi`);(3) 无效窗口 `hi < lo` 抛 `ValueError` |
+| `test_train_e2e_runner.py`(新建) | (1) `_validate_params` 8 个非法 case(缺字段 / 越界 / 类型错);(2) 三个 step 顺序调用(mock 三个子 runner);(3) `check_cancel_requested` 在第二次抛 `JobCancelled` 时,后续 step 不再执行;(4) 子 runner 抛 `RuntimeError` 被包装为 `StepError(step='features', ...)`;(5) 进度回调值始终 ∈ `[0, 100]` |
 
-### Python 集成测(`apps/quant-pipeline/tests/integration/`,若存在)
+## 集成测覆盖矩阵(Python,`apps/quant-pipeline/tests/integration/`,若存在)
 
-```python
-def test_train_e2e_end_to_end_small_window(pg_conn, fixture_small_universe):
-    """跑 7 个交易日的小窗口端到端,verify 三张表都写入。"""
-    fake_job_id = uuid4()
-    params = dict(factor_version="v1", label_scheme="strategy-aware",
-                  new_listing_min_days=30, date_range="20240601:20240607",
-                  model="lgb-lambdarank", walk_forward=False, seed=42)
-    result = run_train_e2e(fake_job_id, params, lambda p,m: None)
+| case | 验证点 |
+|---|---|
+| `test_train_e2e_end_to_end_small_window` | 跑 7 个交易日的小窗口端到端,断言:(1) `result["feature_set_id"]` 形如 `fs_*`;(2) `factors.labels` 在窗口期 COUNT > 0;(3) `factors.feature_matrix` WHERE feature_set_id 命中 COUNT > 0;(4) `ml.model_runs` WHERE feature_set_id 命中 COUNT == 1 |
+| `test_train_e2e_min_days_change_produces_different_feature_set` | 同 `factor_version+scheme`,`min_days=30` 与 `min_days=60` 两次跑产出**不同** `feature_set_id` |
+| `test_train_e2e_reuse_via_resolve` | 同参数跑两次,第二次 `factors.feature_sets` **不增加行**,feature_set_id 与第一次相同(D-16 验证) |
 
-    assert result["feature_set_id"].startswith("fs_")
-
-    # factors.labels 有行
-    n_labels = pg_conn.execute(
-        "SELECT COUNT(*) FROM factors.labels WHERE scheme='strategy-aware' "
-        "AND trade_date BETWEEN '20240601' AND '20240607'"
-    ).scalar()
-    assert n_labels > 0
-
-    # factors.feature_matrix 有行
-    n_matrix = pg_conn.execute(
-        "SELECT COUNT(*) FROM factors.feature_matrix "
-        "WHERE feature_set_id = :fsid",
-        dict(fsid=result["feature_set_id"])
-    ).scalar()
-    assert n_matrix > 0
-
-    # ml.model_runs 有行
-    n_runs = pg_conn.execute(
-        "SELECT COUNT(*) FROM ml.model_runs WHERE feature_set_id = :fsid",
-        dict(fsid=result["feature_set_id"])
-    ).scalar()
-    assert n_runs == 1
-
-
-def test_train_e2e_min_days_change_produces_different_feature_set(pg_conn):
-    """同 factor_version+scheme,min_days 不同 → 两个 feature_set_id。"""
-    p_30 = dict(..., new_listing_min_days=30)
-    p_60 = dict(..., new_listing_min_days=60)
-    r_30 = run_train_e2e(uuid4(), p_30, lambda p,m: None)
-    r_60 = run_train_e2e(uuid4(), p_60, lambda p,m: None)
-    assert r_30["feature_set_id"] != r_60["feature_set_id"]
-```
-
-### Worker 编排单测(`test_train_e2e_runner.py`)
-
-```python
-def test_validate_params_happy(): ...
-
-@pytest.mark.parametrize("params,err_match", [
-    ({}, "factor_version"),
-    ({"factor_version":"v1"}, "label_scheme"),
-    ({"factor_version":"v1","label_scheme":"unknown"}, "label_scheme"),
-    ({"new_listing_min_days": -1}, "new_listing_min_days"),
-    ({"new_listing_min_days": 251}, "new_listing_min_days"),
-    ({"date_range":"2024-01-01:2024-12-31"}, "date_range"),
-    ({"date_range":"20240601:20240501"}, "start <= end"),
-    ({"model":"xgboost"}, "model"),
-])
-def test_validate_params_invalid(params, err_match):
-    with pytest.raises(ValueError, match=err_match):
-        _validate_params(_complete(params))
-
-
-def test_run_train_e2e_calls_three_steps_in_order(mocker):
-    mocker.patch("...compute_labels")
-    mock_features = mocker.patch("...build_feature_matrix")
-    mock_features.return_value = SimpleNamespace(feature_set_id="fs_abc",
-                                                  factor_ids=(), matrix=None)
-    mock_train = mocker.patch("...train_model",
-                              return_value={"model_version": "mv_xxx"})
-
-    cb_calls = []
-    result = run_train_e2e(uuid4(), _happy_params(),
-                           lambda p,m: cb_calls.append((p,m)))
-
-    assert result["feature_set_id"] == "fs_abc"
-    assert result["model_version"] == "mv_xxx"
-    pcts = [p for p,_ in cb_calls]
-    assert min(pcts) >= 0 and max(pcts) <= 100
-
-
-def test_run_train_e2e_cancels_at_step_boundary(mocker):
-    mocker.patch("...compute_labels")
-    mocker.patch("...check_cancel_requested",
-                 side_effect=[None, JobCancelled("user cancel"), None])
-    with pytest.raises(JobCancelled):
-        run_train_e2e(uuid4(), _happy_params(), lambda p,m: None)
-
-
-def test_run_train_e2e_wraps_step_error(mocker):
-    mocker.patch("...compute_labels")
-    mocker.patch("...build_feature_matrix", side_effect=RuntimeError("kaboom"))
-    with pytest.raises(_StepError) as exc:
-        run_train_e2e(uuid4(), _happy_params(), lambda p,m: None)
-    assert exc.value.step == "features"
-    assert "kaboom" in str(exc.value)
-```
-
-### NestJS 单测
+## 单测覆盖矩阵(NestJS,`apps/server/src/.../dto/__tests__/`)
 
 | 文件 | case |
 |---|---|
-| `create-job.dto.spec.ts` | 接受 `run_type='train_e2e'` + 完整 params;拒绝未知 run_type |
+| `create-job.dto.spec.ts` | (1) 接受 `run_type='train_e2e'` + 完整 params;(2) 拒绝未知 run_type(如 `'train_e2e_extra'`);(3) `result_payload` 列在实体上读写正常 |
 
-### 前端 vitest(`QuantTrainTriggerModal.spec.ts`)
+## 单测覆盖矩阵(前端,`apps/web/src/components/quant/__tests__/`)
 
-```typescript
-describe('train_e2e mode', () => {
-  it('renders e2e fields by default when run_type=train', async () => {
-    const wrapper = mount(QuantTrainTriggerModal, { props: { show: true } });
-    await selectRunType(wrapper, 'train');
-    expect(wrapper.findComponent(TrainE2EFields).exists()).toBe(true);
-  });
-
-  it('switches to existing-feature_set mode', async () => {
-    const wrapper = mount(...);
-    await wrapper.find('[data-test="mode-switch"]').trigger('click');
-    expect(wrapper.findComponent(TrainE2EFields).exists()).toBe(false);
-  });
-
-  it('disables submit when factor_version is empty', async () => {
-    const wrapper = mount(...);
-    await selectE2EFields(wrapper, { factor_version: '' });
-    expect(wrapper.find('[data-test="submit"]').attributes('disabled')).toBeDefined();
-  });
-
-  it('buildParams produces train_e2e payload', async () => {
-    const wrapper = mount(...);
-    await fillE2EHappyPath(wrapper);
-    expect(capturedRequest).toMatchObject({
-      run_type: 'train_e2e',
-      params: { factor_version: 'v1', label_scheme: 'strategy-aware',
-                new_listing_min_days: 60, date_range: '20240601:20240630',
-                model: 'lgb-lambdarank' },
-    });
-  });
-
-  it('date range uses local midnight not UTC', () => {
-    vi.setSystemTime(new Date(2026, 4, 9, 23, 59));
-    const range: [number, number] = [
-      new Date(2026, 4, 9).getTime(), new Date(2026, 4, 11).getTime()
-    ];
-    expect(formatDateRange(range)).toBe('20260509:20260511');
-  });
-});
-```
+| 文件 | case |
+|---|---|
+| `QuantTrainTriggerModal.spec.ts` | (1) `run_type='train'` 时默认显示 `TrainE2EFields`;(2) mode switch 切到"使用现有 feature_set"后 `TrainE2EFields` 隐藏;(3) `factor_version` 空时提交按钮 disabled;(4) `buildParams` 输出 `run_type='train_e2e'` + 完整 params 结构;(5) `formatDateRange` 用本地午夜,固定 TZ=Asia/Shanghai + `new Date(2026, 4, 9)` 输出 `20260509`(不漂前/后) |
+| `TrainE2EFields.spec.ts`(可选) | 子组件 props/emits 双向绑定;不再单独验证 select / input 内部逻辑(naive-ui 自身职责) |
 
 ## 验收命令(全部 0 退出才能交付)
 
@@ -250,3 +120,4 @@ PR 描述里逐行确认 24 个决策:
 - `optuna` / `seed_avg` 仍需手动指定 `feature_set_id`,不能直接接 e2e 输出 —— **后续 spec 改进**
 - migration CHECK 没修复 `monitor` 既有 bug —— **后续单独 PR**(D-15 边界)
 - `GET /api/quant/factor-versions` 接口未实现,factor_version 纯文本 —— **后续可选优化**(D-10)
+- CLI `train-e2e` 子命令实现优先级低 —— PR 周期紧时可拆到后续 PR
