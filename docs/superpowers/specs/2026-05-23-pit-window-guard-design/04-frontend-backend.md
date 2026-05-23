@@ -90,6 +90,24 @@ export class FactorDefinition {
 - `GET /api/quant/factors`（列表）同步暴露
 - `apps/web/src/api/modules/quant.ts` 的 `FactorDefinition` interface 加 `min_trade_days: number`
 
+### 4.1.5 GET 接口暴露 jobs.warnings（job 结束后历史回看）
+
+SSE 仅在 job 运行期推送 `warnings_summary`（聚合计数）。job 结束 / SSE 断开后，前端需从 GET 拉全量 warnings 详情：
+
+- `GET /api/quant/jobs/:id` 响应 DTO 加 `warnings: WarningItem[]`
+  ```typescript
+  interface WarningItem {
+    type: 'factor_window_short' | 'factor_window_retry_failed' | 'trade_cal_not_synced';
+    ts: string;          // ISO UTC
+    factor_id: string;
+    factor_version?: string;
+    trade_date?: string;
+    detail?: Record<string, unknown>;
+  }
+  ```
+- 前端 `QuantJobs` 详情页 `onMounted` 拉一次完整 warnings；运行中再叠加 SSE 增量更新 summary
+- 列表接口 `GET /api/quant/jobs` 可暴露 `warnings_count: number`（仅总数，不暴露明细），便于在列表页打小红点
+
 ## 4.2 前端 FactorEditModal 实时校验
 
 `apps/web/src/components/quant/FactorEditModal.vue`。

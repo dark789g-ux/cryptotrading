@@ -15,6 +15,8 @@ ALTER TABLE factors.factor_definitions
   CHECK (min_trade_days BETWEEN 1 AND 250);
 
 -- 2. 回填 16 个现有因子的 min_trade_days（值来源见 2.5 节）
+--    注意：这里的 factor_id 必须与 Python @register 装饰器声明完全一致，
+--    曾踩坑：文件名 industry_neutral_momentum.py 但 factor_id="momentum_20d_neu"。
 UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'momentum_20d';
 UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'volatility_20d';
 UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'volume_ratio_20d';
@@ -22,18 +24,36 @@ UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'ami
 UPDATE factors.factor_definitions SET min_trade_days = 20 WHERE factor_id = 'ma_ratio_20d';
 UPDATE factors.factor_definitions SET min_trade_days = 20 WHERE factor_id = 'turnover_mean_20d';
 UPDATE factors.factor_definitions SET min_trade_days = 20 WHERE factor_id = 'bollinger_position_20d';
-UPDATE factors.factor_definitions SET min_trade_days = 14 WHERE factor_id = 'rsi_14';
+UPDATE factors.factor_definitions SET min_trade_days = 15 WHERE factor_id = 'rsi_14';
 UPDATE factors.factor_definitions SET min_trade_days = 61 WHERE factor_id = 'momentum_60d';
 UPDATE factors.factor_definitions SET min_trade_days = 60 WHERE factor_id = 'close_to_high_60d';
 UPDATE factors.factor_definitions SET min_trade_days = 60 WHERE factor_id = 'price_max_drawdown_60d';
 UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'industry_momentum_20d';
-UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'industry_neutral_momentum';
-UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'industry_rank_in_sector';
+UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'momentum_20d_neu';                  -- 类: IndustryNeutralMomentum
+UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'industry_rank_in_sector_mom20';    -- 类: IndustryRankInSector
 UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'industry_relative_strength';
 UPDATE factors.factor_definitions SET min_trade_days = 1  WHERE factor_id = 'sector_volume_concentration';
 
+-- 校验：上面 16 条 UPDATE 必须各命中 1 行，否则 factor_id 拼错
+DO $$
+DECLARE expected INTEGER := 16;
+DECLARE actual INTEGER;
+BEGIN
+  SELECT COUNT(*) INTO actual FROM factors.factor_definitions WHERE min_trade_days > 1
+    OR factor_id = 'sector_volume_concentration';
+  IF actual < expected THEN
+    RAISE EXCEPTION 'min_trade_days 回填覆盖不足: 期望 %, 实际 %（factor_id 可能拼错）', expected, actual;
+  END IF;
+END $$;
+
 -- 3. 落跨字段约束前，先把 pit_window_days 不足的行抬高到 min_trade_days × 2
 --    （CLAUDE.md 反静默吞错：抬高时记 NOTICE）
+--
+--    ⚠ 副作用提示：本次 UPDATE 可能把现有 pit_window_days 抬高最多 2 倍
+--    （如 momentum_20d 现状 32 → 42），运行前先 SELECT 看影响行数：
+--      SELECT factor_id, pit_window_days AS old, min_trade_days * 2 AS new
+--        FROM factors.factor_definitions
+--        WHERE pit_window_days < min_trade_days * 2;
 DO $$
 DECLARE r record;
 BEGIN
@@ -179,29 +199,33 @@ def load_from_db(session: Session) -> None:
 
 ### 价格类（11 个）
 
-| factor_id | 源文件硬检查 | min_trade_days |
-|---|---|---|
-| `momentum_20d` | `price/momentum_20d.py:32` `if len(close) < 21` | **21** |
-| `volatility_20d` | `price/volatility_20d.py:29` `if len(close) < 21` | **21** |
-| `volume_ratio_20d` | `price/volume_ratio_20d.py:27` `if len(vol) < 21` | **21** |
-| `amihud_illiq_20d` | `price/amihud_illiq_20d.py:37` `if len(close) < 21` | **21** |
-| `ma_ratio_20d` | `price/ma_ratio_20d.py:26` `if len(close) < 20` | **20** |
-| `turnover_mean_20d` | `price/turnover_mean_20d.py:27` `if len(tr) < 20` | **20** |
-| `bollinger_position_20d` | `price/bollinger_position_20d.py:22,34` `_N=20; if len(close) < _N` | **20** |
-| `rsi_14` | `price/rsi_14.py:29,47` `_N=14; ewm(min_periods=_N)` | **14** |
-| `momentum_60d` | `price/momentum_60d.py:28` `if len(close) < 61` | **61** |
-| `close_to_high_60d` | `price/close_to_high_60d.py:17,29` `_N=60; if len(close) < _N` | **60** |
-| `price_max_drawdown_60d` | `price/price_max_drawdown_60d.py:18,30` `_N=60; if len(close) < _N` | **60** |
+| 类名 / 文件 | DB factor_id | 源文件硬检查 | min_trade_days |
+|---|---|---|---|
+| Momentum20d / `price/momentum_20d.py` | `momentum_20d` | `:32` `if len(close) < 21` | **21** |
+| Volatility20d / `price/volatility_20d.py` | `volatility_20d` | `:29` `if len(close) < 21` | **21** |
+| VolumeRatio20d / `price/volume_ratio_20d.py` | `volume_ratio_20d` | `:27` `if len(vol) < 21` | **21** |
+| AmihudIlliq20d / `price/amihud_illiq_20d.py` | `amihud_illiq_20d` | `:37` `if len(close) < 21` | **21** |
+| MaRatio20d / `price/ma_ratio_20d.py` | `ma_ratio_20d` | `:26` `if len(close) < 20` | **20** |
+| TurnoverMean20d / `price/turnover_mean_20d.py` | `turnover_mean_20d` | `:27` `if len(tr) < 20` | **20** |
+| BollingerPosition20d / `price/bollinger_position_20d.py` | `bollinger_position_20d` | `:22,34` `_N=20; if len(close) < _N` | **20** |
+| Rsi14 / `price/rsi_14.py` | `rsi_14` | `:29,41` `_N=14; if len(close) < _N + 1` | **15** |
+| Momentum60d / `price/momentum_60d.py` | `momentum_60d` | `:28` `if len(close) < 61` | **61** |
+| CloseToHigh60d / `price/close_to_high_60d.py` | `close_to_high_60d` | `:17,29` `_N=60; if len(close) < _N` | **60** |
+| PriceMaxDrawdown60d / `price/price_max_drawdown_60d.py` | `price_max_drawdown_60d` | `:18,30` `_N=60; if len(close) < _N` | **60** |
+
+> **rsi_14 = 15 而非 14**：源码硬检查是 `len(close) < _N + 1`（rsi_14.py:41），其中 `_N=14` 是 RSI 窗口常量；多出的 1 是 `close.diff()` 消耗的首日观测。
 
 ### 行业类（5 个）
 
-| factor_id | 源文件硬检查 | min_trade_days |
-|---|---|---|
-| `industry_momentum_20d` | `industry/industry_momentum_20d.py:37` `if len(close) < 21` | **21** |
-| `industry_neutral_momentum` | `industry/industry_neutral_momentum.py:31` `if len(close) < 21` | **21** |
-| `industry_rank_in_sector` | `industry/industry_rank_in_sector.py:31` `if len(close) < 21` | **21** |
-| `industry_relative_strength` | `industry/industry_relative_strength.py:29` `if len(close) < 21` | **21** |
-| `sector_volume_concentration` | `industry/sector_volume_concentration.py` 仅用 T 日 | **1** |
+| 类名 / 文件 | DB factor_id | 源文件硬检查 | min_trade_days |
+|---|---|---|---|
+| IndustryMomentum20d / `industry/industry_momentum_20d.py` | `industry_momentum_20d` | `:37` `if len(close) < 21` | **21** |
+| IndustryNeutralMomentum / `industry/industry_neutral_momentum.py` | `momentum_20d_neu` | `:31` `if len(close) < 21` | **21** |
+| IndustryRankInSector / `industry/industry_rank_in_sector.py` | `industry_rank_in_sector_mom20` | `:31` `if len(close) < 21` | **21** |
+| IndustryRelativeStrength / `industry/industry_relative_strength.py` | `industry_relative_strength` | `:29` `if len(close) < 21` | **21** |
+| SectorVolumeConcentration / `industry/sector_volume_concentration.py` | `sector_volume_concentration` | 仅用 T 日 | **1** |
+
+> **2 个文件名 ≠ factor_id**：`IndustryNeutralMomentum` 注册为 `momentum_20d_neu`、`IndustryRankInSector` 注册为 `industry_rank_in_sector_mom20`。SQL UPDATE 必须用 **DB factor_id 列**的值，文件名仅用于代码定位。
 
 ## 2.6 验证一致性的脚本
 
@@ -216,4 +240,4 @@ WHERE pit_window_days < min_trade_days * 2
    OR min_trade_days > 250;
 ```
 
-worker 启动并通过 registry 双向校验 + pit_audit 启动检查（见 [03-runtime-guard.md](./03-runtime-guard.md#34-启动期校验扩展)），即视为 migration 成功。
+worker 启动并通过 registry 双向校验 + pit_audit 启动检查（见 [06-warnings-and-startup.md §6.4](./06-warnings-and-startup.md#64-启动期校验扩展)），即视为 migration 成功。

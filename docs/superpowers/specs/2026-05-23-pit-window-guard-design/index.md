@@ -51,9 +51,10 @@
 
 1. [01-architecture.md](./01-architecture.md) — 总体架构 + 三层防护的数据流
 2. [02-data-model.md](./02-data-model.md) — DB schema 变更 + Factor 子类声明 + registry 双向校验 + 16 因子回填表
-3. [03-runtime-guard.md](./03-runtime-guard.md) — trade_cal 工具函数 + runner 改造 + SSE 推送 + 启动期校验 + 常量
+3. [03-runtime-guard.md](./03-runtime-guard.md) — trade_cal 工具函数 + runner 取数 / 动态扩窗护门
 4. [04-frontend-backend.md](./04-frontend-backend.md) — NestJS service 校验 + Vue FactorEditModal 实时提示
 5. [05-migration-and-tests.md](./05-migration-and-tests.md) — 一次性迁移脚本 + 测试矩阵 + 文件清单
+6. [06-warnings-and-startup.md](./06-warnings-and-startup.md) — SSE 警告推送 + 启动期校验 + 常量定义（承接 03）
 
 ## 引用约定
 

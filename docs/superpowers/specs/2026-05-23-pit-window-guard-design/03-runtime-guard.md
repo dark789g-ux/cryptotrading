@@ -38,6 +38,38 @@ def count_trade_days_in_window(
     )
 
 
+def trade_cal_covers(
+    session: Session,
+    start_date: str,
+    end_date: str,
+    exchange: str = "SSE",
+) -> bool:
+    """检查 raw.trade_cal 是否覆盖 [start_date, end_date]。
+
+    用途：runner 触发 factor_window_short 时，先用本函数区分
+      - True  → trade_cal 已覆盖，确属"窗口内交易日不足"
+      - False → trade_cal 未同步到这段时间，归因不同（应 warn trade_cal_not_synced）
+    """
+    sql = text("""
+        SELECT MIN(cal_date), MAX(cal_date) FROM raw.trade_cal WHERE exchange = :ex
+    """)
+    row = session.execute(sql, {"ex": exchange}).first()
+    if row is None or row[0] is None:
+        return False
+    cal_min, cal_max = row
+    return cal_min <= start_date and end_date <= cal_max
+
+
+def shift_calendar_days(yyyymmdd: str, delta: int) -> str:
+    """按日历日加减（非交易日）。
+
+    显式命名为 "calendar_days" 是因为 PIT 窗口本身就是日历日窗口，
+    与"按交易日 shift"区分清楚，避免后续调用方误用。
+    """
+    d = datetime.strptime(yyyymmdd, "%Y%m%d") + timedelta(days=delta)
+    return d.strftime("%Y%m%d")
+
+
 def get_trade_dates_in_window(
     session: Session,
     start_date: str,
@@ -79,7 +111,21 @@ def get_trade_dates_in_window(
 # 伪代码，实际写到 runner.py:174 后
 for factor in factors:
     # === 新增运行时护门 ===
-    window_start = _shift_date(trade_date, -factor.pit_window_days)
+    window_start = shift_calendar_days(trade_date, -factor.pit_window_days)
+
+    # 前置归因：先确认 trade_cal 真覆盖了这段时间
+    if not trade_cal_covers(session, window_start, trade_date):
+        logger.warning(
+            "trade_cal_not_synced",
+            extra={
+                "factor_id": factor.factor_id, "trade_date": trade_date,
+                "window_start": window_start,
+                "remedy": "请先同步 raw.trade_cal 到该日期范围，再重跑因子",
+            },
+        )
+        _emit_job_warning(job_id, "trade_cal_not_synced", factor_id=factor.factor_id, ...)
+        continue   # skip 该因子当天，归因明确
+
     actual_td = count_trade_days_in_window(session, window_start, trade_date)
 
     if actual_td < factor.min_trade_days:
@@ -99,7 +145,7 @@ for factor in factors:
 
         # 动态扩窗 × 2 重试
         retry_window_days = factor.pit_window_days * 2
-        retry_start = _shift_date(trade_date, -retry_window_days)
+        retry_start = shift_calendar_days(trade_date, -retry_window_days)
         retry_td = count_trade_days_in_window(session, retry_start, trade_date)
 
         if retry_td < factor.min_trade_days:
@@ -138,17 +184,18 @@ for factor in factors:
 
 ```python
 def _load_window_increment(session, factor, retry_start, trade_date, base_df):
-    # 若 base_df 的最早 trade_date 已 <= retry_start，复用
+    """返回独立 DataFrame，不修改入参 base_df。"""
+    # 若 base_df 的最早 trade_date 已 <= retry_start，切片复用（pandas slice 返回视图，但下游不写）
     base_min = base_df.index.get_level_values("trade_date").min()
     if base_min <= retry_start:
         return base_df.loc[(slice(retry_start, trade_date), slice(None)), :]
 
-    # 否则补拉
+    # 否则补拉并 concat 到新对象；显式不 sort_index 回写 base_df
     extra = _fetch_raw_for_window(session, factor.category, retry_start, base_min)
-    return pd.concat([extra, base_df]).sort_index()
+    return pd.concat([extra, base_df.copy()]).sort_index()
 ```
 
-> **不污染其它 factor 的取数边界**：扩窗后的 `sub_for_factor` 只给当前 factor 用；其它 factor 用各自 `pit_window_days` 切片 `base_df`。
+> **不污染其它 factor 的取数边界**：扩窗后的 `sub_for_factor` 只给当前 factor 用；其它 factor 用各自 `pit_window_days` 切片 `base_df`。`base_df.copy()` 在补拉路径保证原对象不被 `sort_index` 副作用影响。
 
 ### 3.2.4 重试也失败的处理
 
@@ -156,132 +203,13 @@ def _load_window_increment(session, factor, retry_start, trade_date, base_df):
 - 该因子当天 `skip`，不调 compute
 - DB 里这一天这一只股票的该因子没有行（与"停牌"同等处理，但有 SSE warning 可追溯）
 
-## 3.3 SSE 推送整合
+## 3.3 后续：SSE 推送、启动校验、常量
 
-### 3.3.1 警告聚合写入 `ml.jobs.warnings`
+警告聚合写入 `ml.jobs.warnings`、SSE payload 形态、前端展示、启动期校验、常量定义等内容已拆到 [06-warnings-and-startup.md](./06-warnings-and-startup.md)，以保持本文档聚焦 runner 取数 / 护门核心。
 
-`apps/server/src/entities/ml/ml-job.entity.ts` 已有 `warnings JSONB`（如无则加）。runner 内部 `_emit_job_warning`：
+跨文档锚点：
 
-```python
-def _emit_job_warning(job_id: str, warning_type: str, **detail) -> None:
-    """追加一条 warning 到 ml.jobs.warnings 字段。
-    progress.update_progress 下次推送时会带 warnings_summary。
-    """
-    session.execute(
-        text("""
-            UPDATE ml.jobs SET warnings = warnings || :w::jsonb
-            WHERE id = :id
-        """),
-        {"w": json.dumps([{"type": warning_type, **detail}]), "id": job_id},
-    )
-```
-
-### 3.3.2 SSE payload 形态
-
-`worker/progress.py:update_progress` 现有：
-
-```python
-def update_progress(job_id, pct, stage):
-    # 已有：写 ml.jobs.progress + NOTIFY
-```
-
-扩展为同时读 warnings 并聚合 summary：
-
-```python
-def update_progress(job_id, pct, stage):
-    warnings_count = _count_warnings_by_type(job_id)  # {"factor_window_short": 3, ...}
-    payload = {
-        "type": "progress",
-        "pct": pct,
-        "stage": stage,
-        "warnings_summary": warnings_count,
-    }
-    _notify(job_id, payload)
-```
-
-### 3.3.3 前端展示
-
-`apps/web/src/views/quant/QuantJobs*.vue`（详情页）加 warnings 折叠区：
-
-```text
-┌─ Job #abc-123 ──────────────────────────────────┐
-│  进度: ████████░░ 80%   stage: computing        │
-│                                                 │
-│  ⚠ 警告 (4 条)  [展开]                          │
-│   ▼ factor_window_short × 3                     │
-│       momentum_20d @ 20260206  (18 < 21)        │
-│       volatility_20d @ 20260206 (18 < 21)       │
-│       ...                                       │
-│   ▼ factor_window_retry_failed × 1              │
-│       sector_volume_concentration @ 20260205    │
-└─────────────────────────────────────────────────┘
-```
-
-> **不阻塞但可见**：动态护门本身承担"运行时救回"角色，warning 不应中断 job；但必须前端可见，否则等于没救（用户压根不知道发生过）。
-
-## 3.4 启动期校验扩展
-
-`apps/quant-pipeline/src/quant_pipeline/quality/pit_audit.py` 新增一个 check：
-
-```python
-from quant_pipeline.factors.constants import PIT_WINDOW_COEFFICIENT
-
-
-def audit_pit_window_covers_min_trade_days(factors: list[Factor]) -> list[CheckResult]:
-    """对每个已注册 factor，校验 pit_window_days >= ceil(min_trade_days × 2.0)。
-
-    与 DB CHECK 约束重复，但 fail-fast 在 worker 启动期暴露，
-    比等到第一次 runner 跑因子时再炸要早。
-    """
-    out: list[CheckResult] = []
-    for f in factors:
-        required = math.ceil(f.min_trade_days * PIT_WINDOW_COEFFICIENT)
-        if f.pit_window_days < required:
-            out.append(CheckResult(
-                passed=False,
-                level="critical",
-                rule="pit_window_coverage",
-                detail={
-                    "factor_id": f.factor_id,
-                    "declared": f.pit_window_days,
-                    "required": required,
-                    "min_trade_days": f.min_trade_days,
-                    "coefficient": PIT_WINDOW_COEFFICIENT,
-                },
-                trade_date="00000000",
-                name="pit_window_covers_min_trade_days",
-            ))
-    return out
-```
-
-挂在 CLI `factors run` 入口的 startup hook（`apps/quant-pipeline/src/quant_pipeline/cli.py`），failed 则拒启动并打印失败因子清单。
-
-## 3.5 常量定义
-
-新建 `apps/quant-pipeline/src/quant_pipeline/factors/constants.py`：
-
-```python
-"""因子运行时常量。
-
-集中定义，避免 magic number 散落到 runner / pit_audit / registry 多处。
-"""
-
-PIT_WINDOW_COEFFICIENT: float = 2.0
-"""pit_window_days 必须 >= ceil(min_trade_days × 该系数)。
-
-系数 = 2.0（原经验值 1.6 提高到 2.0）：
-  - 1.6 仅覆盖周末 + 短假期（五一、中秋）
-  - 2.0 额外覆盖春节 / 国庆 7 天连休 + 周末叠加
-
-修改该常量需同步：
-  1. apps/server/migrations 加新 migration 调整 CHECK 约束
-  2. apps/server/src/modules/quant/factors/factors.service.ts 同步系数
-  3. apps/web/src/components/quant/FactorEditModal.vue 同步系数
-  4. 跑回归测试，确保现有 16 个因子的 pit_window_days 仍满足新系数
-"""
-
-RETRY_WINDOW_MULTIPLIER: int = 2
-"""运行时窗口不足时，扩窗 × 该倍率重试一次。"""
-```
-
-> **3 处人工同步系数**：前后端各自硬编码 `2.0`（注释里指向本文件）。比建 shared-types 常量值简单；3 处同步可以靠 PR review 保证。
+- 警告写入与 SSE 推送 → [06 §6.1 + §6.2](./06-warnings-and-startup.md#61-警告聚合写入-mljobswarnings)
+- 前端展示 → [06 §6.3](./06-warnings-and-startup.md#63-前端展示)
+- 启动期校验 → [06 §6.4](./06-warnings-and-startup.md#64-启动期校验扩展)
+- 常量定义 → [06 §6.5](./06-warnings-and-startup.md#65-常量定义)

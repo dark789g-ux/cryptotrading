@@ -106,10 +106,10 @@
 
 | 层级 | 改动量 |
 |---|---|
-| DB schema | 加 1 列 + 1 CHECK 约束 + 一次性 UPDATE 回填 |
-| Python factors | 基类 + 16 子类各 +1 行；registry +30 行；runner +50 行 |
-| NestJS server | service 跨字段校验 +15 行；entity +1 字段 |
-| Vue web | FactorEditModal 实时校验 +30 行；api type +1 字段 |
-| 测试 | 7 个测试文件改 / 新 |
+| DB schema | 2 个新 migration：factor_definitions 加 min_trade_days 列 + 跨字段 CHECK；ml.jobs 加 warnings JSONB 列 |
+| Python factors | 基类 + 16 子类各 +1 行；registry +30 行；runner +50 行；新增 constants.py / data_access.py |
+| NestJS server | service 跨字段校验 +15 行；factor_definition entity +1 字段；ml-job entity +1 字段；jobs controller / service 暴露 warnings |
+| Vue web | FactorEditModal 实时校验 +30 行；api type +2 字段（min_trade_days + warnings）；QuantJobs 详情页 warnings 折叠区 |
+| 测试 | ~10 个测试文件改 / 新（单测 + 集成 + 后端 + 前端 + 新 trade_cal_not_synced 集成测试） |
 
-详见 [05-migration-and-tests.md](./05-migration-and-tests.md#46-改动文件清单)。
+详见 [05-migration-and-tests.md §5.5](./05-migration-and-tests.md#55-改动文件清单评估实施量)。
