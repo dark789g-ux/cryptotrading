@@ -41,6 +41,7 @@ function makeFactor(over: Partial<FactorDefinition> = {}): FactorDefinition {
     category: 'price',
     pit_window_days: 35,
     pit_anchor: 'trade_date',
+    min_trade_days: 17,  // ceil(17 × 2.0) = 34，与默认 35 兼容
     enabled: true,
     display_order: 100,
     updated_at: '2026-05-23 00:00:00Z',

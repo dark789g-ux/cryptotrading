@@ -64,11 +64,19 @@
           v-model:value="form.pit_window_days"
           :min="1"
           :max="400"
+          :status="windowValid ? undefined : 'error'"
           placeholder="1-400 天"
           style="width: 160px;"
           data-testid="factor-edit-pit-window"
         />
         <span class="unit-label">天</span>
+        <div
+          class="hint"
+          :class="`hint--${windowHintLevel}`"
+          data-testid="factor-edit-pit-window-hint"
+        >
+          {{ windowHint }}
+        </div>
       </n-form-item>
 
       <n-form-item label="PIT 锚点">
@@ -147,6 +155,14 @@ const emit = defineEmits<{
 
 const message = useMessage()
 
+/**
+ * pit_window_days >= ceil(min_trade_days × 该系数)。
+ * 与后端 apps/server/src/modules/quant/factors/factors.service.ts 同步
+ * 与 Python apps/quant-pipeline/src/quant_pipeline/factors/constants.py 同步
+ * 详见 docs/superpowers/specs/2026-05-23-pit-window-guard-design/04-frontend-backend.md §4.2
+ */
+const PIT_WINDOW_COEFFICIENT = 2.0
+
 interface FormShape {
   description: string
   category: FactorDefinition['category']
@@ -187,10 +203,36 @@ const descLenValid = computed(() => {
   return len >= 1 && len <= 500
 })
 
+/**
+ * 该因子最低要求的 pit_window_days（向上取整）。
+ * 缺失 min_trade_days（旧后端 / 单测兜底）时返回 0，等同不约束。
+ */
+const minRequired = computed(() => {
+  const m = props.factor?.min_trade_days
+  if (typeof m !== 'number' || !Number.isFinite(m) || m <= 0) return 0
+  return Math.ceil(m * PIT_WINDOW_COEFFICIENT)
+})
+
 const windowValid = computed(() => {
   const w = form.value?.pit_window_days
-  return typeof w === 'number' && Number.isFinite(w) && w >= 1 && w <= 400
+  if (typeof w !== 'number' || !Number.isFinite(w)) return false
+  if (w < 1 || w > 400) return false
+  return w >= minRequired.value
 })
+
+const windowHint = computed(() => {
+  if (!props.factor) return ''
+  const m = props.factor.min_trade_days
+  if (typeof m !== 'number' || !Number.isFinite(m) || m <= 0) {
+    // min_trade_days 暂未由后端返回时，只回退到值域提示
+    return 'pit_window_days 取值 1-400'
+  }
+  return `该因子需 ${m} 个交易日，pit_window_days 必须 >= ${minRequired.value}`
+})
+
+const windowHintLevel = computed<'info' | 'error'>(() =>
+  windowValid.value ? 'info' : 'error',
+)
 
 const canSubmit = computed(() => {
   return !!form.value && descLenValid.value && windowValid.value && !submitting.value
@@ -250,7 +292,20 @@ async function onSubmit() {
     emit('saved', res.item)
     emit('update:show', false)
   } catch (e) {
-    errorText.value = `保存失败：${(e as Error).message}`
+    // 后端 PIT 窗口护门 400：code='PIT_WINDOW_TOO_SMALL' + message + detail
+    // 详见 spec 04-frontend-backend.md §4.1.2 / §4.2.4
+    const err = e as {
+      code?: string
+      message?: string
+      body?: { code?: string; message?: string }
+    } & Error
+    const code = err.code ?? err.body?.code
+    const backendMessage = err.body?.message ?? err.message
+    if (code === 'PIT_WINDOW_TOO_SMALL') {
+      errorText.value = backendMessage ?? 'pit_window_days 校验失败'
+    } else {
+      errorText.value = `保存失败：${err.message}`
+    }
   } finally {
     submitting.value = false
   }
@@ -283,5 +338,18 @@ defineExpose({ form, canSubmit, buildPatch })
   margin-left: 8px;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.hint {
+  font-size: 12px;
+  margin-top: 4px;
+  flex-basis: 100%;
+  width: 100%;
+}
+.hint--info {
+  color: var(--color-text-muted);
+}
+.hint--error {
+  color: var(--n-error-color, #d03050);
 }
 </style>

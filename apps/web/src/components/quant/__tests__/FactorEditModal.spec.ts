@@ -43,8 +43,10 @@ function makeFactor(over: Partial<FactorDefinition> = {}): FactorDefinition {
     formula: 'close_adj(T)/close_adj(T-20)-1',
     data_source: ['close_adj'],
     category: 'price',
-    pit_window_days: 35,
+    pit_window_days: 50,
     pit_anchor: 'trade_date',
+    // min_trade_days=21 → minRequired = ceil(21 × 2.0) = 42；默认 pit_window_days=50 合法
+    min_trade_days: 21,
     enabled: true,
     display_order: 100,
     updated_at: '2026-05-23 00:00:00Z',
@@ -157,7 +159,8 @@ describe('FactorEditModal', () => {
   })
 
   it('修改 pit_window_days 时显示警告 banner', async () => {
-    const w = mountModal(makeFactor({ pit_window_days: 35 }))
+    // 已存在合法值（50）—— minRequired=42 满足；改成 60 仍合法触发警告
+    const w = mountModal(makeFactor({ pit_window_days: 50 }))
     await nextTick()
     const vm = getModalVm(w)
 
@@ -167,6 +170,82 @@ describe('FactorEditModal', () => {
     vm.form!.pit_window_days = 60
     await nextTick()
     expect(document.querySelector('[data-testid="factor-edit-warning"]')).toBeTruthy()
+  })
+
+  // ====== PIT 窗口护门校验（2026-05-23 spec §4.2） ======
+
+  it('pit_window_days < ceil(min_trade_days × 2.0) → 保存按钮禁用 + hint 红色 + input error 状态', async () => {
+    // min_trade_days=21，required=42；初始 pit_window_days=50（合法）
+    const w = mountModal(makeFactor())
+    await nextTick()
+    const vm = getModalVm(w)
+
+    // 改成 41 < 42 → 不满足
+    vm.form!.pit_window_days = 41
+    await nextTick()
+    expect(vm.canSubmit).toBe(false)
+
+    // 保存按钮 disabled
+    const submit = document.querySelector(
+      '[data-testid="factor-edit-submit"]',
+    ) as HTMLButtonElement | null
+    expect(submit).toBeTruthy()
+    // n-button 渲染为 button，disabled 属性是真布尔，但 naive-ui 通过 .n-button--disabled class 标识
+    expect(submit!.classList.contains('n-button--disabled')).toBe(true)
+
+    // hint 显示红色 + 文案带 ">= 42"
+    const hint = document.querySelector(
+      '[data-testid="factor-edit-pit-window-hint"]',
+    ) as HTMLElement | null
+    expect(hint).toBeTruthy()
+    expect(hint!.classList.contains('hint--error')).toBe(true)
+    expect(hint!.textContent).toContain('21')
+    expect(hint!.textContent).toContain('42')
+  })
+
+  it('pit_window_days = ceil(min_trade_days × 2.0) 临界值 → 保存按钮可点', async () => {
+    const w = mountModal(makeFactor())
+    await nextTick()
+    const vm = getModalVm(w)
+
+    vm.form!.pit_window_days = 42  // === required
+    await nextTick()
+    expect(vm.canSubmit).toBe(true)
+
+    const submit = document.querySelector(
+      '[data-testid="factor-edit-submit"]',
+    ) as HTMLButtonElement | null
+    expect(submit!.classList.contains('n-button--disabled')).toBe(false)
+  })
+
+  it('pit_window_days 合法 → hint 灰色（info）', async () => {
+    const w = mountModal(makeFactor())
+    await nextTick()
+    const vm = getModalVm(w)
+    vm.form!.pit_window_days = 50
+    await nextTick()
+
+    const hint = document.querySelector(
+      '[data-testid="factor-edit-pit-window-hint"]',
+    ) as HTMLElement | null
+    expect(hint).toBeTruthy()
+    expect(hint!.classList.contains('hint--info')).toBe(true)
+    expect(hint!.classList.contains('hint--error')).toBe(false)
+  })
+
+  it('min_trade_days 不同 → minRequired 随之变化（向上取整）', async () => {
+    // min_trade_days=20 → required = ceil(20 × 2.0) = 40
+    const w = mountModal(makeFactor({ min_trade_days: 20, pit_window_days: 50 }))
+    await nextTick()
+    const vm = getModalVm(w)
+
+    vm.form!.pit_window_days = 39
+    await nextTick()
+    expect(vm.canSubmit).toBe(false)
+
+    vm.form!.pit_window_days = 40
+    await nextTick()
+    expect(vm.canSubmit).toBe(true)
   })
 
   it('修改 category 时显示警告 banner', async () => {
@@ -179,15 +258,16 @@ describe('FactorEditModal', () => {
   })
 
   it('buildPatch 仅包含改动字段（partial update）', async () => {
-    const w = mountModal(makeFactor({ description: 'old', pit_window_days: 35 }))
+    // 起点 50 也是合法（>= required 42），改到 60 触发 partial patch
+    const w = mountModal(makeFactor({ description: 'old', pit_window_days: 50 }))
     await nextTick()
     const vm = getModalVm(w)
     vm.form!.description = 'new desc'
-    vm.form!.pit_window_days = 50
+    vm.form!.pit_window_days = 60
     await nextTick()
 
     const patch = vm.buildPatch()
-    expect(patch).toEqual({ description: 'new desc', pit_window_days: 50 })
+    expect(patch).toEqual({ description: 'new desc', pit_window_days: 60 })
   })
 
   it('点击保存调 updateFactor mock，emit saved 与 update:show', async () => {

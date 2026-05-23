@@ -67,8 +67,9 @@ import {
 import type { DataTableColumns, PaginationProps, SelectOption } from 'naive-ui'
 import ProgressLine from '@/components/quant/ProgressLine.vue'
 import QuantTrainTriggerModal from '@/components/quant/QuantTrainTriggerModal.vue'
+import JobWarningsPanel from '@/components/quant/JobWarningsPanel.vue'
 import {
-  quantApi, type JobRow, type JobRunType, type JobStatus,
+  quantApi, type JobRow, type JobRunType, type JobStatus, type WarningItem,
 } from '@/api/modules/quant'
 
 const route = useRoute()
@@ -179,6 +180,18 @@ const columns = computed<DataTableColumns<JobRow>>(() => [
     render: row => `${row.attempts}/${row.max_attempts}`,
   },
   {
+    title: '警告',
+    key: 'warnings',
+    width: 80,
+    align: 'right',
+    render(row) {
+      const n = row.warnings_count
+        ?? (Array.isArray(row.warnings) ? row.warnings.length : 0)
+      if (!n || n <= 0) return h('span', { class: 'muted' }, '—')
+      return h(NTag, { type: 'warning', size: 'small' }, { default: () => `⚠ ${n}` })
+    },
+  },
+  {
     title: '创建时间',
     key: 'created_at',
     width: 200,
@@ -240,21 +253,52 @@ function onPageChange(p: number) {
   void reload()
 }
 
+/**
+ * 打开 job 详情 dialog。
+ *
+ * onMounted 时机：dialog 命令式打开后立刻 GET /quant/jobs/:id 拉一次完整 job（含 warnings 明细）。
+ * 列表行的 row 不带 warnings 明细（仅 warnings_count），明细只在 GET single 时返。
+ * 详见 PIT 窗口护门 spec 04-frontend-backend.md §4.1.5 / 06-warnings-and-startup.md §6.3
+ *
+ * SSE 增量 summary 在 ProgressLine 里订阅；本 dialog 当前仅显示拉取瞬间的快照，
+ * 用户重新打开 dialog 自动重拉（dialog 是命令式，无 keep-alive 缓存语义）。
+ */
 function openDetail(row: JobRow) {
-  // job 详情未单独成页：把关键字段塞 dialog
-  const lines = [
-    `id: ${row.id}`,
-    `run_type: ${row.run_type}`,
-    `status: ${row.status}`,
-    `stage: ${row.stage ?? '—'}`,
-    `progress: ${row.progress}`,
-    `params: ${JSON.stringify(row.params, null, 2)}`,
-    row.error_text ? `error_text: ${row.error_text}` : '',
-    row.blocked_reason ? `blocked_reason: ${row.blocked_reason}` : '',
-  ].filter(Boolean).join('\n')
+  // 用 ref 持有最新 job，dialog content 是函数式渲染，会随 ref 变化自动重渲
+  const fullJob = ref<JobRow>(row)
+  const fetchError = ref<string>('')
+
+  // 立即异步拉一次完整 job，覆盖列表行（明细字段如 warnings 只在 GET single 暴露）
+  quantApi
+    .getJob(row.id)
+    .then((j) => { fullJob.value = j })
+    .catch((e: Error) => { fetchError.value = e.message })
+
   dialog.info({
     title: '作业详情',
-    content: () => h('pre', { class: 'job-detail' }, lines),
+    content: () => {
+      const j = fullJob.value
+      const lines = [
+        `id: ${j.id}`,
+        `run_type: ${j.run_type}`,
+        `status: ${j.status}`,
+        `stage: ${j.stage ?? '—'}`,
+        `progress: ${j.progress}`,
+        `params: ${JSON.stringify(j.params, null, 2)}`,
+        j.error_text ? `error_text: ${j.error_text}` : '',
+        j.blocked_reason ? `blocked_reason: ${j.blocked_reason}` : '',
+      ].filter(Boolean).join('\n')
+      const warnings: WarningItem[] = Array.isArray(j.warnings) ? j.warnings : []
+      return h('div', null, [
+        h('pre', { class: 'job-detail' }, lines),
+        fetchError.value
+          ? h('div', { class: 'job-detail-error' }, `拉取最新详情失败：${fetchError.value}`)
+          : null,
+        warnings.length > 0
+          ? h(JobWarningsPanel, { warnings, defaultOpen: true })
+          : null,
+      ])
+    },
     positiveText: '关闭',
   })
 }
@@ -346,6 +390,9 @@ onBeforeUnmount(stopPoll)
   font-family: 'Menlo', 'Consolas', monospace;
   font-size: 12px;
 }
+:deep(.muted) {
+  color: var(--color-text-muted);
+}
 :deep(.row-actions) {
   display: flex;
   gap: 4px;
@@ -360,5 +407,10 @@ onBeforeUnmount(stopPoll)
   max-height: 50vh;
   overflow: auto;
   margin: 0;
+}
+:deep(.job-detail-error) {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-error, #d03050);
 }
 </style>

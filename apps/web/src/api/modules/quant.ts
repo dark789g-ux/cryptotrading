@@ -132,6 +132,25 @@ export type JobStatus =
   | 'blocked'
   | 'cancelled'
 
+/**
+ * Job 运行期/历史回看产生的警告条目（PIT 窗口护门 spec 2026-05-23）。
+ * 由 quant-pipeline runner 写入 `ml.jobs.warnings` JSONB 数组；
+ * 详见 docs/superpowers/specs/2026-05-23-pit-window-guard-design/04-frontend-backend.md §4.1.5
+ */
+export interface WarningItem {
+  /** 警告类型枚举（与 runner _emit_job_warning 写入对齐） */
+  type:
+    | 'factor_window_short'
+    | 'factor_window_retry_failed'
+    | 'trade_cal_not_synced'
+  /** 产生时间，ISO UTC 字符串（runner 侧 datetime.utcnow().isoformat()+Z） */
+  ts: string
+  factor_id: string
+  factor_version?: string
+  trade_date?: string
+  detail?: Record<string, unknown>
+}
+
 /** `ml.jobs` 一行（NestJS 出参字段；时间为 UTC 墙钟字符串） */
 export interface JobRow {
   id: string
@@ -152,6 +171,14 @@ export interface JobRow {
   started_at: string | null
   finished_at: string | null
   heartbeat_at: string | null
+  /**
+   * job 期间累积的警告条目。GET /quant/jobs/:id 返回全量明细；
+   * 列表 GET /quant/jobs 出于负载考虑通常只返 warnings_count。
+   * 后端尚未上线时字段缺省，按空数组处理。
+   */
+  warnings?: WarningItem[]
+  /** 列表接口仅返回的总数（不带明细），用于列表页打小红点 */
+  warnings_count?: number
 }
 
 export interface JobListQuery {
@@ -204,6 +231,12 @@ export interface FactorDefinition {
   category: 'price' | 'industry' | 'fundamental' | 'mixed'
   pit_window_days: number
   pit_anchor: 'trade_date' | 'ann_date'
+  /**
+   * 该因子计算所需的最小交易日数（契约不可改，由代码端维护）。
+   * 前端编辑 pit_window_days 时用于实时校验 pit_window_days >= ceil(min_trade_days × 2.0)。
+   * 详见 docs/superpowers/specs/2026-05-23-pit-window-guard-design/04-frontend-backend.md §4.1.3
+   */
+  min_trade_days: number
   enabled: boolean
   display_order: number
   /** UTC 墙钟字符串 */
