@@ -15,6 +15,24 @@ export type MlJobStatus =
   | 'blocked'
   | 'cancelled';
 
+/**
+ * PIT 窗口护门 / 因子运行时下发的单条 warning。
+ *
+ * 由 Python worker 通过 `UPDATE ml.jobs SET warnings = warnings || :w::jsonb` 追加；
+ * NestJS 不写入，仅透传给前端（GET /api/quant/jobs/:id）。
+ *
+ * 详细 type 取值见 spec 04-frontend-backend.md §4.1.5。
+ */
+export interface WarningItem {
+  type: 'factor_window_short' | 'factor_window_retry_failed' | 'trade_cal_not_synced';
+  /** ISO UTC 时间戳，由 worker 写入时确定 */
+  ts: string;
+  factor_id: string;
+  factor_version?: string;
+  trade_date?: string;
+  detail?: Record<string, unknown>;
+}
+
 export type MlJobRunType =
   | 'noop'
   | 'sync'
@@ -104,4 +122,16 @@ export class MlJobEntity {
    */
   @Column({ name: 'result_payload', type: 'jsonb', default: () => "'{}'::jsonb" })
   resultPayload: Record<string, unknown>;
+
+  /**
+   * PIT 窗口护门 / runner 下发的运行时警告聚合（仅 Python worker 写）。
+   *
+   * 形态见 `WarningItem`。前端在 job 详情页 onMounted 拉一次完整列表；
+   * SSE 流仅推 summary 计数。
+   *
+   * 列由 migration `20260524_ml_jobs_warnings.sql` 添加（Agent A 负责）；
+   * NestJS 仅读取透传给前端，不参与写入。
+   */
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  warnings: WarningItem[];
 }

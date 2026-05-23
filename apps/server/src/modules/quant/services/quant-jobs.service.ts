@@ -8,6 +8,24 @@ import type { SseTokenResponse } from '../dto/sse-token.dto';
 import { SseTokenService } from './sse-token.service';
 
 /**
+ * 列表接口的 job 摘要形态：在 entity 字段之上额外暴露 `warnings_count`，
+ * 并**不**回传 warnings 明细（避免列表数据爆炸）。
+ *
+ * 详情接口 (`findOne`) 仍返回完整 entity（含 warnings 明细），见 spec §4.1.5。
+ */
+export interface JobListItem extends Omit<MlJobEntity, 'warnings'> {
+  warnings_count: number;
+}
+
+function toJobListItem(row: MlJobEntity): JobListItem {
+  const { warnings, ...rest } = row;
+  // entity 在 DB 列设了 default '[]'::jsonb，但读取过去的行（未来从 prod 拉回的快照）
+  // 仍可能拿到 null，这里防御一下，count=0。
+  const count = Array.isArray(warnings) ? warnings.length : 0;
+  return { ...(rest as Omit<MlJobEntity, 'warnings'>), warnings_count: count };
+}
+
+/**
  * 动态过滤字段 → 实际 SQL 列名映射（CLAUDE.md 硬约束）。
  *
  * - key：前端 / DTO 传入的过滤字段名（snake_case）
@@ -80,7 +98,7 @@ export class QuantJobsService {
   }
 
   async list(dto: ValidatedJobQuery): Promise<{
-    items: MlJobEntity[];
+    items: JobListItem[];
     total: number;
     page: number;
     page_size: number;
@@ -107,7 +125,13 @@ export class QuantJobsService {
       .take(dto.pageSize);
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total, page: dto.page, page_size: dto.pageSize };
+    return {
+      // 列表只暴露 warnings_count，不回传明细——明细由详情接口 findOne 提供
+      items: items.map(toJobListItem),
+      total,
+      page: dto.page,
+      page_size: dto.pageSize,
+    };
   }
 
   /**

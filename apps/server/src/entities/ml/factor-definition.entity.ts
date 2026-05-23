@@ -35,6 +35,17 @@ export class FactorDefinitionEntity {
   @Column({ name: 'pit_window_days', type: 'int' })
   pitWindowDays: number;
 
+  /**
+   * 因子 compute() 内部的硬约束最小交易日数（PIT 窗口护门基础）。
+   *
+   * 由 Python 子类 `@register(min_trade_days=...)` 声明，DB 单点存储；
+   * 与 `pit_window_days` 通过跨字段 CHECK 约束（`pit_window_days >= min_trade_days * 2`）耦合。
+   *
+   * 契约：PATCH 不接受该字段（见 dto/update-factor.dto.ts 注释）。
+   */
+  @Column({ name: 'min_trade_days', type: 'int' })
+  minTradeDays: number;
+
   /** trade_date / ann_date（CHECK 在 DB 层） */
   @Column({ name: 'pit_anchor', type: 'varchar', length: 16 })
   pitAnchor: string;

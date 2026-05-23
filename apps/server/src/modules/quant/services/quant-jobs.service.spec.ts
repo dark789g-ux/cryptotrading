@@ -129,12 +129,29 @@ describe('QuantJobsService', () => {
       repo.findOne.mockResolvedValue(row);
       await expect(service.findOne('x')).resolves.toBe(row);
     });
+
+    it('详情接口透传完整 warnings 明细（不像 list 那样降级为 count）', async () => {
+      const warnings = [
+        {
+          type: 'factor_window_short' as const,
+          ts: '2026-05-23T08:00:00Z',
+          factor_id: 'momentum_20d',
+          factor_version: 'v1',
+          trade_date: '20260520',
+          detail: { available: 18, required: 21 },
+        },
+      ];
+      const row = { id: 'w', status: 'success', warnings } as Partial<MlJobEntity>;
+      repo.findOne.mockResolvedValue(row);
+      const out = await service.findOne('w');
+      expect(out.warnings).toEqual(warnings);
+    });
   });
 
   describe('list', () => {
     it('已知字段（status / run_type）走 FIELD_COL_MAP 翻译为 j.status / j.run_type', async () => {
       const dto: ValidatedJobQuery = { status: 'running', runType: 'infer', page: 2, pageSize: 10 };
-      qb.getManyAndCount.mockResolvedValue([[{ id: 'a' }], 1]);
+      qb.getManyAndCount.mockResolvedValue([[{ id: 'a', warnings: [] }], 1]);
 
       const res = await service.list(dto);
 
@@ -143,7 +160,38 @@ describe('QuantJobsService', () => {
       expect(whereCalls).toContain('j.run_type = :run_type');
       expect(qb.skip).toHaveBeenCalledWith(10); // (2-1)*10
       expect(qb.take).toHaveBeenCalledWith(10);
-      expect(res).toEqual({ items: [{ id: 'a' }], total: 1, page: 2, page_size: 10 });
+      expect(res.items).toEqual([{ id: 'a', warnings_count: 0 }]);
+      expect(res.total).toBe(1);
+      expect(res.page).toBe(2);
+      expect(res.page_size).toBe(10);
+    });
+
+    it('list 输出 warnings_count 而非明细：3 条 warnings → count=3，不暴露 items[].warnings', async () => {
+      const dto: ValidatedJobQuery = { page: 1, pageSize: 20 };
+      qb.getManyAndCount.mockResolvedValue([
+        [
+          {
+            id: 'job-w',
+            status: 'success',
+            warnings: [
+              { type: 'factor_window_short', ts: 't1', factor_id: 'm20' },
+              { type: 'factor_window_short', ts: 't2', factor_id: 'm20' },
+              { type: 'factor_window_retry_failed', ts: 't3', factor_id: 'm20' },
+            ],
+          },
+        ],
+        1,
+      ]);
+      const res = await service.list(dto);
+      expect(res.items[0]).not.toHaveProperty('warnings');
+      expect(res.items[0].warnings_count).toBe(3);
+    });
+
+    it('list 防御：warnings 为 null（旧行无 default）→ count=0', async () => {
+      const dto: ValidatedJobQuery = { page: 1, pageSize: 20 };
+      qb.getManyAndCount.mockResolvedValue([[{ id: 'job-null', warnings: null }], 1]);
+      const res = await service.list(dto);
+      expect(res.items[0].warnings_count).toBe(0);
     });
 
     it('两个过滤都不传时，andWhere 不应被调用，但 orderBy/分页正常', async () => {

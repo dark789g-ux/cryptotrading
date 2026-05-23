@@ -1,8 +1,19 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { FactorDefinitionEntity } from '../../../entities/ml/factor-definition.entity';
 import type { ValidatedUpdateFactor } from './dto/update-factor.dto';
+
+/**
+ * pit_window_days 必须 >= ceil(min_trade_days × 该系数)。
+ *
+ * 与以下两处保持手工同步（修改本值需同时改）：
+ *   - apps/quant-pipeline/src/quant_pipeline/factors/constants.py（单点权威）
+ *   - apps/web/src/components/quant/FactorEditModal.vue
+ *
+ * 系数选 2.0 的理由 / 同步约束详见 spec 06-warnings-and-startup.md §6.5。
+ */
+export const PIT_WINDOW_COEFFICIENT = 2.0;
 
 /**
  * 响应 DTO 形态：与 DB / 前端契约对齐的 snake_case。
@@ -19,6 +30,8 @@ export interface FactorDefinitionResponse {
   data_source: string[] | null;
   category: string;
   pit_window_days: number;
+  /** 由 Python 子类装饰器声明、DB 单点存储；用于前端实时显示「该因子需 N 个交易日」 */
+  min_trade_days: number;
   pit_anchor: string;
   enabled: boolean;
   display_order: number;
@@ -53,6 +66,7 @@ function toResponse(row: FactorDefinitionEntity): FactorDefinitionResponse {
     data_source: row.dataSource,
     category: row.category,
     pit_window_days: row.pitWindowDays,
+    min_trade_days: row.minTradeDays,
     pit_anchor: row.pitAnchor,
     enabled: row.enabled,
     display_order: row.displayOrder,
@@ -134,6 +148,28 @@ export class FactorsService {
     const existing = await this.repo.findOne({ where: { factorId, factorVersion } });
     if (!existing) {
       throw new NotFoundException(`factor ${factorId}@${factorVersion} 不存在`);
+    }
+
+    // 跨字段校验：pit_window_days 必须 >= ceil(min_trade_days × PIT_WINDOW_COEFFICIENT)。
+    // - 仅在 dto 显式包含 pit_window_days 时校验（partial update 不传则保留原值，已满足约束）
+    // - min_trade_days 是 DB 单点契约，PATCH 不接受；这里只读 existing.minTradeDays
+    // - DB 还有 CHECK 约束兜底，本校验是为了提早返回结构化错误（BadRequest + code）
+    if (dto.pitWindowDays !== undefined) {
+      const minTradeDays = existing.minTradeDays;
+      const required = Math.ceil(minTradeDays * PIT_WINDOW_COEFFICIENT);
+      if (dto.pitWindowDays < required) {
+        throw new BadRequestException({
+          code: 'PIT_WINDOW_TOO_SMALL',
+          message:
+            `pit_window_days 必须 >= ${required}（` +
+            `min_trade_days ${minTradeDays} × ${PIT_WINDOW_COEFFICIENT}）`,
+          detail: {
+            declared: dto.pitWindowDays,
+            required,
+            min_trade_days: minTradeDays,
+          },
+        });
+      }
     }
 
     const patch: Partial<FactorDefinitionEntity> = {};

@@ -7,15 +7,19 @@ import { BadRequestException } from '@nestjs/common';
  *   - interface 仅声明类型
  *   - `validate*` 函数做实际校验，controller 显式调用
  *
- * 规则（spec 03-backend.md「PATCH DTO」）：
+ * 规则（spec 03-backend.md「PATCH DTO」 + 2026-05-23-pit-window-guard §4.1.1）：
  *   description?       string  @MaxLength(500)
  *   formula?           string | null  @MaxLength(500)
  *   data_source?       string[] | null（每项 ≤200 字符）
  *   category?          'price' | 'industry' | 'fundamental' | 'mixed'
- *   pit_window_days?   int 1..400
+ *   pit_window_days?   int 1..400（与 min_trade_days 的跨字段校验见 factors.service.ts:update）
  *   pit_anchor?        'trade_date' | 'ann_date'
  *   enabled?           boolean
  *   display_order?     int 0..9999
+ *
+ * **`min_trade_days` 故意不出现在本 DTO**：它是 Python 子类 `@register` 声明的契约，
+ * 由 DB migration 单点定义，不接受 PATCH。前端误传该字段会被静默忽略（不在 out 里），
+ * service 内部仍按 DB 当前值参与跨字段校验。
  *
  * - 全部 optional，未传字段保持原值
  * - service 内强写 `updated_at = NOW()` / `updated_by = req.user.id`，

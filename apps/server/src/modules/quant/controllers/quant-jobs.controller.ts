@@ -52,6 +52,12 @@ export class QuantJobsController {
     return this.svc.list(dto);
   }
 
+  /**
+   * 返回完整 entity（含 `warnings: WarningItem[]` 明细），用于 QuantJobs 详情页。
+   *
+   * 详细 schema 见 spec 04-frontend-backend.md §4.1.5；列表接口 (`GET /quant/jobs`)
+   * 只暴露 `warnings_count` 不带明细，避免大量 warning 拖慢列表。
+   */
   @Get(':id')
   findOne(@Param('id') id: string) {
     if (!id || typeof id !== 'string') {

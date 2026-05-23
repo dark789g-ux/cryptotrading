@@ -1,5 +1,5 @@
-import { NotFoundException } from '@nestjs/common';
-import { FactorsService } from '../factors.service';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { FactorsService, PIT_WINDOW_COEFFICIENT } from '../factors.service';
 import { FactorDefinitionEntity } from '../../../../entities/ml/factor-definition.entity';
 
 /**
@@ -17,7 +17,8 @@ function makeRow(overrides: Partial<FactorDefinitionEntity> = {}): FactorDefinit
     formula: 'close_adj(T) / close_adj(T-20) - 1',
     dataSource: ['raw.daily_quote'],
     category: 'price',
-    pitWindowDays: 20,
+    pitWindowDays: 42,
+    minTradeDays: 21,
     pitAnchor: 'trade_date',
     enabled: true,
     displayOrder: 100,
@@ -71,7 +72,8 @@ describe('FactorsService', () => {
       expect(qb.addOrderBy).toHaveBeenCalledWith('f.factor_id', 'ASC');
       expect(out).toHaveLength(1);
       expect(out[0].factor_id).toBe('momentum_20d');
-      expect(out[0].pit_window_days).toBe(20);
+      expect(out[0].pit_window_days).toBe(42);
+      expect(out[0].min_trade_days).toBe(21);
       expect(out[0].updated_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z$/);
     });
 
@@ -165,6 +167,85 @@ describe('FactorsService', () => {
         svc.update('nope', 'v1', { enabled: true }, 'u'),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    /**
+     * PIT 窗口护门跨字段校验：pit_window_days >= ceil(min_trade_days × 2.0)。
+     *
+     * 校验仅在 dto 显式包含 pit_window_days 时触发，未传不触发。
+     * 不足时抛 BadRequestException 且 response.code === 'PIT_WINDOW_TOO_SMALL'。
+     */
+    describe('pit_window 跨字段校验', () => {
+      it('pit_window < required → BadRequestException(code=PIT_WINDOW_TOO_SMALL)，不调 repo.update', async () => {
+        // minTradeDays=21，required=42；传 41 应被拒
+        repo.findOne.mockResolvedValueOnce(makeRow({ minTradeDays: 21, pitWindowDays: 42 }));
+        let caught: unknown;
+        try {
+          await svc.update('momentum_20d', 'v1', { pitWindowDays: 41 }, 'u');
+        } catch (e) {
+          caught = e;
+        }
+        expect(caught).toBeInstanceOf(BadRequestException);
+        const resp = (caught as BadRequestException).getResponse() as {
+          code?: string;
+          detail?: { declared: number; required: number; min_trade_days: number };
+        };
+        expect(resp.code).toBe('PIT_WINDOW_TOO_SMALL');
+        expect(resp.detail).toEqual({ declared: 41, required: 42, min_trade_days: 21 });
+        expect(repo.update).not.toHaveBeenCalled();
+      });
+
+      it('pit_window === required → 成功（边界值 ceil(21×2)=42）', async () => {
+        const existing = makeRow({ minTradeDays: 21, pitWindowDays: 42 });
+        const fresh = makeRow({ minTradeDays: 21, pitWindowDays: 42 });
+        repo.findOne.mockResolvedValueOnce(existing).mockResolvedValueOnce(fresh);
+        await expect(
+          svc.update('momentum_20d', 'v1', { pitWindowDays: 42 }, 'u'),
+        ).resolves.toBeDefined();
+        expect(repo.update).toHaveBeenCalled();
+      });
+
+      it('pit_window > required → 成功', async () => {
+        const existing = makeRow({ minTradeDays: 21, pitWindowDays: 42 });
+        const fresh = makeRow({ minTradeDays: 21, pitWindowDays: 60 });
+        repo.findOne.mockResolvedValueOnce(existing).mockResolvedValueOnce(fresh);
+        await svc.update('momentum_20d', 'v1', { pitWindowDays: 60 }, 'u');
+        const patch = repo.update.mock.calls[0][1] as Record<string, unknown>;
+        expect(patch.pitWindowDays).toBe(60);
+      });
+
+      it('PATCH 不含 pit_window_days → 不触发跨字段校验（仅改 description 不影响窗口）', async () => {
+        // existing 的 pit_window_days=10 < required=42 也不报错，因为 dto 没传
+        const existing = makeRow({ minTradeDays: 21, pitWindowDays: 10 });
+        const fresh = makeRow({ minTradeDays: 21, pitWindowDays: 10, description: '新描述' });
+        repo.findOne.mockResolvedValueOnce(existing).mockResolvedValueOnce(fresh);
+        await expect(
+          svc.update('momentum_20d', 'v1', { description: '新描述' }, 'u'),
+        ).resolves.toBeDefined();
+        expect(repo.update).toHaveBeenCalled();
+        const patch = repo.update.mock.calls[0][1] as Record<string, unknown>;
+        expect(patch).not.toHaveProperty('pitWindowDays');
+      });
+
+      it('PIT_WINDOW_COEFFICIENT 当前为 2.0（与 Python constants.py 同步）', () => {
+        expect(PIT_WINDOW_COEFFICIENT).toBe(2.0);
+      });
+
+      it('min_trade_days 非整数（如 13）→ ceil 后 required=26', async () => {
+        // 边界场景：未来若 min_trade_days 改为 13，ceil(13×2.0)=26
+        repo.findOne.mockResolvedValueOnce(makeRow({ minTradeDays: 13, pitWindowDays: 30 }));
+        let caught: unknown;
+        try {
+          await svc.update('rsi_14', 'v1', { pitWindowDays: 25 }, 'u');
+        } catch (e) {
+          caught = e;
+        }
+        expect(caught).toBeInstanceOf(BadRequestException);
+        const resp = (caught as BadRequestException).getResponse() as {
+          detail?: { required: number };
+        };
+        expect(resp.detail?.required).toBe(26);
+      });
     });
   });
 });
