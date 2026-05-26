@@ -5,7 +5,17 @@
       <FlowDateControl :default-date="latestDate" @change="onDateChange" />
     </div>
 
-    <FlowKpiCards :cards="kpiCards" :loading="loading" />
+    <IndustryFilters
+      v-model:search-query="searchQuery"
+      v-model:pct-change-min="pctChangeMin"
+      v-model:pct-change-max="pctChangeMax"
+      v-model:net-amount-min="netAmountMin"
+      v-model:net-buy-amount-min="netBuyAmountMin"
+      v-model:net-sell-amount-min="netSellAmountMin"
+      v-model:advanced-conditions="advancedConditions"
+      @apply="onApply"
+      @reset="onReset"
+    />
 
     <div class="panel-body">
       <div class="table-col">
@@ -40,25 +50,41 @@
 <script setup lang="ts">
 defineOptions({ name: 'IndustryFlowPanel' })
 
-import { computed, h, onActivated, onMounted, ref } from 'vue'
+import { h, onActivated, onMounted, ref } from 'vue'
 import { NButton, NDataTable } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowIndustryRow } from '@/api/modules/market/moneyFlow'
+import { moneyFlowApi, type MoneyFlowCondition, type MoneyFlowQueryParams, type MoneyFlowIndustryRow } from '@/api/modules/market/moneyFlow'
 import FlowDateControl from './FlowDateControl.vue'
-import FlowKpiCards from './FlowKpiCards.vue'
 import FlowTrendModal from './FlowTrendModal.vue'
+import IndustryFilters from './IndustryFilters.vue'
 import { fetchIndustryTrend } from './trendFetchers'
-import type { KpiCardItem } from './money-flow.types'
+import type { NumericCondition } from '@/components/common/numericConditionFilterTypes'
 
 const rows = ref<MoneyFlowIndustryRow[]>([])
 const loading = ref(false)
 const currentParams = ref<MoneyFlowQueryParams>({})
 const latestDate = ref<string | null>(null)
 
+// 日期参数（来自 FlowDateControl）独立保存，应用时与筛选合并
+const dateParams = ref<MoneyFlowQueryParams>({})
+
+// 筛选状态
+const searchQuery = ref('')
+const pctChangeMin = ref<number | null>(null)
+const pctChangeMax = ref<number | null>(null)
+const netAmountMin = ref<number | null>(null)
+const netBuyAmountMin = ref<number | null>(null)
+const netSellAmountMin = ref<number | null>(null)
+const advancedConditions = ref<NumericCondition[]>([])
+
 const trendVisible = ref(false)
 const trendTsCode = ref('')
 const trendEntityName = ref('')
 const trendMembersTradeDate = ref<string | null>(null)
+
+// 金额字段集合：前端按"亿"收集，传 API 前 × 1e4 转"万元"
+const AMOUNT_FIELDS = new Set(['net_amount', 'net_buy_amount', 'net_sell_amount'])
+const YI_TO_WAN = 1e4
 
 function openDetail(row: MoneyFlowIndustryRow) {
   trendTsCode.value = row.tsCode
@@ -68,19 +94,6 @@ function openDetail(row: MoneyFlowIndustryRow) {
 }
 
 const trendFetchFn = fetchIndustryTrend
-
-const kpiCards = computed((): KpiCardItem[] => {
-  const sorted = [...rows.value].sort((a, b) => Number(b.netAmount) - Number(a.netAmount))
-  const top1In = sorted[0]
-  const top1Out = sorted[sorted.length - 1]
-  const inCount = rows.value.filter(r => Number(r.netAmount) > 0).length
-  return [
-    { label: '净流入最多', value: top1In?.netAmount ?? null, sub: top1In?.industry ?? '', format: 'amount' },
-    { label: '净流出最多', value: top1Out?.netAmount ?? null, sub: top1Out?.industry ?? '', format: 'amount' },
-    { label: '净流入行业数', value: String(inCount), sub: `共${rows.value.length}个行业`, format: 'count' },
-    { label: '合计净流入', value: rows.value.reduce((s, r) => s + (Number(r.netAmount) || 0), 0).toFixed(2), sub: '', format: 'amount' },
-  ]
-})
 
 const columns: DataTableColumns<MoneyFlowIndustryRow> = [
   { title: '行业', key: 'industry', width: 120 },
@@ -96,6 +109,32 @@ const columns: DataTableColumns<MoneyFlowIndustryRow> = [
   },
 ]
 
+function buildFilterParams(): MoneyFlowQueryParams {
+  const params: MoneyFlowQueryParams = { ...dateParams.value }
+  const q = searchQuery.value.trim()
+  if (q) params.industry = q
+  if (pctChangeMin.value != null) params.pct_change_min = pctChangeMin.value
+  if (pctChangeMax.value != null) params.pct_change_max = pctChangeMax.value
+  if (netAmountMin.value != null) params.net_amount_min = netAmountMin.value * YI_TO_WAN
+  if (netBuyAmountMin.value != null) params.net_buy_amount_min = netBuyAmountMin.value * YI_TO_WAN
+  if (netSellAmountMin.value != null) params.net_sell_amount_min = netSellAmountMin.value * YI_TO_WAN
+  if (advancedConditions.value.length) {
+    params.conditions = advancedConditions.value.map((c): MoneyFlowCondition => {
+      if (c.valueType === 'field') {
+        return { field: c.field, op: c.op, valueType: 'field', compareField: c.compareField }
+      }
+      const needsConvert = AMOUNT_FIELDS.has(c.field)
+      return {
+        field: c.field,
+        op: c.op,
+        valueType: 'number',
+        value: needsConvert ? c.value * YI_TO_WAN : c.value,
+      }
+    })
+  }
+  return params
+}
+
 async function load() {
   if (!currentParams.value.trade_date && !currentParams.value.start_date) return
   loading.value = true
@@ -109,7 +148,25 @@ async function load() {
 }
 
 function onDateChange(params: MoneyFlowQueryParams) {
-  currentParams.value = params
+  dateParams.value = params
+  currentParams.value = buildFilterParams()
+  load()
+}
+
+function onApply() {
+  currentParams.value = buildFilterParams()
+  load()
+}
+
+function onReset() {
+  searchQuery.value = ''
+  pctChangeMin.value = null
+  pctChangeMax.value = null
+  netAmountMin.value = null
+  netBuyAmountMin.value = null
+  netSellAmountMin.value = null
+  advancedConditions.value = []
+  currentParams.value = buildFilterParams()
   load()
 }
 

@@ -10,8 +10,6 @@
       />
     </div>
 
-    <FlowKpiCards :cards="kpiCards" :loading="loading" />
-
     <div class="chart-area">
       <FlowTrendChart :rows="chartRows" />
     </div>
@@ -30,22 +28,13 @@ defineOptions({ name: 'MarketFlowPanel' })
 import { computed, onActivated, onMounted, ref } from 'vue'
 import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowMarketRow } from '@/api/modules/market/moneyFlow'
 import FlowDateControl from './FlowDateControl.vue'
-import FlowKpiCards from './FlowKpiCards.vue'
 import FlowTrendChart from './FlowTrendChart.vue'
-import type { KpiCardItem, BarChartRow } from './money-flow.types'
+import type { BarChartRow } from './money-flow.types'
 
 const rows = ref<MoneyFlowMarketRow[]>([])
 const loading = ref(false)
 const currentParams = ref<MoneyFlowQueryParams>({})
 const latestDate = ref<string | null>(null)
-
-const latestRow = computed(() => rows.value[rows.value.length - 1] ?? null)
-
-const kpiCards = computed((): KpiCardItem[] => [
-  { label: '资金净流入', value: latestRow.value?.netAmount ?? null, sub: latestRow.value?.tradeDate ?? '', format: 'amount' },
-  { label: '大单净流入', value: latestRow.value?.buyLgAmount ?? null, sub: '大单', format: 'amount' },
-  { label: '小单净流入', value: latestRow.value?.buySmAmount ?? null, sub: '小单', format: 'amount' },
-])
 
 const chartRows = computed((): BarChartRow[] =>
   rows.value.map(r => ({ label: r.tradeDate, value: Number(r.netAmount) || 0 })),

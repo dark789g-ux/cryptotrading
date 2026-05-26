@@ -1,4 +1,4 @@
-import { API_BASE, request } from '../../client'
+import { API_BASE, post, request } from '../../client'
 
 export type {
   MoneyFlowQueryParams,
@@ -12,6 +12,10 @@ export type {
   MoneyFlowSectorRow,
   MoneyFlowMarketRow,
   MoneyFlowMemberRow,
+  MoneyFlowCondition,
+  MoneyFlowConditionOp,
+  MoneyFlowNumberCondition,
+  MoneyFlowFieldCondition,
 } from '@cryptotrading/shared-types'
 
 import type {
@@ -51,8 +55,9 @@ export const moneyFlowApi = {
   queryStocks: (params: MoneyFlowQueryParams) =>
     request<MoneyFlowStockRow[]>(`${API_BASE}/money-flow/stocks${buildQs(params)}`),
 
+  // industries 改 POST：DTO 由 query 切到 body，支持服务端筛选 + 高级 conditions
   queryIndustries: (params: MoneyFlowQueryParams) =>
-    request<MoneyFlowIndustryRow[]>(`${API_BASE}/money-flow/industries${buildQs(params)}`),
+    post<MoneyFlowIndustryRow[]>(`${API_BASE}/money-flow/industries/query`, params),
 
   querySectors: (params: MoneyFlowQueryParams) =>
     request<MoneyFlowSectorRow[]>(`${API_BASE}/money-flow/sectors${buildQs(params)}`),

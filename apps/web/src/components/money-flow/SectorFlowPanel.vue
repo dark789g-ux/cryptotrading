@@ -5,8 +5,6 @@
       <FlowDateControl :default-date="latestDate" @change="onDateChange" />
     </div>
 
-    <FlowKpiCards :cards="kpiCards" :loading="loading" />
-
     <div class="panel-body">
       <div class="table-col">
         <n-data-table
@@ -40,15 +38,13 @@
 <script setup lang="ts">
 defineOptions({ name: 'SectorFlowPanel' })
 
-import { computed, h, onActivated, onMounted, ref } from 'vue'
+import { h, onActivated, onMounted, ref } from 'vue'
 import { NButton, NDataTable } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowSectorRow } from '@/api/modules/market/moneyFlow'
 import FlowDateControl from './FlowDateControl.vue'
-import FlowKpiCards from './FlowKpiCards.vue'
 import FlowTrendModal from './FlowTrendModal.vue'
 import { fetchSectorTrend } from './trendFetchers'
-import type { KpiCardItem } from './money-flow.types'
 
 const rows = ref<MoneyFlowSectorRow[]>([])
 const loading = ref(false)
@@ -68,19 +64,6 @@ function openDetail(row: MoneyFlowSectorRow) {
 }
 
 const trendFetchFn = fetchSectorTrend
-
-const kpiCards = computed((): KpiCardItem[] => {
-  const sorted = [...rows.value].sort((a, b) => Number(b.netAmount) - Number(a.netAmount))
-  const top1In = sorted[0]
-  const top1Out = sorted[sorted.length - 1]
-  const inCount = rows.value.filter(r => Number(r.netAmount) > 0).length
-  return [
-    { label: '净流入最多', value: top1In?.netAmount ?? null, sub: top1In?.sector ?? '', format: 'amount' },
-    { label: '净流出最多', value: top1Out?.netAmount ?? null, sub: top1Out?.sector ?? '', format: 'amount' },
-    { label: '净流入板块数', value: String(inCount), sub: `共${rows.value.length}个板块`, format: 'count' },
-    { label: '合计净流入', value: rows.value.reduce((s, r) => s + (Number(r.netAmount) || 0), 0).toFixed(2), sub: '', format: 'amount' },
-  ]
-})
 
 const columns: DataTableColumns<MoneyFlowSectorRow> = [
   { title: '板块', key: 'sector', width: 120 },
