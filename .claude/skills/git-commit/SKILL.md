@@ -93,11 +93,14 @@ $msg = @"
 - body 行 1
 - body 行 2
 "@
-[System.IO.File]::WriteAllText("$env:TEMP\commitmsg.txt", $msg, [System.Text.Encoding]::UTF8)
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText("$env:TEMP\commitmsg.txt", $msg, $utf8NoBom)
 git commit -F "$env:TEMP\commitmsg.txt"
 ```
 
 中文字符直接写入 here-string，**禁止**在字符串变量中使用 `` `u{xxxx} `` 转义中文。
+
+**关键**：必须用 `New-Object System.Text.UTF8Encoding $false` 而不是 `[System.Text.Encoding]::UTF8`。后者默认写入 BOM（`EF BB BF` 字节序），git 不会过滤，subject 行首会出现不可见字符 `﻿`，在 GitHub UI 与 `git log --oneline` 中可见。
 
 提交成功后告知用户，并提示如需 push 可手动执行 `git push`。
 
