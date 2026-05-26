@@ -1,28 +1,29 @@
 import { computed } from 'vue'
+import { colors } from '../../styles/tokens'
 
 /** Binance Inspired — 仅浅色模式 */
 export function useTheme() {
   const echartsTheme = computed(() => ({
     backgroundColor: 'transparent',
-    textStyle: { color: '#848E9C' },
-    title: { textStyle: { color: '#D0D4DC' } },
-    legend: { textStyle: { color: '#848E9C' } },
+    textStyle: { color: colors.text.secondary },
+    title: { textStyle: { color: colors.text.DEFAULT } },
+    legend: { textStyle: { color: colors.text.secondary } },
     tooltip: {
-      backgroundColor: '#2B2F36',
-      borderColor: '#3A3F48',
-      textStyle: { color: '#D0D4DC' },
+      backgroundColor: colors.surface.elevated,
+      borderColor: colors.border.DEFAULT,
+      textStyle: { color: colors.text.DEFAULT },
     },
     xAxis: {
-      axisLine: { lineStyle: { color: '#3A3F48' } },
-      axisLabel: { color: '#848E9C' },
-      splitLine: { lineStyle: { color: '#3A3F48' } },
+      axisLine: { lineStyle: { color: colors.border.DEFAULT } },
+      axisLabel: { color: colors.text.secondary },
+      splitLine: { lineStyle: { color: colors.border.DEFAULT } },
     },
     yAxis: {
-      axisLine: { lineStyle: { color: '#3A3F48' } },
-      axisLabel: { color: '#848E9C' },
-      splitLine: { lineStyle: { color: '#3A3F48' } },
+      axisLine: { lineStyle: { color: colors.border.DEFAULT } },
+      axisLabel: { color: colors.text.secondary },
+      splitLine: { lineStyle: { color: colors.border.DEFAULT } },
     },
-    grid: { borderColor: '#3A3F48' },
+    grid: { borderColor: colors.border.DEFAULT },
   }))
 
   return { echartsTheme }
