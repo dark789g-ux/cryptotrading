@@ -1,10 +1,39 @@
-/** GET /money-flow/* 查询参数 */
+/** money-flow 高级筛选条件（POST body 透传到后端） */
+export type MoneyFlowConditionOp = 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'
+export type MoneyFlowNumberCondition = {
+  field: string
+  op: MoneyFlowConditionOp
+  valueType?: 'number'
+  value: number
+}
+export type MoneyFlowFieldCondition = {
+  field: string
+  op: MoneyFlowConditionOp
+  valueType: 'field'
+  compareField: string
+}
+export type MoneyFlowCondition = MoneyFlowNumberCondition | MoneyFlowFieldCondition
+
+/** /money-flow/* 查询参数（GET 用日期/标的，POST industries/query 复用同结构 + 过滤字段） */
 export interface MoneyFlowQueryParams {
   trade_date?: string
   start_date?: string
   end_date?: string
   ts_code?: string
   limit?: number
+  /** 行业名模糊匹配（仅 industries/query） */
+  industry?: string
+  /** 涨跌幅 % 区间（仅 industries/query） */
+  pct_change_min?: number
+  pct_change_max?: number
+  /** 净流入下限，单位与 DB 列一致（万元）；前端需自行将"亿"× 1e4 后传入 */
+  net_amount_min?: number
+  /** 净买入下限（万元） */
+  net_buy_amount_min?: number
+  /** 净卖出下限（万元） */
+  net_sell_amount_min?: number
+  /** 高级筛选条件数组（仅 industries/query） */
+  conditions?: MoneyFlowCondition[]
 }
 
 /** POST /money-flow/sync/* 同步参数 */

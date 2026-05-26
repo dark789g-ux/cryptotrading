@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { MoneyFlowService } from './money-flow.service';
 import { QueryFlowDto } from './dto/query-flow.dto';
 import { QueryMemberDto, TRADE_DATE_PATTERN } from './dto/query-member.dto';
@@ -22,8 +22,8 @@ export class MoneyFlowController {
     return this.moneyFlowService.queryStocks(dto);
   }
 
-  @Get('industries')
-  queryIndustries(@Query() dto: QueryFlowDto) {
+  @Post('industries/query')
+  queryIndustries(@Body() dto: QueryFlowDto) {
     return this.moneyFlowService.queryIndustries(dto);
   }
 

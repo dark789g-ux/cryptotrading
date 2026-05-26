@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MoneyFlowStockEntity } from '../../entities/money-flow/money-flow-stock.entity';
@@ -6,7 +6,7 @@ import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-in
 import { MoneyFlowSectorEntity } from '../../entities/money-flow/money-flow-sector.entity';
 import { MoneyFlowMarketEntity } from '../../entities/money-flow/money-flow-market.entity';
 import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock.entity';
-import { QueryFlowDto } from './dto/query-flow.dto';
+import { QueryFlowDto, QueryCondition } from './dto/query-flow.dto';
 import type {
   MoneyFlowStockRow,
   MoneyFlowIndustryRow,
@@ -30,8 +30,29 @@ const INDUSTRY_AMOUNT_KEYS = ['netAmount', 'netBuyAmount', 'netSellAmount'];
 const SECTOR_AMOUNT_KEYS = ['netAmount', 'netBuyAmount', 'netSellAmount'];
 const MARKET_AMOUNT_KEYS = ['netAmount', 'buyLgAmount', 'buySmAmount'];
 
+/** 行业资金流：前端字段名 → SQL 列（含表别名 `i`） */
+const MONEY_FLOW_INDUSTRY_COL_MAP: Record<string, string> = {
+  industry: 'i.industry',
+  pct_change: 'i.pct_change',
+  net_amount: 'i.net_amount',
+  net_buy_amount: 'i.net_buy_amount',
+  net_sell_amount: 'i.net_sell_amount',
+};
+
+/** 高级筛选操作符 → SQL 比较符 */
+const OP_SQL_MAP: Record<string, string> = {
+  gt: '>',
+  gte: '>=',
+  lt: '<',
+  lte: '<=',
+  eq: '=',
+  neq: '!=',
+};
+
 @Injectable()
 export class MoneyFlowService {
+  private readonly logger = new Logger(MoneyFlowService.name);
+
   constructor(
     @InjectRepository(MoneyFlowStockEntity)
     private readonly stockRepo: Repository<MoneyFlowStockEntity>,
@@ -75,6 +96,54 @@ export class MoneyFlowService {
     if (dto.ts_code) {
       qb.andWhere('i.ts_code = :ts', { ts: dto.ts_code });
     }
+
+    // ---------- 服务端筛选 ----------
+    if (dto.industry) {
+      qb.andWhere('i.industry ILIKE :industryLike', { industryLike: `%${dto.industry}%` });
+    }
+    if (dto.pct_change_min != null) {
+      qb.andWhere('i.pct_change >= :pctChangeMin', { pctChangeMin: dto.pct_change_min });
+    }
+    if (dto.pct_change_max != null) {
+      qb.andWhere('i.pct_change <= :pctChangeMax', { pctChangeMax: dto.pct_change_max });
+    }
+    if (dto.net_amount_min != null) {
+      qb.andWhere('i.net_amount >= :netAmountMin', { netAmountMin: dto.net_amount_min });
+    }
+    if (dto.net_buy_amount_min != null) {
+      qb.andWhere('i.net_buy_amount >= :netBuyAmountMin', { netBuyAmountMin: dto.net_buy_amount_min });
+    }
+    if (dto.net_sell_amount_min != null) {
+      qb.andWhere('i.net_sell_amount >= :netSellAmountMin', { netSellAmountMin: dto.net_sell_amount_min });
+    }
+
+    // ---------- 高级筛选 conditions ----------
+    if (Array.isArray(dto.conditions) && dto.conditions.length > 0) {
+      dto.conditions.forEach((cond: QueryCondition, idx: number) => {
+        const col = MONEY_FLOW_INDUSTRY_COL_MAP[cond.field];
+        if (!col) {
+          this.logger.warn(`[queryIndustries] unknown condition field: ${cond.field}`);
+          return;
+        }
+        const opSql = OP_SQL_MAP[cond.op];
+        if (!opSql) {
+          this.logger.warn(`[queryIndustries] unknown condition op: ${cond.op}`);
+          return;
+        }
+        if (cond.valueType === 'field') {
+          const compareCol = MONEY_FLOW_INDUSTRY_COL_MAP[cond.compareField];
+          if (!compareCol) {
+            this.logger.warn(`[queryIndustries] unknown condition compareField: ${cond.compareField}`);
+            return;
+          }
+          qb.andWhere(`${col} ${opSql} ${compareCol}`);
+        } else {
+          const paramKey = `mfic${idx}`;
+          qb.andWhere(`${col} ${opSql} :${paramKey}`, { [paramKey]: cond.value });
+        }
+      });
+    }
+
     if (dto.limit) {
       qb.orderBy('i.trade_date', 'DESC').limit(Number(dto.limit));
     } else if (dto.ts_code) {
