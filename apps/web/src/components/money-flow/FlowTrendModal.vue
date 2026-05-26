@@ -4,61 +4,65 @@
     :show="visible"
     :title="`${entityName} — 详情`"
     :width="modalWidth"
+    :maximizable="chartMode === 'kline'"
     @update:show="$emit('update:visible', $event)"
   >
-    <n-tabs v-model:value="activeTab" type="line" animated>
-      <n-tab-pane name="trend" tab="趋势">
-        <div class="trend-modal-body">
-          <FlowDateControl
-            :hide-mode-toggle="chartMode === 'kline'"
-            default-mode="range"
-            :default-range-days="chartMode === 'kline' ? 120 : 30"
-            @change="onDateChange"
-          />
-          <n-spin v-if="loading" />
-          <template v-else-if="chartMode === 'bar'">
-            <FlowTrendChart :rows="barRows" />
-          </template>
-          <template v-else>
-            <div v-if="!klineBars.length" class="empty-state">
-              该指数暂无 K 线数据，可能尚未同步
-            </div>
-            <KlineChart
-              v-else
-              :data="klineBars"
-              height="520px"
+    <template #default="{ maximized }">
+      <n-tabs v-model:value="activeTab" type="line" animated>
+        <n-tab-pane name="trend" tab="趋势">
+          <div class="trend-modal-body">
+            <FlowDateControl
+              v-if="chartMode === 'bar'"
+              default-mode="range"
+              :default-range-days="30"
+              @change="onDateChange"
             />
-          </template>
-        </div>
-      </n-tab-pane>
-
-      <n-tab-pane v-if="showMembersTab" name="members" tab="成分股">
-        <div class="members-body">
-          <div class="members-toolbar">
-            <n-button type="primary" :disabled="!canAddTag" :loading="addTagLoading" @click="onAddTag">
-              + 添加标签
-            </n-button>
-            <span class="hint">共 {{ memberRows.length }} 只</span>
+            <n-spin v-if="loading" />
+            <template v-else-if="chartMode === 'bar'">
+              <FlowTrendChart :rows="barRows" />
+            </template>
+            <template v-else>
+              <div v-if="!klineBars.length" class="empty-state">
+                该指数暂无 K 线数据，可能尚未同步
+              </div>
+              <KlineChart
+                v-else
+                :data="klineBars"
+                :height="maximized ? klineMaxHeight : '520px'"
+                show-toolbar
+                granularity="date"
+                :range="klineRange"
+                prefs-key="money-flow-kline"
+                @update:range="onKlineRangeChange"
+              />
+            </template>
           </div>
-          <n-spin :show="membersLoading">
-            <n-data-table
-              :columns="memberColumns"
-              :data="sortedMemberRows"
-              :max-height="400"
-              size="small"
-              :pagination="{ pageSize: 50 }"
-              @update:sorter="onUpdateSorter"
-            />
-            <div v-if="!membersLoading && !memberRows.length" class="empty-state">
-              暂无成分股数据，请先同步资金流数据。
-            </div>
-          </n-spin>
-        </div>
-      </n-tab-pane>
-    </n-tabs>
+        </n-tab-pane>
 
-    <template #actions>
-      <n-button @click="$emit('update:visible', false)">关闭</n-button>
+        <n-tab-pane v-if="showMembersTab" name="members" tab="成分股">
+          <div class="members-body">
+            <div class="members-toolbar">
+              <n-button type="primary" :disabled="!canAddTag" :loading="addTagLoading" @click="onAddTag">
+                + 添加标签
+              </n-button>
+              <span class="hint">共 {{ memberRows.length }} 只</span>
+            </div>
+            <n-spin :show="membersLoading">
+              <n-data-table
+                :columns="memberColumns"
+                :data="sortedMemberRows"
+                :max-height="maximized ? '70vh' : 400"
+                size="small"
+                :pagination="{ pageSize: 50 }"
+                @update:sorter="onUpdateSorter"
+              />
+              <div v-if="!membersLoading && !memberRows.length" class="empty-state">
+                暂无成分股数据，请先同步资金流数据。
+              </div>
+            </n-spin>
+          </div>
+        </n-tab-pane>
+      </n-tabs>
     </template>
   </AppModal>
 </template>
@@ -111,11 +115,40 @@ const modalWidth = computed(() =>
   props.chartMode === 'kline' ? 'min(1080px, 96vw)' : 'min(720px, 92vw)',
 )
 
+// 最大化下 K 线高度 = 92vh 减去固定 chrome（modal header ~70 + card padding ~32 + tabs nav ~46 + tab pane padding ~12 + FlowDateControl ~40 + body gap ~16 = ~216px，留 24px 余量）
+const klineMaxHeight = 'calc(92vh - 240px)'
+
 const activeTab = ref('trend')
 const barRows = ref<BarChartRow[]>([])
 const klineBars = ref<KlineChartBar[]>([])
 const loading = ref(false)
 let skipNextEmit = false
+
+// kline 模式日期范围（与 KlineChart 工具栏双向绑定）
+const klineRange = ref<[number, number] | null>(null)
+
+// 与 FlowDateControl.toYYYYMMDD 同语义：本地日历日（CLAUDE.md 例外条款）
+function tsToYYYYMMDD(ts: number): string {
+  const d = new Date(ts)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}${m}${day}`
+}
+
+function initKlineRangeDefault() {
+  const now = Date.now()
+  klineRange.value = [now - 120 * 86400000, now]
+}
+
+function onKlineRangeChange(value: [number, number] | null) {
+  klineRange.value = value
+  if (!value) return
+  loadTrend({
+    start_date: tsToYYYYMMDD(value[0]),
+    end_date: tsToYYYYMMDD(value[1]),
+  })
+}
 
 // 成分股相关
 const memberRows = ref<MoneyFlowMemberRow[]>([])
@@ -304,10 +337,19 @@ watch(() => props.visible, (v) => {
     activeTab.value = 'trend'
     sortState.value = { field: 'netAmount', order: 'descend' }
     // bar 模式：直接拉最近 30 条柱状数据，跳过 FlowDateControl 初始 emit
-    // kline 模式：依赖 FlowDateControl 初始 emit 的 [今天-120d, 今天] 范围
+    // kline 模式：FlowDateControl 已移除，由 KlineChart 工具栏管理，初次需主动拉一次
     if (props.chartMode === 'bar') {
       skipNextEmit = true
       loadLatest()
+    } else {
+      initKlineRangeDefault()
+      const range = klineRange.value
+      if (range) {
+        loadTrend({
+          start_date: tsToYYYYMMDD(range[0]),
+          end_date: tsToYYYYMMDD(range[1]),
+        })
+      }
     }
   }
 })
