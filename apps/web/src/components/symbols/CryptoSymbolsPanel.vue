@@ -89,7 +89,18 @@
       class="glass-drawer"
     >
       <n-drawer-content :title="`${selectedSymbol} · ${selectedInterval.toUpperCase()}`" closable>
-        <kline-chart v-if="klineData.length" :data="klineData" height="700px" :slider-start="70" />
+        <kline-chart
+          v-if="klineData.length"
+          :data="klineData"
+          height="700px"
+          :slider-start="70"
+          show-toolbar
+          :granularity="cryptoGranularity"
+          :range="null"
+          disabled-range
+          prefs-key="crypto"
+          :available-subplots="cryptoAvailableSubplots"
+        />
         <n-empty v-else description="No kline data" style="padding: 40px 0" />
       </n-drawer-content>
     </n-drawer>
@@ -129,6 +140,7 @@ import { RefreshOutline, SearchOutline, SettingsOutline } from '@vicons/ionicons
 import KlineChart from '../kline/KlineChart.vue'
 import NumericConditionFilter from '../common/NumericConditionFilter.vue'
 import type { NumericCondition, NumericConditionFieldOption } from '../common/numericConditionFilterTypes'
+import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { klinesApi, symbolApi, type KlineChartBar, type SymbolRow } from '@/api'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { createCryptoColumnDefs } from './cryptoColumns'
@@ -145,6 +157,12 @@ const intervalOptions = [
   { label: '4h', value: '4h' },
   { label: '1d', value: '1d' },
 ]
+
+// 加密 K 线工具栏：粒度由当前 interval 派生；副图不含 FLOW（无资金流数据源）
+const cryptoGranularity = computed<'date' | 'hour' | 'minute'>(() =>
+  selectedInterval.value === '1d' ? 'date' : 'hour',
+)
+const cryptoAvailableSubplots: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK']
 
 const loading = ref(false)
 const symbols = ref<SymbolRow[]>([])

@@ -1,7 +1,9 @@
 import type { GraphicComponentOption } from 'echarts'
 import { colors } from '../../styles/tokens'
 import { BRICK_COLORS, CANDLE_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS } from './chartColors'
+import { resolveKTopPct, resolveSubplotLayout } from './klineChartLayout'
 import { ARROW_RICH, arrow, arrowRichTag, fmt, fmtCompact, fmtXg } from './klineChartUtils'
+import type { SubplotConfig, SubplotKey } from './subplotConfig'
 import type { KlineChartBar } from '@/api'
 
 const GRAPHIC_BG = {
@@ -11,18 +13,16 @@ const GRAPHIC_BG = {
   borderRadius: 3,
 } as const
 
-const GRAPHIC_MA = { id: 'ma-values', type: 'text' as const, left: '9%', top: '10%', z: 100 }
-const GRAPHIC_VOLUME = { id: 'volume-values', type: 'text' as const, left: '9%', top: '48%', z: 100 }
-const GRAPHIC_KDJ = { id: 'kdj-values', type: 'text' as const, left: '9%', top: '60%', z: 100 }
-const GRAPHIC_MACD = { id: 'macd-values', type: 'text' as const, left: '9%', top: '73%', z: 100 }
-const GRAPHIC_BRICK = { id: 'brick-values', type: 'text' as const, left: '9%', top: '86%', z: 100 }
+const GRAPHIC_LEFT = '9%'
+const GRAPHIC_Z = 100
 
-// 资金流副图存在时整体上移，与 klineChartOptions GRID_WITH_FLOW 对齐
-const GRAPHIC_MA_FLOW = { id: 'ma-values', type: 'text' as const, left: '9%', top: '6%', z: 100 }
-const GRAPHIC_VOLUME_FLOW = { id: 'volume-values', type: 'text' as const, left: '9%', top: '38%', z: 100 }
-const GRAPHIC_KDJ_FLOW = { id: 'kdj-values', type: 'text' as const, left: '9%', top: '48%', z: 100 }
-const GRAPHIC_MACD_FLOW = { id: 'macd-values', type: 'text' as const, left: '9%', top: '58%', z: 100 }
-const GRAPHIC_BRICK_FLOW = { id: 'brick-values', type: 'text' as const, left: '9%', top: '68%', z: 100 }
+const SUBPLOT_GRAPHIC_ID: Record<SubplotKey, string> = {
+  VOL: 'volume-values',
+  KDJ: 'kdj-values',
+  MACD: 'macd-values',
+  BRICK: 'brick-values',
+  FLOW: 'flow-values', // 当前 FLOW 暂无悬浮文本，保留 id 以备后续扩展
+}
 
 const buildMaText = (idx: number, data: KlineChartBar[]) => {
   const row = idx >= 0 && idx < data.length ? data[idx] : undefined
@@ -104,21 +104,52 @@ const buildMacdText = (idx: number, data: KlineChartBar[]) => {
   return { text, rich, ...GRAPHIC_BG }
 }
 
+const SUBPLOT_TEXT_BUILDERS: Record<
+  SubplotKey,
+  ((idx: number, data: KlineChartBar[]) => unknown) | null
+> = {
+  VOL: buildVolumeText,
+  KDJ: buildKdjText,
+  MACD: buildMacdText,
+  BRICK: buildBrickText,
+  FLOW: null, // FLOW 副图无悬浮文本（保持原 5 副图行为）
+}
+
+/**
+ * 构造副图悬浮文本 graphics。
+ *
+ * @param subplots 当前可见副图（已按用户顺序解析），决定 MA / 各副图文本的纵向位置。
+ *                 未传时按默认全开副图（VOL/KDJ/MACD/BRICK）布局，等价旧行为。
+ */
 export function buildGraphics(
   idx: number,
   data: KlineChartBar[],
-  hasFlow = false,
+  subplots: SubplotConfig[] = [],
 ): GraphicComponentOption[] {
-  const ma = hasFlow ? GRAPHIC_MA_FLOW : GRAPHIC_MA
-  const vol = hasFlow ? GRAPHIC_VOLUME_FLOW : GRAPHIC_VOLUME
-  const kdj = hasFlow ? GRAPHIC_KDJ_FLOW : GRAPHIC_KDJ
-  const macd = hasFlow ? GRAPHIC_MACD_FLOW : GRAPHIC_MACD
-  const brick = hasFlow ? GRAPHIC_BRICK_FLOW : GRAPHIC_BRICK
-  return [
-    { ...ma, style: buildMaText(idx, data) },
-    { ...vol, style: buildVolumeText(idx, data) },
-    { ...kdj, style: buildKdjText(idx, data) },
-    { ...macd, style: buildMacdText(idx, data) },
-    { ...brick, style: buildBrickText(idx, data) },
+  const kTopPct = resolveKTopPct(subplots)
+  const result: GraphicComponentOption[] = [
+    {
+      id: 'ma-values',
+      type: 'text',
+      left: GRAPHIC_LEFT,
+      top: `${kTopPct}%`,
+      z: GRAPHIC_Z,
+      style: buildMaText(idx, data) as Record<string, unknown>,
+    },
   ]
+  for (const slot of subplots) {
+    const build = SUBPLOT_TEXT_BUILDERS[slot.key]
+    if (!build) continue
+    const layout = resolveSubplotLayout(slot.key, subplots)
+    if (!layout) continue
+    result.push({
+      id: SUBPLOT_GRAPHIC_ID[slot.key],
+      type: 'text',
+      left: GRAPHIC_LEFT,
+      top: `${layout.topPct}%`,
+      z: GRAPHIC_Z,
+      style: build(idx, data) as Record<string, unknown>,
+    })
+  }
+  return result
 }

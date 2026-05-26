@@ -30,6 +30,11 @@
             :data="klineRows"
             height="100%"
             :slider-start="35"
+            show-toolbar
+            granularity="date"
+            :range="null"
+            disabled-range
+            prefs-key="a-share"
           />
         </div>
       </div>

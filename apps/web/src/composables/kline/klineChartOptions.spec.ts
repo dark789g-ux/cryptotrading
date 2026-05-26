@@ -76,13 +76,15 @@ describe('buildKlineChartOption — 无 moneyFlow（snapshot 守护）', () => {
     expect(dz[1].xAxisIndex).toEqual([0, 1, 2, 3, 4])
   })
 
-  it('grid 配置 snapshot 锁定（改造前的精确 top/height）', () => {
+  it('grid 配置 snapshot 锁定（动态布局契约下：K=42% + 副图按 DEFAULT_SUBPLOT_HEIGHT_PCT）', () => {
+    // 4 副图回退（无 moneyFlow）按 DEFAULT_SUBPLOT_HEIGHT_PCT 取 VOL/KDJ/MACD/BRICK=8/8/8/6
+    // K.height = 100 - 6(K.top) - (8+8+8+6) - 4*2(gaps) - 14(dataZoom area) = 42
     expect(arrify(opt.grid)).toEqual([
-      { left: '8%', right: '8%', top: '10%', height: '33%' },
-      { left: '8%', right: '8%', top: '48%', height: '8%' },
-      { left: '8%', right: '8%', top: '60%', height: '9%' },
-      { left: '8%', right: '8%', top: '73%', height: '9%' },
-      { left: '8%', right: '8%', top: '86%', height: '6%' },
+      { left: '8%', right: '8%', top: '6%', height: '42%' },
+      { left: '8%', right: '8%', top: '50%', height: '8%' },
+      { left: '8%', right: '8%', top: '60%', height: '8%' },
+      { left: '8%', right: '8%', top: '70%', height: '8%' },
+      { left: '8%', right: '8%', top: '80%', height: '6%' },
     ])
   })
 })

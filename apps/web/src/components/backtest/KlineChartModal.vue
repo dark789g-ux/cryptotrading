@@ -30,7 +30,18 @@
         description="No kline data"
         style="padding: 40px 0"
       />
-      <kline-chart v-else :data="klineData" :height="chartHeight" :current-ts="ts" :slider-start="0" />
+      <kline-chart
+        v-else
+        :data="klineData"
+        :height="chartHeight"
+        :current-ts="ts"
+        :slider-start="0"
+        show-toolbar
+        granularity="date"
+        :range="null"
+        disabled-range
+        prefs-key="backtest"
+      />
     </template>
   </n-modal>
 </template>

@@ -54,7 +54,18 @@
               <n-spin />
             </div>
             <n-empty v-else-if="!klineData.length" description="暂无 K 线数据" class="chart-empty" />
-            <kline-chart v-else :data="klineData" height="100%" :slider-start="35" />
+            <kline-chart
+              v-else
+              :data="klineData"
+              height="100%"
+              :slider-start="35"
+              show-toolbar
+              :granularity="watchlistGranularity"
+              :range="null"
+              disabled-range
+              prefs-key="watchlist"
+              :available-subplots="watchlistAvailableSubplots"
+            />
           </div>
         </div>
       </n-drawer-content>
@@ -73,6 +84,7 @@ import { useWatchlistStore } from '@/stores/watchlist'
 import { aSharesApi, klinesApi, watchlistApi, type KlineChartBar } from '@/api'
 import WatchlistTableSettings from './WatchlistTableSettings.vue'
 import KlineChart from '@/components/kline/KlineChart.vue'
+import type { SubplotKey } from '@/composables/kline/subplotConfig'
 
 function formatUTCDate(input: string | number | Date | null | undefined): string {
   if (input == null) return '-'
@@ -90,6 +102,15 @@ const showChartDrawer = ref(false)
 const selectedSymbol = ref('')
 const klineData = ref<KlineChartBar[]>([])
 const loadingKline = ref(false)
+
+// 自选 K 线抽屉无 moneyFlow merge，排除 FLOW 副图（A 股 + 加密共享同一个 drawer）
+const watchlistAvailableSubplots: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK']
+// granularity 跟随当前选中 symbol 类型：A 股恒为 date；加密按 store.interval 派生
+const watchlistGranularity = computed<'date' | 'hour' | 'minute'>(() => {
+  if (!selectedSymbol.value) return 'date'
+  if (isAShareSymbol(selectedSymbol.value)) return 'date'
+  return store.interval === '1d' ? 'date' : 'hour'
+})
 
 const paginationState = computed(() => ({
   page: store.page,

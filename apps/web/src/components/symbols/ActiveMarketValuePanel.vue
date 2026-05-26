@@ -13,7 +13,17 @@
 
     <n-card :bordered="false">
       <n-spin :show="loading">
-        <kline-chart v-if="chartData.length > 0" :data="chartData" height="600px" />
+        <kline-chart
+          v-if="chartData.length > 0"
+          :data="chartData"
+          height="600px"
+          show-toolbar
+          granularity="date"
+          :range="null"
+          disabled-range
+          prefs-key="oamv"
+          :available-subplots="oamvAvailableSubplots"
+        />
         <n-empty v-else description="暂无数据，请先同步" />
       </n-spin>
     </n-card>
@@ -27,10 +37,14 @@ import { computed, onActivated, ref } from 'vue'
 import { NButton, NCard, NEmpty, NIcon, NSpin, useMessage } from 'naive-ui'
 import { SyncOutline } from '@vicons/ionicons5'
 import KlineChart from '@/components/kline/KlineChart.vue'
+import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { oamvApi, type OamvData } from '@/api/modules/market/oamv'
 import type { KlineChartBar } from '@/api/modules/market/symbols'
 
 const message = useMessage()
+
+// OAMV 无 moneyFlow 数据源，排除 FLOW 副图
+const oamvAvailableSubplots: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK']
 const loading = ref(false)
 const syncing = ref(false)
 const oamvData = ref<OamvData[]>([])

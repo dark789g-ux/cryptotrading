@@ -1,13 +1,41 @@
 <template>
-  <div ref="chartRef" class="kline-chart" :style="chartStyle" />
+  <div class="kline-chart-wrapper" :style="wrapperStyle">
+    <kline-chart-toolbar
+      v-if="showToolbar"
+      class="kline-chart-wrapper__toolbar"
+      :granularity="granularity"
+      :range="range ?? null"
+      :disabled-range="disabledRange"
+      :prefs-key="prefsKey"
+      :available-subplots="availableSubplots"
+      @update:range="onRangeUpdate"
+      @update:prefs="onPrefsUpdate"
+    />
+    <div ref="chartRef" class="kline-chart" :style="chartStyle" />
+  </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
+import KlineChartToolbar from './KlineChartToolbar.vue'
 import { buildKlineChartGraphics, buildKlineChartOption } from '../../composables/kline/klineChartOptions'
+import {
+  ALL_SUBPLOT_KEYS,
+  defaultPrefsFor,
+  normalizePrefs,
+  resolveVisibleSubplots,
+  type SubplotConfig,
+  type SubplotKey,
+  type SubplotPrefs,
+} from '../../composables/kline/subplotConfig'
 import type { KlineChartBar } from '@/api'
 import { useTheme } from '../../composables/hooks/useTheme'
+
+type Granularity = 'date' | 'hour' | 'minute'
+
+const TOOLBAR_HEIGHT_PX = 44
+const TOOLBAR_GAP_PX = 8
 
 const props = withDefaults(
   defineProps<{
@@ -15,15 +43,30 @@ const props = withDefaults(
     currentTs?: string
     sliderStart?: number
     height?: string | number
+    /** 是否启用工具栏（含时间区间 + 副图设置）。三个调用点接入后建议传 true。 */
+    showToolbar?: boolean
+    granularity?: Granularity
+    range?: [number, number] | null
+    disabledRange?: boolean
+    prefsKey?: string
+    availableSubplots?: SubplotKey[]
   }>(),
   {
     currentTs: '',
     sliderStart: 0,
     height: '600px',
+    showToolbar: false,
+    granularity: 'date',
+    range: null,
+    disabledRange: false,
+    prefsKey: 'default',
+    availableSubplots: () => [...ALL_SUBPLOT_KEYS],
   },
 )
 
-const hasFlow = computed(() => props.data.some(row => row.moneyFlow != null))
+const emit = defineEmits<{
+  (e: 'update:range', value: [number, number] | null): void
+}>()
 
 const { echartsTheme } = useTheme()
 const chartRef = ref<HTMLElement | null>(null)
@@ -33,9 +76,25 @@ let pendingGraphicFrame: number | null = null
 let pendingGraphicIdx: number | null = null
 let lastGraphicIdx: number | null = null
 
-const chartStyle = computed(() => ({
+// 工具栏 mount 时会 emit 一次当前持久化偏好，覆盖此初始值
+const localPrefs = ref<SubplotPrefs>(
+  normalizePrefs(null, props.prefsKey, props.availableSubplots),
+)
+
+const subplots = computed<SubplotConfig[]>(() => resolveVisibleSubplots(localPrefs.value))
+
+const wrapperStyle = computed(() => ({
   width: '100%',
   height: typeof props.height === 'number' ? `${props.height}px` : props.height,
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: props.showToolbar ? `${TOOLBAR_GAP_PX}px` : '0',
+}))
+
+const chartStyle = computed(() => ({
+  width: '100%',
+  flex: '1 1 auto',
+  minHeight: '0',
 }))
 
 function disposeChart() {
@@ -70,7 +129,7 @@ function cancelPendingGraphicUpdate() {
   pendingGraphicFrame = null
 }
 
-function scheduleGraphicUpdate(idx: number, data: KlineChartBar[], hasFlow: boolean) {
+function scheduleGraphicUpdate(idx: number, data: KlineChartBar[], subs: SubplotConfig[]) {
   if (idx === lastGraphicIdx || idx === pendingGraphicIdx) return
 
   pendingGraphicIdx = idx
@@ -84,7 +143,7 @@ function scheduleGraphicUpdate(idx: number, data: KlineChartBar[], hasFlow: bool
 
     lastGraphicIdx = nextIdx
     chartInstance?.setOption(
-      { graphic: buildKlineChartGraphics(nextIdx, data, hasFlow) },
+      { graphic: buildKlineChartGraphics(nextIdx, data, subs) },
       { lazyUpdate: true, silent: true },
     )
   })
@@ -106,12 +165,14 @@ async function renderChart() {
 
   disposeChart()
   chartInstance = echarts.init(el)
+  const subs = subplots.value
   chartInstance.setOption(
     buildKlineChartOption({
       data,
       echartsTheme: echartsTheme.value,
       currentTs: props.currentTs,
       sliderStart: props.sliderStart,
+      subplots: subs,
     }),
   )
 
@@ -122,16 +183,24 @@ async function renderChart() {
     const info = event.axesInfo?.find((item) => item.axisDim === 'x')
     const idx = typeof info?.value === 'number' ? info.value : lastIdx
     const safeIdx = idx >= 0 && idx < data.length ? idx : lastIdx
-    scheduleGraphicUpdate(safeIdx, data, hasFlow.value)
+    scheduleGraphicUpdate(safeIdx, data, subplots.value)
   })
 }
 
+function onRangeUpdate(value: [number, number] | null) {
+  emit('update:range', value)
+}
+
+function onPrefsUpdate(value: SubplotPrefs) {
+  localPrefs.value = value
+}
+
 watch(
-  () => [props.data, props.currentTs, props.sliderStart, echartsTheme.value] as const,
+  () => [props.data, props.currentTs, props.sliderStart, echartsTheme.value, subplots.value] as const,
   () => {
     void renderChart()
   },
-  { immediate: true },
+  { immediate: true, deep: true },
 )
 
 watch(
@@ -154,6 +223,14 @@ defineExpose({ resize: handleResize, renderChart })
 </script>
 
 <style scoped>
+.kline-chart-wrapper {
+  box-sizing: border-box;
+}
+
+.kline-chart-wrapper__toolbar {
+  flex: 0 0 auto;
+}
+
 .kline-chart {
   min-height: 320px;
 }
