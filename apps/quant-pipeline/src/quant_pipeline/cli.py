@@ -67,6 +67,11 @@ app.add_typer(features_app, name="features")
 factors_app = typer.Typer(help="因子计算子命令（M1 Part C）。读 raw.* → 写 factors.daily_factors。")
 app.add_typer(factors_app, name="factors")
 
+trade_cal_app = typer.Typer(
+    help="raw.trade_cal 查询子命令（供 daily 脚本计算交易日偏移用）。"
+)
+app.add_typer(trade_cal_app, name="trade-cal")
+
 # ML 顶层命令（cli_ml.py）
 from quant_pipeline.cli_ml import cmd_evaluate, cmd_infer, cmd_train  # noqa: E402
 
@@ -502,6 +507,92 @@ def factors_compute(
         f"trade_dates={out['trade_dates']} factors={out['factors']} "
         f"rows_upserted={out['rows_upserted']}"
     )
+
+
+# ----------------------------------------------------------------------
+# trade-cal 子命令（M4 daily 脚本配套）
+# ----------------------------------------------------------------------
+
+
+@trade_cal_app.command("offset")
+def trade_cal_offset(
+    base: str = typer.Option(
+        ..., "--base", help="基准交易日 YYYYMMDD"
+    ),
+    days: int = typer.Option(
+        ..., "--days",
+        help="偏移开市日数；负数往前、正数往后；0 直接回显 base（不校验是否开市）",
+    ),
+    exchange: str = typer.Option(
+        "SSE", "--exchange", help="交易所代码（默认 SSE）"
+    ),
+) -> None:
+    """按 raw.trade_cal 计算交易日偏移；stdout 单行输出 YYYYMMDD。
+
+    语义（**严格**，base 不计入偏移）：
+      - days=-30 → cal_date < base 中第 30 个开市日（从近到远第 30 个）
+      - days=+5  → cal_date > base 中第 5  个开市日
+      - days=0   → 回显 base（不查询 trade_cal）
+
+    适用场景：daily 脚本算 labels 阶段的回填日期 T-30（strategy-aware 标签需
+    MAX_HOLD_DAYS=20+T+1≈30 个未来交易日才能闭合 exit 窗）。
+
+    退出码：
+      0 = 成功 + stdout 输出目标日期
+      2 = 参数校验失败
+      3 = raw.trade_cal 数据不足，无法计算 |days| 个开市日偏移
+    """
+
+    setup_logging()
+    if len(base) != 8 or not base.isdigit():
+        typer.echo(f"--base 必须 YYYYMMDD，got {base!r}", err=True)
+        raise typer.Exit(code=2)
+
+    if days == 0:
+        typer.echo(base)
+        return
+
+    from sqlalchemy import text as _text
+
+    from quant_pipeline.db.engine import session_scope
+
+    if days < 0:
+        sql = _text(
+            """
+            SELECT cal_date FROM raw.trade_cal
+             WHERE exchange = :ex AND is_open = 1 AND cal_date < :base
+             ORDER BY cal_date DESC
+             LIMIT :n
+            """
+        )
+        n = abs(days)
+    else:
+        sql = _text(
+            """
+            SELECT cal_date FROM raw.trade_cal
+             WHERE exchange = :ex AND is_open = 1 AND cal_date > :base
+             ORDER BY cal_date ASC
+             LIMIT :n
+            """
+        )
+        n = days
+
+    with session_scope() as session:
+        rows = session.execute(
+            sql, {"ex": exchange, "base": base, "n": n}
+        ).fetchall()
+
+    if len(rows) < n:
+        typer.echo(
+            f"raw.trade_cal 数据不足；need ≥ {n} 个开市日 (exchange={exchange} "
+            f"side={'before' if days < 0 else 'after'} base={base})，"
+            f"got {len(rows)}",
+            err=True,
+        )
+        raise typer.Exit(code=3)
+
+    # 第 n 个（list 末尾）就是 |days| 个开市日偏移后的目标
+    typer.echo(str(rows[n - 1][0]).strip())
 
 
 if __name__ == "__main__":
