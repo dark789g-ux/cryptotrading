@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 核心规范
 **不要假设，不要隐藏困惑，要暴露权衡。**
-
+- 用**中文**思考与回答。
 - 明确说出你的假设，不确定就问
 - 如果存在多种解读，把它们都列出来，不要悄悄选一个
 - 如果有更简单的方案，说出来；在该反驳时要反驳
@@ -17,7 +17,6 @@ cryptotrading：量化交易回测系统。覆盖加密货币（币安公开 RES
 - 操作系统：Windows 11，终端 PowerShell。Shell 命令禁用 `&&` 连接，改用 `;` 或多行执行。
 - 终端编码 GBK；**所有源文件 UTF-8**。文件 I/O 始终显式 `encoding='utf-8'`，HTML 模板必须 `<meta charset="UTF-8">`，对象键名一律用英文（防 PowerShell GBK 解析中文裸键名报错）。
 - 中文文本编辑与乱码处理规范：见 [doc/规范/conventions.md](doc/规范/conventions.md)。
-- 用**中文**思考与回答。
 - 环境变量统一写到仓库根 `.env`，模板见根目录 `.env.example`；NestJS 与 Python 子项目均从根加载。
 
 ## 常用命令
