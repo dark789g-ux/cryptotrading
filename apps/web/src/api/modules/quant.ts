@@ -41,6 +41,20 @@ export interface ScoreSeriesPoint {
   rank_in_day: number
 }
 
+/** `POST /quant/scores/by-tscodes` items[]：A 股面板评分列批量查 */
+export interface ScoresByTsCodesItem {
+  ts_code: string
+  score: number
+  rank_in_day: number
+}
+
+export interface ScoresByTsCodesResponse {
+  trade_date: string
+  /** 当前 prod 模型版本；无 prod 模型时为 null */
+  model_version: string | null
+  items: ScoresByTsCodesItem[]
+}
+
 export interface ModelVersionInfo {
   model_version: string
   /** UTC 墙钟字符串 `YYYY-MM-DD HH:mm:ssZ`（J: formatUtcWallClock） */
@@ -340,6 +354,18 @@ export const quantApi = {
       top_k: number
       groups: CompareGroup[]
     }>(`${API_BASE}/quant/scores/compare?${qs.toString()}`)
+  },
+
+  /**
+   * 按 ts_code 批量查"当日 prod 模型"评分（A 股面板评分列用）。
+   * 后端自动选 prod 模型，前端不传 model_version；缺失的 ts_code 不在 items 里。
+   * 公开端点（普通登录用户可访问）：`POST /quant/scores/by-tscodes`
+   */
+  getScoresByTsCodes(body: {
+    trade_date: string
+    ts_codes: string[]
+  }): Promise<ScoresByTsCodesResponse> {
+    return post<ScoresByTsCodesResponse>(`${API_BASE}/quant/scores/by-tscodes`, body)
   },
 
   /**

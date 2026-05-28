@@ -109,6 +109,8 @@ const {
   marketOptions,
   industryOptions,
   paginationState,
+  scoresMap,
+  scoresLoading,
   reload,
   loadFilterPresets,
   applyFilters,
@@ -168,7 +170,12 @@ function handleViewDetail(row: AShareRow) {
 }
 
 const columnDefs = computed(() => {
-  const baseDefs = createASharesColumnDefs({ onViewDetail: handleViewDetail, priceMode: priceMode.value })
+  const baseDefs = createASharesColumnDefs({
+    onViewDetail: handleViewDetail,
+    priceMode: priceMode.value,
+    scoresMap,
+    scoresLoading,
+  })
   baseDefs.push({
     title: '买入信号',
     key: 'buySignal',

@@ -1,4 +1,4 @@
-import { h } from 'vue'
+import { h, type Ref } from 'vue'
 import { NButton, NIcon, NTag, NTooltip, type DataTableColumns } from 'naive-ui'
 import { OpenOutline } from '@vicons/ionicons5'
 import SymbolStarButton from '../../common/SymbolStarButton.vue'
@@ -10,6 +10,9 @@ import type { SymbolColumnDef } from '../columnTypes'
 interface ASharesColumnsOptions {
   onViewDetail: (row: AShareRow) => void
   priceMode: 'qfq' | 'raw'
+  /** 评分映射 tsCode → score；传 ref 本身（不解包），render 内读 .value 建立渲染层依赖 */
+  scoresMap: Ref<Map<string, number>>
+  scoresLoading: Ref<boolean>
 }
 
 function getPctChangeColor(value: string | null) {
@@ -70,6 +73,25 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
     { title: '总市值', key: 'totalMv', width: 120, sorter: true, defaultVisible: false, render: (row) => formatMarketCap(row.totalMv) },
     { title: '流通市值', key: 'circMv', width: 120, sorter: true, defaultVisible: false, render: (row) => formatMarketCap(row.circMv) },
     { title: '交易日', key: 'tradeDate', width: 110, sorter: true, defaultVisible: true, render: (row) => formatTradeDate(row.tradeDate) },
+    {
+      title: '评分',
+      key: 'modelScore',
+      width: 110,
+      defaultVisible: true,
+      // 不设 sorter：评分跨日/跨模型不可比，且来自二次异步请求、与主表 remote 分页排序不同源
+      render: (row) => {
+        if (options.scoresLoading.value) {
+          return h('span', { style: 'color: var(--color-text-secondary)' }, '…')
+        }
+        const v = options.scoresMap.value.get(row.tsCode)
+        if (v == null || !Number.isFinite(v)) {
+          // 缺失留空，禁止回填 0 / 历史值
+          return h('span', { style: 'color: var(--color-text-secondary)' }, '—')
+        }
+        // 右对齐 + 4 位小数；不阈值着色、不涨跌箭头（评分是 ordinal 原始分）
+        return h('div', { style: 'text-align: right; font-variant-numeric: tabular-nums' }, v.toFixed(4))
+      },
+    },
     {
       title: '标签',
       key: 'tags',

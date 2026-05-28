@@ -7,6 +7,7 @@ import {
   type AShareRow,
   type AShareSummary,
 } from '@/api'
+import { quantApi } from '@/api/modules/quant'
 import { useWatchlistTagFilter } from '@/composables/symbols/useWatchlistTagFilter'
 import { formatTradeDate } from './aSharesFormatters'
 import type { ASharesFilterState, Condition, SelectOption, SummaryItem } from './types'
@@ -41,6 +42,10 @@ export function useASharesQuery(message: {
   })
   const marketOptions = ref<SelectOption[]>([])
   const industryOptions = ref<SelectOption[]>([])
+  // 评分列：tsCode → score。整体替换触发列 render 重算；缺失的 tsCode 不进 Map（显示 —）
+  const scoresMap = ref<Map<string, number>>(new Map())
+  const scoresLoading = ref(false)
+  const latestTradeDate = computed(() => summary.value.latestTradeDate)
 
   const {
     selectedWatchlistIds,
@@ -118,6 +123,33 @@ export function useASharesQuery(message: {
     } finally {
       loading.value = false
     }
+    // 主表先呈现，评分异步回填；用 res 的行做防竞态（不读后续可能已变的 rows.value）
+    void loadScores(rows.value)
+  }
+
+  /**
+   * 拉取当前页标的"当日 prod 模型"评分，整体替换 scoresMap。
+   * fire-and-forget：失败不弹 toast、不阻塞主表（评分是次要列），仅 console.warn 留痕。
+   */
+  async function loadScores(currentRows: AShareRow[]) {
+    const tradeDate = summary.value.latestTradeDate
+    const tsCodes = currentRows.map((r) => r.tsCode)
+    if (!tradeDate || tsCodes.length === 0) {
+      scoresMap.value = new Map()
+      return
+    }
+    scoresLoading.value = true
+    try {
+      const res = await quantApi.getScoresByTsCodes({ trade_date: tradeDate, ts_codes: tsCodes })
+      const next = new Map<string, number>()
+      for (const item of res.items) next.set(item.ts_code, item.score)
+      scoresMap.value = next
+    } catch (err: unknown) {
+      console.warn('[aShares] 加载评分失败（不影响主表）:', err)
+      scoresMap.value = new Map()
+    } finally {
+      scoresLoading.value = false
+    }
   }
 
   async function loadSummary() {
@@ -152,6 +184,9 @@ export function useASharesQuery(message: {
 
   async function reload() {
     await Promise.all([ensureWatchlistsLoaded(), loadSummary(), loadFilterOptions(), loadFilterPresets(), loadData()])
+    // 首屏 loadData 与 loadSummary 并行，loadData 内首次 loadScores 时 latestTradeDate 可能尚未到位被跳过；
+    // 此处 summary 已就绪，用最新 rows 补一次（幂等、整体替换）
+    void loadScores(rows.value)
   }
 
   function applyFilters() {
@@ -262,6 +297,9 @@ export function useASharesQuery(message: {
     industryOptions,
     paginationState,
     summaryItems,
+    scoresMap,
+    scoresLoading,
+    latestTradeDate,
     reload,
     loadFilterPresets,
     applyFilters,
