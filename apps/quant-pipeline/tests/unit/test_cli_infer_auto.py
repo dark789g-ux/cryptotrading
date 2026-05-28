@@ -49,7 +49,7 @@ def _fake_session_scope_factory(rows: list[tuple]):
 def test_infer_auto_selects_latest_when_no_flags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """两个 flag 都空 → SQL 自动取 max(created_at) 的 lgb-% 模型。"""
+    """两个 flag 都空 → SQL 自动取 max(created_at) 的 status='prod' 模型。"""
 
     fake_cm = _fake_session_scope_factory([("lgb-lambdarank-v1-20260521-seed42",)])
     monkeypatch.setattr("quant_pipeline.db.engine.session_scope", fake_cm)
@@ -113,10 +113,10 @@ def test_infer_run_id_lookups_model_version(monkeypatch: pytest.MonkeyPatch) -> 
     assert "source=cli" in result.output
 
 
-def test_infer_auto_exits_when_no_model_in_db(
+def test_infer_auto_exits_when_no_prod_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """两个 flag 都空且 DB 无 lgb-% 模型 → exit 2，错误消息明确。"""
+    """两个 flag 都空且 DB 无 status='prod' 模型 → exit 2，错误消息明确。"""
 
     fake_cm = _fake_session_scope_factory([])
     monkeypatch.setattr("quant_pipeline.db.engine.session_scope", fake_cm)
@@ -128,4 +128,5 @@ def test_infer_auto_exits_when_no_model_in_db(
     runner = CliRunner()
     result = runner.invoke(cli_mod.app, ["infer", "--date", "20260528"])
     assert result.exit_code == 2, result.output
-    assert "无可用模型" in result.output or "无可用模型" in (result.stderr or "")
+    err = result.output + (result.stderr or "")
+    assert "status='prod'" in err

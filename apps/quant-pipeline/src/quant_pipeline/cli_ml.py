@@ -132,15 +132,16 @@ def cmd_infer(
     source = "cli"
 
     if not mv and not rid:
-        # 自动选最新可用模型：P0 阶段口径 = max(created_at) 且
-        # model_version LIKE 'lgb-%'（过滤 baseline / 集成模型仍兼容前缀）。
-        # P2 加 ml.model_runs.status 列后会切换到 WHERE status='prod'。
+        # 自动选 prod 模型：max(created_at) where status='prod'。
+        # ml.model_runs.status 列 migration 见 20260529_ml_model_runs_status.sql；
+        # seed-avg 集成模型上线由运维显式 UPDATE 升 prod，详见
+        # scripts/quant-weekly/seed-avg.ps1。
         with session_scope() as session:
             row = session.execute(
                 _text(
                     """
                     SELECT model_version FROM ml.model_runs
-                     WHERE model_version LIKE 'lgb-%'
+                     WHERE status = 'prod'
                      ORDER BY created_at DESC
                      LIMIT 1
                     """
@@ -148,8 +149,8 @@ def cmd_infer(
             ).first()
         if row is None:
             typer.echo(
-                "ml.model_runs 无可用模型（model_version LIKE 'lgb-%'）；"
-                "请先训练，或显式传 --model-version / --run-id",
+                "ml.model_runs 无 status='prod' 模型；请先训练并升 prod，"
+                "或显式传 --model-version / --run-id",
                 err=True,
             )
             raise typer.Exit(code=2)
