@@ -91,12 +91,17 @@ def cmd_infer(
     run_id: str = typer.Option(
         "",
         "--run-id",
-        help="ml.model_runs.id（与 --model-version 二选一）",
+        help=(
+            "ml.model_runs.id；不传时与 --model-version 都缺省则自动选最新"
+            " (model_version LIKE 'lgb-%' ORDER BY created_at DESC LIMIT 1)"
+        ),
     ),
     model_version: str = typer.Option(
         "",
         "--model-version",
-        help="ml.model_runs.model_version（与 --run-id 二选一）",
+        help=(
+            "ml.model_runs.model_version；不传时与 --run-id 都缺省则自动选最新"
+        ),
     ),
     date: str = typer.Option(
         ...,
@@ -124,9 +129,32 @@ def cmd_infer(
 
     mv = model_version.strip()
     rid = run_id.strip()
+    source = "cli"
+
     if not mv and not rid:
-        typer.echo("必须提供 --run-id 或 --model-version 之一", err=True)
-        raise typer.Exit(code=2)
+        # 自动选最新可用模型：P0 阶段口径 = max(created_at) 且
+        # model_version LIKE 'lgb-%'（过滤 baseline / 集成模型仍兼容前缀）。
+        # P2 加 ml.model_runs.status 列后会切换到 WHERE status='prod'。
+        with session_scope() as session:
+            row = session.execute(
+                _text(
+                    """
+                    SELECT model_version FROM ml.model_runs
+                     WHERE model_version LIKE 'lgb-%'
+                     ORDER BY created_at DESC
+                     LIMIT 1
+                    """
+                )
+            ).first()
+        if row is None:
+            typer.echo(
+                "ml.model_runs 无可用模型（model_version LIKE 'lgb-%'）；"
+                "请先训练，或显式传 --model-version / --run-id",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        mv = str(row[0])
+        source = "auto"
 
     if not mv and rid:
         # 反查 model_version
@@ -173,7 +201,7 @@ def cmd_infer(
         )
         raise typer.Exit(code=1) from exc
 
-    typer.echo(f"infer ok: model_version={mv} date={date} written={n}")
+    typer.echo(f"infer ok: model_version={mv} source={source} date={date} written={n}")
 
 
 def cmd_evaluate(
