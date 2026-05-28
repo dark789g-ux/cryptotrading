@@ -79,6 +79,7 @@ describe('QuantRunsService', () => {
       artifactUri: './artifacts/run-1/model.txt',
       reportUri: './artifacts/run-1/report.md',
       shapUri: null,
+      status: 'prod',
       createdAt: new Date('2026-05-17T01:02:03Z'),
     });
 
@@ -146,6 +147,7 @@ describe('QuantRunsService', () => {
         artifactUri: './a',
         reportUri: null,
         shapUri: null,
+        status: 'prod',
         createdAt: new Date('2026-05-17T00:00:00Z'),
       } as MlModelRunEntity);
 

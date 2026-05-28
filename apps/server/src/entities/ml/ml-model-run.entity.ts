@@ -38,6 +38,13 @@ export class MlModelRunEntity {
   @Column({ name: 'shap_uri', type: 'text', nullable: true })
   shapUri: string | null;
 
+  /**
+   * 模型生命周期状态：prod / shadow / archived（DB 层 CHECK 约束）。
+   * migration 20260529_ml_model_runs_status.sql 已建列 + 索引；本 entity 只读。
+   */
+  @Column({ name: 'status', type: 'text', default: () => "'shadow'" })
+  status: string;
+
   @Column({ name: 'created_at', type: 'timestamptz', default: () => 'now()' })
   createdAt: Date;
 }

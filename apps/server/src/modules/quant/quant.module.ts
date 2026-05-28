@@ -5,6 +5,7 @@ import { MlJobEntity } from '../../entities/ml/ml-job.entity';
 import { MlModelRunEntity } from '../../entities/ml/ml-model-run.entity';
 import { MlScoreDailyEntity } from '../../entities/ml/ml-score-daily.entity';
 import { MlQualityReportEntity } from '../../entities/ml/ml-quality-report.entity';
+import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
 import { UserEntity } from '../../users/entities/user.entity';
 import { QuantJobsService } from './services/quant-jobs.service';
 import { SseTokenService } from './services/sse-token.service';
@@ -14,6 +15,7 @@ import { QuantQualityService } from './services/quant-quality.service';
 import { QuantJobsController } from './controllers/quant-jobs.controller';
 import { QuantJobsSseController } from './controllers/quant-jobs-sse.controller';
 import { QuantScoresController } from './controllers/quant-scores.controller';
+import { QuantPublicScoresController } from './controllers/quant-public-scores.controller';
 import { QuantRunsController } from './controllers/quant-runs.controller';
 import { QuantQualityController } from './controllers/quant-quality.controller';
 import { SseTokenGuard } from './guards/sse-token.guard';
@@ -58,6 +60,8 @@ import { FactorsModule } from './factors/factors.module';
       MlModelRunEntity,
       MlScoreDailyEntity,
       MlQualityReportEntity,
+      // scores 列表/对照接口给每行补股票中文名（ts_code → name；只读单 PK 查表）
+      AShareSymbolEntity,
       // SSE 流接口二次校验当前 user.role（refactor 2026-05-23 由 env 白名单改为 DB role）
       UserEntity,
     ]),
@@ -68,6 +72,7 @@ import { FactorsModule } from './factors/factors.module';
     QuantJobsController,
     QuantJobsSseController,
     QuantScoresController,
+    QuantPublicScoresController,
     QuantRunsController,
     QuantQualityController,
   ],

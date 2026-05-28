@@ -256,3 +256,41 @@ export function validateScoresListQuery(
 }
 
 export const ALLOWED_SCORES_SORT_FIELDS = SCORES_LIST_ALLOWED_SORT_FIELDS;
+
+// ============ POST /quant/scores/by-tscodes（A 股面板评分列批量查） ============
+
+/**
+ * 单次批量查的 ts_codes 上限。A 股面板分页最大 50/页，留余量到 500
+ * （翻页快速连点时可能合并，且未来可能放大 pageSize）。
+ */
+const SCORES_BY_TSCODES_MAX = 500;
+
+export class ScoresByTsCodesBodyDto {
+  trade_date!: string;
+  ts_codes!: string[];
+}
+
+export interface ValidatedScoresByTsCodesQuery {
+  tradeDate: string;
+  tsCodes: string[];
+}
+
+export function validateScoresByTsCodesBody(
+  body: Record<string, unknown>,
+): ValidatedScoresByTsCodesQuery {
+  const tradeDate = parseTradeDate(body.trade_date, 'trade_date');
+  const raw = body.ts_codes;
+  if (!Array.isArray(raw)) {
+    throw new BadRequestException('ts_codes 必须为字符串数组');
+  }
+  if (raw.length > SCORES_BY_TSCODES_MAX) {
+    throw new BadRequestException(
+      `ts_codes 数量不得超过 ${SCORES_BY_TSCODES_MAX}（实际 ${raw.length}）`,
+    );
+  }
+  // 复用 parseTsCode 做逐项校验（非法 code 直接 400），再去重
+  const tsCodes = Array.from(
+    new Set(raw.map((v, i) => parseTsCode(v, `ts_codes[${i}]`))),
+  );
+  return { tradeDate, tsCodes };
+}

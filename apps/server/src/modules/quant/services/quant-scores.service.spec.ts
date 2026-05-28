@@ -7,6 +7,7 @@ import {
 } from './quant-scores.service';
 import { MlScoreDailyEntity } from '../../../entities/ml/ml-score-daily.entity';
 import { MlModelRunEntity } from '../../../entities/ml/ml-model-run.entity';
+import { AShareSymbolEntity } from '../../../entities/a-share/a-share-symbol.entity';
 
 /**
  * QuantScoresService 单测：
@@ -34,9 +35,13 @@ describe('QuantScoresService', () => {
   };
   let runsQb: {
     select: jest.Mock;
+    where: jest.Mock;
     orderBy: jest.Mock;
+    limit: jest.Mock;
     getRawMany: jest.Mock;
+    getRawOne: jest.Mock;
   };
+  let symbolsRepo: { find: jest.Mock };
 
   beforeEach(async () => {
     scoresQb = {
@@ -55,17 +60,23 @@ describe('QuantScoresService', () => {
     scoresQb.clone.mockImplementation(() => scoresQb);
     runsQb = {
       select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
       getRawMany: jest.fn().mockResolvedValue([]),
+      getRawOne: jest.fn().mockResolvedValue(undefined),
     };
     scoresRepo = { createQueryBuilder: jest.fn().mockReturnValue(scoresQb) };
     runsRepo = { createQueryBuilder: jest.fn().mockReturnValue(runsQb) };
+    // 默认 symbolsRepo.find 返回空（即 name=null）；测试可覆盖
+    symbolsRepo = { find: jest.fn().mockResolvedValue([]) };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         QuantScoresService,
         { provide: getRepositoryToken(MlScoreDailyEntity), useValue: scoresRepo },
         { provide: getRepositoryToken(MlModelRunEntity), useValue: runsRepo },
+        { provide: getRepositoryToken(AShareSymbolEntity), useValue: symbolsRepo },
       ],
     }).compile();
 
@@ -224,7 +235,34 @@ describe('QuantScoresService', () => {
         model_version: 'v1',
         score: 1.23,
         rank_in_day: 1,
+        name: null,
       });
+    });
+
+    it('补股票中文名：symbolsRepo.find 返回的 name 透传到 row.name', async () => {
+      scoresQb.getMany.mockResolvedValue([
+        { tradeDate: '20260517', tsCode: '000001.SZ', modelVersion: 'v1', score: 1.23, rankInDay: 1 },
+        { tradeDate: '20260517', tsCode: '600519.SH', modelVersion: 'v1', score: 1.10, rankInDay: 2 },
+        { tradeDate: '20260517', tsCode: '999999.SZ', modelVersion: 'v1', score: 1.05, rankInDay: 3 },
+      ] as MlScoreDailyEntity[]);
+      symbolsRepo.find.mockResolvedValue([
+        { tsCode: '000001.SZ', name: '平安银行' },
+        { tsCode: '600519.SH', name: '贵州茅台' },
+      ]);
+
+      const out = await service.getDailyTopK({
+        tradeDate: '20260517',
+        modelVersion: 'v1',
+        topK: 50,
+      });
+
+      // 命中的 ts_code 取自 a_share_symbols.name
+      expect(out[0].name).toBe('平安银行');
+      expect(out[1].name).toBe('贵州茅台');
+      // 未命中的 ts_code 退回 null（不抛错、不静默用 ts_code 替代）
+      expect(out[2].name).toBeNull();
+      // symbolsRepo.find 必须传去重后的 ts_code 集合（不重复查同一标的）
+      expect(symbolsRepo.find).toHaveBeenCalledTimes(1);
     });
 
     it('空结果：repo 返回空数组 → 返回空数组', async () => {
@@ -344,10 +382,113 @@ describe('QuantScoresService', () => {
             model_version: 'v1',
             score: 1.0,
             rank_in_day: 1,
+            name: null,
           },
         ],
       });
       expect(out[1]).toEqual({ model_version: 'v_missing', rows: [] });
+    });
+
+    it('compareModels 也补 name：跨模型同一 ts_code 只查一次 a_share_symbols', async () => {
+      scoresQb.getMany.mockResolvedValue([
+        { tradeDate: '20260517', tsCode: '000001.SZ', modelVersion: 'v1', score: 1.0, rankInDay: 1 },
+        { tradeDate: '20260517', tsCode: '000001.SZ', modelVersion: 'v2', score: 9.0, rankInDay: 1 },
+        { tradeDate: '20260517', tsCode: '600519.SH', modelVersion: 'v2', score: 8.5, rankInDay: 2 },
+      ] as MlScoreDailyEntity[]);
+      symbolsRepo.find.mockResolvedValue([
+        { tsCode: '000001.SZ', name: '平安银行' },
+        { tsCode: '600519.SH', name: '贵州茅台' },
+      ]);
+
+      const out = await service.compareModels({
+        tradeDate: '20260517',
+        modelVersions: ['v1', 'v2'],
+        topK: 10,
+      });
+
+      expect(out[0].rows[0].name).toBe('平安银行');
+      expect(out[1].rows[0].name).toBe('平安银行'); // 同 ts_code 两组都拿到
+      expect(out[1].rows[1].name).toBe('贵州茅台');
+      // 一批扫描，去重后的 ts_code 集合 → symbolsRepo.find 只调一次
+      expect(symbolsRepo.find).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('getScoresByTsCodes（A 股面板评分列：自动选 prod + 批量按 ts_code 查）', () => {
+    it('happy path：prod 存在 + 部分命中 → = ANY(::text[]) 去重数组 + select 三列 + Number(score)', async () => {
+      runsQb.getRawOne.mockResolvedValueOnce({ model_version: 'prod-v1' });
+      scoresQb.getMany.mockResolvedValueOnce([
+        { tsCode: '000001.SZ', score: '1.2345', rankInDay: 51 },
+        { tsCode: '600519.SH', score: -0.9876, rankInDay: 52 },
+      ] as unknown as MlScoreDailyEntity[]);
+
+      const out = await service.getScoresByTsCodes({
+        tradeDate: '20260528',
+        tsCodes: ['000001.SZ', '000001.SZ', '600519.SH'],
+      });
+
+      // 选 prod：WHERE status='prod' ORDER BY created_at DESC LIMIT 1
+      expect(runsQb.where).toHaveBeenCalledWith('r.status = :status', { status: 'prod' });
+      expect(runsQb.orderBy).toHaveBeenCalledWith('r.createdAt', 'DESC');
+      expect(runsQb.limit).toHaveBeenCalledWith(1);
+
+      // scores 查询：select 用 entity 属性名（getMany 按属性名水合）
+      expect(scoresQb.select).toHaveBeenCalledWith(['s.tsCode', 's.score', 's.rankInDay']);
+      expect(scoresQb.where).toHaveBeenCalledWith('s.trade_date = :tradeDate', {
+        tradeDate: '20260528',
+      });
+      expect(scoresQb.andWhere).toHaveBeenCalledWith('s.model_version = :modelVersion', {
+        modelVersion: 'prod-v1',
+      });
+      // varchar 列数组参数用 ::text[]，且去重
+      const anyCall = scoresQb.andWhere.mock.calls.find((c) =>
+        String(c[0]).includes('s.ts_code = ANY(:tsCodes::text[])'),
+      );
+      expect(anyCall).toBeTruthy();
+      expect(anyCall![1]).toEqual({ tsCodes: ['000001.SZ', '600519.SH'] });
+
+      expect(out.model_version).toBe('prod-v1');
+      expect(out.trade_date).toBe('20260528');
+      expect(out.items).toEqual([
+        { ts_code: '000001.SZ', score: 1.2345, rank_in_day: 51 },
+        { ts_code: '600519.SH', score: -0.9876, rank_in_day: 52 },
+      ]);
+    });
+
+    it('prod 不存在：不查 scores、model_version=null、items=[]、warn 留痕、不抛 500', async () => {
+      const warnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
+      runsQb.getRawOne.mockResolvedValueOnce(undefined);
+
+      const out = await service.getScoresByTsCodes({
+        tradeDate: '20260528',
+        tsCodes: ['000001.SZ'],
+      });
+
+      expect(scoresRepo.createQueryBuilder).not.toHaveBeenCalled();
+      expect(out).toEqual({ trade_date: '20260528', model_version: null, items: [] });
+      expect(warnSpy).toHaveBeenCalled();
+    });
+
+    it('tsCodes 空数组：不查 scores、items=[]、model_version 仍为 prod', async () => {
+      runsQb.getRawOne.mockResolvedValueOnce({ model_version: 'prod-v1' });
+
+      const out = await service.getScoresByTsCodes({ tradeDate: '20260528', tsCodes: [] });
+
+      expect(scoresRepo.createQueryBuilder).not.toHaveBeenCalled();
+      expect(out).toEqual({ trade_date: '20260528', model_version: 'prod-v1', items: [] });
+    });
+
+    it('当日该模型无数据：getMany 返回空 → items=[]、model_version 非 null', async () => {
+      runsQb.getRawOne.mockResolvedValueOnce({ model_version: 'prod-v1' });
+      scoresQb.getMany.mockResolvedValueOnce([]);
+
+      const out = await service.getScoresByTsCodes({
+        tradeDate: '20260520',
+        tsCodes: ['000001.SZ'],
+      });
+
+      expect(out.model_version).toBe('prod-v1');
+      expect(out.items).toEqual([]);
     });
   });
 });

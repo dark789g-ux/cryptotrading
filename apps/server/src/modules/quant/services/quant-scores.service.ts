@@ -21,10 +21,12 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { MlScoreDailyEntity } from '../../../entities/ml/ml-score-daily.entity';
 import { MlModelRunEntity } from '../../../entities/ml/ml-model-run.entity';
+import { AShareSymbolEntity } from '../../../entities/a-share/a-share-symbol.entity';
 import type {
+  ValidatedScoresByTsCodesQuery,
   ValidatedScoresCompareQuery,
   ValidatedScoresDailyQuery,
   ValidatedScoresListQuery,
@@ -58,6 +60,8 @@ export interface DailyTopKRow {
   model_version: string;
   score: number;
   rank_in_day: number;
+  /** A 股中文名（来源 a_share_symbols.name；未匹配到时 null） */
+  name: string | null;
 }
 
 export interface ScoreTimeSeriesRow {
@@ -76,6 +80,19 @@ export interface CompareGroup {
   rows: DailyTopKRow[];
 }
 
+export interface ScoresByTsCodesItem {
+  ts_code: string;
+  score: number;
+  rank_in_day: number;
+}
+
+export interface ScoresByTsCodesResult {
+  trade_date: string;
+  /** 当前 prod 模型版本；无 prod 模型时为 null（不抛 500） */
+  model_version: string | null;
+  items: ScoresByTsCodesItem[];
+}
+
 @Injectable()
 export class QuantScoresService {
   private readonly logger = new Logger(QuantScoresService.name);
@@ -85,7 +102,26 @@ export class QuantScoresService {
     private readonly scoresRepo: Repository<MlScoreDailyEntity>,
     @InjectRepository(MlModelRunEntity)
     private readonly runsRepo: Repository<MlModelRunEntity>,
+    @InjectRepository(AShareSymbolEntity)
+    private readonly symbolsRepo: Repository<AShareSymbolEntity>,
   ) {}
+
+  /**
+   * 给一批 ts_code 批量查 a_share_symbols.name；返回 ts_code → name 映射。
+   *
+   * 单 PK 查表，索引命中 ≈ 零成本（实测全市场 5500 行 IN-list 查询 < 5ms）。
+   * 未匹配到的 ts_code 不进 map（调用方读 map.get(...) 自动得到 undefined → null）。
+   */
+  private async loadNameMap(tsCodes: readonly string[]): Promise<Map<string, string>> {
+    if (tsCodes.length === 0) return new Map();
+    // 去重：减少 SQL IN-list 大小（同一标的可能在多模型对照里出现多次）
+    const unique = Array.from(new Set(tsCodes));
+    const rows = await this.symbolsRepo.find({
+      where: { tsCode: In(unique) },
+      select: ['tsCode', 'name'],
+    });
+    return new Map(rows.map((r) => [r.tsCode, r.name]));
+  }
 
   /**
    * 顶层 `GET /quant/scores` 列表：分页 + 排序 + total。
@@ -147,7 +183,8 @@ export class QuantScoresService {
         .offset(skip)
         .limit(effectiveLimit)
         .getMany();
-      items = rows.map(this.toDailyTopKRow);
+      const nameMap = await this.loadNameMap(rows.map((r) => r.tsCode));
+      items = rows.map((r) => this.toDailyTopKRow(r, nameMap));
     }
 
     // total = min(实际行数, top_k 上限)；count(*) 走同样的 where 命中索引
@@ -188,7 +225,8 @@ export class QuantScoresService {
       .limit(q.topK);
 
     const rows = await qb.getMany();
-    return rows.map(this.toDailyTopKRow);
+    const nameMap = await this.loadNameMap(rows.map((r) => r.tsCode));
+    return rows.map((r) => this.toDailyTopKRow(r, nameMap));
   }
 
   /**
@@ -269,13 +307,14 @@ export class QuantScoresService {
       .addOrderBy(rankCol, 'ASC')
       .getMany();
 
-    // 按 model_version 分组，保留入参顺序
+    // 按 model_version 分组，保留入参顺序；name 批量查一次后所有分组共享
+    const nameMap = await this.loadNameMap(rows.map((r) => r.tsCode));
     const groups = new Map<string, DailyTopKRow[]>();
     for (const mv of q.modelVersions) groups.set(mv, []);
     for (const r of rows) {
       const list = groups.get(r.modelVersion);
       if (!list) continue;
-      list.push(this.toDailyTopKRow(r));
+      list.push(this.toDailyTopKRow(r, nameMap));
     }
     return q.modelVersions.map((mv) => ({
       model_version: mv,
@@ -283,12 +322,89 @@ export class QuantScoresService {
     }));
   }
 
-  private toDailyTopKRow = (r: MlScoreDailyEntity): DailyTopKRow => ({
+  /**
+   * 取当前 prod 模型版本：`WHERE status='prod' ORDER BY created_at DESC LIMIT 1`。
+   *
+   * 命中 migration 20260529 建的 `idx_model_runs_status_created (status, created_at DESC)`。
+   * 无 prod 模型时返回 null（调用方据此返回空 items，不抛 500）。
+   * status 是固定常量列（非用户输入），直写别名列名（与 getModelVersions 写法一致），
+   * FIELD_COL_MAP 只约束 scores_daily 的动态字段。
+   */
+  private async resolveProdModelVersion(): Promise<string | null> {
+    const row = await this.runsRepo
+      .createQueryBuilder('r')
+      .select('r.modelVersion', 'model_version')
+      .where('r.status = :status', { status: 'prod' })
+      .orderBy('r.createdAt', 'DESC')
+      .limit(1)
+      .getRawOne<{ model_version: string }>();
+    return row?.model_version ?? null;
+  }
+
+  /**
+   * 给一批 ts_code 批量查"当日 prod 模型"的评分（A 股面板评分列用）。
+   *
+   * - 模型版本由服务端自动选当前 prod（前端不传 model_version）。
+   * - prod 不存在 → `model_version=null, items=[]`，不抛 500。
+   * - 缺失的 ts_code 不进 items（前端显示 `—`），**不回填 0 / 历史值**。
+   * - ts_code 是 varchar：数组参数用 `::text[]` 强转（database-sql.md），
+   *   与 compareModels 的 `= ANY(:...::text[])` 一致。
+   */
+  async getScoresByTsCodes(
+    q: ValidatedScoresByTsCodesQuery,
+  ): Promise<ScoresByTsCodesResult> {
+    const modelVersion = await this.resolveProdModelVersion();
+    if (!modelVersion) {
+      this.logger.warn(
+        `scores_by_tscodes_no_prod_model trade_date=${q.tradeDate} tsCodes=${q.tsCodes.length}`,
+      );
+      return { trade_date: q.tradeDate, model_version: null, items: [] };
+    }
+    if (q.tsCodes.length === 0) {
+      return { trade_date: q.tradeDate, model_version: modelVersion, items: [] };
+    }
+
+    const tradeDateCol = resolveScoresFilterColumn('trade_date');
+    const modelVersionCol = resolveScoresFilterColumn('model_version');
+    const tsCodeCol = resolveScoresFilterColumn('ts_code');
+    if (!tradeDateCol || !modelVersionCol || !tsCodeCol) {
+      this.logger.warn('getScoresByTsCodes: FIELD_COL_MAP 缺失核心字段（不应发生）');
+      return { trade_date: q.tradeDate, model_version: modelVersion, items: [] };
+    }
+
+    // 去重减少 IN-list / ANY 数组大小
+    const uniqueTsCodes = Array.from(new Set(q.tsCodes));
+    const rows = await this.scoresRepo
+      .createQueryBuilder('s')
+      // getMany() 按 entity 属性名水合，select 必须用属性名（tsCode/rankInDay），
+      // 不能用 DB 列名（ts_code/rank_in_day），否则属性水合不上 → undefined
+      .select(['s.tsCode', 's.score', 's.rankInDay'])
+      .where(`${tradeDateCol} = :tradeDate`, { tradeDate: q.tradeDate })
+      .andWhere(`${modelVersionCol} = :modelVersion`, { modelVersion })
+      .andWhere(`${tsCodeCol} = ANY(:tsCodes::text[])`, { tsCodes: uniqueTsCodes })
+      .getMany();
+
+    return {
+      trade_date: q.tradeDate,
+      model_version: modelVersion,
+      items: rows.map((r) => ({
+        ts_code: r.tsCode,
+        score: Number(r.score),
+        rank_in_day: r.rankInDay,
+      })),
+    };
+  }
+
+  private toDailyTopKRow = (
+    r: MlScoreDailyEntity,
+    nameMap?: Map<string, string>,
+  ): DailyTopKRow => ({
     trade_date: r.tradeDate,
     ts_code: r.tsCode,
     model_version: r.modelVersion,
     score: Number(r.score),
     rank_in_day: r.rankInDay,
+    name: nameMap?.get(r.tsCode) ?? null,
   });
 }
 
