@@ -346,3 +346,24 @@ def import_all_factors() -> None:
         industry_relative_strength,
         sector_volume_concentration,
     )
+
+
+def ensure_loaded() -> None:
+    """注册表 + DB 元数据预热的幂等入口。
+
+    任何在使用 ``list_active`` / ``list_factors`` / ``get_factor`` 前都应调
+    一次。等价于 ``import_all_factors() + reload_from_db()``。
+
+    幂等性：
+      - ``import_all_factors`` 触发的是 Python 模块 import 副作用，被模块
+        缓存兜底，重复调用零副作用；
+      - ``reload_from_db`` 显式清空 ``_meta_cache`` 与 ``_REGISTRY_INSTANCES``
+        再重新填充，无残留态。
+
+    历史：spec 2026-05-29 暴露 ``features build`` / 后续 ``features
+    build-inference`` 等 CLI 入口缺少这一步会触发 ``FactorMetaMissing``；
+    抽出 helper 统一调用点，避免新增入口又漏掉。
+    """
+
+    import_all_factors()
+    reload_from_db()

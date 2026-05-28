@@ -309,7 +309,12 @@ def features_build(
     """构建并 upsert feature_matrix（含 feature_sets 元数据）。"""
 
     setup_logging()
+    from quant_pipeline.factors.registry import ensure_loaded
     from quant_pipeline.features.runner import build_feature_matrix
+
+    # builder 的 `_load_factor_ids` 会用 `list_active(factor_version)`，
+    # 缓存未加载会抛 `FactorMetaMissing`。统一在 CLI 入口预热。
+    ensure_loaded()
 
     try:
         validate_date_range(date_range)
@@ -367,11 +372,7 @@ def factors_compute(
     """
 
     setup_logging()
-    from quant_pipeline.factors.registry import (
-        import_all_factors,
-        list_factors,
-        reload_from_db,
-    )
+    from quant_pipeline.factors.registry import ensure_loaded, list_factors
     from quant_pipeline.factors.runner import run_factors
     from quant_pipeline.quality.pit_audit import (
         audit_pit_window_covers_min_trade_days,
@@ -386,8 +387,7 @@ def factors_compute(
     # 启动期 PIT 窗口护门校验（spec 2026-05-23-pit-window-guard-design §6.4）：
     # pit_window_days 必须 >= ceil(min_trade_days × PIT_WINDOW_COEFFICIENT)，
     # 不通过则拒启动；info 级"未声明"不阻断。
-    import_all_factors()
-    reload_from_db()
+    ensure_loaded()
     all_factors = list_factors(factor_version=version)
     audit_results = audit_pit_window_covers_min_trade_days(all_factors)
     failed = [r for r in audit_results if not r.passed]
