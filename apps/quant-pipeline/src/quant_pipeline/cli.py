@@ -355,6 +355,89 @@ def features_build(
     )
 
 
+@features_app.command("build-inference")
+def features_build_inference(
+    factor_version: str = typer.Option(
+        ...,
+        "--factor-version",
+        help="所选因子版本（factors.daily_factors.factor_version）",
+    ),
+    label_scheme: str = typer.Option(
+        "strategy-aware",
+        "--label-scheme",
+        help="标签方案：仅参与 feature_set_id 哈希，与训练共享同一 fsid；不读 labels 表",
+    ),
+    date_range: str = typer.Option(
+        ...,
+        "--date-range",
+        help="构建窗口 YYYYMMDD:YYYYMMDD（通常用于最新交易日 labels 未闭合的情形）",
+    ),
+    new_listing_min_days: int = typer.Option(
+        60,
+        "--new-listing-min-days",
+        min=0,
+        max=250,
+        help="新股过滤门槛（交易日，0 表示不过滤；与 train_e2e 一致）",
+    ),
+    progress: bool = typer.Option(
+        False,
+        "--progress",
+        help="显示终端进度条",
+    ),
+) -> None:
+    """labels-optional 构建 feature_matrix：跳过 ``_load_labels``，写入行的 label
+    列保持 NULL。专用于"给最新交易日 / labels 未闭合日出推理评分"。
+
+    产物落到与训练相同 ``feature_set_id`` 下（共享 fs 元数据）；inference 仅
+    SELECT features 列，与训练写入的 label 行可并存。
+    """
+
+    setup_logging()
+    from quant_pipeline.factors.registry import ensure_loaded
+    from quant_pipeline.features.runner import build_feature_matrix_inference
+
+    # `_load_factor_ids` 经 `list_active`；缓存未加载会抛 `FactorMetaMissing`。
+    ensure_loaded()
+
+    try:
+        validate_date_range(date_range)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+
+    if progress:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as prog:
+            task = prog.add_task("features:loading", total=100)
+            callback = _make_progress_callback(prog, task)
+            feature_set_id = build_feature_matrix_inference(
+                factor_version=factor_version,
+                label_scheme=label_scheme,
+                date_range=date_range,
+                new_listing_min_days=new_listing_min_days,
+                job_id=None,
+                progress_callback=callback,
+            )
+    else:
+        feature_set_id = build_feature_matrix_inference(
+            factor_version=factor_version,
+            label_scheme=label_scheme,
+            date_range=date_range,
+            new_listing_min_days=new_listing_min_days,
+            job_id=None,
+        )
+
+    typer.echo(
+        f"features build-inference factor_version={factor_version} "
+        f"label_scheme={label_scheme} {date_range}: feature_set_id={feature_set_id}"
+    )
+
+
 # ----------------------------------------------------------------------
 # factors 子命令（M1 Part C）
 # ----------------------------------------------------------------------

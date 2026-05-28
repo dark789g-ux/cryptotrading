@@ -469,6 +469,39 @@ def merge_with_labels(
     return df.set_index(["trade_date", "ts_code"]).sort_index()
 
 
+def merge_with_labels_optional(
+    wide: pd.DataFrame,
+    labels: pd.DataFrame | None,
+    label_scheme: str,
+) -> pd.DataFrame:
+    """labels-optional 版本：与 :func:`merge_with_labels` 结构等价但用 left join，
+    labels 缺失行 ``label`` 列为 NaN。labels 整体为 None / 空 DF 时也返回 wide
+    全行（label 列全 NaN）。
+
+    用途：inference-only feature_matrix 构建路径。strategy-aware 标签需
+    ``MAX_HOLD_DAYS=20`` + T+1 ≈ 30 个未来交易日才能闭合，最新 ~30 日永远没有
+    label；inner join 会把这些日子的全部行丢掉，feature_matrix 当日为空，
+    inference 无法读取。改 left join 后这些日子 label=NaN 仍写库，
+    inference 侧只 SELECT features 列不读 label，无影响；训练侧
+    ``training/runner.py`` 显式 ``df.loc[df["label"].notna()]`` 过滤
+    label NaN 行，不污染训练集。
+
+    禁止用于训练路径：训练应继续走 :func:`merge_with_labels`（inner join），
+    避免静默把 label NaN 行带入下游。
+    """
+
+    if wide.empty:
+        return pd.DataFrame()
+    base = wide.reset_index()
+    if labels is None or labels.empty:
+        base["label"] = float("nan")
+        return base.set_index(["trade_date", "ts_code"]).sort_index()
+    lab = labels.loc[labels["scheme"] == label_scheme, ["trade_date", "ts_code", "value"]]
+    lab = lab.rename(columns={"value": "label"})
+    df = base.merge(lab, on=["trade_date", "ts_code"], how="left")
+    return df.set_index(["trade_date", "ts_code"]).sort_index()
+
+
 def build_feature_matrix_from_frames(
     *,
     daily_factors: pd.DataFrame,
@@ -595,6 +628,135 @@ def build_feature_matrix_from_frames(
     )
 
 
+def build_feature_matrix_for_inference(
+    *,
+    daily_factors: pd.DataFrame,
+    industry_map: pd.DataFrame | None,
+    factor_version: str,
+    label_scheme: str,
+    new_listing_min_days: int,
+    mv_map: pd.DataFrame | None = None,
+    labels: pd.DataFrame | None = None,
+    factor_ids: tuple[str, ...] = (),
+    neutralize_cols: tuple[str, ...] = DEFAULT_NEUTRALIZE_COLS,
+    robust_z: bool = DEFAULT_ROBUST_Z,
+    factor_clip_sigma: float = FACTOR_CLIP_SIGMA,
+) -> FeatureMatrixBundle:
+    """labels-optional 纯计算入口（无 DB）。
+
+    与 :func:`build_feature_matrix_from_frames` 的差异：
+      ⑤ inner-merge → left-merge（用 :func:`merge_with_labels_optional`）；
+      ⑥ winsorize_label 跳过（label 可能全 NaN）；
+      ⑦ ``dropna(how="any")`` → ``dropna(subset=feature_cols, how="any")``
+         （保留 label NaN 行）。
+
+    前 ①-④.5 步骤完全共享，包括死因子检测与中性化策略。``label_scheme``
+    仍参与 ``feature_set_id`` 哈希以保持训练 / 推理共用同一 fsid。
+
+    安全性证据：
+      - 训练侧 ``training/runner.py`` 已 ``df.loc[df["label"].notna()]``
+        过滤 label NaN 行，本路径产物不污染训练集；
+      - 推理侧 ``inference/runner.py._load_daily_feature_section`` 只
+        ``SELECT ts_code, features``，不读 label 列。
+
+    历史：spec 2026-05-29 因 strategy-aware 标签需 30 个未来交易日才能闭合，
+    "为最新交易日出评分"在原 inner-join 路径下结构性不可达；本函数解封。
+    """
+
+    feature_set_id = build_feature_set_id(
+        factor_version,
+        label_scheme,
+        new_listing_min_days=new_listing_min_days,
+        neutralize_cols=neutralize_cols,
+        robust_z=robust_z,
+        factor_ids=factor_ids,
+    )
+
+    wide = pivot_factors_long_to_wide(daily_factors)
+    if wide.empty:
+        return FeatureMatrixBundle(
+            feature_set_id=feature_set_id,
+            factor_ids=[],
+            matrix=pd.DataFrame(),
+        )
+
+    # ⓪ 死因子检测：与训练路径一致
+    dead_factors = [c for c in wide.columns if wide[c].isna().all()]
+    if dead_factors:
+        logger.warning(
+            "feature_matrix_dead_factors_dropped",
+            extra={"dead_factors": dead_factors, "n": len(dead_factors), "mode": "inference"},
+        )
+        wide = wide.drop(columns=dead_factors)
+        if wide.empty or wide.shape[1] == 0:
+            return FeatureMatrixBundle(
+                feature_set_id=feature_set_id,
+                factor_ids=[],
+                matrix=pd.DataFrame(),
+            )
+
+    # ① 行业中位数填充
+    industry_df = industry_map if industry_map is not None else pd.DataFrame()
+    wide_filled = impute_missing_with_industry_median(wide, industry_df)
+
+    # ② 因子层 ±3σ 截尾
+    wide_clipped = winsorize_factors(wide_filled, sigma=factor_clip_sigma)
+
+    # ③ 中性化
+    if "mv" in neutralize_cols and mv_map is not None and not mv_map.empty:
+        neutralized = neutralize_by_industry_and_market_cap(
+            wide_clipped, industry_df, mv_map
+        )
+    else:
+        neutralized = neutralize_by_industry(wide_clipped, industry_df)
+
+    # ④ 截面 z-score
+    if robust_z:
+        standardized = standardize_cross_sectional(neutralized)
+    else:
+        standardized = neutralized
+
+    # ④.5 死因子复检
+    if not standardized.empty:
+        const_zero = [
+            c for c in standardized.columns
+            if (standardized[c].fillna(0.0) == 0.0).all()
+        ]
+        if const_zero:
+            logger.warning(
+                "feature_matrix_constant_zero_factors",
+                extra={"factors": const_zero, "n": len(const_zero), "mode": "inference"},
+            )
+
+    # ⑤ left-merge with labels（可选缺失；可同时含有 label 与无 label 行）
+    merged = merge_with_labels_optional(standardized, labels, label_scheme=label_scheme)
+    if merged.empty:
+        return FeatureMatrixBundle(
+            feature_set_id=feature_set_id,
+            factor_ids=list(wide.columns),
+            matrix=pd.DataFrame(),
+        )
+
+    # ⑥ label winsorize 跳过：label 列允许全 NaN，winsorize 对该列无意义；
+    #    即便部分行有 label，对推理日 inference 也不读 label，跳过无副作用。
+
+    # ⑦ 只对 feature 列 dropna；保留 label NaN 行（关键差异）
+    feature_cols = list(wide.columns)
+    final = merged.dropna(subset=feature_cols, how="any")
+    if len(final) < len(merged):
+        logger.warning(
+            "feature_matrix_dropna",
+            extra={"raw": len(merged), "kept": len(final), "mode": "inference"},
+        )
+
+    factor_ids = list(wide.columns)
+    return FeatureMatrixBundle(
+        feature_set_id=feature_set_id,
+        factor_ids=factor_ids,
+        matrix=final.reset_index(),
+    )
+
+
 __all__ = [
     "FeatureMatrixBundle",
     "FACTOR_CLIP_SIGMA",
@@ -610,5 +772,7 @@ __all__ = [
     "impute_missing_with_industry_median",
     "winsorize_factors",
     "merge_with_labels",
+    "merge_with_labels_optional",
     "build_feature_matrix_from_frames",
+    "build_feature_matrix_for_inference",
 ]

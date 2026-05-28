@@ -23,6 +23,7 @@ from quant_pipeline.db.engine import session_scope
 from quant_pipeline.features.builder import (
     DEFAULT_NEUTRALIZE_COLS,
     DEFAULT_ROBUST_Z,
+    build_feature_matrix_for_inference,
     build_feature_matrix_from_frames,
     resolve_feature_set_id,
 )
@@ -436,6 +437,156 @@ def build_feature_matrix(
             "rows": n,
             "factor_count": len(bundle.factor_ids),
             "reused_feature_set_id": reused,
+        },
+    )
+
+    _progress(100, "features:done")
+    return fsid
+
+
+def build_feature_matrix_inference(
+    *,
+    factor_version: str,
+    label_scheme: str,
+    date_range: str,
+    new_listing_min_days: int,
+    job_id: UUID | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> str:
+    """labels-optional 构建路径：跳过 ``_load_labels``，
+    最新交易日（labels 未闭合）也能写入 feature_matrix。
+
+    与 :func:`build_feature_matrix` 共享 feature_set_id（同
+    ``factor_version`` × ``label_scheme`` × ``new_listing_min_days`` ×
+    ``factor_ids`` 四元组 → 同 fsid），label 列写 NULL。
+
+    历史：spec 2026-05-29 inference-only feature_matrix；详见
+    :func:`quant_pipeline.features.builder.build_feature_matrix_for_inference`
+    的安全性证据。
+    """
+
+    def _progress(progress: int, stage: str) -> None:
+        if progress_callback is not None:
+            progress_callback(progress, stage)
+        if job_id is not None:
+            update_progress(job_id, progress, stage=stage)
+
+    start, end = date_range.split(":")
+    if len(start) != 8 or len(end) != 8:
+        raise ValueError(f"date_range must be 'YYYYMMDD:YYYYMMDD', got {date_range!r}")
+
+    if job_id is not None and check_cancel_requested(job_id):
+        raise JobCancelled
+    _progress(10, "features:load")
+
+    with session_scope() as _session:
+        factor_ids = tuple(sorted(_load_factor_ids(_session, factor_version)))
+        fsid, reused = resolve_feature_set_id(
+            _session,
+            factor_version=factor_version,
+            label_scheme=label_scheme,
+            new_listing_min_days=new_listing_min_days,
+            factor_ids=factor_ids,
+        )
+    if reused:
+        logger.info(
+            "feature_set_reused",
+            extra={
+                "feature_set_id": fsid,
+                "factor_version": factor_version,
+                "scheme": label_scheme,
+                "new_listing_min_days": int(new_listing_min_days),
+                "mode": "inference",
+            },
+        )
+
+    daily_factors = _load_daily_factors(factor_version, start, end)
+    industry_map = _load_industry_map(start, end)
+    mv_map = _load_mv_map(start, end)
+
+    if industry_map.empty:
+        logger.warning(
+            "feature_matrix_industry_map_empty",
+            extra={
+                "date_range": date_range,
+                "effect": "中性化退化为全市场 z-score",
+                "mode": "inference",
+            },
+        )
+    if mv_map.empty:
+        logger.warning(
+            "feature_matrix_mv_map_empty",
+            extra={
+                "date_range": date_range,
+                "effect": "跳过市值中性化",
+                "mode": "inference",
+            },
+        )
+
+    if daily_factors.empty:
+        logger.warning(
+            "feature_matrix_inputs_empty",
+            extra={
+                "feature_set_id": fsid,
+                "factor_version": factor_version,
+                "label_scheme": label_scheme,
+                "factors_rows": 0,
+                "mode": "inference",
+            },
+        )
+        _upsert_feature_set(
+            feature_set_id=fsid,
+            factor_version=factor_version,
+            scheme=label_scheme,
+            factor_ids=list(factor_ids),
+            new_listing_min_days=new_listing_min_days,
+        )
+        _progress(100, "features:empty")
+        return fsid
+
+    _progress(30, "features:compute")
+
+    bundle = build_feature_matrix_for_inference(
+        daily_factors=daily_factors,
+        industry_map=industry_map,
+        mv_map=mv_map if not mv_map.empty else None,
+        factor_version=factor_version,
+        label_scheme=label_scheme,
+        new_listing_min_days=new_listing_min_days,
+        factor_ids=factor_ids,
+    )
+    if bundle.feature_set_id != fsid:
+        logger.warning(
+            "feature_set_id_mismatch_using_resolved",
+            extra={
+                "resolved": fsid,
+                "builder": bundle.feature_set_id,
+                "mode": "inference",
+            },
+        )
+
+    _progress(70, "features:upsert")
+
+    _upsert_feature_set(
+        feature_set_id=fsid,
+        factor_version=factor_version,
+        scheme=label_scheme,
+        factor_ids=list(factor_ids),
+        new_listing_min_days=new_listing_min_days,
+    )
+    n = _upsert_feature_matrix(
+        feature_set_id=fsid,
+        matrix=bundle.matrix,
+        factor_ids=bundle.factor_ids,
+    )
+    logger.info(
+        "feature_matrix_written",
+        extra={
+            "feature_set_id": fsid,
+            "rows": n,
+            "factor_count": len(bundle.factor_ids),
+            "reused_feature_set_id": reused,
+            "mode": "inference",
         },
     )
 
