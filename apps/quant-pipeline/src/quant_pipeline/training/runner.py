@@ -258,20 +258,39 @@ def train_model(
         if job_id is not None:
             update_progress(job_id, progress, stage=stage)
 
-    if model != "lgb-lambdarank":
-        raise ValueError(
-            f"M2/M3 只支持 model='lgb-lambdarank'（其它后续里程碑接入），got {model!r}"
-        )
-
     # D-23：train_e2e 编排把 factor_version / label_scheme / new_listing_min_days
     # 通过 extra_hyperparams 透传进 ml.model_runs.hyperparams。
     # merge 顺序：调用方 hyperparams 在前，extra_hyperparams 覆盖（让 e2e 元字段
     # 即便与既有键冲突也优先生效，避免被 LightGBM 调参字段覆盖）。
     # 老调用方（runner_entrypoint / CLI train）不传 extra_hyperparams，行为不变。
+    # merge 在 model 分派**之前**完成：LSTM 路径拿到的 hyperparams 已含元字段
+    # （label_scheme 等），照常落 ml.model_runs.hyperparams（spec 02 §2）。
     if extra_hyperparams:
         merged_hyperparams: dict[str, Any] = dict(hyperparams or {})
         merged_hyperparams.update(extra_hyperparams)
         hyperparams = merged_hyperparams
+
+    if model == "lstm":
+        # LSTM 走独立路径（分类任务 + torch 训练循环 + 序列输入），自带数据加载 +
+        # 序列构造 + Purged Walk-Forward；不走下方 lgb 通路、不挂 lgb SHAP——分派
+        # 在 SHAP 后置钩子之前 return，天然不触发（spec 02 §2）。
+        from quant_pipeline.training.lstm_walk_forward import train_lstm_model
+
+        return train_lstm_model(
+            feature_set_id=feature_set_id,
+            seed=seed,
+            job_id=job_id,
+            hyperparams=hyperparams,
+            walk_forward_params=walk_forward_params or {},
+            progress_callback=_progress,
+            today_yyyymmdd=today_yyyymmdd,
+            insert_model_run=_insert_model_run,
+            write_artifact=_write_artifact,
+        )
+    if model not in ("lgb-lambdarank",):
+        raise ValueError(
+            f"不支持的 model={model!r}（支持 lgb-lambdarank / lstm）"
+        )
 
     _progress(0, "train:start")
 

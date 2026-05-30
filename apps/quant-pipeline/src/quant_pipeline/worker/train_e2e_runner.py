@@ -36,8 +36,11 @@ from quant_pipeline.worker.progress import (
 logger = logging.getLogger(__name__)
 
 # 合法白名单（与 spec 03 / NestJS DTO / 前端 select options 保持一致）
-_ALLOWED_SCHEMES = {"strategy-aware", "fwd_5d_ret"}
-_ALLOWED_MODELS = {"lgb-lambdarank", "linear", "gbdt"}
+# spec 04 §2.1：新增 lstm 模型 + dir3_band / dir3_tercile 标签方案。
+# v1 不在此处强制 model↔scheme 配对（保持松耦合，允许实验组合）；lstm + 连续标签
+# 的误配由 LSTM 训练入口的 label 整数护栏兜住报错（见 spec 02 §3 / 04 §2.1 备注）。
+_ALLOWED_SCHEMES = {"strategy-aware", "fwd_5d_ret", "dir3_band", "dir3_tercile"}
+_ALLOWED_MODELS = {"lgb-lambdarank", "linear", "gbdt", "lstm"}
 
 # 进度切片窗口（spec 04 §progress 切片工具）
 _WINDOW_LABELS = (0, 30)
