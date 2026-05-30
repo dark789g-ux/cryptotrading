@@ -96,6 +96,10 @@ def train_walk_forward(
         top_k=top_k,
         commission_rate=commission_rate,
         slippage_bps=slippage_bps,
+        # #3：透传 label_scheme，让 portfolio Sharpe 按该标签方案的实际持仓视界年化
+        # （train_e2e 经 extra_hyperparams 把 label_scheme 注入 hyperparams；旧调用方
+        # 不含该键时为 None，compare_three 回退默认 avg_hold_days=10，向后兼容）。
+        label_scheme=(hyperparams or {}).get("label_scheme"),
         lgb_hyperparams=hyperparams,
         lgb_num_boost_round=lgb_num_boost_round,
         lgb_early_stopping_rounds=lgb_early_stopping_rounds,

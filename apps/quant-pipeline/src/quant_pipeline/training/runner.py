@@ -79,7 +79,18 @@ class TrainResult:
 
 
 def _load_feature_matrix(feature_set_id: str) -> pd.DataFrame:
-    """从 factors.feature_matrix 拉某个 feature_set 的全量样本。"""
+    """从 factors.feature_matrix 拉某个 feature_set 的全量样本。
+
+    性能备注（#6）：此函数在多条训练通路（lambdarank / lstm / lgb-mc / tuning /
+    ab_compare）中各自被调用，单次 e2e 可能重复全量查库。
+    **故意不加 lru_cache**：
+      1. 大量单测通过 ``monkeypatch.setattr(runner, "_load_feature_matrix", ...)`` 打桩；
+         lru_cache 包装后 monkeypatch 只替换模块属性，底层已绑定的闭包不受影响，
+         会导致所有打桩测试失效。
+      2. 进程内跨 job 的全局缓存有陈旧数据风险（不同 feature_set_id 或同一 ID
+         在训练周期内更新）。
+    调用方如需避免重复查库，应自行在外层复用已加载的 DataFrame，再按需传入各训练函数。
+    """
 
     sql = text(
         """

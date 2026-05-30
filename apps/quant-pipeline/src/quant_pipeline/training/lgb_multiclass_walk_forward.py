@@ -432,7 +432,14 @@ def train_lgb_multiclass_model(
 
     used_hp: dict[str, Any] = dict(params)
     used_hp["num_boost_round"] = num_boost_round
-    used_hp["early_stopping_rounds"] = early_stopping_rounds
+    # final booster 用全量数据重训，关闭早停（未传 valid_sets）；
+    # 参照 walk_forward_runner.py:160-164 的同口径记法：
+    #   · early_stopping=False  —— 明确标注 final booster 无早停
+    #   · best_iteration=num_boost_round —— 无早停时 best_iteration 无意义，直接记固定轮数
+    # early_stopping_rounds（fold 内早停超参）不写入 final booster 的 meta，
+    # 防止误读为 final booster 也使用了早停。
+    used_hp["early_stopping"] = False
+    used_hp["best_iteration"] = num_boost_round
     used_hp["seed"] = seed
 
     meta: dict[str, Any] = {

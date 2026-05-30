@@ -200,7 +200,17 @@ def train_seed_average(
             raise
 
         if child_job_id is not None:
-            _finalize_child_job(child_job_id, status="success")
+            # #7 防御：finalize-success 偶发 DB 抖动时，仅 warning 不中断循环。
+            # 后续 seed 仍照常运行；未 finalize 的 child job 最终由 reap_stale_running_jobs
+            # 按 heartbeat 超时（默认 3 分钟）回收为 failed（其 heartbeat_at 在创建时写入
+            # 后不再更新，进程内不走 worker heartbeat 线程，故必然超时）。
+            try:
+                _finalize_child_job(child_job_id, status="success")
+            except Exception as _fe:  # noqa: BLE001
+                logger.warning(
+                    "seed_avg_child_job_finalize_success_failed",
+                    extra={"child_job_id": str(child_job_id), "seed": seed, "err": str(_fe)},
+                )
 
         child_run_ids.append(str(result.model_run_id))
         child_model_versions.append(result.model_version)
