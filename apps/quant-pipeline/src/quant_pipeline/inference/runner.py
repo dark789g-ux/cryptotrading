@@ -175,11 +175,20 @@ def predict_one_day(
             f"artifact 不存在: {model_path}（artifact_uri={artifact_uri_str}）"
         )
 
+    # 算法分派（spec 03 §2）：读 meta.json 的 algorithm 字段，lstm 走 lstm_predictor，
+    # 否则（含老 lgb 模型无该字段 → 兜底 'lgb-lambdarank'）走下方现有 lgb 路径。
+    # 分派收口在此一处；run_inference 主框架（gate → 预测 → write_scores）零改动。
+    meta = _load_meta_json(model_path)
+    algorithm = meta.get("algorithm", "lgb-lambdarank")
+    if algorithm == "lstm":
+        from quant_pipeline.inference.lstm_predictor import predict_one_day_lstm
+
+        return predict_one_day_lstm(model_version, trade_date, session)
+
     # 延迟 import（与训练共用），避免 worker 启动时强依赖 lightgbm
     import lightgbm as lgb
 
     booster = lgb.Booster(model_file=str(model_path))
-    meta = _load_meta_json(model_path)
     feature_columns = list(
         feature_columns_override
         or meta.get("feature_columns_order")
