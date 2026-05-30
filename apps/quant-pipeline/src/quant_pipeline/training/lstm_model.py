@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """lstm_model —— 次日方向三分类 LSTM 模型 + 单 fold 训练循环。
 
 实现设计 spec：
@@ -26,7 +25,8 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -61,11 +61,36 @@ def _build_direction_lstm_class() -> Any:
     import torch
     from torch import nn
 
-    class _DirectionLSTM(nn.Module):
+    class _DirectionLSTM(nn.Module):  # type: ignore[misc]  # 缺 torch stub，nn.Module 解析为 Any
         """次日方向三分类 LSTM。
 
         结构（spec 02 §4）：
-            nn.LSTM(batch_first=True) → 取末步 hidden → Dropout → Linear(hidden, 3)
+            nn.LayerNorm(N) → nn.LSTM(batch_first=True) → 取末步 hidden
+            → Dropout → Linear(hidden, 3)
+
+        输入归一化层（input_norm）——已知张力的最小缓解（方案甲）：
+          feature_matrix 的特征是「逐交易日横截面 z-score」（每个 trade_date 截面内
+          标准化）。LSTM 把同一股票连续 L 天的横截面 z-score 堆成序列喂入；但每天
+          截面 mean/std 不同，「昨天 z=1.5」与「今天 z=1.5」对应不同原始量级，
+          **时序水平不可比**，削弱 LSTM 学时序形态的能力（设计层张力，非崩溃 bug）。
+
+          在输入处加 nn.LayerNorm(input_size)：对每个时间步、跨 N 个特征做归一化，
+          稳定每步内各特征的相对尺度，改善训练数值条件。它解决到什么程度——
+          **诚实说明**：LayerNorm 是 per-timestep 跨特征归一，能稳定输入尺度、
+          抑制个别日截面 std 异常导致的水平漂移，但**不直接「恢复跨日可比」**
+          （绝对水平信息在 feature_matrix 做 z-score 时已丢失）。真正对症的修复
+          需保留原始量级 / 截面 mean·std → 必须改 features/builder.build_feature_set_id
+          的哈希契约 → 会让全部历史 feature_matrix 失效，**不可接受**（见
+          docs/superpowers/specs/2026-05-30-lstm-quant-module-design/02-python-training.md §4
+          「输入归一化与已知张力」）。故仅在模型内做此最小缓解。
+
+          为何选模型内 LayerNorm 而非「序列级 per-feature 时序标准化」：
+            · 零数据流改动、不碰 sequence_builder / 推理取数；
+            · 仿射参数（weight/bias）随 state_dict 落盘，推理侧用同一 DirectionLSTM
+              构造 + load_state_dict 自动复现 → 训练/推理变换**完全一致**，
+              meta.json 无需新增任何统计量字段，**无训练→推理泄漏可能**；
+            · 横截面 z-score 本身每日 mean≈0/std≈1，per-feature 全局时序标准化收益
+              微弱却引入 meta 往返 / 防泄漏负担，不划算。
         """
 
         def __init__(
@@ -79,6 +104,10 @@ def _build_direction_lstm_class() -> Any:
             self.input_size = int(input_size)
             self.hidden_size = int(hidden_size)
             self.num_layers = int(num_layers)
+            # 输入归一化：归一最后一维（N=input_size），即 (B,L,N) 每个 (b,l) 切片
+            # 跨特征归一。elementwise_affine=True（默认）→ weight/bias 随 state_dict
+            # 落盘，推理零额外对齐、无泄漏。
+            self.input_norm = nn.LayerNorm(self.input_size)
             # nn.LSTM 的层间 dropout 仅在 num_layers > 1 时生效；单层传 dropout>0
             # 会触发 PyTorch UserWarning，这里显式置 0 规避。
             lstm_dropout = float(dropout) if self.num_layers > 1 else 0.0
@@ -92,10 +121,11 @@ def _build_direction_lstm_class() -> Any:
             self.dropout = nn.Dropout(float(dropout))
             self.head = nn.Linear(self.hidden_size, 3)
 
-        def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-            # x: (B, L, N) → output (B, L, H)；取末步 hidden 作序列表征
-            out, _ = self.lstm(x)
-            last = out[:, -1, :]          # (B, H)
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            # x: (B, L, N) → LayerNorm 跨最后一维 N → LSTM → 取末步 hidden
+            x = self.input_norm(x)        # (B, L, N)，逐时间步跨特征归一
+            out, _ = self.lstm(x)         # (B, L, H)
+            last = out[:, -1, :]          # (B, H)；末步 hidden 作序列表征
             last = self.dropout(last)
             logits = self.head(last)      # (B, 3)
             return logits
@@ -325,6 +355,6 @@ def train_one_fold(
 
 __all__ = [
     "DEFAULT_LSTM_HYPERPARAMS",
-    "DirectionLSTM",
+    "DirectionLSTM",  # noqa: F822  # 经模块级 __getattr__（PEP 562）动态导出，非静态符号
     "train_one_fold",
 ]

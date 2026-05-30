@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """training.seed_averaging（M4 Part A · Seed Averaging）单测。
 
 不连库；用 monkeypatch 替换：
@@ -175,3 +174,48 @@ def test_runner_entrypoint_validates_params() -> None:
         runner_entrypoint(_Job({"feature_set_id": "fs", "seeds": []}))
     with pytest.raises(ValueError, match="seeds"):
         runner_entrypoint(_Job({"feature_set_id": "fs", "seeds": ["bad"]}))
+
+
+def test_finalize_success_exception_does_not_abort_subsequent_seeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#7 回归：_finalize_child_job(status='success') 若抛出异常，
+    不应中断后续 seed 的训练（只 warning，继续循环）。
+    若无此保护，seed[i] 成功训练后 finalize 失败，seed[i+1..] 的 child job
+    永远卡在 running，直到 reaper 超时回收（3 分钟），体验差。
+    """
+
+    from quant_pipeline.training import seed_averaging as mod
+
+    finalize_calls: list[dict[str, Any]] = []
+
+    def _flaky_finalize(child_id: Any, *, status: str, **kw: Any) -> None:
+        finalize_calls.append({"id": child_id, "status": status})
+        if status == "success":
+            # 模拟 DB 抖动：finalize success 时抛异常
+            raise RuntimeError("db transient error")
+
+    monkeypatch.setattr(mod, "_finalize_child_job", _flaky_finalize)
+
+    call_log: list[dict[str, Any]] = []
+    train_fn = _make_fake_train_fn(call_log)
+
+    parent_id = uuid4()
+    seeds = [42, 123, 456]
+
+    # 即使 finalize-success 每次都报错，整体不应抛出，所有 seed 都应被训练完
+    result = mod.train_seed_average(
+        feature_set_id="fs_v1",
+        seeds=seeds,
+        parent_job_id=parent_id,
+        train_fn=train_fn,
+        today_yyyymmdd="20260517",
+    )
+
+    # 所有 seed 都被训练
+    assert [c["seed"] for c in call_log] == seeds, (
+        "finalize-success 异常不应阻断后续 seed 的训练"
+    )
+    # 返回结构正常
+    assert len(result["child_model_run_ids"]) == len(seeds)
+    assert result["ensemble_model_version"] == "lgb-lambdarank-v1-20260517-seedavg5"

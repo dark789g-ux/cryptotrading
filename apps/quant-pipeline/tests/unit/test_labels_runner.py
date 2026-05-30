@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """labels/runner.py 单测。
 
 覆盖 spec 04 §item-10 空数据硬约束：

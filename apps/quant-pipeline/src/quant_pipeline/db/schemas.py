@@ -9,5 +9,5 @@ from __future__ import annotations
 from sqlalchemy.orm import DeclarativeBase
 
 
-class Base(DeclarativeBase):
+class Base(DeclarativeBase):  # type: ignore[misc]  # 缺 SQLAlchemy stub，基类解析为 Any
     """所有 quant-pipeline ORM 实体的基类。"""

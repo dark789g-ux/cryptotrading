@@ -267,6 +267,71 @@ def test_train_lgb_multiclass_end_to_end(
     assert inserted["hyperparams"]["objective"] == "multiclass"
 
 
+def test_early_stop_valid_is_inner_split_not_test_fold(
+    artifact_tmp: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """防泄漏回归（评审 #1）：每折 early-stopping 验证集必须来自训练区时序尾部，
+    与 OOS 测试折零交集 —— 此前用 test 折同时早停又评估构成测试集泄漏。"""
+
+    import quant_pipeline.training.lgb_multiclass_walk_forward as wf
+    import quant_pipeline.training.runner as runner_mod
+    from quant_pipeline.training.walk_forward import PurgedWalkForwardSplit
+
+    fm = _synthetic_feature_matrix()
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid: fm.copy())
+    monkeypatch.setattr(wf, "gate_check", lambda *a, **k: None)
+    monkeypatch.setattr(wf, "load_forward_returns", lambda pairs, **k: {p: 0.0 for p in pairs})
+
+    # 捕获每次 lgb.train 的 (train_set.X, valid_sets[0].X | None)
+    captured: list[tuple[np.ndarray, np.ndarray | None]] = []
+    fake = _make_fake_lgb()
+
+    def _capture_train(params=None, train_set=None, num_boost_round=0, valid_sets=None, **kw: Any):  # noqa: ANN001
+        vX = np.asarray(valid_sets[0].X, dtype=float) if valid_sets else None
+        captured.append((np.asarray(train_set.X, dtype=float), vX))
+        return _FakeBooster(params=params)
+
+    fake.train = _capture_train
+    monkeypatch.setitem(sys.modules, "lightgbm", fake)
+
+    # 复算与生产同参的 walk-forward 切分，取每折 train/test 行集合
+    wide_df, feature_cols = wf._build_wide_df("fs")
+    X_full = wide_df[feature_cols].to_numpy(dtype=float)
+    splits = list(
+        PurgedWalkForwardSplit(n_folds=6, embargo_days=21, min_train_days=252).split(wide_df)
+    )
+
+    wf.train_lgb_multiclass_model(
+        "fs",
+        seed=42,
+        job_id=None,
+        hyperparams={"label_scheme": "dir3_band"},  # 不传 early_stopping_rounds → 默认 50 启用
+        walk_forward_params={"n_folds": 6, "embargo_days": 21, "min_train_days": 252},
+        progress_callback=None,
+        today_yyyymmdd="20260530",
+        insert_model_run=lambda *a, **k: None,
+        write_artifact=None,
+    )
+
+    fold_calls = [c for c in captured if c[1] is not None]
+    assert len(fold_calls) == 6  # 每折一次带 inner-val 的早停训练（final booster 无 valid）
+
+    def _rowset(arr: np.ndarray) -> set[tuple[float, ...]]:
+        return {tuple(r) for r in arr}
+
+    for (train_X, valid_X), (train_idx, test_idx) in zip(fold_calls, splits, strict=True):
+        assert valid_X is not None
+        test_rows = _rowset(X_full[test_idx])
+        valid_rows = _rowset(valid_X)
+        train_rows = _rowset(X_full[train_idx])
+        # 核心：inner-val 与该折 OOS 测试集零交集（测试集未被早停偷看）
+        assert valid_rows.isdisjoint(test_rows)
+        # inner-val 全部来自训练区
+        assert valid_rows <= train_rows
+        # 训练拟合集本身也不含测试折（X_eval 只用于 predict）
+        assert _rowset(train_X).isdisjoint(test_rows)
+
+
 def test_train_lgb_multiclass_guardrail_continuous_labels(
     fake_lgb: types.ModuleType, artifact_tmp: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -358,3 +423,56 @@ def test_predict_one_day_lgb_multiclass(
     pB = _softmax([0.0, 0.0, 2.0])  # B: f0=0,f1=0,f2=2
     got = float(out.loc[out["ts_code"] == "B", "score"].iloc[0])
     assert abs((pB[2] - pB[0]) - got) < 1e-9
+
+
+# ---- #9 final booster meta 标注：early_stopping=False + best_iteration=num_boost_round
+def test_final_booster_used_hp_no_early_stopping(
+    fake_lgb: types.ModuleType, artifact_tmp: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#9 回归：final booster 的 used_hp 必须明确标注 early_stopping=False
+    且 best_iteration=num_boost_round，且不含 early_stopping_rounds 键——
+    防止误读为 final booster 也用了早停（与 walk_forward_runner.py:160-164 同口径）。
+    """
+
+    import quant_pipeline.training.lgb_multiclass_walk_forward as wf
+    import quant_pipeline.training.runner as runner_mod
+
+    fm = _synthetic_feature_matrix()
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid: fm.copy())
+    monkeypatch.setattr(wf, "gate_check", lambda *a, **k: None)
+    monkeypatch.setattr(wf, "load_forward_returns", lambda pairs, **k: {p: 0.0 for p in pairs})
+
+    inserted: dict[str, Any] = {}
+
+    def _capture_insert(run_id: Any, **kw: Any) -> None:
+        inserted.update(kw)
+
+    num_boost_round = 300
+    wf.train_lgb_multiclass_model(
+        "fs_test",
+        seed=7,
+        job_id=None,
+        hyperparams={"num_boost_round": num_boost_round, "early_stopping_rounds": 30},
+        walk_forward_params={"n_folds": 6, "embargo_days": 21, "min_train_days": 252},
+        progress_callback=None,
+        today_yyyymmdd="20260530",
+        insert_model_run=_capture_insert,
+        write_artifact=None,
+    )
+
+    hp = inserted["hyperparams"]
+    # 关键标注：final booster 无早停
+    assert hp.get("early_stopping") is False, (
+        "final booster used_hp 必须含 early_stopping=False，实际: "
+        f"early_stopping={hp.get('early_stopping')!r}"
+    )
+    # best_iteration 记固定轮数（无早停时 best_iteration 无意义，标注为 num_boost_round）
+    assert hp.get("best_iteration") == num_boost_round, (
+        f"final booster best_iteration 应等于 num_boost_round={num_boost_round}，"
+        f"实际: {hp.get('best_iteration')!r}"
+    )
+    # early_stopping_rounds 不得出现在 final booster meta 里（fold 内超参，不属于 final）
+    assert "early_stopping_rounds" not in hp, (
+        "final booster used_hp 不应含 early_stopping_rounds（fold 内超参），"
+        f"实际: {hp}"
+    )

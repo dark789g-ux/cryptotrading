@@ -96,7 +96,9 @@ def test_tune_completes_n_trials_with_inmemory_storage(monkeypatch: pytest.Monke
     assert isinstance(out["best_value"], float)
 
 
-def test_tune_resumes_existing_study_load_if_exists(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+def test_tune_resumes_existing_study_load_if_exists(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
     """同 study 名跑两次：第二次应感知到既有 trial，total >= 第一次 + 第二次。"""
 
     monkeypatch.setattr(tuning, "update_progress", lambda *a, **k: None)
@@ -157,6 +159,113 @@ def test_tune_rejects_unknown_space() -> None:
             load_feature_matrix=lambda fs: pd.DataFrame(),
             write_model_run=False,
         )
+
+
+def test_tune_default_path_annotates_in_tuning_bias(monkeypatch: pytest.MonkeyPatch) -> None:
+    """默认路径（holdout_n_folds=0）：返回结果必须如实标注 objective 为
+    in-tuning OOS（调参与评估同源，乐观偏差），不得让消费者误以为是干净 OOS。"""
+
+    monkeypatch.setattr(tuning, "update_progress", lambda *a, **k: None)
+
+    df = _mock_panel()
+    out = tuning.tune(
+        feature_set_id="fs_v1",
+        n_trials=2,
+        load_feature_matrix=lambda fs: df,
+        storage_url="sqlite:///:memory:",
+        study_name="t_bias_annot",
+        num_boost_round=20,
+        write_model_run=False,
+        today_yyyymmdd="20260517",
+    )
+    # 默认不切 holdout
+    assert out["holdout_evaluated"] is False
+    assert out["holdout_metrics"] is None
+    # objective 来源如实标注
+    assert out["objective_source"] == "in_tuning_oos"
+    assert out["optimistic_bias"] is True
+    assert out["best_value_kind"] == "in_tuning_oos_ndcg@10"
+
+
+def test_tune_holdout_split_zero_overlap_and_embargo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """方案甲：holdout 区交易日必须严格在调参区之后，且与调参区留 >= embargo_days 间隔。
+
+    通过 patch _evaluate_on_holdout 捕获实际传入的调参区 / holdout 区交易日，
+    断言零重叠 + embargo gap。"""
+
+    monkeypatch.setattr(tuning, "update_progress", lambda *a, **k: None)
+
+    captured: dict[str, Any] = {}
+    real_eval = tuning._evaluate_on_holdout
+
+    def _spy(*args: Any, **kwargs: Any) -> Any:
+        captured["tuning_dates"] = sorted(
+            kwargs["df_tuning"]["trade_date"].astype(str).unique().tolist()
+        )
+        captured["holdout_dates"] = sorted(
+            kwargs["df_holdout"]["trade_date"].astype(str).unique().tolist()
+        )
+        captured["embargo_days"] = kwargs["embargo_days"]
+        return real_eval(*args, **kwargs)
+
+    monkeypatch.setattr(tuning, "_evaluate_on_holdout", _spy)
+
+    df = _mock_panel()
+    out = tuning.tune(
+        feature_set_id="fs_v1",
+        n_trials=2,
+        load_feature_matrix=lambda fs: df,
+        storage_url="sqlite:///:memory:",
+        study_name="t_holdout",
+        num_boost_round=20,
+        write_model_run=False,
+        today_yyyymmdd="20260517",
+        holdout_n_folds=2,
+    )
+
+    t_dates = captured["tuning_dates"]
+    h_dates = captured["holdout_dates"]
+    emb = captured["embargo_days"]
+    assert t_dates and h_dates
+    # 零重叠
+    assert set(t_dates).isdisjoint(set(h_dates))
+    # holdout 严格在调参区之后
+    assert min(h_dates) > max(t_dates)
+    # embargo gap：调参区最后一日与 holdout 第一日之间，原始全序列里至少隔 emb 天
+    all_dates = sorted(df["trade_date"].astype(str).unique().tolist())
+    gap = all_dates.index(min(h_dates)) - all_dates.index(max(t_dates)) - 1
+    assert gap >= emb, f"holdout 与调参区间隔 {gap} < embargo {emb}"
+
+    # 结果如实反映 holdout 已评估，objective_source 升级为干净 OOS
+    assert out["holdout_evaluated"] is True
+    assert out["holdout_metrics"] is not None
+    assert "ndcg@10" in out["holdout_metrics"]
+    assert out["objective_source"] == "holdout_oos"
+    assert out["optimistic_bias"] is False
+
+
+def test_tune_holdout_too_small_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """数据不足以切出合规 holdout 时，必须回退到默认 in-tuning 路径（不抛错），
+    并如实标注仍为乐观偏差。"""
+
+    monkeypatch.setattr(tuning, "update_progress", lambda *a, **k: None)
+
+    # 刚好够单纯调参（>=279），但切出 holdout 后调参区不足 -> 回退
+    df = _mock_panel(n_dates=285)
+    out = tuning.tune(
+        feature_set_id="fs_v1",
+        n_trials=2,
+        load_feature_matrix=lambda fs: df,
+        storage_url="sqlite:///:memory:",
+        study_name="t_holdout_fallback",
+        num_boost_round=20,
+        write_model_run=False,
+        today_yyyymmdd="20260517",
+        holdout_n_folds=2,
+    )
+    assert out["holdout_evaluated"] is False
+    assert out["objective_source"] == "in_tuning_oos"
+    assert out["optimistic_bias"] is True
 
 
 def test_dispatcher_route_optuna_present() -> None:

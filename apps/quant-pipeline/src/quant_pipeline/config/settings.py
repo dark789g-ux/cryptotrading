@@ -17,7 +17,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[5]
 _REPO_ENV = _REPO_ROOT / ".env"
 
 
-class Settings(BaseSettings):
+class Settings(BaseSettings):  # type: ignore[misc]  # 缺 pydantic-settings stub，基类解析为 Any
     """全局配置；从仓库根 .env / 环境变量读取。"""
 
     model_config = SettingsConfigDict(

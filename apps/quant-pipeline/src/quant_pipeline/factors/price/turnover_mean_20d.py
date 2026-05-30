@@ -23,7 +23,7 @@ class TurnoverMean20d(Factor):
         tr = df["turnover_rate"].unstack("ts_code").sort_index()
         if trade_date not in tr.index:
             return pd.Series(dtype=float)
-        tr = tr.loc[:trade_date]
+        tr = tr.loc[:trade_date]  # type: ignore[misc]  # pandas 标签切片：str 标签运行时合法，stub 误判 slice index 类型
         if len(tr) < self.min_trade_days:
             return pd.Series(dtype=float)
         out = tr.tail(20).mean()

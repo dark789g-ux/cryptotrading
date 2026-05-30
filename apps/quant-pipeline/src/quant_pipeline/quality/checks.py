@@ -30,23 +30,39 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-# 从拆分模块 re-export 所有 check 函数（保持外部 import 路径不变）
-from quant_pipeline.quality.checks_row import (  # noqa: F401
-    check_duplicate_pk,
-    check_row_count_drift,
-    make_threshold_relaxation_record,
-)
 from quant_pipeline.quality.checks_pit import (  # noqa: F401
     check_adj_jump,
     check_cross_table_alignment,
     check_pit_finance,
     check_survivor_bias,
 )
+
+# 从拆分模块 re-export 所有 check 函数（保持外部 import 路径不变）
+from quant_pipeline.quality.checks_row import (  # noqa: F401
+    check_duplicate_pk,
+    check_row_count_drift,
+    make_threshold_relaxation_record,
+)
 from quant_pipeline.quality.checks_value import (  # noqa: F401
     check_extreme_value,
     check_null_violation,
 )
 
+# 显式 re-export（mypy strict 的 no_implicit_reexport）：保持外部 import 路径不变，
+# 仅声明本模块作为聚合入口对外暴露的符号，不改变运行时行为。
+__all__ = [
+    "ALL_CHECKS",
+    "check_adj_jump",
+    "check_cross_table_alignment",
+    "check_duplicate_pk",
+    "check_extreme_value",
+    "check_null_violation",
+    "check_pit_finance",
+    "check_row_count_drift",
+    "check_survivor_bias",
+    "iter_checks",
+    "make_threshold_relaxation_record",
+]
 
 # ----------------------------------------------------------------------
 # 注册表 —— runner 用此顺序跑 8 项

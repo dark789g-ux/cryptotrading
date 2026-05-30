@@ -95,7 +95,7 @@ def _install_stub_session(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _set_all_checks(
     monkeypatch: pytest.MonkeyPatch,
-    fake_checks: dict[str, "CheckResult"],
+    fake_checks: dict[str, CheckResult],
 ) -> None:
     """把 ALL_CHECKS 替换为映射；每个 fake check 返回字典里对应的 CheckResult。"""
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Fwd_5d_ret 兜底标签（doc/量化/04 §4.1）。
 
 简单 5 日后向收益率（毛收益，未扣交易成本）：
@@ -123,9 +122,9 @@ def compute_fwd_5d_ret(
     t = quotes["trade_date"]
     # 停牌掩码：t 或 t+5 任一停牌 → 跳过
     if suspended_set:
-        susp_t = pd.Series(list(zip(ts, t)), index=quotes.index).isin(suspended_set)
+        susp_t = pd.Series(list(zip(ts, t, strict=False)), index=quotes.index).isin(suspended_set)
         susp_t5 = pd.Series(
-            list(zip(ts, t_plus_date.fillna(""))), index=quotes.index
+            list(zip(ts, t_plus_date.fillna(""), strict=False)), index=quotes.index
         ).isin(suspended_set)
         keep = keep & ~susp_t & ~susp_t5
     # 退市掩码：t+5 >= delist_date → 跳过
@@ -169,6 +168,7 @@ def compute_fwd_5d_ret(
                     zip(
                         listing_df["ts_code"].astype(str),
                         listing_df["list_date"].astype(str),
+                        strict=False,
                     )
                 )
                 # 用 quotes 自身派生交易日历（已用 end_padded，覆盖出参 trade_date 全集）

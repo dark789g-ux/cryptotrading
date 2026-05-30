@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """train_e2e_runner._validate_params 对 LSTM 接入的白名单单测（spec 04 §2.1）。
 
 放行 model='lstm' + label_scheme∈{dir3_band, dir3_tercile}；仍拒绝未知 model/scheme。

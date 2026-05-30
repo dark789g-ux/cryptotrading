@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """inference.lstm_predictor + runner LSTM 分派 单测（M3 LSTM 接入 · T4）。
 
 覆盖 spec 03-inference.md 的验收点：
@@ -26,7 +25,6 @@ import pytest
 
 from quant_pipeline.inference import lstm_predictor as lp
 from quant_pipeline.inference import runner as runner_mod
-
 
 # ----------------------------------------------------------------------
 # Mock Session：分别响应 trade_date 列表（scalars）/ 窗口长表（mappings）/
@@ -357,13 +355,13 @@ def test_insufficient_window_codes_get_nan_and_warn(
     with caplog.at_level(logging.WARNING):
         out = lp.predict_one_day_lstm("mv", target_date, session)  # type: ignore[arg-type]
 
-    by_code = dict(zip(out["ts_code"], out["score"]))
+    by_code = dict(zip(out["ts_code"], out["score"], strict=False))
     assert "FULL.SZ" in by_code and not np.isnan(by_code["FULL.SZ"])  # 可预测
     assert "SHORT.SZ" in by_code and np.isnan(by_code["SHORT.SZ"])    # 窗口不足 → NaN
     # 两票都在输出（凑齐行数）
     assert set(by_code) == {"FULL.SZ", "SHORT.SZ"}
     # rank_in_day 存在且 NaN 票排末尾
-    rank_by_code = dict(zip(out["ts_code"], out["rank_in_day"]))
+    rank_by_code = dict(zip(out["ts_code"], out["rank_in_day"], strict=False))
     assert rank_by_code["FULL.SZ"] == 1
     assert rank_by_code["SHORT.SZ"] == 2
     # 显式 warn 暴露覆盖缺口

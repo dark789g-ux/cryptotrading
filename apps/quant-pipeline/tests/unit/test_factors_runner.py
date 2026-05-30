@@ -46,6 +46,11 @@ def test_run_factors_end_to_end_mocked(
     # 取窗口最后 5 个交易日作为目标
     target_dates = trade_dates[-5:]
 
+    # small_panel 中全部 ts_code 集合，用于 _query_live_universe 桩返回值
+    all_ts_codes: set[str] = set(
+        small_panel.index.get_level_values("ts_code").unique().tolist()
+    )
+
     # mock 数据库交互
     monkeypatch.setattr(
         runner_mod, "_query_trade_dates", lambda start, end: trade_dates
@@ -54,6 +59,20 @@ def test_run_factors_end_to_end_mocked(
         runner_mod,
         "load_window_data",
         lambda start, end, need_industry: small_raw_data,
+    )
+    # _query_live_universe 查 raw.daily_quote（需要真实 DB），在单测中必须 mock。
+    # 返回 small_panel 全量 ts_code，保证 PIT 过滤不会误剔所有行。
+    monkeypatch.setattr(
+        runner_mod, "_query_live_universe", lambda t: all_ts_codes
+    )
+    # trade_cal_covers / count_trade_days_in_window 查 raw.trade_cal（需要真实 DB）。
+    # mock：trade_cal 视为已覆盖，窗口内交易日数足够（大于最大 min_trade_days=61），
+    # 使 _apply_pit_window_guard 走"正常路径"直接返回 sub，不 skip 任何因子。
+    monkeypatch.setattr(
+        runner_mod, "trade_cal_covers", lambda sess, s, e, exchange="SSE": True
+    )
+    monkeypatch.setattr(
+        runner_mod, "count_trade_days_in_window", lambda sess, s, e, exchange="SSE": 80
     )
 
     upsert_calls: list[list[dict[str, object]]] = []
@@ -95,6 +114,11 @@ def test_run_factors_progress_called_per_day(
     )
     target_dates = trade_dates[-3:]
 
+    # small_panel 中全部 ts_code 集合，用于 _query_live_universe 桩返回值
+    all_ts_codes: set[str] = set(
+        small_panel.index.get_level_values("ts_code").unique().tolist()
+    )
+
     monkeypatch.setattr(
         runner_mod, "_query_trade_dates", lambda start, end: trade_dates
     )
@@ -102,6 +126,11 @@ def test_run_factors_progress_called_per_day(
         runner_mod,
         "load_window_data",
         lambda start, end, need_industry: small_raw_data,
+    )
+    # _query_live_universe 查 raw.daily_quote（需要真实 DB），在单测中必须 mock。
+    # 返回 small_panel 全量 ts_code，保证 PIT 过滤不会误剔所有行。
+    monkeypatch.setattr(
+        runner_mod, "_query_live_universe", lambda t: all_ts_codes
     )
     monkeypatch.setattr(runner_mod, "_upsert_daily_factors", lambda rows: len(rows))
 

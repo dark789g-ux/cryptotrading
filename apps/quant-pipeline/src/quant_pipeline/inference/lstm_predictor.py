@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """LSTM 当日推理（M3 LSTM 接入 · T4）。
 
 实现设计 spec：
@@ -229,7 +228,7 @@ def predict_one_day_lstm(
         seq_codes, X = scored
         # 6) 前向 → softmax → score = P(涨) − P(跌)
         scores = _forward_scores(_build_model(meta, model_path, len(feature_cols)), X, class_order)
-        for code, sc in zip(seq_codes, scores):
+        for code, sc in zip(seq_codes, scores, strict=False):
             out_rows.append({"ts_code": str(code), "score": float(sc)})
 
     out = pd.DataFrame(out_rows, columns=["ts_code", "score"])

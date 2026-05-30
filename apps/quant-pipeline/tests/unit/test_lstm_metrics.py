@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """A1 · lstm_metrics.score_ic_rank_ic 真实收益口径 + NaN mask 单测。
 
 覆盖：已知输入下 IC/RankIC 数值吻合手算 Pearson/Spearman；NaN 同步剔除；

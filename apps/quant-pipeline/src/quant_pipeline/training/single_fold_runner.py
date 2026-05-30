@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -136,7 +136,7 @@ def train_single_fold(
     progress_callback(75, "train:eval_done")
 
     run_id = uuid4()
-    today = today_yyyymmdd or datetime.now(timezone.utc).strftime("%Y%m%d")
+    today = today_yyyymmdd or datetime.now(UTC).strftime("%Y%m%d")
     model_version = f"lgb-lambdarank-v1-{today}-seed{seed}"
 
     used_hp: dict[str, Any] = dict(DEFAULT_HYPERPARAMS)
@@ -160,7 +160,7 @@ def train_single_fold(
         "factor_ids": feature_cols,
         "hyperparams": used_hp,
         "oos_metrics": oos_metrics,
-        "trained_at_utc": datetime.now(timezone.utc).isoformat(),
+        "trained_at_utc": datetime.now(UTC).isoformat(),
         "latest_train_date": latest_trade_date,
         "train_dates": train_dates_used,
         "valid_dates": valid_dates_used,

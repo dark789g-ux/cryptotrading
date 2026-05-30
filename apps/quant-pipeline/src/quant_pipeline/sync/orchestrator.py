@@ -33,9 +33,9 @@ from quant_pipeline.sync.suspend import sync_suspend_by_date
 from quant_pipeline.sync.trade_cal import SyncReport, sync_trade_cal
 from quant_pipeline.sync.tushare_client import TushareClient
 from quant_pipeline.worker.progress import (
+    JobCancelled,
     check_cancel_requested,
     update_progress,
-    JobCancelled,
 )
 
 logger = logging.getLogger(__name__)

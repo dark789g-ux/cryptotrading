@@ -67,6 +67,60 @@ _TRADING_DAYS_PER_YEAR = 252
 _DEFAULT_AVG_HOLD_DAYS = 10.0
 
 
+def resolve_avg_hold_days(label_scheme: str | None) -> float:
+    """label_scheme → Sharpe 年化用的平均持仓天数（avg_hold_days）。
+
+    天数依据「官方 labels 实现」，不凭 scheme 名猜（评审口径）：
+      - ``fwd_5d_ret``        → ``fallback.FWD_HORIZON_DAYS`` = 5（固定前视 5 个交易日）
+      - ``dir3_band`` 家族    → ``direction_3class.DIR3_HOLD_DAYS`` = 1（次日方向，持有 1 日）
+        含 ``dir3_band`` 及 ``dir3_band_epsNNNN`` 全部 ε 变体（dir3_scheme 家族判定）
+      - ``dir3_tercile``      → ``direction_3class.DIR3_HOLD_DAYS`` = 1
+      - ``strategy-aware``    → 变长 1~20，无逐笔 hold_days 时用经验均值
+        ``_DEFAULT_AVG_HOLD_DAYS`` = 10（labels/strategy_aware MAX_HOLD_DAYS=20）
+
+    Args:
+        label_scheme: factors.labels.scheme 串；None 表示上游未传（向后兼容）。
+
+    Returns:
+        float: 平均持仓天数（> 0）。
+
+    未知 scheme 或 None → ``logger.warning`` + 回退 ``_DEFAULT_AVG_HOLD_DAYS``（10.0），
+    不静默吞掉（CLAUDE.md 数据完整性：未命中映射必须 warn）。
+    """
+
+    # 延迟 import：避免 evaluation 层在模块加载期硬依赖 labels 子包（解耦、防循环）。
+    from quant_pipeline.labels.dir3_scheme import is_dir3_band_scheme
+    from quant_pipeline.labels.direction_3class import (
+        DIR3_HOLD_DAYS,
+        SCHEME_DIR3_TERCILE,
+    )
+    from quant_pipeline.labels.fallback import FWD_HORIZON_DAYS, SCHEME_FWD_5D_RET
+    from quant_pipeline.labels.strategy_aware import LABEL_SCHEME
+
+    if label_scheme is None:
+        logger.warning(
+            "resolve_avg_hold_days: label_scheme=None（上游未传），"
+            "回退默认 avg_hold_days=%s，Sharpe 年化可能不准",
+            _DEFAULT_AVG_HOLD_DAYS,
+        )
+        return _DEFAULT_AVG_HOLD_DAYS
+
+    if label_scheme == SCHEME_FWD_5D_RET:
+        return float(FWD_HORIZON_DAYS)
+    if label_scheme == SCHEME_DIR3_TERCILE or is_dir3_band_scheme(label_scheme):
+        return float(DIR3_HOLD_DAYS)
+    if label_scheme == LABEL_SCHEME:  # strategy-aware：变长，用经验均值
+        return _DEFAULT_AVG_HOLD_DAYS
+
+    logger.warning(
+        "resolve_avg_hold_days: 未知 label_scheme=%r，无法确定持仓视界，"
+        "回退默认 avg_hold_days=%s（unknown scheme fallback）",
+        label_scheme,
+        _DEFAULT_AVG_HOLD_DAYS,
+    )
+    return _DEFAULT_AVG_HOLD_DAYS
+
+
 def compute_portfolio_metrics(
     scores_df: pd.DataFrame,
     label_df: pd.DataFrame,
@@ -155,7 +209,14 @@ def compute_portfolio_metrics(
         if topk.empty:
             continue
         holdings = set(topk["ts_code"].tolist())
-        # turnover：与前一入场日相比换掉的比例（双向）；首笔 turnover=1
+        # turnover：与前一入场日相比换掉的比例（双向）；首笔 turnover=1。
+        # 已知近似（问题 #8）：本函数每折独立调用、prev_holdings 每折从空集起算，
+        # 故每折首笔 turnover 恒为 1.0（视为建仓）。walk-forward 跨折 concat
+        # （见 ab_compare.compare_three 的 daily_returns_combined）时，折边界处那笔
+        # 会被多计一次 100% 换手成本——上一折期末持仓与本折期初持仓的真实重叠未被
+        # 衔接。修正需把 prev_holdings 跨折传入；当前折数(默认 6)下边界笔占比小、
+        # 偏保守（成本高估→指标更难看，不会粉饰），暂作文档化近似，留待事件驱动
+        # 持仓回测统一处理。
         if not prev_holdings:
             turnover = 1.0
         else:
@@ -218,4 +279,5 @@ def compute_portfolio_metrics(
 
 __all__ = [
     "compute_portfolio_metrics",
+    "resolve_avg_hold_days",
 ]

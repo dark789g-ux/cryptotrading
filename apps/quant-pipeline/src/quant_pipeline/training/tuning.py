@@ -23,6 +23,36 @@ num_boost_round ≤ 200、n_trials 适度。
 中断恢复测试：trial 50% 时 kill Python，重启后从断点继续（load_if_exists=True）。
 
 搜索空间配置已拆分到 search_spaces.py。
+
+────────────────────────────────────────────────────────────────────────
+「调参集 = 评估集」乐观偏差 + holdout 缓解（本次改动）
+────────────────────────────────────────────────────────────────────────
+**方法论局限（务必如实告知消费者）**：04-#8 修正后，objective = 各 walk-forward
+折 OOS NDCG@10 均值，这已是「样本外」均值。但 best_params 是在**这 n_folds 折**上
+被 Optuna 挑选出来的，若下游又用**同一批折**报告 OOS（如 train_model 复用同样的
+PurgedWalkForwardSplit），则「在评估集上调参」——best_value 对这批折系统性乐观。
+这是搜参与评估同源的固有偏差，不是 bug，但必须标注，否则消费者会把
+in-tuning OOS 当干净泛化指标。
+
+**缓解（方案甲，holdout_n_folds > 0 时启用，默认 0 = 关闭，完全向后兼容）**：
+按交易日把序列切成「调参区」+「embargo gap」+「最终 holdout 区」。Optuna 只在
+**调参区**的 walk-forward 折上搜参；拿到 best_params 后，用调参区**全量**训练一个
+模型，在**从未参与搜参**的 holdout 区评估真实 OOS（`holdout_metrics`）。
+
+防泄漏：holdout 区严格在调参区之后，二者之间在原始全序列里至少隔 `embargo_days`
+个交易日（标签视界 PIT）。holdout 区交易日**绝不**进入任何调参折的 train/test。
+
+**回退（方案乙兜底）**：若切出 holdout 后调参区交易日数不足以让
+PurgedWalkForwardSplit 跑动（min_train + embargo + n_folds），则**不抛错**，
+回退到默认 in-tuning 路径，并照常标注 `optimistic_bias=True`。这样数据量不够的
+小数据集仍可调参，只是拿不到干净 holdout（如实告知，不静默伪装）。
+
+返回结果新增（不删改既有字段，向后兼容）：
+  - objective_source: "in_tuning_oos" | "holdout_oos"
+  - optimistic_bias:  bool（best_value 是否带搜参/评估同源偏差）
+  - best_value_kind:  best_value 的语义标签
+  - holdout_evaluated: bool
+  - holdout_metrics:  dict | None（holdout 区真实 OOS，仅 holdout_oos 路径有）
 """
 
 from __future__ import annotations
@@ -30,7 +60,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -43,7 +73,6 @@ from quant_pipeline.evaluation.ranking_metrics import ndcg_at_k
 from quant_pipeline.training.group_utils import build_groups, flatten_features
 from quant_pipeline.training.lightgbm_lambdarank import (
     DEFAULT_HYPERPARAMS,
-    DEFAULT_NUM_BOOST_ROUND,
     train_lambdarank,
 )
 from quant_pipeline.training.search_spaces import (
@@ -149,6 +178,127 @@ def _objective_one_trial(
 
 
 # ----------------------------------------------------------------------
+# 方案甲：调参区 / holdout 区切分 + holdout 评估
+# ----------------------------------------------------------------------
+
+
+def _split_tuning_holdout_dates(
+    unique_dates: list[str],
+    *,
+    holdout_n_folds: int,
+    n_folds: int,
+    embargo_days: int,
+    min_train_days: int,
+) -> tuple[list[str], list[str]] | None:
+    """把升序交易日切成 (tuning_dates, holdout_dates)。
+
+    语义：把「测试池」（`min_train_days + embargo_days` 之后的所有交易日）按 n_folds
+    等分后，取末尾 `holdout_n_folds` 份划给独立 holdout，其余仍归调参区。这样 holdout
+    正是原本会被当作评估的最后若干折，最贴近下游真实评估窗口。
+
+    防泄漏：holdout 与调参区之间在原序列里再扣掉 `embargo_days` 个交易日做 gap，保证
+    调参区任何样本与 holdout 第一日相隔 >= embargo。
+
+    回退（返回 None）条件——任一不满足即视为数据不足，由调用方退回 in-tuning 路径：
+      - holdout_n_folds 落在 [1, n_folds)（不能把全部折都划走）
+      - 测试池能切出 >= holdout_n_folds 份且 holdout 非空
+      - 扣掉 holdout + gap 后，调参区交易日数 >= PurgedWalkForwardSplit 跑动门槛
+        （min_train_days + embargo_days + n_folds）
+    """
+
+    if holdout_n_folds < 1 or holdout_n_folds >= n_folds:
+        return None
+
+    n_total = len(unique_dates)
+    test_pool_start = min_train_days + embargo_days
+    test_pool_size = n_total - test_pool_start
+    if test_pool_size < n_folds:
+        return None
+    fold_size = test_pool_size // n_folds
+    if fold_size < 1:
+        return None
+
+    # holdout = 测试池末尾 holdout_n_folds 份（含最后一折吃掉的尾部余数）
+    holdout_len = holdout_n_folds * fold_size
+    holdout_start = n_total - holdout_len
+    holdout_dates = unique_dates[holdout_start:]
+    if not holdout_dates:
+        return None
+
+    # 调参区 = holdout 之前再扣掉 embargo_days 个交易日 gap（防泄漏）
+    tuning_end_exclusive = holdout_start - embargo_days
+    if tuning_end_exclusive < 1:
+        return None
+    tuning_dates = unique_dates[:tuning_end_exclusive]
+
+    # 调参区必须够 PurgedWalkForwardSplit 跑动，否则回退
+    min_needed = min_train_days + embargo_days + n_folds
+    if len(tuning_dates) < min_needed:
+        return None
+
+    return tuning_dates, holdout_dates
+
+
+def _evaluate_on_holdout(
+    *,
+    df_tuning: pd.DataFrame,
+    df_holdout: pd.DataFrame,
+    X_tuning: pd.DataFrame,
+    X_holdout: pd.DataFrame,
+    y_tuning: pd.Series,
+    y_holdout: pd.Series,
+    best_params: dict[str, Any],
+    embargo_days: int,
+    seed: int,
+    num_boost_round: int,
+) -> dict[str, Any]:
+    """用 best_params 在**调参区全量**训练，于**独立 holdout 区**评估真实 OOS。
+
+    口径与 `_objective_one_trial` 一致（train_lambdarank + ndcg_at_k，标签入口截面
+    rank，评估用原始连续 label）。holdout 区从未参与 Optuna 搜参，故此处 NDCG 不带
+    搜参/评估同源偏差。
+
+    `embargo_days` 形参在此显式保留：调用方（split 阶段）已保证调参区与 holdout 之间
+    隔 embargo gap，本函数不再二次切分，仅把该值原样记入返回 meta 供审计/测试断言。
+    """
+
+    hp: dict[str, Any] = dict(DEFAULT_HYPERPARAMS)
+    hp.update(best_params)
+
+    X_tr = X_tuning.reset_index(drop=True)
+    y_tr = y_tuning.reset_index(drop=True)
+    df_tr = df_tuning.reset_index(drop=True)
+    groups_tr = build_groups(df_tr)
+    y_tr_rank = _label_to_int_rank(df_tr, y_tr)
+
+    X_ho = X_holdout.reset_index(drop=True)
+    y_ho = y_holdout.reset_index(drop=True)
+    df_ho = df_holdout.reset_index(drop=True)
+    groups_ho = build_groups(df_ho)
+
+    booster = train_lambdarank(
+        X_tr,
+        y_tr_rank,
+        groups_tr,
+        hyperparams=hp,
+        seed=seed,
+        num_boost_round=num_boost_round,
+        early_stopping_rounds=None,
+    )
+    scores = np.asarray(booster.predict(X_ho), dtype=np.float64)
+    ndcg10 = ndcg_at_k(scores, y_ho.to_numpy(dtype=np.float64), groups_ho, k=10)
+
+    return {
+        "ndcg@10": float(ndcg10) if not np.isnan(ndcg10) else None,
+        "objective": "ndcg@10",
+        "n_train": int(len(X_tr)),
+        "n_holdout": int(len(X_ho)),
+        "embargo_days": int(embargo_days),
+        "kind": "holdout_oos_ndcg@10",
+    }
+
+
+# ----------------------------------------------------------------------
 # 公共入口
 # ----------------------------------------------------------------------
 
@@ -164,6 +314,7 @@ def tune(
     embargo_days: int = 21,
     min_train_days: int = 252,
     num_boost_round: int = 100,
+    holdout_n_folds: int = 0,
     storage_url: str | None = None,
     study_name: str | None = None,
     load_feature_matrix: Any = None,
@@ -180,6 +331,11 @@ def tune(
         seed: 各 trial 内训练的随机种子
         n_folds / embargo_days / min_train_days: 透传给 PurgedWalkForwardSplit
         num_boost_round: LightGBM 训练轮数（调参阶段建议 ≤ 200）
+        holdout_n_folds: >0 时启用方案甲——把交易日序列末尾对应 holdout_n_folds 折划为
+            独立 holdout 评估区（与调参区留 embargo gap），Optuna 只在调参区搜参，
+            best_params 在调参区全量训练后于 holdout 区报告**干净 OOS**。默认 0 = 关闭
+            （完全向后兼容，仅返回 in-tuning OOS 并如实标注乐观偏差）。数据不足以切出
+            合规 holdout 时自动回退到关闭路径（不抛错）。
         storage_url: Optuna RDB URL；默认从 PG_DSN 构造
         study_name: 默认 `optuna_<feature_set_id>_<YYYYMMDD>`
         load_feature_matrix: 测试期注入的 mock 加载器（生产模式留空，从 DB 拉）
@@ -191,11 +347,17 @@ def tune(
         {
             "study_name": str,
             "n_trials_completed": int,
-            "best_value": float,                # 各折 OOS NDCG@10 的均值
+            "best_value": float,                # 各折 in-tuning OOS NDCG@10 的均值
             "best_params": dict,
             "best_trial_number": int,
             "model_version": str | None,        # write_model_run=True 时写一条 ml.model_runs
             "model_run_id": str | None,
+            # 乐观偏差 / holdout 标注（本次新增，向后兼容）：
+            "objective_source": str,            # "in_tuning_oos" | "holdout_oos"
+            "optimistic_bias": bool,            # best_value 是否搜参/评估同源乐观
+            "best_value_kind": str,             # best_value 语义标签
+            "holdout_evaluated": bool,
+            "holdout_metrics": dict | None,     # holdout 区干净 OOS（holdout_oos 路径）
         }
 
     Raises:
@@ -208,7 +370,7 @@ def tune(
         raise ValueError(f"未知搜索空间 {space!r}；可选: {sorted(SEARCH_SPACES)}")
 
     # 延迟 import optuna：避免 noop / 其它 run_type 加载时拖入 optuna
-    import optuna  # type: ignore[import-untyped]
+    import optuna
 
     storage = storage_url if storage_url is not None else build_storage_url()
     study_name = study_name or build_study_name(feature_set_id, today_yyyymmdd)
@@ -231,12 +393,49 @@ def tune(
     X_clean = X_all.loc[valid_mask].reset_index(drop=True)
     y_clean = y_all.loc[valid_mask].reset_index(drop=True)
 
+    # 方案甲：尝试切出独立 holdout 评估区（默认 holdout_n_folds=0 关闭）。
+    # 切成功 → 调参只在「调参区」做，holdout 区保留供 best_params 干净 OOS 评估；
+    # 切失败（数据不足）→ 回退到默认 in-tuning 路径（holdout_dates 为 None）。
+    holdout_dates: list[str] | None = None
+    df_tuning_full = df_clean
+    X_tuning_full = X_clean
+    y_tuning_full = y_clean
+    if holdout_n_folds > 0:
+        all_unique_dates = sorted(df_clean["trade_date"].astype(str).unique().tolist())
+        split_res = _split_tuning_holdout_dates(
+            all_unique_dates,
+            holdout_n_folds=holdout_n_folds,
+            n_folds=n_folds,
+            embargo_days=embargo_days,
+            min_train_days=min_train_days,
+        )
+        if split_res is None:
+            logger.warning(
+                "optuna_holdout_fallback_insufficient_data",
+                extra={
+                    "study_name": study_name,
+                    "holdout_n_folds": holdout_n_folds,
+                    "n_unique_dates": len(all_unique_dates),
+                },
+            )
+        else:
+            tuning_dates, holdout_dates = split_res
+            td_arr = df_clean["trade_date"].astype(str).to_numpy()
+            tuning_mask = np.isin(td_arr, tuning_dates)
+            holdout_mask = np.isin(td_arr, holdout_dates)
+            df_tuning_full = df_clean.loc[tuning_mask].reset_index(drop=True)
+            X_tuning_full = X_clean.loc[tuning_mask].reset_index(drop=True)
+            y_tuning_full = y_clean.loc[tuning_mask].reset_index(drop=True)
+            df_holdout = df_clean.loc[holdout_mask].reset_index(drop=True)
+            X_holdout = X_clean.loc[holdout_mask].reset_index(drop=True)
+            y_holdout = y_clean.loc[holdout_mask].reset_index(drop=True)
+
     splitter = PurgedWalkForwardSplit(
         n_folds=n_folds,
         embargo_days=embargo_days,
         min_train_days=min_train_days,
     )
-    splits = list(splitter.split(df_clean))
+    splits = list(splitter.split(df_tuning_full))
 
     # 创建 / 加载 study（中断可恢复硬约束）
     study = optuna.create_study(
@@ -259,9 +458,9 @@ def tune(
     def _objective(trial: Any) -> float:
         return _objective_one_trial(
             trial,
-            df_clean=df_clean,
-            X_clean=X_clean,
-            y_clean=y_clean,
+            df_clean=df_tuning_full,
+            X_clean=X_tuning_full,
+            y_clean=y_tuning_full,
             feature_cols=feature_cols,
             splits=splits,
             space_name=space,
@@ -318,7 +517,43 @@ def tune(
         "best_trial_number": int(best.number),
         "model_version": None,
         "model_run_id": None,
+        # 默认：in-tuning OOS（搜参与评估同源，乐观偏差）。下面若 holdout 评估成功再升级。
+        "objective_source": "in_tuning_oos",
+        "optimistic_bias": True,
+        "best_value_kind": "in_tuning_oos_ndcg@10",
+        "holdout_evaluated": False,
+        "holdout_metrics": None,
     }
+
+    # 方案甲：holdout 切分成功 → 用 best_params 在调参区全量训练，于 holdout 区报告干净 OOS。
+    if holdout_dates is not None:
+        holdout_metrics = _evaluate_on_holdout(
+            df_tuning=df_tuning_full,
+            df_holdout=df_holdout,
+            X_tuning=X_tuning_full,
+            X_holdout=X_holdout,
+            y_tuning=y_tuning_full,
+            y_holdout=y_holdout,
+            best_params=dict(best.params),
+            embargo_days=embargo_days,
+            seed=seed,
+            num_boost_round=num_boost_round,
+        )
+        result["holdout_evaluated"] = True
+        result["holdout_metrics"] = holdout_metrics
+        # 干净 OOS 已拿到：objective_source 升级、去掉乐观偏差标注。best_value 仍是
+        # in-tuning 均值（best_params 在这批折上被挑选），下游真实泛化看
+        # holdout_metrics["ndcg@10"]。
+        result["objective_source"] = "holdout_oos"
+        result["optimistic_bias"] = False
+        logger.info(
+            "optuna_holdout_evaluated",
+            extra={
+                "study_name": study_name,
+                "holdout_ndcg10": holdout_metrics.get("ndcg@10"),
+                "in_tuning_best_value": best_value,
+            },
+        )
 
     if write_model_run:
         # 写一条 ml.model_runs（model_version 命名规范见交付清单）
@@ -330,6 +565,9 @@ def tune(
             study_name=study_name,
             parent_job_id=parent_job_id,
             today_yyyymmdd=today_yyyymmdd,
+            objective_source=result["objective_source"],
+            optimistic_bias=result["optimistic_bias"],
+            holdout_metrics=result["holdout_metrics"],
         )
         result["model_version"] = model_version
         result["model_run_id"] = str(run_id)
@@ -358,14 +596,21 @@ def _write_best_trial_to_model_runs(
     study_name: str,
     parent_job_id: UUID | None,
     today_yyyymmdd: str | None,
+    objective_source: str = "in_tuning_oos",
+    optimistic_bias: bool = True,
+    holdout_metrics: dict[str, Any] | None = None,
 ) -> tuple[UUID, str]:
     """落一条 `lgb-lambdarank-optuna-v1-<YYYYMMDD>-trial<N>` 到 ml.model_runs。
 
     artifact 写一份 metadata（best_params + study_name），不写真实 model.txt
     （真正训练在调用方拿到 best_params 后用 train_model 跑）。
+
+    oos_metrics 里如实标注 `objective_source` / `optimistic_bias`：默认
+    in_tuning_oos（搜参与评估同源，乐观偏差）；holdout 路径会带 `holdout_metrics`
+    （干净 OOS）。消费者据此区分乐观 best_value 与真实泛化指标。
     """
 
-    today = today_yyyymmdd or datetime.now(timezone.utc).strftime("%Y%m%d")
+    today = today_yyyymmdd or datetime.now(UTC).strftime("%Y%m%d")
     model_version = f"lgb-lambdarank-optuna-v1-{today}-trial{best_trial_number}"
 
     run_id = uuid4()
@@ -382,7 +627,7 @@ def _write_best_trial_to_model_runs(
                     "best_trial_number": best_trial_number,
                     "best_value": best_value,
                     "best_params": best_params,
-                    "created_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "created_at_utc": datetime.now(UTC).isoformat(),
                 },
                 f,
                 ensure_ascii=False,
@@ -392,12 +637,21 @@ def _write_best_trial_to_model_runs(
         shutil.rmtree(target_dir, ignore_errors=True)
         raise RuntimeError(f"写 optuna_best.json 失败: {exc}") from exc
 
-    oos_metrics = {
+    oos_metrics: dict[str, Any] = {
         "ndcg@10": best_value,
         "objective": "ndcg@10",
         "optuna_study_name": study_name,
         "optuna_best_trial": best_trial_number,
+        # 乐观偏差如实标注：in_tuning 路径下 best_value 与下游评估同源，乐观。
+        "objective_source": objective_source,
+        "optimistic_bias": optimistic_bias,
+        # best_value 始终是 in-tuning 各折 OOS 均值（即便 holdout 路径，干净指标在
+        # holdout_metrics 里，不覆盖 best_value）。
+        "best_value_kind": "in_tuning_oos_ndcg@10",
     }
+    if holdout_metrics is not None:
+        # 干净 holdout OOS（与搜参不同源），消费者优先用此判断真实泛化。
+        oos_metrics["holdout_metrics"] = holdout_metrics
     artifact_uri_str = artifact_uri(run_id, "optuna_best.json")
 
     sql = text(

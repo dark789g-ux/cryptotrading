@@ -112,7 +112,8 @@ y = lbl.round().astype(int).to_numpy()
 ```python
 class DirectionLSTM(nn.Module):
     def __init__(self, input_size, hidden_size=128, num_layers=2, dropout=0.2):
-        # nn.LSTM(batch_first=True) → 取末步 hidden → Dropout → Linear(hidden, 3)
+        # nn.LayerNorm(N) → nn.LSTM(batch_first=True) → 取末步 hidden
+        #   → Dropout → Linear(hidden, 3)
     def forward(self, x):  # x: (B, L, N) → logits (B, 3)
         ...
 
@@ -151,6 +152,34 @@ loss = CrossEntropyLoss(weight=weight)
 
 缺省值集中在 `lstm_model.DEFAULT_LSTM_HYPERPARAMS` 常量，前端不传则后端补默认
 （单一真理源，前端 placeholder 仅提示，不重复 hardcode 默认值）。
+
+### 输入归一化与已知张力（横截面 z-score 时序水平不可比）
+
+**张力**：`feature_matrix` 的特征在 `features/builder.py` 是「逐交易日横截面 z-score」
+（每个 `trade_date` 截面内标准化）。LSTM 把同一股票连续 L 天的横截面 z-score 堆成
+序列喂入，而每天截面 `mean/std` 不同——「昨天 z=1.5」与「今天 z=1.5」对应不同原始
+量级，**时序水平不可比**，削弱 LSTM 学时序形态的能力。这是**设计层张力**，非崩溃 bug。
+
+**为何不彻底修**：真正对症的修复需在特征侧保留原始量级 / 截面 `mean·std`，即改动
+`features/builder.build_feature_set_id` 的**哈希契约**。该契约一旦变更，全部历史
+`feature_matrix` 失效（口径漂移），代价不可接受——**硬约束禁止**。
+
+**采用的最小缓解（方案甲）**：在 `DirectionLSTM` 输入处加 `nn.LayerNorm(input_size)`
+（对 `(B, L, N)` 的最后一维 N 做 per-timestep 跨特征归一）。
+
+- 解决到什么程度（诚实边界）：LayerNorm 稳定每个时间步内各特征的相对尺度、抑制
+  个别日截面 std 异常导致的水平漂移、改善训练数值条件；但**不直接「恢复跨日可比」**
+  ——绝对水平信息在做 z-score 时已丢失，模型内无法找回。
+- 为何无泄漏 / 训练推理一致：LayerNorm 仿射参数（`input_norm.weight/bias`）是模型
+  权重，随 `model.pt` 的 `state_dict` 落盘；推理侧用同一 `DirectionLSTM` 构造 +
+  `load_state_dict` 自动复现，**变换完全一致**，`meta.json` **无需新增任何统计量
+  字段**，不存在「用未来 / 全样本统计」的泄漏面。
+- 为何不用「序列级 per-feature 时序标准化」：横截面 z-score 本身每日 `mean≈0/std≈1`，
+  全局时序标准化收益微弱，却需把 per-fold 统计量存进 `meta.json` 并在推理对齐，
+  引入 meta 往返与防泄漏负担，不划算。
+
+未尽事项：若后续要真正恢复跨日可比，须在特征侧另立新 `feature_set`（新哈希、不复用
+历史矩阵），而非在 LSTM 侧补救。
 
 ## 5. `lstm_walk_forward.py`
 

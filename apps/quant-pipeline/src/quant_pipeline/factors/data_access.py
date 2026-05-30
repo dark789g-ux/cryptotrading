@@ -16,6 +16,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import lru_cache
+from typing import cast
 
 import pandas as pd
 from sqlalchemy import text
@@ -343,7 +344,8 @@ def trade_cal_covers(
     if row is None or row[0] is None:
         return False
     cal_min, cal_max = row
-    return cal_min <= start_date and end_date <= cal_max
+    # row 来自裸 SQL 结果，元素静态类型为 Any；比较结果运行时即 bool，cast 仅修类型不改值
+    return cast(bool, cal_min <= start_date and end_date <= cal_max)
 
 
 def shift_calendar_days(yyyymmdd: str, delta: int) -> str:

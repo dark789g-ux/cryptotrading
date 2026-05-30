@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """sequence_builder 单测。
 
 覆盖 spec 01 §3 / 02 §3 契约：

@@ -18,7 +18,7 @@ def compute_psi(
     curr_values: np.ndarray,
     *,
     n_bins: int = 10,
-) -> tuple[float, list[dict[str, float]]]:
+) -> tuple[float, list[dict[str, float | None]]]:
     """PSI（Population Stability Index）= sum( (curr% - train%) * ln(curr% / train%) )
 
     bin 切分按 train_values 的 quantile（避免极端值把 bin 压扁）。

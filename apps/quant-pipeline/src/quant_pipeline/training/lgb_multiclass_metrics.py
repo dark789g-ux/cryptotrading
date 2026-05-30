@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """lgb-multiclass 三分类评估（spec 03 §评估）。
 
 复用 ``training.classification_metrics`` 的通用三分类纯函数（混淆矩阵 / per-class

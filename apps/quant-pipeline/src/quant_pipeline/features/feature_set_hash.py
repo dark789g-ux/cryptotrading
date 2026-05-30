@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """feature_set_id 覆盖层哈希（spec 02 §feature-set-id 哈希，方案 A）。
 
 **方案 A：仅显式非默认参数入哈希**。把哈希输入分两层：

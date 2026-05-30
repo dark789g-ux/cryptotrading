@@ -16,7 +16,6 @@ import os
 from pathlib import Path, PurePosixPath
 from uuid import UUID
 
-
 # 项目相对 artifact 根目录（POSIX 风格）
 _ARTIFACT_ROOT_REL = PurePosixPath("./artifacts")
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """lgb-multiclass 当日推理（spec 03 §推理路径）。
 
 与 lgb-lambdarank / lstm 同契约：返回 ``DataFrame[ts_code, score, rank_in_day]``。

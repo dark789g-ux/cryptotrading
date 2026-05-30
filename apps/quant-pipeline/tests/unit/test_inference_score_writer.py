@@ -22,14 +22,12 @@ import pandas as pd
 import pytest
 
 from quant_pipeline.inference import runner as runner_mod
-from quant_pipeline.inference import score_writer as sw
 from quant_pipeline.inference.score_writer import (
     ScoreRowCountMismatch,
     compute_rank_in_day,
     write_scores,
 )
 from quant_pipeline.quality.runner import QualityGateBlocked
-
 
 # ----------------------------------------------------------------------
 # 共用 fixture：mock Session
@@ -71,7 +69,7 @@ class _MockSession:
 def test_compute_rank_in_day_descending() -> None:
     df = pd.DataFrame({"ts_code": ["A", "B", "C", "D"], "score": [1.0, 3.0, 2.0, 4.0]})
     out = compute_rank_in_day(df)
-    by_code = dict(zip(out["ts_code"], out["rank_in_day"]))
+    by_code = dict(zip(out["ts_code"], out["rank_in_day"], strict=False))
     assert by_code["D"] == 1
     assert by_code["B"] == 2
     assert by_code["C"] == 3

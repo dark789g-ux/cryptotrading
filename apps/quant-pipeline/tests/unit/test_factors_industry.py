@@ -15,7 +15,6 @@ import pandas as pd
 
 from quant_pipeline.factors.registry import get_factor
 
-
 # ----------------------------------------------------------------------
 # industry_momentum_20d
 # ----------------------------------------------------------------------

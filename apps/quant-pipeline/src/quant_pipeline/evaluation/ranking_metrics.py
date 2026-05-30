@@ -22,7 +22,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-
 _NDCG_GAIN_LEVELS = 5  # 截面分位桶数：gain ∈ {0,1,2,3,4}
 
 

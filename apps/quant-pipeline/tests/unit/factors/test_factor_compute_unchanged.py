@@ -21,7 +21,6 @@ import pytest
 
 from quant_pipeline.factors.registry import get_factor
 
-
 # 在 refactor 完成时（DB 缓存值 == conftest seed == migration 初值）跑出来的
 # 16 行 sha256（前 16 字符）。任何 compute 逻辑改动都会让对应行失败。
 _EXPECTED: dict[str, str] = {

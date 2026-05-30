@@ -36,7 +36,7 @@ import json
 import logging
 import shutil
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import numpy as np
@@ -79,7 +79,18 @@ class TrainResult:
 
 
 def _load_feature_matrix(feature_set_id: str) -> pd.DataFrame:
-    """从 factors.feature_matrix 拉某个 feature_set 的全量样本。"""
+    """从 factors.feature_matrix 拉某个 feature_set 的全量样本。
+
+    性能备注（#6）：此函数在多条训练通路（lambdarank / lstm / lgb-mc / tuning /
+    ab_compare）中各自被调用，单次 e2e 可能重复全量查库。
+    **故意不加 lru_cache**：
+      1. 大量单测通过 ``monkeypatch.setattr(runner, "_load_feature_matrix", ...)`` 打桩；
+         lru_cache 包装后 monkeypatch 只替换模块属性，底层已绑定的闭包不受影响，
+         会导致所有打桩测试失效。
+      2. 进程内跨 job 的全局缓存有陈旧数据风险（不同 feature_set_id 或同一 ID
+         在训练周期内更新）。
+    调用方如需避免重复查库，应自行在外层复用已加载的 DataFrame，再按需传入各训练函数。
+    """
 
     sql = text(
         """
@@ -276,16 +287,20 @@ def train_model(
         # 在 SHAP 后置钩子之前 return，天然不触发（spec 02 §2）。
         from quant_pipeline.training.lstm_walk_forward import train_lstm_model
 
-        return train_lstm_model(
-            feature_set_id=feature_set_id,
-            seed=seed,
-            job_id=job_id,
-            hyperparams=hyperparams,
-            walk_forward_params=walk_forward_params or {},
-            progress_callback=_progress,
-            today_yyyymmdd=today_yyyymmdd,
-            insert_model_run=_insert_model_run,
-            write_artifact=_write_artifact,
+        # 被调入口声明 -> Any（自带训练循环，未细化返回类型）；运行时返回 TrainResult，cast 仅修类型
+        return cast(
+            TrainResult,
+            train_lstm_model(
+                feature_set_id=feature_set_id,
+                seed=seed,
+                job_id=job_id,
+                hyperparams=hyperparams,
+                walk_forward_params=walk_forward_params or {},
+                progress_callback=_progress,
+                today_yyyymmdd=today_yyyymmdd,
+                insert_model_run=_insert_model_run,
+                write_artifact=_write_artifact,
+            ),
         )
     if model == "lgb-multiclass":
         # lgb-multiclass 走独立路径（多分类 + 自己的 walk-forward），完全绕开
@@ -295,16 +310,20 @@ def train_model(
             train_lgb_multiclass_model,
         )
 
-        return train_lgb_multiclass_model(
-            feature_set_id=feature_set_id,
-            seed=seed,
-            job_id=job_id,
-            hyperparams=hyperparams,
-            walk_forward_params=walk_forward_params or {},
-            progress_callback=_progress,
-            today_yyyymmdd=today_yyyymmdd,
-            insert_model_run=_insert_model_run,
-            write_artifact=_write_artifact,
+        # 同上：被调入口声明 -> Any，运行时返回 TrainResult，cast 仅修类型不改值
+        return cast(
+            TrainResult,
+            train_lgb_multiclass_model(
+                feature_set_id=feature_set_id,
+                seed=seed,
+                job_id=job_id,
+                hyperparams=hyperparams,
+                walk_forward_params=walk_forward_params or {},
+                progress_callback=_progress,
+                today_yyyymmdd=today_yyyymmdd,
+                insert_model_run=_insert_model_run,
+                write_artifact=_write_artifact,
+            ),
         )
     if model not in ("lgb-lambdarank",):
         raise ValueError(
@@ -339,7 +358,8 @@ def train_model(
     if walk_forward:
         from quant_pipeline.training.walk_forward_runner import train_walk_forward
 
-        result = train_walk_forward(
+        # 被调入口声明 -> Any，运行时返回 TrainResult；显式注解修类型不改值
+        result: TrainResult = train_walk_forward(
             feature_set_id=feature_set_id,
             df_train=df_train,
             X_all=X_all,

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """quality.monitor（M4 Part A · IC drop + 特征 PSI 监控）单测。
 
 不连库；用 monkeypatch 注入 loaders，并 stub warn_with_quality_report 拦截写库。

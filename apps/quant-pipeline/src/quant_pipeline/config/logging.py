@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -28,7 +28,7 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
-            "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).strftime(
+            "ts": datetime.fromtimestamp(record.created, tz=UTC).strftime(
                 "%Y-%m-%dT%H:%M:%S.%fZ"
             ),
             "level": record.levelname,

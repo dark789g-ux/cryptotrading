@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """三分类通用评估指标（纯 numpy，spec 03 §评估「优先抽共享模块」）。
 
 从 lstm_metrics.py 抽出，供 lstm 与 lgb-multiclass 共用，避免复制（CLAUDE.md
@@ -29,7 +28,7 @@ def confusion_matrix_3class(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarra
     cm = np.zeros((_N_CLASS, _N_CLASS), dtype=np.int64)
     yt = np.asarray(y_true, dtype=np.int64)
     yp = np.asarray(y_pred, dtype=np.int64)
-    for t, p in zip(yt, yp):
+    for t, p in zip(yt, yp, strict=False):
         if 0 <= t < _N_CLASS and 0 <= p < _N_CLASS:
             cm[t, p] += 1
     return cm

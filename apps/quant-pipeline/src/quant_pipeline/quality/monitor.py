@@ -25,7 +25,7 @@ PSI 工具函数已拆分到 psi_utils.py。
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -375,7 +375,7 @@ def _run_monitor_body(
         "issues": issues,
         "n_features_checked": n_features_checked,
         "n_features_drifted": len(feat_issues),
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "generated_at_utc": datetime.now(UTC).isoformat(),
     }
 
 
