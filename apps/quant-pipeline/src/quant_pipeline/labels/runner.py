@@ -28,6 +28,11 @@ from quant_pipeline.labels._common import (
     derive_delist_map,
     derive_suspended_set,
 )
+from quant_pipeline.labels.direction_3class import (
+    SCHEME_DIR3_BAND,
+    SCHEME_DIR3_TERCILE,
+    compute_dir3_labels,
+)
 from quant_pipeline.labels.fallback import (
     FallbackInputs,
     SCHEME_FWD_5D_RET,
@@ -268,10 +273,16 @@ def compute_labels(
         if job_id is not None:
             update_progress(job_id, progress, stage=stage)
 
-    if scheme not in (LABEL_SCHEME, SCHEME_FWD_5D_RET):
+    if scheme not in (
+        LABEL_SCHEME,
+        SCHEME_FWD_5D_RET,
+        SCHEME_DIR3_BAND,
+        SCHEME_DIR3_TERCILE,
+    ):
         raise NotImplementedError(
-            f"labels scheme={scheme!r} not implemented in M2 "
-            f"(supported: {LABEL_SCHEME!r}, {SCHEME_FWD_5D_RET!r})"
+            f"labels scheme={scheme!r} not implemented "
+            f"(supported: {LABEL_SCHEME!r}, {SCHEME_FWD_5D_RET!r}, "
+            f"{SCHEME_DIR3_BAND!r}, {SCHEME_DIR3_TERCILE!r})"
         )
     start, end = date_range.split(":")
     if len(start) != 8 or len(end) != 8:
@@ -324,6 +335,31 @@ def compute_labels(
                 f"labels: compute_strategy_aware_labels produced 0 rows "
                 f"date_range={date_range!r} scheme={scheme!r}"
             )
+    elif scheme in (SCHEME_DIR3_BAND, SCHEME_DIR3_TERCILE):
+        # dir3 三分类（spec 01 §1-2）。复用 fwd 同款 FallbackInputs（后复权报价 +
+        # 停牌/退市/新股过滤上下文），仅"次日 r → 类别"逻辑不同。
+        labels_df = compute_dir3_labels(
+            FallbackInputs(
+                daily_quotes=quotes,
+                suspended_set=derive_suspended_set(suspend if not suspend.empty else None),
+                delist_map=derive_delist_map(delist if not delist.empty else None),
+                listing=listing if not listing.empty else None,
+                new_listing_min_days=new_listing_min_days,
+            ),
+            scheme=scheme,
+        )
+        # compute_* 原始输出（区间过滤前）为空 → 真异常
+        if labels_df.empty:
+            raise RuntimeError(
+                f"labels: compute_dir3_labels produced 0 rows "
+                f"date_range={date_range!r} scheme={scheme!r}"
+            )
+        # 区间过滤（trade_date 为 YYYYMMDD 定宽字符串，字典序即时序）。
+        # compute_dir3_labels 用 end_padded 的 quotes，每票末 1 行被 shift 丢弃属正常；
+        # 区间过滤之后合法地为空 → 仅 warning + return 0，不 raise（同 fwd_5d_ret）。
+        labels_df = labels_df.loc[
+            (labels_df["trade_date"] >= start) & (labels_df["trade_date"] <= end)
+        ].reset_index(drop=True)
     else:
         # fwd_5d_ret 兜底（doc/04 §4.1）。listing 透传以支持新股过滤（D-1 缺口补齐）。
         labels_df = compute_fwd_5d_ret(
