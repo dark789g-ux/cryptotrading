@@ -92,8 +92,13 @@ def load_forward_returns(
 - 折后 `concat(val_index_all)` 得 pairs，调 `load_forward_returns`，按行序映射成
   `true_ret_all`（命中 r / 未命中 NaN），再交 `build_oos_metrics`。
 
-返回签名可保持 `[y_true_all, y_pred_all, score_all, true_ret_all]` 不变（true_ret_all
-在折后才被填真实值），最小化 `train_lstm_model` 主流程改动。
+**概念区分**（避免「折后 append」误读）：
+- 折内 buffer 减为 3 个 `[y_true_all, y_pred_all, score_all]` + 新 `val_index_all`；
+  `true_ret_all` **不在折内累计**（折内不再有 `true_ret_all.extend`）。
+- 折后由 `load_forward_returns` 结果**按 `score_all` 行序整体一次性构造** `true_ret_all`
+  （命中 r / 未命中 NaN），再以原 `[y_true_all, y_pred_all, score_all, true_ret_all]`
+  4 元组形态交回下游解包（`lstm_walk_forward.py:338` 的 `... = buffers`），保持下游解包
+  签名不变、`train_lstm_model` 主流程零改动。
 
 ## `lstm_metrics.score_ic_rank_ic` 改动
 

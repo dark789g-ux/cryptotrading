@@ -106,6 +106,8 @@ def is_dir3_band_scheme(scheme: str) -> bool:
 ## 错误处理
 
 - ε 越界（`≤0` 或 `>0.1`）/ 非数字 → `_validate_params` 抛 `ValueError`（禁静默）。
+  `ε < 半个网格`（< 0.0005）量化后为 0，按 `≤0` 越界报错——故有效最小可表示 ε 即
+  `EPS_MIN=0.001`（一个网格），与文字范围 `0<ε≤0.1` 由网格步长天然咬合。
 - ε 给了非 `dir3_band` 方案（如 dir3_tercile）→ 忽略（不影响 scheme）。
 - `parse_dir3_band_eps` 遇畸形 `dir3_band_epsXXXX` → 返回 None，调用方按未知 scheme 报错。
 
