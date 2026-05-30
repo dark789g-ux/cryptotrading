@@ -32,6 +32,7 @@ import pandas as pd
 
 from quant_pipeline.factors.base import Factor
 from quant_pipeline.factors.constants import RETRY_WINDOW_MULTIPLIER
+
 # 数据加载 / 复权 / upsert 已拆到 factors.data_access（review §12）。
 # 此处 re-import 这些符号以保持 `factors.runner.<name>` 的旧引用兼容：
 # - 集成测试直接 `from factors.runner import _query_trade_dates / _load_industry_pit`
@@ -93,14 +94,14 @@ def _slice_window_for_factor(
         return pd.DataFrame()
     # 仅取 T 日及之前的交易日：MultiIndex 二分切片（panel 已 sort_index）
     try:
-        sub = panel.loc[pd.IndexSlice[:trade_date, :], :]
+        sub = panel.loc[pd.IndexSlice[:trade_date, :], :]  # type: ignore[misc]  # str 标签切片，stub 误判
     except KeyError:
         return pd.DataFrame()
     if sub.empty:
         return pd.DataFrame()
     if factor.category in ("industry", "mixed") and not industry_pit.empty:
         try:
-            ind_sub = industry_pit.loc[pd.IndexSlice[:trade_date, :], :]
+            ind_sub = industry_pit.loc[pd.IndexSlice[:trade_date, :], :]  # type: ignore[misc]  # str 标签切片
         except KeyError:
             ind_sub = industry_pit.iloc[0:0]
         sub = sub.join(ind_sub, how="left")

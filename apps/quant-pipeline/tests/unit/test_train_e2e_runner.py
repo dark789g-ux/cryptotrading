@@ -14,7 +14,6 @@ import pytest
 from quant_pipeline.worker import train_e2e_runner as tr
 from quant_pipeline.worker.progress import JobCancelled
 
-
 _JOB_ID = UUID("11111111-2222-3333-4444-555555555555")
 
 
@@ -225,8 +224,8 @@ def _install_fake_substeps(
 
     # 关键：monkeypatch 模块属性，三个 _step_* 内部都是延迟 import
     # 所以要 patch 源模块的函数
-    import quant_pipeline.labels.runner as labels_mod
     import quant_pipeline.features.runner as features_mod
+    import quant_pipeline.labels.runner as labels_mod
     import quant_pipeline.training.runner as training_mod
 
     monkeypatch.setattr(labels_mod, "compute_labels", _fake_labels)
@@ -360,8 +359,8 @@ def test_features_returns_plain_string_compat(
     spec 04 表格规定返回 bundle；老仓库返回纯字符串。getattr 兜底应工作。
     """
 
-    import quant_pipeline.labels.runner as labels_mod
     import quant_pipeline.features.runner as features_mod
+    import quant_pipeline.labels.runner as labels_mod
     import quant_pipeline.training.runner as training_mod
 
     monkeypatch.setattr(labels_mod, "compute_labels", lambda **kw: None)

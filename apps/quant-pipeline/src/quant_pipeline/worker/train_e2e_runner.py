@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from quant_pipeline.worker.progress import (
@@ -300,7 +300,8 @@ def _validate_fwd_horizon_days(raw: Any, *, label_scheme: str) -> int | None:
             },
         )
         return None
-    return raw
+    # 上方 isinstance 守卫后 raw 必为 int；raw 静态类型 Any，cast 仅修类型不改值
+    return cast(int, raw)
 
 
 def _validate_max_hold_days(raw: Any, *, label_scheme: str) -> int | None:
@@ -328,7 +329,8 @@ def _validate_max_hold_days(raw: Any, *, label_scheme: str) -> int | None:
             },
         )
         return None
-    return raw
+    # 上方 isinstance 守卫后 raw 必为 int；raw 静态类型 Any，cast 仅修类型不改值
+    return cast(int, raw)
 
 
 def _validate_params(params: dict[str, Any]) -> ValidatedParams:

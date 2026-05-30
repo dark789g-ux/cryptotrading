@@ -23,7 +23,7 @@ class VolumeRatio20d(Factor):
         vol = df["vol"].unstack("ts_code").sort_index()
         if trade_date not in vol.index:
             return pd.Series(dtype=float)
-        vol = vol.loc[:trade_date]
+        vol = vol.loc[:trade_date]  # type: ignore[misc]  # pandas 标签切片：str 标签运行时合法，stub 误判 slice index 类型
         if len(vol) < self.min_trade_days:
             return pd.Series(dtype=float)
         v_t = vol.iloc[-1]

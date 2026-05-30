@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """dir3_band 横盘阈值 ε ↔ label_scheme 字符串的**唯一**编解码器（spec A2）。
 
 `dir3_band` 把「次日收益 |r| ≤ ε 判横盘」。ε 必须进 `feature_set_id` 的确定性

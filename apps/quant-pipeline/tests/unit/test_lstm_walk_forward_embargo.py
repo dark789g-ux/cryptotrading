@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """LSTM walk-forward embargo 扩容 + 泄漏边界单测（spec 02 §5）。
 
 不依赖 torch：只测 compute_embargo_eff 公式 + PurgedWalkForwardSplit 在扩容后的

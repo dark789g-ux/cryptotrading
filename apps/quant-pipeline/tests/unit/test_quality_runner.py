@@ -19,9 +19,10 @@ def test_dispatcher_routes_quality_to_runner() -> None:
 
 
 def test_dispatcher_quality_rejects_bad_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    from uuid import uuid4
+
     from quant_pipeline.worker.dispatcher import get_routes
     from quant_pipeline.worker.poller import Job
-    from uuid import uuid4
 
     job = Job(
         id=uuid4(),

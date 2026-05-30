@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """labels/fallback.py 单测（D-1 缺口补齐）。
 
 覆盖 compute_fwd_5d_ret 的新股过滤路径：

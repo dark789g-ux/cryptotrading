@@ -13,8 +13,13 @@ logger = logging.getLogger(__name__)
 # quant-pipeline 依赖的表和列（不含 updated_at 元数据列）
 REQUIRED: dict[str, set[str]] = {
     "raw.trade_cal": {"exchange", "cal_date", "is_open", "pretrade_date"},
-    "raw.index_classify": {"src", "index_code", "industry_code", "industry_name", "parent_code", "level"},
-    "raw.index_member": {"ts_code", "l3_code", "in_date", "out_date", "l1_code", "l1_name", "l2_code", "l2_name", "l3_name", "name", "is_new"},
+    "raw.index_classify": {
+        "src", "index_code", "industry_code", "industry_name", "parent_code", "level",
+    },
+    "raw.index_member": {
+        "ts_code", "l3_code", "in_date", "out_date", "l1_code", "l1_name",
+        "l2_code", "l2_name", "l3_name", "name", "is_new",
+    },
     "raw.daily_quote": {"ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount"},
     "raw.adj_factor": {"ts_code", "trade_date", "adj_factor"},
     "raw.daily_basic": {"ts_code", "trade_date", "turnover_rate", "total_mv"},
@@ -27,8 +32,15 @@ REQUIRED: dict[str, set[str]] = {
     "factors.labels": {"trade_date", "ts_code", "scheme", "value", "exit_reason", "hold_days"},
     "factors.feature_sets": {"feature_set_id", "factor_version", "scheme", "factor_ids"},
     "factors.feature_matrix": {"trade_date", "ts_code", "feature_set_id", "features", "label"},
-    "ml.jobs": {"id", "run_type", "params", "status", "progress", "stage", "priority", "attempts", "max_attempts", "cancel_requested", "error_text", "blocked_reason", "parent_job_id", "heartbeat_at", "started_at", "finished_at", "created_at", "created_by"},
-    "ml.model_runs": {"id", "job_id", "model_version", "feature_set_id", "hyperparams", "oos_metrics", "artifact_uri", "report_uri", "shap_uri"},
+    "ml.jobs": {
+        "id", "run_type", "params", "status", "progress", "stage", "priority",
+        "attempts", "max_attempts", "cancel_requested", "error_text", "blocked_reason",
+        "parent_job_id", "heartbeat_at", "started_at", "finished_at", "created_at", "created_by",
+    },
+    "ml.model_runs": {
+        "id", "job_id", "model_version", "feature_set_id", "hyperparams",
+        "oos_metrics", "artifact_uri", "report_uri", "shap_uri",
+    },
     "ml.scores_daily": {"trade_date", "ts_code", "model_version", "score", "rank_in_day"},
     "ml.quality_reports": {"trade_date", "level", "rule", "detail"},
 }

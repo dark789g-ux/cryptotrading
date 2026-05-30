@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """lstm_model —— 次日方向三分类 LSTM 模型 + 单 fold 训练循环。
 
 实现设计 spec：
@@ -26,7 +25,8 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -61,7 +61,7 @@ def _build_direction_lstm_class() -> Any:
     import torch
     from torch import nn
 
-    class _DirectionLSTM(nn.Module):
+    class _DirectionLSTM(nn.Module):  # type: ignore[misc]  # 缺 torch stub，nn.Module 解析为 Any
         """次日方向三分类 LSTM。
 
         结构（spec 02 §4）：
@@ -121,7 +121,7 @@ def _build_direction_lstm_class() -> Any:
             self.dropout = nn.Dropout(float(dropout))
             self.head = nn.Linear(self.hidden_size, 3)
 
-        def forward(self, x: "torch.Tensor") -> "torch.Tensor":
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
             # x: (B, L, N) → LayerNorm 跨最后一维 N → LSTM → 取末步 hidden
             x = self.input_norm(x)        # (B, L, N)，逐时间步跨特征归一
             out, _ = self.lstm(x)         # (B, L, H)
@@ -355,6 +355,6 @@ def train_one_fold(
 
 __all__ = [
     "DEFAULT_LSTM_HYPERPARAMS",
-    "DirectionLSTM",
+    "DirectionLSTM",  # noqa: F822  # 经模块级 __getattr__（PEP 562）动态导出，非静态符号
     "train_one_fold",
 ]

@@ -67,7 +67,9 @@ def test_fetch_normal_returns_df_no_warn() -> None:
     client = _make_client(fake)
 
     with patch("quant_pipeline.sync.tushare_client.warn_with_quality_report") as warn_mock:
-        result = client.fetch("trade_cal", exchange="SSE", start_date="20240101", end_date="20240105")
+        result = client.fetch(
+            "trade_cal", exchange="SSE", start_date="20240101", end_date="20240105"
+        )
 
     assert result.empty_path is None
     assert len(result.df) == 1

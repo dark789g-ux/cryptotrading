@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """training.tuning（M4 Part A · Optuna 调参）单测。
 
 不连 PG；用 in-memory SQLite Optuna storage + monkeypatch 替换：
@@ -22,7 +21,6 @@ from uuid import uuid4
 import numpy as np
 import pandas as pd
 import pytest
-
 
 # ----------------------------------------------------------------------
 # fixtures

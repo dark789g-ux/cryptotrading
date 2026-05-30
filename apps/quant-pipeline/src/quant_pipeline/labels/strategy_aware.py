@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Strategy-aware labels（doc/量化/04 §4.2 推荐主用方案）。
 
 调用 strategy.exit_rules.simulate_exit 对每个 (signal_date, ts_code) 模拟
@@ -44,9 +43,9 @@ CLAUDE.md 硬约束：
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Callable, Final
+from typing import Final
 
 import numpy as np
 import pandas as pd
@@ -64,10 +63,10 @@ from quant_pipeline.labels._common import (
 from quant_pipeline.strategy.exit_rules import (
     EXIT_FORCE_CLOSE,
     EXIT_STOP_LOSS,
-    MA5BreakRule,
     MAX_HOLD_DAYS,
-    MaxHoldRule,
     STOP_LOSS_THRESHOLD,
+    MA5BreakRule,
+    MaxHoldRule,
     StopLossRule,
     combine_rules,
     default_rules,
@@ -139,7 +138,7 @@ def filter_limit_up_on_entry(
         return entries
     if not limit_up_set:
         return entries.reset_index(drop=True)
-    keys = list(zip(entries["ts_code"].astype(str), entries[entry_col].astype(str)))
+    keys = list(zip(entries["ts_code"].astype(str), entries[entry_col].astype(str), strict=False))
     mask = np.array([k not in limit_up_set for k in keys])
     dropped = int((~mask).sum())
     if dropped > 0:
@@ -167,7 +166,7 @@ def filter_suspended_on_entry(
         return entries
     if not suspended_set:
         return entries.reset_index(drop=True)
-    keys = list(zip(entries["ts_code"].astype(str), entries[entry_col].astype(str)))
+    keys = list(zip(entries["ts_code"].astype(str), entries[entry_col].astype(str), strict=False))
     mask = np.array([k not in suspended_set for k in keys])
     dropped = int((~mask).sum())
     if dropped > 0:
@@ -292,14 +291,14 @@ def _augment_quotes_for_exit(
 
     if "is_suspended" not in out.columns:
         if suspended_set:
-            keys = list(zip(out["ts_code"], out["trade_date"]))
+            keys = list(zip(out["ts_code"], out["trade_date"], strict=False))
             out["is_suspended"] = [k in suspended_set for k in keys]
         else:
             out["is_suspended"] = False
 
     if "is_delisted" not in out.columns:
         if delist_map:
-            keys = list(zip(out["ts_code"], out["trade_date"]))
+            keys = list(zip(out["ts_code"], out["trade_date"], strict=False))
             out["is_delisted"] = [
                 (c in delist_map) and (d >= delist_map[c]) for c, d in keys
             ]

@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -154,9 +154,11 @@ def train_seed_average(
     seeds = list(seeds)
 
     if train_fn is None:
-        from quant_pipeline.training.runner import train_model as train_fn  # type: ignore[assignment]
+        from quant_pipeline.training.runner import (
+            train_model as train_fn,
+        )
 
-    today = today_yyyymmdd or datetime.now(timezone.utc).strftime("%Y%m%d")
+    today = today_yyyymmdd or datetime.now(UTC).strftime("%Y%m%d")
     ensemble_model_version = f"lgb-lambdarank-v1-{today}-seedavg5"
 
     child_run_ids: list[str] = []
@@ -283,7 +285,8 @@ def _average_metrics(metrics_list: list[dict[str, Any]]) -> dict[str, Any]:
     agg: dict[str, Any] = {}
     for k in sorted(keys):
         # 排除 bool（Python 中 bool 是 int 子类，不能参与数值平均）
-        vals = [
+        # 元素经上方 isinstance 守卫保证为 int/float（非 bool）；标 list[Any] 让 sum 接受
+        vals: list[Any] = [
             m.get(k)
             for m in metrics_list
             if isinstance(m.get(k), (int, float))
@@ -330,7 +333,7 @@ def _write_ensemble_model_run(
         "child_model_versions": child_model_versions,
         "child_oos_metrics": child_metrics,
         "ensemble_oos_metrics": ensemble_metrics,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "created_at_utc": datetime.now(UTC).isoformat(),
         "note": (
             "inference 时按 child_run_ids 各自 booster 横截面 z-score + 等权平均；"
             "本 artifact 仅为 metadata，不是 model.txt"

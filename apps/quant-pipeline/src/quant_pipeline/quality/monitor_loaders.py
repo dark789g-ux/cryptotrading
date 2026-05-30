@@ -14,13 +14,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-
 
 # ----------------------------------------------------------------------
 # 底层 loader —— 均接受外部传入的共享 session（不再各自开事务）

@@ -32,7 +32,6 @@ from collections.abc import Iterator
 import numpy as np
 import pandas as pd
 
-
 # Purged Walk-Forward 强约束（doc/05 §5.4 + spec m3 §验收门槛）
 _MIN_EMBARGO_DAYS = 21
 _MIN_N_FOLDS = 6

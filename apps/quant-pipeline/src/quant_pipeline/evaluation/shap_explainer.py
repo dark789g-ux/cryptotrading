@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any
 from uuid import UUID
@@ -207,7 +207,7 @@ def explain(
         raise ValueError("SHAP 抽样后样本数为 0")
 
     # 4) 跑 SHAP TreeExplainer
-    import shap  # type: ignore[import-untyped]
+    import shap
 
     explainer = shap.TreeExplainer(booster)
     raw_shap = explainer.shap_values(X_arr)
@@ -286,7 +286,7 @@ def _write_shap_artifact(
         "n_samples": n_samples,
         "top_k": top_k,
         "top20": top,
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "generated_at_utc": datetime.now(UTC).isoformat(),
     }
     with shap_path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -334,7 +334,7 @@ def safely_explain_after_train(
         # 写一条 quality_reports；trade_date 用 today 或传入值
         from quant_pipeline.worker.progress import warn_with_quality_report
 
-        td = trade_date or datetime.now(timezone.utc).strftime("%Y%m%d")
+        td = trade_date or datetime.now(UTC).strftime("%Y%m%d")
         try:
             warn_with_quality_report(
                 rule="shap_explainer_failed",

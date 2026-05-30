@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """lgb-multiclass 专用 Purged Walk-Forward 训练编排（spec 03）。
 
 LightGBM 三分类（跌/横盘/涨），吃 dir3 整数标签，与 lstm 平行、独立路径：
@@ -28,8 +27,9 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -368,7 +368,11 @@ def train_lgb_multiclass_model(
         va_rows = wide_df.iloc[test_idx]
         val_pairs.extend(
             (str(c), str(d))
-            for c, d in zip(va_rows["ts_code"].to_numpy(), va_rows["trade_date"].to_numpy())
+            for c, d in zip(
+                va_rows["ts_code"].to_numpy(),
+                va_rows["trade_date"].to_numpy(),
+                strict=False,
+            )
         )
 
         # 折内分类指标（accuracy / macro_f1），复用共享纯函数。
@@ -427,7 +431,7 @@ def train_lgb_multiclass_model(
     )
 
     run_id = uuid4()
-    today = today_yyyymmdd or datetime.now(timezone.utc).strftime("%Y%m%d")
+    today = today_yyyymmdd or datetime.now(UTC).strftime("%Y%m%d")
     model_version = f"lgb-multiclass-v1-{today}-seed{seed}"
 
     used_hp: dict[str, Any] = dict(params)
@@ -456,7 +460,7 @@ def train_lgb_multiclass_model(
         "metric": "multi_logloss",
         "hyperparams": used_hp,
         "oos_metrics": oos_metrics,
-        "trained_at_utc": datetime.now(timezone.utc).isoformat(),
+        "trained_at_utc": datetime.now(UTC).isoformat(),
         "latest_train_date": latest_trade_date,
         "seed": seed,
         "walk_forward": True,

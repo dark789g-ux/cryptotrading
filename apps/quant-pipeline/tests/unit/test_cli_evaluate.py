@@ -27,7 +27,7 @@ class _FakeSession:
     def __init__(self, row: tuple[str, str] | None) -> None:
         self._row = row
 
-    def execute(self, _sql: Any, _params: dict[str, Any] | None = None) -> "_FakeSession":
+    def execute(self, _sql: Any, _params: dict[str, Any] | None = None) -> _FakeSession:
         return self
 
     def first(self) -> tuple[str, str] | None:

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -65,7 +65,7 @@ def _emit_job_warning(
     item: dict[str, Any] = {
         "type": warning_type,
         # 显式 UTC（CLAUDE.md：DB 时间一律 UTC 瞬时；本字段虽落 JSONB 但语义保持一致）
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
     }
     item.update(detail)
 
@@ -139,7 +139,7 @@ def load_window_increment(
     if base_min <= retry_start:
         # 已覆盖，切片复用
         try:
-            sub = base_panel.loc[pd.IndexSlice[retry_start:trade_date, :], :]
+            sub = base_panel.loc[pd.IndexSlice[retry_start:trade_date, :], :]  # type: ignore[misc]  # str 标签切片
         except KeyError:
             sub = base_panel.iloc[0:0]
     else:
@@ -153,7 +153,7 @@ def load_window_increment(
         # base_panel.copy() 防 sort_index 副作用回污原对象
         merged = pd.concat([extra, base_panel.copy()]).sort_index()
         try:
-            sub = merged.loc[pd.IndexSlice[retry_start:trade_date, :], :]
+            sub = merged.loc[pd.IndexSlice[retry_start:trade_date, :], :]  # type: ignore[misc]  # str 标签切片
         except KeyError:
             sub = merged.iloc[0:0]
 
@@ -170,7 +170,7 @@ def load_window_increment(
 
     if factor.category in ("industry", "mixed") and not base_industry_pit.empty:
         try:
-            ind_sub = base_industry_pit.loc[pd.IndexSlice[:trade_date, :], :]
+            ind_sub = base_industry_pit.loc[pd.IndexSlice[:trade_date, :], :]  # type: ignore[misc]  # str 标签切片
         except KeyError:
             ind_sub = base_industry_pit.iloc[0:0]
         sub = sub.join(ind_sub, how="left")

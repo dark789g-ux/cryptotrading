@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """sequence_builder —— feature_matrix 宽表 → LSTM 序列样本。
 
 实现设计 spec：

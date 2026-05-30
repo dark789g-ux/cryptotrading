@@ -270,7 +270,7 @@ def _runner_monitor(job: Job) -> None:
     _entry(job)
 
 
-def _make_progress_callback(job_id: UUID) -> "Any":
+def _make_progress_callback(job_id: UUID) -> Any:
     """构造一个把进度回写 ml.jobs 的 callback，供 train_e2e_runner 使用。
 
     train_e2e_runner 自己不直接调 `update_progress`：让父 callback 承担写库，
@@ -499,7 +499,7 @@ class _HeartbeatThread:
                     extra={"job_id": str(self._job_id), "err": str(exc)},
                 )
 
-    def __enter__(self) -> "_HeartbeatThread":
+    def __enter__(self) -> _HeartbeatThread:
         self._thread.start()
         return self
 

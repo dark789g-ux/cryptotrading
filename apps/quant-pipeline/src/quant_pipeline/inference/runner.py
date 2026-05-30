@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """inference runner —— predict_one_day + worker.dispatcher 入口（M2 Part B）。
 
 顺序（spec 04 §2 推理前必检 + m2 验收要求）：
@@ -23,7 +22,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import numpy as np
@@ -48,7 +47,9 @@ logger = logging.getLogger(__name__)
 _resolve_artifact_local_path = resolve_artifact_local_path
 
 
-def _load_model_run(session: Session, *, model_version: str | None, model_run_id: str | None) -> dict[str, Any]:
+def _load_model_run(
+    session: Session, *, model_version: str | None, model_run_id: str | None
+) -> dict[str, Any]:
     """按 model_version 或 model_run_id 取一条 ml.model_runs。"""
 
     if not model_version and not model_run_id:
@@ -91,7 +92,7 @@ def _load_meta_json(model_path: Path) -> dict[str, Any]:
     if not meta_path.exists():
         raise FileNotFoundError(f"meta.json 不存在: {meta_path}")
     with meta_path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        return cast("dict[str, Any]", json.load(f))
 
 
 def _load_daily_feature_section(

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """lstm_model smoke 测试。
 
 覆盖 spec 02 §4 / §5：
@@ -17,12 +16,12 @@ import pytest
 
 torch = pytest.importorskip("torch")  # 无 torch 环境跳过整个模块
 
+from quant_pipeline.training import lstm_model as lm  # noqa: E402
 from quant_pipeline.training.lstm_model import (  # noqa: E402
     DEFAULT_LSTM_HYPERPARAMS,
     DirectionLSTM,
     train_one_fold,
 )
-from quant_pipeline.training import lstm_model as lm  # noqa: E402
 
 
 def _synth(n: int, L: int, N: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:

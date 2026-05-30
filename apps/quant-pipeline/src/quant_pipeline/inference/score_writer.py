@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """把推理结果 upsert 到 ml.scores_daily（M2 Part B）。
 
 spec m2-training-mvp.md 验收门槛：

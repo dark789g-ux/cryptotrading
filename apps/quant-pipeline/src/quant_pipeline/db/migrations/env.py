@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from logging.config import fileConfig
+from typing import Any
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
@@ -25,7 +26,9 @@ config.set_main_option("sqlalchemy.url", settings.pg_dsn)
 target_metadata = Base.metadata
 
 
-def include_object(object, name, type_, reflected, compare_to):  # noqa: ANN001, A002
+def include_object(  # noqa: A002
+    object: Any, name: str | None, type_: str, reflected: bool, compare_to: Any
+) -> bool:
     """只关心 factors / ml schema 的对象；其它 schema 一律忽略。"""
 
     if type_ == "table":

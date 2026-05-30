@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """A1 · training/forward_returns.load_forward_returns 单测。
 
 DB 用桩 session（_FakeSession），不连线上。覆盖：

@@ -28,7 +28,7 @@ class Momentum20d(Factor):
         if trade_date not in close.index:
             return pd.Series(dtype=float)
         # 在窗口内只保留 T 及之前
-        close = close.loc[:trade_date]
+        close = close.loc[:trade_date]  # type: ignore[misc]  # pandas 标签切片：str 标签运行时合法，stub 误判 slice index 类型
         if len(close) < self.min_trade_days:
             return pd.Series(dtype=float)
         # T-20 即倒数第 21 个交易日；T 即最后一个

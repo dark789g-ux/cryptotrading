@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """strategy/exit_rules.py 单测。
 
 覆盖 4 种出场路径：

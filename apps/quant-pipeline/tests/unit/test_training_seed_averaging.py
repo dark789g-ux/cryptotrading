@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """training.seed_averaging（M4 Part A · Seed Averaging）单测。
 
 不连库；用 monkeypatch 替换：

@@ -19,7 +19,7 @@ import inspect
 import logging
 import math
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy.orm import Session
 
@@ -76,7 +76,7 @@ def audit_rule2_market_pit_window(
 
     if factor_cls is None:
         try:
-            from quant_pipeline.factors.base import Factor as factor_cls  # type: ignore[no-redef]
+            from quant_pipeline.factors.base import Factor as factor_cls
         except Exception as exc:  # noqa: BLE001 —— ImportError / 语法错误等
             return CheckResult(
                 passed=False,
@@ -157,7 +157,7 @@ def _normalize_yyyymmdd(value: Any) -> str | None:
     # datetime / date / Timestamp
     if hasattr(value, "strftime"):
         try:
-            return value.strftime("%Y%m%d")
+            return cast(str, value.strftime("%Y%m%d"))
         except Exception:  # noqa: BLE001
             return None
     s = str(value).strip()

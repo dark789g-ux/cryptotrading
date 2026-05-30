@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """labels/dir3_scheme.py 单测（A2：dir3_band ε ↔ scheme 串编解码器）。
 
 覆盖（spec 02 §测试）：
@@ -14,12 +13,12 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 
 from quant_pipeline.features.builder import build_feature_set_id
 from quant_pipeline.labels.dir3_scheme import (
     EPS_GRID,
-    EPS_MAX,
     EPS_MIN,
     LEGACY_DIR3_BAND,
     LEGACY_EPS,
@@ -30,8 +29,6 @@ from quant_pipeline.labels.dir3_scheme import (
 )
 from quant_pipeline.labels.direction_3class import _bucket_band, compute_dir3_labels
 from quant_pipeline.labels.fallback import FallbackInputs
-
-import pandas as pd
 
 _DOWN = 0.0
 _FLAT = 1.0

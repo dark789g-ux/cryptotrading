@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """真实次日后复权收益加载（A1：LSTM oos_metrics IC/RankIC 用真实收益）。
 
 给定验证样本的 (ts_code, trade_date) 列表，回表算每个样本的真实次日后复权收益：
@@ -18,6 +17,7 @@ import logging
 
 import pandas as pd
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from quant_pipeline.db.engine import session_scope
 from quant_pipeline.labels._common import apply_hfq
@@ -30,7 +30,7 @@ _FORWARD_PAD_TRADE_DAYS: int = 10
 
 
 def _query_daily_quotes(
-    ts_codes: list[str], start: str, end_padded: str, *, session
+    ts_codes: list[str], start: str, end_padded: str, *, session: Session
 ) -> pd.DataFrame:
     """查 raw.daily_quote LEFT JOIN raw.adj_factor，注入后复权 close_adj。
 
@@ -65,7 +65,7 @@ def _query_daily_quotes(
 def load_forward_returns(
     pairs: list[tuple[str, str]],
     *,
-    session=None,
+    session: Session | None = None,
 ) -> dict[tuple[str, str], float]:
     """返回 {(ts_code, trade_date): r}。
 
@@ -160,7 +160,7 @@ def load_forward_returns(
     return result
 
 
-def _end_padded(max_req_date: str, *, session) -> str:
+def _end_padded(max_req_date: str, *, session: Session) -> str:
     """请求最大日期向后延若干交易日，确保能取到 t+1。
 
     数据来源 raw.trade_cal（is_open=1），参考 labels/runner._compute_end_padded 的尾部

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """feature_matrix 构建器（factors 长格式 + labels → 训练矩阵宽格式）。
 
 步骤（spec m2-training-mvp.md §交付物 3）：
@@ -587,10 +586,11 @@ def build_feature_matrix_from_frames(
             extra={"raw": len(merged), "kept": len(final)},
         )
 
-    factor_ids = list(wide.columns)
+    # 用独立变量名承接宽表列，避免覆写入参 factor_ids（tuple）的静态类型
+    bundle_factor_ids = list(wide.columns)
     return FeatureMatrixBundle(
         feature_set_id=feature_set_id,
-        factor_ids=factor_ids,
+        factor_ids=bundle_factor_ids,
         matrix=final.reset_index(),
     )
 

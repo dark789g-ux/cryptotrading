@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """labels/direction_3class.py 单测（LSTM T1 三分类标签，spec 01 §1-2）。
 
 直接用合成 DataFrame 测 compute_dir3_labels（不连真实 DB），覆盖：

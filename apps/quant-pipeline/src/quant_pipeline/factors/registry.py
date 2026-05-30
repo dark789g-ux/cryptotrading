@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from quant_pipeline.factors.base import Factor, FactorCategory, FactorMetaMissing
 
@@ -237,7 +237,7 @@ def load_from_db() -> None:
           FROM factors.factor_definitions
         """
     )
-    rows: list[tuple] = []
+    rows: list[tuple[Any, ...]] = []
     with session_scope() as session:
         result = session.execute(sql)
         rows = list(result.fetchall())
@@ -324,6 +324,14 @@ def import_all_factors() -> None:
     """
 
     # 量价因子（11 个）
+    # 行业派生因子（5 个）
+    from quant_pipeline.factors.industry import (  # noqa: F401
+        industry_momentum_20d,
+        industry_neutral_momentum,
+        industry_rank_in_sector,
+        industry_relative_strength,
+        sector_volume_concentration,
+    )
     from quant_pipeline.factors.price import (  # noqa: F401
         amihud_illiq_20d,
         bollinger_position_20d,
@@ -336,13 +344,4 @@ def import_all_factors() -> None:
         turnover_mean_20d,
         volatility_20d,
         volume_ratio_20d,
-    )
-
-    # 行业派生因子（5 个）
-    from quant_pipeline.factors.industry import (  # noqa: F401
-        industry_momentum_20d,
-        industry_neutral_momentum,
-        industry_rank_in_sector,
-        industry_relative_strength,
-        sector_volume_concentration,
     )

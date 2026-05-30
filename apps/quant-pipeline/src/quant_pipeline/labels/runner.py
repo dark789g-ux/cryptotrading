@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """labels runner：DB IO 层。
 
 职责：
@@ -34,8 +33,8 @@ from quant_pipeline.labels.direction_3class import (
     compute_dir3_labels,
 )
 from quant_pipeline.labels.fallback import (
-    FallbackInputs,
     SCHEME_FWD_5D_RET,
+    FallbackInputs,
     compute_fwd_5d_ret,
 )
 from quant_pipeline.labels.strategy_aware import (

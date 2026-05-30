@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """LSTM 专用 Purged Walk-Forward 训练编排（spec 02 §5 / §6）。
 
 与 lgb 路径平行、独立（分类任务 + torch 训练循环 + 序列输入）：
@@ -30,8 +29,9 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -291,7 +291,11 @@ def _build_true_ret(val_index_all: list[pd.DataFrame], *, n_score: int) -> np.nd
     val_index = pd.concat(val_index_all, ignore_index=True)
     pairs = [
         (str(c), str(d))
-        for c, d in zip(val_index["ts_code"].to_numpy(), val_index["trade_date"].to_numpy())
+        for c, d in zip(
+            val_index["ts_code"].to_numpy(),
+            val_index["trade_date"].to_numpy(),
+            strict=False,
+        )
     ]
     ret_map = load_forward_returns(pairs)
 
@@ -434,7 +438,7 @@ def train_lstm_model(
 
     # ---- 85-100%：产物落盘（model.pt + meta.json）+ 写 ml.model_runs ----
     run_id = uuid4()
-    today = today_yyyymmdd or datetime.now(timezone.utc).strftime("%Y%m%d")
+    today = today_yyyymmdd or datetime.now(UTC).strftime("%Y%m%d")
     model_version = f"lstm-v1-{today}-seed{seed}"
 
     input_size = len(feature_cols)
@@ -457,7 +461,7 @@ def train_lstm_model(
         "feature_cols": feature_cols,
         "label_scheme": label_scheme,
         "class_order": list(CLASS_ORDER),
-        "trained_at_utc": datetime.now(timezone.utc).isoformat(),
+        "trained_at_utc": datetime.now(UTC).isoformat(),
         "latest_train_date": latest_trade_date,
         "seed": seed,
     }

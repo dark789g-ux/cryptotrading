@@ -14,7 +14,7 @@ quality_app = typer.Typer(
 )
 
 
-@quality_app.command("check")
+@quality_app.command("check")  # type: ignore[untyped-decorator]  # typer 装饰器在 mypy strict 下判为 untyped，仅类型层屏蔽
 def quality_check(
     date: str = typer.Option(
         ...,
@@ -63,31 +63,20 @@ def quality_check(
         raise typer.Exit(code=1) from exc
 
     typer.echo(
-        "quality check {d}: critical={c} warn={w} info={i} passed={p}".format(
-            d=date,
-            c=report.critical_count,
-            w=report.warn_count,
-            i=report.info_count,
-            p=report.passed,
-        )
+        f"quality check {date}: critical={report.critical_count} warn={report.warn_count} info={report.info_count} passed={report.passed}"
     )
     for r in report.results:
         if r.passed and r.level != "info":
             continue
         typer.echo(
-            "  - {name:24s} level={lvl:8s} rule={rule:24s} passed={p}".format(
-                name=r.name or r.rule,
-                lvl=r.level,
-                rule=r.rule,
-                p=r.passed,
-            )
+            f"  - {r.name or r.rule:24s} level={r.level:8s} rule={r.rule:24s} passed={r.passed}"
         )
 
     if strict and not report.passed:
         raise typer.Exit(code=1)
 
 
-@quality_app.command("pit-audit")
+@quality_app.command("pit-audit")  # type: ignore[untyped-decorator]  # typer 装饰器在 mypy strict 下判为 untyped，仅类型层屏蔽
 def quality_pit_audit(
     dates: str = typer.Option(
         "",
@@ -150,19 +139,14 @@ def quality_pit_audit(
     )
     for r in report.results:
         typer.echo(
-            "  - {name:30s} level={lvl:8s} rule={rule:20s} date={d}".format(
-                name=r.name or r.rule,
-                lvl=r.level,
-                rule=r.rule,
-                d=r.trade_date,
-            )
+            f"  - {r.name or r.rule:30s} level={r.level:8s} rule={r.rule:20s} date={r.trade_date}"
         )
 
     if not report.passed:
         raise typer.Exit(code=1)
 
 
-@quality_app.command("gate")
+@quality_app.command("gate")  # type: ignore[untyped-decorator]  # typer 装饰器在 mypy strict 下判为 untyped，仅类型层屏蔽
 def quality_gate(
     date: str = typer.Option(
         ...,
@@ -198,14 +182,7 @@ def quality_gate(
         raise typer.Exit(code=1) from exc
 
     typer.echo(
-        "quality gate {m} {d}: critical={c} warn={w} info={i} passed={p}".format(
-            m=mode,
-            d=date,
-            c=report.critical_count,
-            w=report.warn_count,
-            i=report.info_count,
-            p=report.passed,
-        )
+        f"quality gate {mode} {date}: critical={report.critical_count} warn={report.warn_count} info={report.info_count} passed={report.passed}"
     )
     if not report.passed:
         raise typer.Exit(code=1)
@@ -236,7 +213,7 @@ def run_quality_monitor(*, date: str, model_version: str) -> None:
     )
 
 
-@quality_app.command("monitor")
+@quality_app.command("monitor")  # type: ignore[untyped-decorator]  # typer 装饰器在 mypy strict 下判为 untyped，仅类型层屏蔽
 def quality_monitor_cli(
     model_version: str = typer.Option(
         ...,

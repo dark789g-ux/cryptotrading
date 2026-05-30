@@ -60,7 +60,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -73,7 +73,6 @@ from quant_pipeline.evaluation.ranking_metrics import ndcg_at_k
 from quant_pipeline.training.group_utils import build_groups, flatten_features
 from quant_pipeline.training.lightgbm_lambdarank import (
     DEFAULT_HYPERPARAMS,
-    DEFAULT_NUM_BOOST_ROUND,
     train_lambdarank,
 )
 from quant_pipeline.training.search_spaces import (
@@ -371,7 +370,7 @@ def tune(
         raise ValueError(f"未知搜索空间 {space!r}；可选: {sorted(SEARCH_SPACES)}")
 
     # 延迟 import optuna：避免 noop / 其它 run_type 加载时拖入 optuna
-    import optuna  # type: ignore[import-untyped]
+    import optuna
 
     storage = storage_url if storage_url is not None else build_storage_url()
     study_name = study_name or build_study_name(feature_set_id, today_yyyymmdd)
@@ -611,7 +610,7 @@ def _write_best_trial_to_model_runs(
     （干净 OOS）。消费者据此区分乐观 best_value 与真实泛化指标。
     """
 
-    today = today_yyyymmdd or datetime.now(timezone.utc).strftime("%Y%m%d")
+    today = today_yyyymmdd or datetime.now(UTC).strftime("%Y%m%d")
     model_version = f"lgb-lambdarank-optuna-v1-{today}-trial{best_trial_number}"
 
     run_id = uuid4()
@@ -628,7 +627,7 @@ def _write_best_trial_to_model_runs(
                     "best_trial_number": best_trial_number,
                     "best_value": best_value,
                     "best_params": best_params,
-                    "created_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "created_at_utc": datetime.now(UTC).isoformat(),
                 },
                 f,
                 ensure_ascii=False,

@@ -36,7 +36,7 @@ import json
 import logging
 import shutil
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import numpy as np
@@ -287,16 +287,20 @@ def train_model(
         # 在 SHAP 后置钩子之前 return，天然不触发（spec 02 §2）。
         from quant_pipeline.training.lstm_walk_forward import train_lstm_model
 
-        return train_lstm_model(
-            feature_set_id=feature_set_id,
-            seed=seed,
-            job_id=job_id,
-            hyperparams=hyperparams,
-            walk_forward_params=walk_forward_params or {},
-            progress_callback=_progress,
-            today_yyyymmdd=today_yyyymmdd,
-            insert_model_run=_insert_model_run,
-            write_artifact=_write_artifact,
+        # 被调入口声明 -> Any（自带训练循环，未细化返回类型）；运行时返回 TrainResult，cast 仅修类型
+        return cast(
+            TrainResult,
+            train_lstm_model(
+                feature_set_id=feature_set_id,
+                seed=seed,
+                job_id=job_id,
+                hyperparams=hyperparams,
+                walk_forward_params=walk_forward_params or {},
+                progress_callback=_progress,
+                today_yyyymmdd=today_yyyymmdd,
+                insert_model_run=_insert_model_run,
+                write_artifact=_write_artifact,
+            ),
         )
     if model == "lgb-multiclass":
         # lgb-multiclass 走独立路径（多分类 + 自己的 walk-forward），完全绕开
@@ -306,16 +310,20 @@ def train_model(
             train_lgb_multiclass_model,
         )
 
-        return train_lgb_multiclass_model(
-            feature_set_id=feature_set_id,
-            seed=seed,
-            job_id=job_id,
-            hyperparams=hyperparams,
-            walk_forward_params=walk_forward_params or {},
-            progress_callback=_progress,
-            today_yyyymmdd=today_yyyymmdd,
-            insert_model_run=_insert_model_run,
-            write_artifact=_write_artifact,
+        # 同上：被调入口声明 -> Any，运行时返回 TrainResult，cast 仅修类型不改值
+        return cast(
+            TrainResult,
+            train_lgb_multiclass_model(
+                feature_set_id=feature_set_id,
+                seed=seed,
+                job_id=job_id,
+                hyperparams=hyperparams,
+                walk_forward_params=walk_forward_params or {},
+                progress_callback=_progress,
+                today_yyyymmdd=today_yyyymmdd,
+                insert_model_run=_insert_model_run,
+                write_artifact=_write_artifact,
+            ),
         )
     if model not in ("lgb-lambdarank",):
         raise ValueError(
@@ -350,7 +358,8 @@ def train_model(
     if walk_forward:
         from quant_pipeline.training.walk_forward_runner import train_walk_forward
 
-        result = train_walk_forward(
+        # 被调入口声明 -> Any，运行时返回 TrainResult；显式注解修类型不改值
+        result: TrainResult = train_walk_forward(
             feature_set_id=feature_set_id,
             df_train=df_train,
             X_all=X_all,

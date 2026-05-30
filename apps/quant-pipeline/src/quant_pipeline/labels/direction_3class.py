@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """三分类方向标签（LSTM T1，spec 01-data-and-labels.md §1-2）。
 
 LSTM 预测**次日（t+1）方向**，三类 {跌=0, 横盘=1, 涨=2}。
@@ -158,9 +157,9 @@ def compute_dir3_labels(inputs: FallbackInputs, scheme: str) -> pd.DataFrame:
     t = quotes["trade_date"]
     # 停牌掩码：t 或 t+1 任一停牌 → 跳过。
     if suspended_set:
-        susp_t = pd.Series(list(zip(ts, t)), index=quotes.index).isin(suspended_set)
+        susp_t = pd.Series(list(zip(ts, t, strict=False)), index=quotes.index).isin(suspended_set)
         susp_t1 = pd.Series(
-            list(zip(ts, t_plus_date.fillna(""))), index=quotes.index
+            list(zip(ts, t_plus_date.fillna(""), strict=False)), index=quotes.index
         ).isin(suspended_set)
         keep = keep & ~susp_t & ~susp_t1
     # 退市掩码：t+1 >= delist_date → 跳过。
@@ -215,6 +214,7 @@ def compute_dir3_labels(inputs: FallbackInputs, scheme: str) -> pd.DataFrame:
                     zip(
                         listing_df["ts_code"].astype(str),
                         listing_df["list_date"].astype(str),
+                        strict=False,
                     )
                 )
                 trade_dates_sorted = sorted(

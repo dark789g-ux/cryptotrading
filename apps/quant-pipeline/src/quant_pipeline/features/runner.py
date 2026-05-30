@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """features runner：DB IO 层。
 
 职责：
@@ -23,9 +22,11 @@ from quant_pipeline.db.engine import session_scope
 from quant_pipeline.features.builder import (
     DEFAULT_NEUTRALIZE_COLS,
     DEFAULT_ROBUST_Z,
-    FACTOR_CLIP_SIGMA as _BUILDER_FACTOR_CLIP_SIGMA,
     build_feature_matrix_from_frames,
     resolve_feature_set_id,
+)
+from quant_pipeline.features.builder import (
+    FACTOR_CLIP_SIGMA as _BUILDER_FACTOR_CLIP_SIGMA,
 )
 from quant_pipeline.features.feature_set_hash import (  # spec 02 §哈希方案 A
     apply_overlay_to_feature_set_id,

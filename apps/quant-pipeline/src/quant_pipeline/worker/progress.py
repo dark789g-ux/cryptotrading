@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
@@ -216,7 +217,12 @@ def warn_with_quality_report(
     # 1) 结构化日志
     logger.warning(
         "quality_report",
-        extra={"rule": rule, "trade_date": trade_date, "detail": detail, "job_id": str(job_id) if job_id else None},
+        extra={
+            "rule": rule,
+            "trade_date": trade_date,
+            "detail": detail,
+            "job_id": str(job_id) if job_id else None,
+        },
     )
 
     # 2) DB 写

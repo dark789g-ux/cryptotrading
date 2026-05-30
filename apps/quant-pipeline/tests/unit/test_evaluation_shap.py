@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """evaluation.shap_explainer（M4 Part A · SHAP）单测。
 
 不连库；用真实 LightGBM Booster + 注入 mock loaders。
@@ -71,7 +70,11 @@ def test_explain_writes_shap_top20_json(
     from quant_pipeline.utils import paths as paths_mod
 
     # 让 utils.paths 重新解析 ARTIFACT_DIR
-    paths_mod.artifact_root.cache_clear() if hasattr(paths_mod.artifact_root, "cache_clear") else None
+    (
+        paths_mod.artifact_root.cache_clear()
+        if hasattr(paths_mod.artifact_root, "cache_clear")
+        else None
+    )
 
     run_id = str(uuid4())
     artifact_uri = f"./artifacts/{run_id}/model.txt"

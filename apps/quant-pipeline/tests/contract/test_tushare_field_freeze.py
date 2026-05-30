@@ -16,13 +16,22 @@ from __future__ import annotations
 
 from quant_pipeline.sync import (
     fina_indicator as fina_mod,
+)
+from quant_pipeline.sync import (
     index_classify as ic_mod,
+)
+from quant_pipeline.sync import (
     index_member as im_mod,
+)
+from quant_pipeline.sync import (
     stk_limit as sl_mod,
+)
+from quant_pipeline.sync import (
     suspend as sp_mod,
+)
+from quant_pipeline.sync import (
     trade_cal as tc_mod,
 )
-
 
 # ----------------------------------------------------------------------
 # 冻结清单（doc/量化/06 + TuShare 官方文档）

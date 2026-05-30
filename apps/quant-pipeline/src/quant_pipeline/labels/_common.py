@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """labels 子系统共用助手。
 
 收拢原先散落在 fallback.py / strategy_aware.py 的重复实现：
@@ -121,6 +120,7 @@ def derive_limit_up_set(
         zip(
             merged.loc[hit, "ts_code"].astype(str),
             merged.loc[hit, "trade_date"].astype(str),
+            strict=False,
         )
     )
 
@@ -134,6 +134,7 @@ def derive_suspended_set(suspend_d: pd.DataFrame | None) -> set[tuple[str, str]]
         zip(
             suspend_d["ts_code"].astype(str),
             suspend_d["trade_date"].astype(str),
+            strict=False,
         )
     )
 
@@ -147,6 +148,7 @@ def derive_delist_map(delist: pd.DataFrame | None) -> dict[str, str]:
         zip(
             delist["ts_code"].astype(str),
             delist["delist_date"].astype(str),
+            strict=False,
         )
     )
 
@@ -160,6 +162,7 @@ def derive_list_date_map(listing: pd.DataFrame | None) -> dict[str, str]:
         zip(
             listing["ts_code"].astype(str),
             listing["list_date"].astype(str),
+            strict=False,
         )
     )
 
