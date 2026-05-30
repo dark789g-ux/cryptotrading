@@ -253,6 +253,9 @@ def compute_labels(
     scheme: str,
     date_range: str,
     new_listing_min_days: int | None = None,
+    fwd_horizon_days: int | None = None,
+    max_hold_days: int | None = None,
+    label_winsorize: tuple[float, float] | None = None,
     job_id: UUID | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> int:
@@ -263,9 +266,22 @@ def compute_labels(
         date_range:            "YYYYMMDD:YYYYMMDD"
         new_listing_min_days:  新股门槛交易日阈值。None → 走默认 60；0 表示不过滤。
                                非法值由 _validate_min_days 抛 ValueError。
+        fwd_horizon_days:      仅 fwd_5d_ret 生效（spec 02）。None → 走 fallback 默认
+                               FWD_HORIZON_DAYS(5)；其它 scheme 忽略。
+        max_hold_days:         仅 strategy-aware 生效（spec 02）。None → 走
+                               exit_rules.MAX_HOLD_DAYS(20)；其它 scheme 忽略。
+        label_winsorize:       spec 02 §「只截一次」：标签截尾**统一在 features.builder
+                               执行**（features 层 winsorize_label_value），本函数
+                               不在标签阶段再截一次（避免双重 winsorize）。此入参仅
+                               为与 train_e2e._step_labels 调用签名对齐而保留，labels
+                               阶段不消费；实际值由 _step_features 透传给 builder。
         job_id:                可选，传入则在每日完成后写 progress
         progress_callback:     可选，CLI 终端进度条回调 (progress, stage) -> None
     """
+
+    # spec 02 §「只截一次」：label_winsorize 不在 labels 阶段消费（见 docstring）。
+    # 显式忽略以避免误用；保留入参仅为签名对齐。
+    _ = label_winsorize
 
     def _progress(progress: int, stage: str) -> None:
         if progress_callback is not None:
@@ -328,6 +344,8 @@ def compute_labels(
                 entries=entries,
                 end=end,
                 new_listing_min_days=new_listing_min_days,
+                # spec 02：仅 strategy-aware 生效；None → exit_rules.MAX_HOLD_DAYS(20)。
+                max_hold_days=max_hold_days,
             ),
             progress_callback=_progress if progress_callback is not None else None,
         )
@@ -371,7 +389,9 @@ def compute_labels(
                 delist_map=derive_delist_map(delist if not delist.empty else None),
                 listing=listing if not listing.empty else None,
                 new_listing_min_days=new_listing_min_days,
-            )
+            ),
+            # spec 02：仅 fwd_5d_ret 生效；None → FWD_HORIZON_DAYS(5)。
+            fwd_horizon_days=fwd_horizon_days,
         )
         # compute_* 原始输出（区间过滤前）为空 → 真异常
         if labels_df.empty:

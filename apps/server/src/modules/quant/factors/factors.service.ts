@@ -118,6 +118,27 @@ export class FactorsService {
   }
 
   /**
+   * 列出 enabled 因子中出现过的 distinct factor_version（升序），供前端 `factor_version` 下拉枚举。
+   *
+   * spec 02-backend-passthrough.md#factor-versions-api：
+   *   SELECT DISTINCT factor_version FROM factors.factor_definitions WHERE enabled = true ORDER BY factor_version;
+   *
+   * - 参数化查询（`:enabled` 绑定，不拼接），与本仓库动态 SQL 规范一致。
+   * - 空结果返回 `[]` 不报错（前端回退手输）。
+   */
+  async listFactorVersions(): Promise<string[]> {
+    const rows: Array<{ factor_version: string }> = await this.repo
+      .createQueryBuilder('f')
+      .select('DISTINCT f.factor_version', 'factor_version')
+      .where('f.enabled = :enabled', { enabled: true })
+      .orderBy('factor_version', 'ASC')
+      .getRawMany();
+    return rows
+      .map((r) => r.factor_version)
+      .filter((v) => typeof v === 'string' && v.length > 0);
+  }
+
+  /**
    * 按 (factor_id, factor_version) 取单条，不存在抛 404。
    *
    * 用于 PATCH 前置校验：资源不存在直接返 404，而不是静默 update 0 行。

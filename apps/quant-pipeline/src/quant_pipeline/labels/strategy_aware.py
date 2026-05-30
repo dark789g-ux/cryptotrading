@@ -64,7 +64,12 @@ from quant_pipeline.labels._common import (
 from quant_pipeline.strategy.exit_rules import (
     EXIT_FORCE_CLOSE,
     EXIT_STOP_LOSS,
+    MA5BreakRule,
     MAX_HOLD_DAYS,
+    MaxHoldRule,
+    STOP_LOSS_THRESHOLD,
+    StopLossRule,
+    combine_rules,
     default_rules,
     simulate_exit,
 )
@@ -264,6 +269,10 @@ class LabelInputs:
     # 新股门槛交易日阈值。None → 走默认 NEW_LISTING_MIN_DAYS（60）；
     # 0 是合法值表示完全不过滤。禁忌写法：`if min_days:`（0 会被判 falsy）。
     new_listing_min_days: int | None = None
+    # spec 02 §标签参数透传：最大持仓交易日（MaxHoldRule 上限）。None → 走
+    # exit_rules.MAX_HOLD_DAYS(20) 默认，保证不传时行为完全不变。仅 strategy-aware
+    # 生效（dir3 / fwd 路径不走 simulate_exit）。
+    max_hold_days: int | None = None
 
 
 def _augment_quotes_for_exit(
@@ -420,7 +429,20 @@ def compute_strategy_aware_labels(
     # 数据末尾截断 warning 的判别基准：查询区间 end，缺省退化为窗口末日
     truncation_threshold = str(inputs.end) if inputs.end else trade_dates_sorted[-1]
 
-    rules = default_rules()
+    # spec 02 §标签参数透传：max_hold_days 覆盖 MaxHoldRule 上限。None → default_rules()
+    # （MAX_HOLD_DAYS=20），与改动前完全一致；显式值则重建同序复合规则（止损 > MA5 > 持有上限）。
+    if inputs.max_hold_days is None:
+        rules = default_rules()
+        eff_max_hold = MAX_HOLD_DAYS
+    else:
+        eff_max_hold = int(inputs.max_hold_days)
+        rules = combine_rules(
+            [
+                StopLossRule(STOP_LOSS_THRESHOLD),
+                MA5BreakRule(),
+                MaxHoldRule(eff_max_hold),
+            ]
+        )
     records: list[dict[str, object]] = []
     # 按信号日去重（同一票同一信号日只保留一条候选）
     cand_dedup = cand.drop_duplicates(
@@ -463,7 +485,7 @@ def compute_strategy_aware_labels(
         # 非真退市、退出日落在缓冲尾部 → warning
         if (
             outcome.exit_reason == EXIT_FORCE_CLOSE
-            and outcome.hold_days < MAX_HOLD_DAYS
+            and outcome.hold_days < eff_max_hold
             and ts_code not in delist_map
             and str(outcome.exit_date) >= truncation_threshold
         ):

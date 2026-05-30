@@ -287,9 +287,28 @@ def train_model(
             insert_model_run=_insert_model_run,
             write_artifact=_write_artifact,
         )
+    if model == "lgb-multiclass":
+        # lgb-multiclass 走独立路径（多分类 + 自己的 walk-forward），完全绕开
+        # ranking 的 compare_three；分派在 SHAP 后置钩子之前 return，天然不触发
+        # lgb-lambdarank 的 SHAP（spec 03 §定位）。始终 walk-forward（无 single_fold）。
+        from quant_pipeline.training.lgb_multiclass_walk_forward import (
+            train_lgb_multiclass_model,
+        )
+
+        return train_lgb_multiclass_model(
+            feature_set_id=feature_set_id,
+            seed=seed,
+            job_id=job_id,
+            hyperparams=hyperparams,
+            walk_forward_params=walk_forward_params or {},
+            progress_callback=_progress,
+            today_yyyymmdd=today_yyyymmdd,
+            insert_model_run=_insert_model_run,
+            write_artifact=_write_artifact,
+        )
     if model not in ("lgb-lambdarank",):
         raise ValueError(
-            f"不支持的 model={model!r}（支持 lgb-lambdarank / lstm）"
+            f"不支持的 model={model!r}（支持 lgb-lambdarank / lgb-multiclass / lstm）"
         )
 
     _progress(0, "train:start")

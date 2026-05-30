@@ -35,6 +35,13 @@
           <n-form-item label="模型">
             <n-select v-model:value="form.train.model" :options="trainModelOptions" />
           </n-form-item>
+          <!-- lgb 系模型超参（普通 train：walk_forward 受 single_fold 限制，early_stopping disabled） -->
+          <LgbHyperFields
+            v-if="isLgbModel(form.train.model)"
+            :model-value="trainLgbModel"
+            :disable-early-stopping="true"
+            @update:model-value="onTrainLgbUpdate"
+          />
           <n-form-item label="Walk-Forward">
             <n-switch v-model:value="form.train.walk_forward" />
           </n-form-item>
@@ -102,7 +109,10 @@ import type { SelectOption } from 'naive-ui'
 import AppModal from '@/components/common/AppModal.vue'
 import TrainE2EFields from '@/components/quant/train-modal/TrainE2EFields.vue'
 import type { E2EFormModel } from '@/components/quant/train-modal/TrainE2EFields.vue'
-import { buildJobPayload } from '@/components/quant/train-modal/buildParams'
+import LgbHyperFields from '@/components/quant/train-modal/LgbHyperFields.vue'
+import type { LgbHyperModel } from '@/components/quant/train-modal/LgbHyperFields.vue'
+import { buildJobPayload, isLgbModel, isWinsorizePaired } from '@/components/quant/train-modal/buildParams'
+import type { TrainModelKind } from '@/components/quant/train-modal/buildParams'
 import { quantApi, type JobRunType } from '@/api/modules/quant'
 
 const props = defineProps<{ show: boolean }>()
@@ -121,7 +131,7 @@ interface RunTypeOption extends SelectOption {
 }
 interface TrainModelOption extends SelectOption {
   label: string
-  value: 'lgb-lambdarank' | 'linear' | 'gbdt' | 'lstm'
+  value: TrainModelKind
 }
 
 const runTypeOptions: RunTypeOption[] = [
@@ -132,19 +142,33 @@ const runTypeOptions: RunTypeOption[] = [
 
 const trainModelOptions: TrainModelOption[] = [
   { label: 'LightGBM LambdaRank', value: 'lgb-lambdarank' },
+  { label: 'LightGBM 三分类', value: 'lgb-multiclass' },
   { label: '线性回归', value: 'linear' },
   { label: 'GBDT', value: 'gbdt' },
   { label: 'LSTM', value: 'lstm' },
 ]
+
+const EMPTY_LGB: LgbHyperModel = {
+  num_leaves: null,
+  min_data_in_leaf: null,
+  feature_fraction: null,
+  learning_rate: null,
+  num_boost_round: null,
+  early_stopping_rounds: null,
+  bagging_fraction: null,
+  lambda_l1: null,
+  lambda_l2: null,
+}
 
 const form = reactive({
   run_type: 'train' as JobRunType,
   priority: 100,
   train: {
     feature_set_id: '',
-    model: 'lgb-lambdarank' as 'lgb-lambdarank' | 'linear' | 'gbdt' | 'lstm',
+    model: 'lgb-lambdarank' as TrainModelKind,
     walk_forward: true,
     seed: null as number | null,
+    lgb: undefined as LgbHyperModel | undefined,
   },
   e2e: {
     factor_version: '',
@@ -185,6 +209,8 @@ const canSubmit = computed(() => {
       && typeof e.date_range[0] === 'number'
       && typeof e.date_range[1] === 'number'
       && !!e.model
+      // label_winsorize 区间必须成对（只填一个 → 阻断提交，FeatureLabelFields 已内联报错）
+      && isWinsorizePaired(e)
   }
   switch (form.run_type) {
     case 'train':
@@ -206,6 +232,12 @@ function parseLocalSeeds(text: string): number[] {
     .filter(x => x.length > 0)
     .map(x => Number(x))
     .filter(n => Number.isFinite(n) && Number.isInteger(n))
+}
+
+/** 普通 train 的 lgb 超参（reactive form.train.lgb 与子组件 v-model 桥接） */
+const trainLgbModel = computed<LgbHyperModel>(() => form.train.lgb ?? EMPTY_LGB)
+function onTrainLgbUpdate(value: LgbHyperModel) {
+  form.train.lgb = value
 }
 
 function buildParams() {

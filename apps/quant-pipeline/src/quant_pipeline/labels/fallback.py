@@ -65,11 +65,24 @@ class FallbackInputs:
     new_listing_min_days: int | None = None
 
 
-def compute_fwd_5d_ret(inputs: FallbackInputs) -> pd.DataFrame:
+def compute_fwd_5d_ret(
+    inputs: FallbackInputs,
+    *,
+    fwd_horizon_days: int | None = None,
+) -> pd.DataFrame:
     """计算 fwd_5d_ret 兜底标签长表，列同 factors.labels。
 
-    向量化实现：groupby + shift(-FWD_HORIZON_DAYS) 一次成型，组内 shift 不跨票。
+    向量化实现：groupby + shift(-horizon) 一次成型，组内 shift 不跨票。
+
+    Args:
+        fwd_horizon_days: 前向收益视界（交易日）。None → 走模块默认
+            ``FWD_HORIZON_DAYS``(5)，保证不传时行为完全不变（spec 02 §标签参数透传）。
+            视界写入 ``hold_days`` 列，并决定每票末尾被 shift 丢弃的行数。
     """
+
+    horizon = FWD_HORIZON_DAYS if fwd_horizon_days is None else int(fwd_horizon_days)
+    if horizon < 1:
+        raise ValueError(f"fwd_horizon_days 必须 >= 1，got {fwd_horizon_days!r}")
 
     quotes = inputs.daily_quotes
     if quotes is None or quotes.empty:
@@ -93,15 +106,15 @@ def compute_fwd_5d_ret(inputs: FallbackInputs) -> pd.DataFrame:
 
     quotes = quotes.sort_values(["ts_code", "trade_date"]).reset_index(drop=True)
     g = quotes.groupby("ts_code", sort=False)
-    # 组内 shift：c_t5 / t_plus_date 取该票未来第 FWD_HORIZON_DAYS 日，不跨票
+    # 组内 shift：c_t5 / t_plus_date 取该票未来第 horizon 日，不跨票
     c_t = quotes["close_adj"]
-    c_t5 = g["close_adj"].shift(-FWD_HORIZON_DAYS)
-    t_plus_date = g["trade_date"].shift(-FWD_HORIZON_DAYS)
+    c_t5 = g["close_adj"].shift(-horizon)
+    t_plus_date = g["trade_date"].shift(-horizon)
 
     value = c_t5 / c_t - 1.0
 
     keep = (
-        t_plus_date.notna()          # 每票末 FWD_HORIZON_DAYS 行 shift 丢弃
+        t_plus_date.notna()          # 每票末 horizon 行 shift 丢弃
         & c_t.notna() & (c_t > 0)
         & c_t5.notna()
     )
@@ -135,7 +148,7 @@ def compute_fwd_5d_ret(inputs: FallbackInputs) -> pd.DataFrame:
             "scheme": SCHEME_FWD_5D_RET,
             "value": value[keep].astype(float).to_numpy(),
             "exit_reason": "fwd_horizon",
-            "hold_days": FWD_HORIZON_DAYS,
+            "hold_days": horizon,
         }
     )
 
