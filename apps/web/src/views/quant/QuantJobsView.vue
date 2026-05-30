@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, h, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   NAlert, NButton, NCard, NDataTable, NEmpty, NSelect, NTag, useDialog, useMessage,
@@ -362,6 +362,7 @@ onActivated(async () => {
   await reload()
   startPoll()
 })
+onDeactivated(stopPoll)
 onBeforeUnmount(stopPoll)
 </script>
 
