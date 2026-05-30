@@ -76,7 +76,7 @@ else:
 
 ## 3. 前端下拉：第三处
 
-见 [05-frontend.md#下拉同步](./05-frontend.md)。要点：
+见 [05-frontend.md#下拉同步](./05-frontend.md#1-下拉同步)。要点：
 
 - `TrainE2EFields.vue`：`ModelKind` 加 `'lstm'`、`modelOptions` 加 LSTM 项；
   `LabelScheme` 加 `'dir3_band' | 'dir3_tercile'`、`labelSchemeOptions` 加两项。

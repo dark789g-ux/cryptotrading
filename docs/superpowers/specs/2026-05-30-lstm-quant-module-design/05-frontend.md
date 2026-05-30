@@ -81,7 +81,11 @@ export interface E2EFormModel {
 
 ## 3. 参数装配（buildParams.ts）
 
-`train_e2e` 分支（L54-68）在 `params` 中按需加 `hyperparams`：
+`train_e2e` 分支（L54-68）在 `params` 中按需加 `hyperparams`。
+
+> **改写说明**：现有 `buildParams.ts:54-67` 的 `train_e2e` 分支是**直接 `return { run_type, params: {字面量} }`**、
+> 无中间变量。落地时需把它重写为"先建可变 `params` 对象、按 `model==='lstm'` 条件
+> 插入 `hyperparams`、再 return"的形式（如下）。这是结构改写，不是现状。
 
 ```ts
 if (form.run_type === 'train' && modeIsE2E) {

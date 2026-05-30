@@ -29,7 +29,7 @@ LSTM 预测**次日（t+1）方向**，三类：`{跌=0, 横盘=1, 涨=2}`。
 
 **类别不均衡**：`dir3_band` 三类天然不均衡（横盘通常偏多），LSTM 训练用
 `CrossEntropyLoss(weight=...)`，权重按训练集逆类频率计算（见
-[02-python-training.md#损失与类别权重](./02-python-training.md)）。`dir3_tercile` 天然均衡，权重退化为 1。
+[02-python-training.md#损失与类别权重](./02-python-training.md#损失与类别权重)）。`dir3_tercile` 天然均衡，权重退化为 1。
 
 ## 2. `factors.labels` 落地
 
@@ -70,7 +70,7 @@ def compute_dir3_labels(inputs, scheme: str) -> pd.DataFrame:
 - 复用 `labels/runner.compute_labels` 的数据加载、新股过滤
   (`new_listing_min_days`)、退市/停牌过滤逻辑——`compute_dir3_labels` 只负责
   "r → 类别"这一步，加载与过滤仍由 `compute_labels` 统一编排（见
-  [04-backend-validation.md#labels-runner-放开](./04-backend-validation.md)）。
+  [04-backend-validation.md §2.2](./04-backend-validation.md#22-labelsrunnercompute_labels)）。
 
 ### 空数据硬约束（CLAUDE.md）
 

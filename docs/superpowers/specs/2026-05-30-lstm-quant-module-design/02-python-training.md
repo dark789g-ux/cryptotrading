@@ -62,7 +62,7 @@ if model not in ("lgb-lambdarank",):
 
 ## 3. `sequence_builder.py`
 
-实现 [01-data-and-labels.md#序列构造契约](./01-data-and-labels.md) 的契约：
+实现 [01-data-and-labels.md#序列构造契约](./01-data-and-labels.md#3-序列构造契约) 的契约：
 
 ```python
 @dataclass(frozen=True)
@@ -77,11 +77,35 @@ def build_sequences(df: pd.DataFrame, lookback: int, feature_cols: list[str]) ->
     - 仅生成有完整连续 L 行的样本（用交易日序号判连续，不依赖自然日）
     - NaN 样本丢弃 + logger.warning（计数）
     - 绝不跨 ts_code 串窗
+    - 标签整数校验：见下「标签整数护栏」
     """
 ```
 
 **连续性判定**：用 `feature_matrix` 内该票实际出现的 `trade_date` 序列的相邻位置，
 而非自然日差（停牌/非交易日不算断裂）。窗口取"该票最近 L 个有数据的交易日"。
+
+### 标签整数护栏（防误配连续标签）
+
+`feature_matrix.label` 是浮点列。三分类标签存的是 `{0.0, 1.0, 2.0}`，
+还原为类别 id 需 `.astype(int)`。但若用户误把 `lstm` 配了连续标签方案
+（如 `fwd_5d_ret`，label 是收益率浮点），`.astype(int)` 会**静默截断**成乱码类别。
+因此 `build_sequences`（或 `train_lstm_model` 入口）**必须显式校验**：
+
+```python
+lbl = df["label"].dropna()
+# 所有非空 label 必须等于其取整值，且落在 {0,1,2}
+if not np.allclose(lbl, lbl.round()) or not set(lbl.round().astype(int)) <= {0, 1, 2}:
+    raise ValueError(
+        "LSTM 三分类要求 label 为整数类别 {0,1,2}；"
+        f"检测到非整数/越界值（可能误配了连续标签方案，如 fwd_5d_ret）。"
+        f"unique={sorted(set(lbl.unique()))[:10]}"
+    )
+y = lbl.round().astype(int).to_numpy()
+```
+
+> 这是 [04-backend-validation.md §2.1](./04-backend-validation.md#21-train_e2e_runner_validate_params)
+> 所述"`lstm + fwd_5d_ret` 误配会报明确错误、不静默"的落地点——`_validate_params`
+> v1 不强制 model↔scheme 配对，由此护栏在训练入口兜住，禁止静默截断（CLAUDE.md）。
 
 ## 4. `lstm_model.py`
 
@@ -146,13 +170,18 @@ def train_lstm_model(feature_set_id, *, seed, job_id, hyperparams,
 ### 泄漏防护：embargo 扩容
 
 ```text
-PurgedWalkForwardSplit 现有 embargo_days（默认 21）防"训练标签泄漏到验证窗"。
+PurgedWalkForwardSplit 现有 embargo_days（默认 21）防"训练标签泄漏到验证窗"，
+且源码 walk_forward.py 有硬下限 _MIN_EMBARGO_DAYS = 21（强制 embargo >= 21，财报窗口约束）。
 LSTM 额外引入 L 天回看 → 验证样本的输入窗口可能回看进训练区。
-故 embargo 必须扩为：
-        embargo_eff = max(walk_forward_params.embargo_days, lookback + 1)
-                                                              ▲ label_horizon=1
+故 embargo 必须把三者一并纳入 max：
+   embargo_eff = max(walk_forward_params.embargo_days, lookback + 1, 21)
+                 │                                      │            └ 既有硬下限 _MIN_EMBARGO_DAYS
+                 │                                      └ LSTM 回看窗 + label_horizon(=1)
+                 └ 调用方显式传入（默认 21）
+例：lookback=32 → embargo_eff=33（> 21，自动覆盖硬下限，不绕过）。
 确保任一验证样本的 [t−L+1 .. t] 输入窗 + t+1 标签都不与训练集 trade_date 重叠。
-此扩容在 lstm_walk_forward 内计算后传给 PurgedWalkForwardSplit。
+此扩容在 lstm_walk_forward 内计算后传给 PurgedWalkForwardSplit；因已 >= 21，
+不会触碰、也不重复施加 PurgedWalkForwardSplit 内部的 _MIN_EMBARGO_DAYS 地板。
 ```
 
 ### oos_metrics 结构（写 ml.model_runs.oos_metrics, jsonb）

@@ -118,7 +118,7 @@ pnpm --filter @cryptotrading/server build
 ## 6. 数据覆盖注意
 
 LSTM 上线初期，样本区间起始段历史不足 L 天的票偏多 → 推理 missing（NaN score）
-计数偏高（见 [03-inference.md#行数校验兼容](./03-inference.md)）。这是数据覆盖问题，
+计数偏高（见 [03-inference.md#行数校验兼容](./03-inference.md#5-行数校验兼容)）。这是数据覆盖问题，
 非 bug；监控/验收阈值需知悉，建议训练/推理区间起点至少留 L 个交易日缓冲。
 
 下一篇：[07-tasks-parallelization.md](./07-tasks-parallelization.md)
