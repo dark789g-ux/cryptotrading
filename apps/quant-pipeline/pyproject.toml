@@ -28,6 +28,8 @@ dependencies = [
     # ---- M4 Part L：Optuna 调参 + SHAP 解释 ----
     "optuna>=3.6",
     "shap>=0.45",
+    # ---- LSTM：次日方向三分类序列模型（CPU 版即可）----
+    "torch>=2.2",
 ]
 
 [project.optional-dependencies]
