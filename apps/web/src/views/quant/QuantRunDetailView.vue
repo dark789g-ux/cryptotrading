@@ -25,7 +25,15 @@
 
       <n-grid x-gap="12" y-gap="12" cols="1 m:6" responsive="screen">
         <n-gi span="1 m:6">
-          <OverallMetricsPanel :core="run.oos_metrics_core" :metrics="run.oos_metrics ?? {}" />
+          <ClassMetricsPanel
+            v-if="isClassification"
+            :metrics="run.oos_metrics ?? {}"
+          />
+          <OverallMetricsPanel
+            v-else
+            :core="run.oos_metrics_core"
+            :metrics="run.oos_metrics ?? {}"
+          />
         </n-gi>
 
         <n-gi span="1 m:3">
@@ -64,6 +72,7 @@ import {
 import RunDetailHeader from '@/components/quant/run-detail/RunDetailHeader.vue'
 import HyperparamsPanel from '@/components/quant/run-detail/HyperparamsPanel.vue'
 import OverallMetricsPanel from '@/components/quant/run-detail/OverallMetricsPanel.vue'
+import ClassMetricsPanel from '@/components/quant/run-detail/ClassMetricsPanel.vue'
 import FoldMetricsTable from '@/components/quant/run-detail/FoldMetricsTable.vue'
 import DownloadActions from '@/components/quant/run-detail/DownloadActions.vue'
 import ShapBarChart from '@/components/quant/ShapBarChart.vue'
@@ -81,6 +90,11 @@ const shapLoading = ref(false)
 const shapError = ref<string | null>(null)
 
 const currentId = computed(() => String(route.params.id ?? ''))
+
+/** 按 oos_metrics.task 分支：分类 Run 用 ClassMetricsPanel 替代排序 OverallMetricsPanel */
+const isClassification = computed(
+  () => run.value?.oos_metrics?.task === 'classification_3class',
+)
 
 const shapMeta = computed(() => {
   if (shapLoading.value) return '加载中…'

@@ -121,7 +121,7 @@ interface RunTypeOption extends SelectOption {
 }
 interface TrainModelOption extends SelectOption {
   label: string
-  value: 'lgb-lambdarank' | 'linear' | 'gbdt'
+  value: 'lgb-lambdarank' | 'linear' | 'gbdt' | 'lstm'
 }
 
 const runTypeOptions: RunTypeOption[] = [
@@ -134,6 +134,7 @@ const trainModelOptions: TrainModelOption[] = [
   { label: 'LightGBM LambdaRank', value: 'lgb-lambdarank' },
   { label: '线性回归', value: 'linear' },
   { label: 'GBDT', value: 'gbdt' },
+  { label: 'LSTM', value: 'lstm' },
 ]
 
 const form = reactive({
@@ -141,7 +142,7 @@ const form = reactive({
   priority: 100,
   train: {
     feature_set_id: '',
-    model: 'lgb-lambdarank' as 'lgb-lambdarank' | 'linear' | 'gbdt',
+    model: 'lgb-lambdarank' as 'lgb-lambdarank' | 'linear' | 'gbdt' | 'lstm',
     walk_forward: true,
     seed: null as number | null,
   },

@@ -12,13 +12,31 @@ export interface TrainTriggerFormShape {
   run_type: JobRunType
   train: {
     feature_set_id: string
-    model: 'lgb-lambdarank' | 'linear' | 'gbdt'
+    model: 'lgb-lambdarank' | 'linear' | 'gbdt' | 'lstm'
     walk_forward: boolean
     seed: number | null
   }
   e2e: E2EFormModel
   optuna: { feature_set_id: string; n_trials: number; space: string }
   seed_avg: { model_version_base: string; seedsText: string }
+}
+
+/**
+ * 过滤对象中 null / undefined 的项，**保留 0 与 false**（业务有效值）。
+ * 用于 LSTM 超参：用户留空（null）的字段不进 payload → 后端补 DEFAULT_LSTM_HYPERPARAMS，
+ * 避免前端双源默认值。
+ */
+export function pickDefined<T extends Record<string, unknown>>(
+  obj: T,
+): Partial<T> {
+  const out: Partial<T> = {}
+  for (const key of Object.keys(obj) as (keyof T)[]) {
+    const v = obj[key]
+    if (v !== null && v !== undefined) {
+      out[key] = v
+    }
+  }
+  return out
 }
 
 export interface BuiltJobPayload {
@@ -53,18 +71,21 @@ export function buildJobPayload(
 ): BuiltJobPayload {
   if (form.run_type === 'train' && modeIsE2E) {
     const e = form.e2e
-    return {
-      run_type: 'train_e2e',
-      params: {
-        factor_version: e.factor_version.trim(),
-        label_scheme: e.label_scheme,
-        new_listing_min_days: e.new_listing_min_days ?? 60,
-        date_range: formatDateRange(e.date_range as [number, number]),
-        model: e.model,
-        walk_forward: e.walk_forward,
-        seed: e.seed ?? 42,
-      },
+    const params: Record<string, unknown> = {
+      factor_version: e.factor_version.trim(),
+      label_scheme: e.label_scheme,
+      new_listing_min_days: e.new_listing_min_days ?? 60,
+      date_range: formatDateRange(e.date_range as [number, number]),
+      model: e.model,
+      walk_forward: e.walk_forward,
+      seed: e.seed ?? 42,
     }
+    if (e.model === 'lstm' && e.lstm) {
+      // 仅打包用户显式填写的项（null/undefined 跳过 → 后端补默认，避免双源默认值）
+      const hp = pickDefined(e.lstm as unknown as Record<string, unknown>)
+      if (Object.keys(hp).length > 0) params.hyperparams = hp
+    }
+    return { run_type: 'train_e2e', params }
   }
   if (form.run_type === 'train') {
     const p: Record<string, unknown> = {

@@ -47,6 +47,12 @@
       />
     </n-form-item>
 
+    <LstmHyperFields
+      v-if="modelValue.model === 'lstm'"
+      :model-value="lstmModel"
+      @update:model-value="onLstmUpdate"
+    />
+
     <n-form-item label="Walk-Forward">
       <n-switch
         :value="modelValue.walk_forward"
@@ -67,14 +73,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import {
   NDatePicker, NDivider, NFormItem, NInput, NInputNumber, NSelect, NSwitch,
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
+import LstmHyperFields from './LstmHyperFields.vue'
+import type { LstmHyperModel } from './LstmHyperFields.vue'
 
-export type LabelScheme = 'strategy-aware' | 'fwd_5d_ret'
-export type ModelKind = 'lgb-lambdarank' | 'linear' | 'gbdt'
+export type LabelScheme = 'strategy-aware' | 'fwd_5d_ret' | 'dir3_band' | 'dir3_tercile'
+export type ModelKind = 'lgb-lambdarank' | 'linear' | 'gbdt' | 'lstm'
 
 export interface E2EFormModel {
   factor_version: string
@@ -86,6 +94,8 @@ export interface E2EFormModel {
   model: ModelKind
   walk_forward: boolean
   seed: number | null
+  /** 仅 model==='lstm' 时有意义；其它模型忽略 */
+  lstm?: LstmHyperModel
 }
 
 interface LabelSchemeOption extends SelectOption {
@@ -105,13 +115,51 @@ const emit = defineEmits<{
 const labelSchemeOptions: LabelSchemeOption[] = [
   { label: 'strategy-aware', value: 'strategy-aware' },
   { label: 'fwd_5d_ret', value: 'fwd_5d_ret' },
+  { label: '次日方向·固定阈值带 (dir3_band)', value: 'dir3_band' },
+  { label: '次日方向·截面三分位 (dir3_tercile)', value: 'dir3_tercile' },
 ]
 
 const modelOptions: ModelOption[] = [
   { label: 'LightGBM LambdaRank', value: 'lgb-lambdarank' },
   { label: '线性回归', value: 'linear' },
   { label: 'GBDT', value: 'gbdt' },
+  { label: 'LSTM（次日方向三分类）', value: 'lstm' },
 ]
+
+const EMPTY_LSTM: LstmHyperModel = {
+  lookback: null,
+  hidden_size: null,
+  num_layers: null,
+  dropout: null,
+  learning_rate: null,
+  epochs: null,
+  batch_size: null,
+}
+
+const lstmModel = computed<LstmHyperModel>(() => props.modelValue.lstm ?? EMPTY_LSTM)
+
+function onLstmUpdate(value: LstmHyperModel) {
+  update('lstm', value)
+}
+
+/**
+ * 默认联动（降低误配）：
+ *  - 选 lstm 且当前 label_scheme 非 dir3_* → 自动切 'dir3_band'
+ *  - 切回非 lstm 且当前 dir3_* → 切回 'strategy-aware'
+ * 用户仍可手动覆盖（非强制）。
+ */
+watch(
+  () => props.modelValue.model,
+  (model) => {
+    const scheme = props.modelValue.label_scheme
+    const isDir3 = scheme === 'dir3_band' || scheme === 'dir3_tercile'
+    if (model === 'lstm' && !isDir3) {
+      update('label_scheme', 'dir3_band')
+    } else if (model !== 'lstm' && isDir3) {
+      update('label_scheme', 'strategy-aware')
+    }
+  },
+)
 
 /** 默认近 30 天，本地午夜口径（CLAUDE.md 硬约束：禁 getUTC*） */
 const defaultRange = computed<[number, number]>(() => {
