@@ -205,3 +205,88 @@ def test_build_true_ret_empty_folds_all_nan() -> None:
     out = _build_true_ret([], n_score=4)
     assert out.shape == (4,)
     assert np.isnan(out).all()
+
+
+# ---------------------------------------------------------------------------
+# 防泄漏回归（评审 #2）：每折早停 / 选最优 epoch 的验证序列必须来自训练折时序尾部
+# 切出的 inner-val，绝不是 OOS 测试折（此前用 test 折早停 + 选权重再在同一 test 报告）。
+# 纯 numpy 验证：桩掉 train_one_fold / _predict_proba（不引 torch）。
+# ---------------------------------------------------------------------------
+
+
+def _build_wide(n_dates: int, n_codes: int = 4) -> pd.DataFrame:
+    rng = np.random.default_rng(7)
+    rows: list[dict[str, object]] = []
+    for d in range(n_dates):
+        td = f"{10_000_000 + d}"
+        for i in range(n_codes):
+            rows.append(
+                {
+                    "trade_date": td,
+                    "ts_code": f"{i:06d}.SZ",
+                    "f0": float(rng.normal()),
+                    "f1": float(rng.normal()),
+                    "label": float(rng.integers(0, 3)),
+                }
+            )
+    return pd.DataFrame(rows).sort_values(["trade_date", "ts_code"]).reset_index(drop=True)
+
+
+def test_lstm_fold_early_stop_uses_inner_val_not_test(monkeypatch) -> None:  # noqa: ANN001
+    from quant_pipeline.training import lstm_walk_forward as lwf
+    from quant_pipeline.training.sequence_builder import build_sequences
+
+    lookback = 3
+    feature_cols = ["f0", "f1"]
+    n_dates = 252 + 21 + 6 * 8
+    wide = _build_wide(n_dates)
+    splits = list(
+        PurgedWalkForwardSplit(n_folds=6, embargo_days=21, min_train_days=252).split(wide)
+    )
+
+    captured_val: list[np.ndarray] = []
+
+    def _fake_train_one_fold(x_tr, y_tr, x_va, y_va, *, hyperparams, seed):  # noqa: ANN001, ANN202
+        captured_val.append(np.asarray(x_va, dtype=np.float32))
+        return object(), {"accuracy": 0.0, "macro_f1": 0.0}
+
+    def _fake_predict_proba(model, x):  # noqa: ANN001, ANN202
+        n = np.asarray(x).shape[0]
+        return np.full((n, 3), 1.0 / 3.0)
+
+    monkeypatch.setattr(lwf, "train_one_fold", _fake_train_one_fold)
+    monkeypatch.setattr(lwf, "_predict_proba", _fake_predict_proba)
+    monkeypatch.setattr(lwf, "load_forward_returns", lambda pairs, **k: {p: 0.0 for p in pairs})
+
+    last_model, buffers, fold_pack = lwf._run_folds(
+        wide,
+        feature_cols,
+        splits=splits,
+        lookback=lookback,
+        hyperparams={},
+        seed=42,
+        progress_callback=None,
+    )
+
+    assert len(captured_val) == 6  # 每折一次，验证集来自 inner-val
+    for cap_val, (train_idx, test_idx) in zip(captured_val, splits, strict=True):
+        df_tr = wide.iloc[train_idx].reset_index(drop=True)
+        df_va = wide.iloc[test_idx].reset_index(drop=True)
+        # inner embargo 与生产一致：lookback + _LABEL_HORIZON(=1)
+        from quant_pipeline.training.walk_forward import time_series_inner_split
+
+        _itr, iva = time_series_inner_split(
+            df_tr["trade_date"].to_numpy(), embargo_days=lookback + 1
+        )
+        exp_inner_val = build_sequences(
+            df_tr.iloc[iva].reset_index(drop=True), lookback, feature_cols
+        ).X
+        test_seq = build_sequences(df_va, lookback, feature_cols).X
+
+        # 传给早停的验证序列 == inner-val
+        assert cap_val.shape == exp_inner_val.shape
+        assert np.allclose(cap_val, exp_inner_val)
+        # 且不是测试折序列（测试集未被当验证集偷看）
+        assert not (
+            cap_val.shape == test_seq.shape and np.allclose(cap_val, test_seq)
+        )

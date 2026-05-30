@@ -38,7 +38,10 @@ import pandas as pd
 from quant_pipeline.quality.report import gate_check
 from quant_pipeline.training.classification_metrics import CLASS_ORDER, build_oos_metrics
 from quant_pipeline.training.forward_returns import load_forward_returns
-from quant_pipeline.training.walk_forward import PurgedWalkForwardSplit
+from quant_pipeline.training.walk_forward import (
+    PurgedWalkForwardSplit,
+    time_series_inner_split,
+)
 from quant_pipeline.utils.paths import artifact_dir, artifact_uri, ensure_artifact_dir
 
 logger = logging.getLogger(__name__)
@@ -163,27 +166,39 @@ def _resolve_boost_controls(hyperparams: dict[str, Any] | None) -> tuple[int, in
 def _train_one_fold(
     X_tr: np.ndarray,
     y_tr: np.ndarray,
-    X_va: np.ndarray,
-    y_va: np.ndarray,
+    X_eval: np.ndarray,
     *,
+    valid_data: tuple[np.ndarray, np.ndarray] | None,
     feature_cols: list[str],
     params: dict[str, Any],
     num_boost_round: int,
     early_stopping_rounds: int | None,
 ) -> tuple[Any, np.ndarray]:
-    """单折训练 + 验证集概率预测。返回 (booster, proba(N,3))。lightgbm 延迟 import。"""
+    """单折训练 + 在 X_eval（OOS 测试折）上预测概率。返回 (booster, proba(N,3))。
+
+    防泄漏（评审 #1）：early-stopping 验证集由调用方从**训练折时序尾部**切出并经
+    ``valid_data`` 传入，**绝不**传 OOS 测试折 —— 此前用 test 折同时早停又评估构成
+    测试集泄漏。``valid_data=None`` 时不早停、固定训练 ``num_boost_round`` 轮。
+    ``X_eval`` 只用于最终 predict，不进任何训练 / 早停。lightgbm 延迟 import。
+    """
 
     import lightgbm as lgb
 
     train_set = lgb.Dataset(
         X_tr, label=y_tr, feature_name=list(feature_cols), free_raw_data=False
     )
-    valid_set = lgb.Dataset(
-        X_va, label=y_va, feature_name=list(feature_cols), reference=train_set,
-        free_raw_data=False,
-    )
+    valid_sets: list[Any] = []
+    valid_names: list[str] = []
     callbacks: list[Any] = []
-    if early_stopping_rounds:
+    if valid_data is not None and early_stopping_rounds:
+        x_iv, y_iv = valid_data
+        valid_sets.append(
+            lgb.Dataset(
+                x_iv, label=y_iv, feature_name=list(feature_cols),
+                reference=train_set, free_raw_data=False,
+            )
+        )
+        valid_names.append("inner_val")
         callbacks.append(
             lgb.early_stopping(stopping_rounds=int(early_stopping_rounds), verbose=False)
         )
@@ -192,11 +207,11 @@ def _train_one_fold(
         params=params,
         train_set=train_set,
         num_boost_round=int(num_boost_round),
-        valid_sets=[valid_set],
-        valid_names=["valid"],
+        valid_sets=valid_sets or None,
+        valid_names=valid_names or None,
         callbacks=callbacks,
     )
-    proba = np.asarray(booster.predict(X_va), dtype=np.float64).reshape(-1, 3)
+    proba = np.asarray(booster.predict(X_eval), dtype=np.float64).reshape(-1, 3)
     return booster, proba
 
 
@@ -322,8 +337,24 @@ def train_lgb_multiclass_model(
                 },
             )
             continue
+        # 防泄漏（评审 #1）：early-stopping 验证集从训练折时序尾部切出，绝不用 OOS 测试折。
+        # 切不出（训练折交易日不足留 inner-val + embargo）→ 退化为本折不早停，固定轮数训练。
+        valid_data: tuple[np.ndarray, np.ndarray] | None = None
+        x_fit, y_fit = X_tr, y_tr
+        if early_stopping_rounds:
+            tr_dates = wide_df.iloc[train_idx]["trade_date"].to_numpy()
+            itr_pos, iva_pos = time_series_inner_split(tr_dates, embargo_days=embargo_eff)
+            if iva_pos.size > 0:
+                x_fit, y_fit = X_tr[itr_pos], y_tr[itr_pos]
+                valid_data = (X_tr[iva_pos], y_tr[iva_pos])
+            else:
+                logger.warning(
+                    "lgb_mc_inner_val_unavailable_no_early_stop",
+                    extra={"fold": fold_i, "n_train_rows": int(X_tr.shape[0])},
+                )
         booster, proba = _train_one_fold(
-            X_tr, y_tr, X_va, y_va,
+            x_fit, y_fit, X_va,
+            valid_data=valid_data,
             feature_cols=feature_cols, params=params,
             num_boost_round=num_boost_round, early_stopping_rounds=early_stopping_rounds,
         )

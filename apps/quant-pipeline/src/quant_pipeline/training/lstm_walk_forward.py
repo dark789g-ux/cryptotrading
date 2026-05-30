@@ -41,9 +41,16 @@ from quant_pipeline.quality.report import gate_check
 from quant_pipeline.training.forward_returns import load_forward_returns
 from quant_pipeline.training.group_utils import flatten_features
 from quant_pipeline.training.lstm_metrics import CLASS_ORDER, build_oos_metrics
-from quant_pipeline.training.lstm_model import DEFAULT_LSTM_HYPERPARAMS, train_one_fold
+from quant_pipeline.training.lstm_model import (
+    DEFAULT_LSTM_HYPERPARAMS,
+    _macro_f1_and_acc,
+    train_one_fold,
+)
 from quant_pipeline.training.sequence_builder import build_sequences
-from quant_pipeline.training.walk_forward import PurgedWalkForwardSplit
+from quant_pipeline.training.walk_forward import (
+    PurgedWalkForwardSplit,
+    time_series_inner_split,
+)
 from quant_pipeline.utils.paths import artifact_dir, artifact_uri, ensure_artifact_dir
 
 logger = logging.getLogger(__name__)
@@ -146,7 +153,7 @@ def _run_folds(
     hyperparams: dict[str, Any],
     seed: int,
     progress_callback: Callable[[int, str], None] | None,
-) -> tuple[Any, list[np.ndarray], dict[str, list]]:
+) -> tuple[Any, list[np.ndarray], dict[str, list[Any]]]:
     """逐 fold 训练 + 收集 OOS。
 
     返回 (last_model, acc_buffers, fold_metrics_list)。
@@ -173,26 +180,49 @@ def _run_folds(
         df_tr = wide_df.iloc[train_idx].reset_index(drop=True)
         df_va = wide_df.iloc[test_idx].reset_index(drop=True)
 
-        bundle_tr = build_sequences(df_tr, lookback, feature_cols)
+        # 防泄漏（评审 #2）：early-stopping / 选最优 epoch 的验证集从训练折时序尾部
+        # 切出，**绝不**用 OOS 测试折 —— 此前用 test 折早停 + 选最优权重再在同一 test
+        # 上报告 OOS，构成测试集泄漏。inner embargo 用 lookback+1（防序列回看 + 次日
+        # 标签跨界）。切不出（训练折交易日不足）→ 跳过该折。
+        itr_pos, iva_pos = time_series_inner_split(
+            df_tr["trade_date"].to_numpy(), embargo_days=lookback + _LABEL_HORIZON
+        )
+        if iva_pos.size == 0:
+            logger.warning(
+                "lstm_fold_inner_val_unavailable_skip",
+                extra={"fold": fold_i, "n_train_rows": int(len(df_tr)), "lookback": lookback},
+            )
+            continue
+        df_itr = df_tr.iloc[itr_pos].reset_index(drop=True)
+        df_iva = df_tr.iloc[iva_pos].reset_index(drop=True)
+
+        bundle_itr = build_sequences(df_itr, lookback, feature_cols)
+        bundle_iva = build_sequences(df_iva, lookback, feature_cols)
         bundle_va = build_sequences(df_va, lookback, feature_cols)
 
-        if bundle_tr.X.shape[0] == 0 or bundle_va.X.shape[0] == 0:
+        if (
+            bundle_itr.X.shape[0] == 0
+            or bundle_iva.X.shape[0] == 0
+            or bundle_va.X.shape[0] == 0
+        ):
             logger.warning(
                 "lstm_fold_empty_sequences",
                 extra={
                     "fold": fold_i,
-                    "n_train_seq": int(bundle_tr.X.shape[0]),
+                    "n_inner_train_seq": int(bundle_itr.X.shape[0]),
+                    "n_inner_val_seq": int(bundle_iva.X.shape[0]),
                     "n_valid_seq": int(bundle_va.X.shape[0]),
                     "lookback": lookback,
                 },
             )
             continue
 
-        model, fm = train_one_fold(
-            bundle_tr.X,
-            bundle_tr.y,
-            bundle_va.X,
-            bundle_va.y,
+        # 早停 / 选最优 epoch 用 inner-val（bundle_iva），测试折（bundle_va）只评估。
+        model, _fm_inner = train_one_fold(
+            bundle_itr.X,
+            bundle_itr.y,
+            bundle_iva.X,
+            bundle_iva.y,
             hyperparams=hyperparams,
             seed=seed,
         )
@@ -210,13 +240,16 @@ def _run_folds(
         # 折后用于 load_forward_returns 回表算真实次日后复权收益。
         val_index_all.append(bundle_va.index)
 
+        # fold 分类指标基于 OOS 测试折（bundle_va）重算，而非 inner-val 的 _fm_inner
+        # （评审 #2：此前 fm 来自 val=test，恰好是 test 指标；切开后必须显式用 test 重算）。
+        fold_macro_f1, fold_acc = _macro_f1_and_acc(np.asarray(y_true, dtype=np.int64), y_pred)
         fold_metrics.append(
             {
                 "fold": fold_i,
-                "train_dates": _fold_date_span(bundle_tr.index),
+                "train_dates": _fold_date_span(bundle_itr.index),
                 "valid_dates": _fold_date_span(bundle_va.index),
-                "accuracy": float(fm.get("accuracy", float("nan"))),
-                "macro_f1": float(fm.get("macro_f1", float("nan"))),
+                "accuracy": float(fold_acc),
+                "macro_f1": float(fold_macro_f1),
                 "n_valid_seq": int(bundle_va.X.shape[0]),
             }
         )
