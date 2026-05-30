@@ -1,10 +1,15 @@
 <template>
   <div class="train-e2e-fields">
     <n-form-item label="factor_version" required>
-      <n-input
-        :value="modelValue.factor_version"
-        placeholder="如 v1（纯文本，无下拉，D-10）"
-        @update:value="(v: string) => update('factor_version', v)"
+      <n-select
+        :value="modelValue.factor_version || null"
+        :options="factorVersionOptions"
+        :loading="loadingVersions"
+        filterable
+        tag
+        clearable
+        placeholder="选择或输入 factor_version（如 v1）"
+        @update:value="(v: string | null) => update('factor_version', v ?? '')"
       />
     </n-form-item>
 
@@ -65,11 +70,28 @@
       />
     </n-form-item>
 
-    <LstmHyperFields
-      v-if="modelValue.model === 'lstm'"
-      :model-value="lstmModel"
-      @update:model-value="onLstmUpdate"
-    />
+    <n-collapse>
+      <n-collapse-item v-if="showHyperPanel" title="模型超参" name="hyper">
+        <LgbHyperFields
+          v-if="isLgb"
+          :model-value="lgbModel"
+          @update:model-value="onLgbUpdate"
+        />
+        <LstmHyperFields
+          v-else-if="modelValue.model === 'lstm'"
+          :model-value="lstmModel"
+          @update:model-value="onLstmUpdate"
+        />
+      </n-collapse-item>
+
+      <n-collapse-item title="特征 / 标签参数" name="feature">
+        <FeatureLabelFields
+          :model-value="featureLabelModel"
+          :label-scheme="modelValue.label_scheme"
+          @update:model-value="onFeatureLabelUpdate"
+        />
+      </n-collapse-item>
+    </n-collapse>
 
     <n-form-item label="Walk-Forward">
       <n-switch
@@ -91,16 +113,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch, onActivated, onMounted } from 'vue'
 import {
-  NDatePicker, NDivider, NFormItem, NInput, NInputNumber, NSelect, NSwitch,
+  NCollapse, NCollapseItem, NDatePicker, NDivider, NFormItem,
+  NInputNumber, NSelect, NSwitch, useMessage,
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import LstmHyperFields from './LstmHyperFields.vue'
 import type { LstmHyperModel } from './LstmHyperFields.vue'
+import LgbHyperFields from './LgbHyperFields.vue'
+import type { LgbHyperModel } from './LgbHyperFields.vue'
+import FeatureLabelFields from './FeatureLabelFields.vue'
+import type { FeatureLabelModel } from './FeatureLabelFields.vue'
+import { quantApi } from '@/api/modules/quant'
 
 export type LabelScheme = 'strategy-aware' | 'fwd_5d_ret' | 'dir3_band' | 'dir3_tercile'
-export type ModelKind = 'lgb-lambdarank' | 'linear' | 'gbdt' | 'lstm'
+export type ModelKind = 'lgb-lambdarank' | 'lgb-multiclass' | 'linear' | 'gbdt' | 'lstm'
 
 export interface E2EFormModel {
   factor_version: string
@@ -120,6 +148,10 @@ export interface E2EFormModel {
   seed: number | null
   /** 仅 model==='lstm' 时有意义；其它模型忽略 */
   lstm?: LstmHyperModel
+  /** 仅 model ∈ {lgb-lambdarank, lgb-multiclass} 时有意义 */
+  lgb?: LgbHyperModel
+  /** E2E 专属：特征/标签生成参数 */
+  featureLabel?: FeatureLabelModel
 }
 
 interface LabelSchemeOption extends SelectOption {
@@ -136,6 +168,8 @@ const emit = defineEmits<{
   'update:modelValue': [value: E2EFormModel]
 }>()
 
+const message = useMessage()
+
 /** dir3_band 横盘阈值 ε 默认值（legacy 0.5%）。后端 canonical 回 'dir3_band' 串，守哈希不漂移。 */
 const DIR3_BAND_EPS_DEFAULT = 0.005
 
@@ -148,6 +182,7 @@ const labelSchemeOptions: LabelSchemeOption[] = [
 
 const modelOptions: ModelOption[] = [
   { label: 'LightGBM LambdaRank', value: 'lgb-lambdarank' },
+  { label: 'LightGBM 三分类（次日方向）', value: 'lgb-multiclass' },
   { label: '线性回归', value: 'linear' },
   { label: 'GBDT', value: 'gbdt' },
   { label: 'LSTM（次日方向三分类）', value: 'lstm' },
@@ -163,16 +198,81 @@ const EMPTY_LSTM: LstmHyperModel = {
   batch_size: null,
 }
 
+const EMPTY_LGB: LgbHyperModel = {
+  num_leaves: null,
+  min_data_in_leaf: null,
+  feature_fraction: null,
+  learning_rate: null,
+  num_boost_round: null,
+  early_stopping_rounds: null,
+  bagging_fraction: null,
+  lambda_l1: null,
+  lambda_l2: null,
+}
+
+const EMPTY_FEATURE_LABEL: FeatureLabelModel = {
+  neutralize_cols: null,
+  robust_z: null,
+  factor_clip_sigma: null,
+  label_winsorize_lo: null,
+  label_winsorize_hi: null,
+  fwd_horizon_days: null,
+  max_hold_days: null,
+}
+
+const isLgb = computed(
+  () => props.modelValue.model === 'lgb-lambdarank' || props.modelValue.model === 'lgb-multiclass',
+)
+/** linear / gbdt 无可调模型超参，不显示「模型超参」面板 */
+const showHyperPanel = computed(() => isLgb.value || props.modelValue.model === 'lstm')
+
 const lstmModel = computed<LstmHyperModel>(() => props.modelValue.lstm ?? EMPTY_LSTM)
+const lgbModel = computed<LgbHyperModel>(() => props.modelValue.lgb ?? EMPTY_LGB)
+const featureLabelModel = computed<FeatureLabelModel>(
+  () => props.modelValue.featureLabel ?? EMPTY_FEATURE_LABEL,
+)
 
 function onLstmUpdate(value: LstmHyperModel) {
   update('lstm', value)
 }
+function onLgbUpdate(value: LgbHyperModel) {
+  update('lgb', value)
+}
+function onFeatureLabelUpdate(value: FeatureLabelModel) {
+  update('featureLabel', value)
+}
+
+// ---- factor_version 动态下拉 ----
+const loadingVersions = ref(false)
+const factorVersionOptions = ref<SelectOption[]>([])
+
+async function loadFactorVersions() {
+  loadingVersions.value = true
+  try {
+    const res = await quantApi.listFactorVersions()
+    factorVersionOptions.value = (res.versions ?? []).map((v) => ({ label: v, value: v }))
+  } catch {
+    // 非阻塞：失败保留手输能力（filterable + tag），不卡死创建流程
+    message.warning('获取 factor_version 列表失败，可手动输入')
+  } finally {
+    loadingVersions.value = false
+  }
+}
+
+// keep-alive 规范：异步数据放 onActivated；onMounted 兜底首次（组件未被 keep-alive 缓存时）
+let activatedOnce = false
+onMounted(() => {
+  if (!activatedOnce) void loadFactorVersions()
+})
+onActivated(() => {
+  activatedOnce = true
+  void loadFactorVersions()
+})
 
 /**
  * 默认联动（降低误配）：
- *  - 选 lstm 且当前 label_scheme 非 dir3_* → 自动切 'dir3_band'
- *  - 切回非 lstm 且当前 dir3_* → 切回 'strategy-aware'
+ *  - 选 lstm 或 lgb-multiclass 且当前 label_scheme 非 dir3_* → 自动切 'dir3_band'
+ *  - 切回非方向三分类模型且当前 dir3_* → 切回 'strategy-aware'
  * 用户仍可手动覆盖（非强制）。
  */
 watch(
@@ -180,9 +280,10 @@ watch(
   (model) => {
     const scheme = props.modelValue.label_scheme
     const isDir3 = scheme === 'dir3_band' || scheme === 'dir3_tercile'
-    if (model === 'lstm' && !isDir3) {
+    const wantsDir3 = model === 'lstm' || model === 'lgb-multiclass'
+    if (wantsDir3 && !isDir3) {
       update('label_scheme', 'dir3_band')
-    } else if (model !== 'lstm' && isDir3) {
+    } else if (!wantsDir3 && isDir3) {
       update('label_scheme', 'strategy-aware')
     }
   },

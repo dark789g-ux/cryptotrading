@@ -184,6 +184,12 @@ def predict_one_day(
         from quant_pipeline.inference.lstm_predictor import predict_one_day_lstm
 
         return predict_one_day_lstm(model_version, trade_date, session)
+    if algorithm == "lgb-multiclass":
+        from quant_pipeline.inference.lgb_multiclass_predictor import (
+            predict_one_day_lgb_multiclass,
+        )
+
+        return predict_one_day_lgb_multiclass(model_version, trade_date, session)
 
     # 延迟 import（与训练共用），避免 worker 启动时强依赖 lightgbm
     import lightgbm as lgb
