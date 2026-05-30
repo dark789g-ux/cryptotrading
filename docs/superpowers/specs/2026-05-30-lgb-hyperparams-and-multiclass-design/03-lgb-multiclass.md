@@ -93,10 +93,7 @@ meta = {
 
 ## 评估（新建 training/lgb_multiclass_metrics.py）
 
-直接复用 `lstm_metrics.py` 的纯函数（混淆矩阵 / per-class PRF / macro-F1 / accuracy / ic-rank_ic）。两种实现方式（实现者择一）：
-
-- **优先**：把 `lstm_metrics.py` 的通用三分类函数抽到共享模块（如 `training/classification_metrics.py`），lstm 与 lgb-multiclass 都 import，避免复制。
-- 退化：lgb_multiclass_metrics.py 直接 `from ...lstm_metrics import ...` 复用。
+**钦定方案（不留两可，防指标实现漂移）**：把 `lstm_metrics.py` 的通用三分类纯函数（混淆矩阵 / per-class PRF / macro-F1 / accuracy / ic-rank_ic）抽到共享模块 `training/classification_metrics.py`，**lstm 与 lgb-multiclass 都从该模块 import**。`lstm_metrics.py` 改为从共享模块 re-export 或直接引用（保持 lstm 现有行为不变，靠回归测试守住）。`lgb_multiclass_metrics.py` 的 `build_oos_metrics` 调用共享模块组件。
 
 `build_oos_metrics` 输出（与 lstm 同构，便于前端统一展示）：
 
@@ -159,4 +156,4 @@ predict_one_day_lgb_multiclass(model_version, trade_date, session):
 
 ## walk_forward 开关
 
-lgb-multiclass 始终走 walk-forward（同 LSTM，无 single_fold 变体）。前端该模型下 `walk_forward` 开关固定 true 且 disabled，或后端对该 model 忽略 walk_forward=false（实现时二选一，前端禁用更直观）。
+lgb-multiclass 始终走 walk-forward（同 LSTM，无 single_fold 变体）。**钦定双保险**（不留两可）：① 前端该模型下 `walk_forward` 开关固定 true 且 disabled；② 后端 `_validate_params` 对 `model=='lgb-multiclass'` **强制** `walk_forward=true`（忽略传入值，并在传入 false 时 `logger.warn`，符合不静默原则）。两层都做，杜绝绕过前端直调 API 时落到不存在的 single_fold 分支。

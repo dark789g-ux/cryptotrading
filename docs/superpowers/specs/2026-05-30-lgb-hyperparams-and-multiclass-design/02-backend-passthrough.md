@@ -26,19 +26,21 @@ ORDER BY factor_version;
 
 ## ValidatedParams 扩展
 
-`apps/quant-pipeline/src/quant_pipeline/worker/train_e2e_runner.py`，`ValidatedParams`（现 `:57-71`）新增字段（均带默认值 = 现硬编码常量，保证不传时行为不变）：
+`apps/quant-pipeline/src/quant_pipeline/worker/train_e2e_runner.py`，`ValidatedParams`（现 `:57-68`）。
+
+> ⚠️ 现状校正：`neutralize_cols` / `robust_z` **字段已存在**（现 `:67-68`，D-17 hook，`_validate_params` 返回处恒写 None、`_step_features` 未透传）。本次是**补齐这两个已有字段的校验赋值 + 透传**，并**新增其余 5 个字段**。
 
 ```python
 @dataclass(frozen=True)
 class ValidatedParams:
     # ... 既有字段 ...
-    hyperparams: dict[str, Any] | None = None        # lgb / lstm 模型超参（已有 lstm 用法）
-    neutralize_cols: tuple[str, ...] | None = None   # None = 用 builder 默认
-    robust_z: bool | None = None
-    factor_clip_sigma: float | None = None
-    label_winsorize: tuple[float, float] | None = None
-    fwd_horizon_days: int | None = None              # 仅 fwd_5d_ret
-    max_hold_days: int | None = None                 # 仅 strategy-aware
+    neutralize_cols: tuple[str, ...] | None = None   # 已存在(hook)：补校验+透传
+    robust_z: bool | None = None                     # 已存在(hook)：补校验+透传
+    hyperparams: dict[str, Any] | None = None        # 新增（lstm 已有等价用法）
+    factor_clip_sigma: float | None = None           # 新增
+    label_winsorize: tuple[float, float] | None = None  # 新增
+    fwd_horizon_days: int | None = None              # 新增，仅 fwd_5d_ret
+    max_hold_days: int | None = None                 # 新增，仅 strategy-aware
 ```
 
 ## 严格校验（_validate_params）
@@ -71,18 +73,20 @@ bagging_fraction ∈[0.5,1.0] · lambda_l1 ≥0 · lambda_l2 ≥0
 
 ## 特征参数透传（_step_features）
 
-`_step_features`（现 `:282-322`）→ `build_feature_matrix(...)`。
-
-链路签名补参（默认值 = 现常量，保证旧行为）：
+`_step_features`（现 `:282-322`）→ `build_feature_matrix(...)`。三层链路（行号已核实）：
 
 ```text
 train_e2e_runner._step_features
-  → features/runner.py:build_feature_matrix(
-        ..., neutralize_cols=, robust_z=, factor_clip_sigma= )   # 现:300-308 加 3 参
-      → features/builder.py:build_feature_matrix_from_frames(...) # 现:472-486 已支持这些参数!
+  → features/runner.py:build_feature_matrix(...)       # 现签名 :303-311，无这些参数 → 需加 4 参
+        neutralize_cols / robust_z / factor_clip_sigma / label_winsorize
+      ├→ build_feature_set_id(...)                      # 调用点 features/runner.py:412
+      │     现已含 neutralize_cols/robust_z(builder.py:84-91)；factor_clip_sigma/
+      │     label_winsorize 按「哈希」节方案 A 决定是否入哈希
+      └→ features/builder.py:build_feature_matrix_from_frames(...)  # builder.py:472-486
+            已接收 neutralize_cols/robust_z/factor_clip_sigma/label_winsorize（无需改 builder 签名）
 ```
 
-`builder.py:472-486` 的 `build_feature_matrix_from_frames` **已经接收** `neutralize_cols / robust_z / factor_clip_sigma / label_winsorize`，只是 `runner.py:400-409` 调用时未透传（用了默认）。故改动集中在 `features/runner.py`：签名加参 + 透传，builder 本身不动。
+要点：缺口在**中间层 `features/runner.py:build_feature_matrix`（:303-311）**——它当前根本没有这 4 个形参，对下游 `build_feature_matrix_from_frames`(builder.py:472，**已支持**) 用的是默认。改动集中在 `features/runner.py`：① `build_feature_matrix` 签名加 4 参；② 透传给 `build_feature_matrix_from_frames`；③ 同步传给 `build_feature_set_id`（:412）。builder.py 本身不改。
 
 `label_winsorize` 的应用点（**只截一次，避免双重 winsorize**）：标签截尾在**标签生成阶段**（`strategy_aware.py` 的 `WINSORIZE_LO/HI`）执行；`builder.py` 的 `label_winsorize` 参数只是把同一份值**传入用于一致性/记录**，不得对已截尾的 label 列再截一次。实现时确认 builder 侧是否真的二次截尾——若是，则 builder 侧改为「仅当 labels 阶段未截时才截」或彻底由 labels 阶段负责，builder 不重复。两处用**同一个** `[lo,hi]` 值（同源透传）。
 

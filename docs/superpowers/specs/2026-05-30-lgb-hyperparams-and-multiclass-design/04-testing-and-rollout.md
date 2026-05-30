@@ -59,7 +59,7 @@
 - factor-versions service：返回 DISTINCT 升序；空表返回 `[]`。
 - 命令：`pnpm --filter @cryptotrading/server exec jest <pattern>`，`pnpm --filter @cryptotrading/server build`。
 
-### Python（pytest）
+### Python (pytest)
 
 - `_validate_params`：
   - 各新参数越界 → ValueError，信息含字段名+值+范围。
