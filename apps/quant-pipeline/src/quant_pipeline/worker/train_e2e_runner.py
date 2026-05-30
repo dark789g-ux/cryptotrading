@@ -109,12 +109,29 @@ def _validate_params(params: dict[str, Any]) -> ValidatedParams:
     if not isinstance(factor_version, str) or not factor_version.strip():
         raise ValueError("factor_version: non-empty string required")
 
-    # 3 label_scheme
+    # 3 label_scheme —— 固定白名单 ∪ dir3_band 家族（编解码器单一判定）。
+    # label_scheme=='dir3_band' 时读 params['dir3_band_eps']（缺省 0.005），量化 +
+    # 范围校验（越界抛 ValueError）+ canonical 化写回，此后全链路用 canonical 串。
+    from quant_pipeline.labels.dir3_scheme import (
+        LEGACY_DIR3_BAND,
+        LEGACY_EPS,
+        canonical_dir3_band_scheme,
+        is_dir3_band_scheme,
+    )
+
     label_scheme = params.get("label_scheme")
-    if label_scheme not in _ALLOWED_SCHEMES:
+    if not isinstance(label_scheme, str) or (
+        label_scheme not in _ALLOWED_SCHEMES and not is_dir3_band_scheme(label_scheme)
+    ):
         raise ValueError(
-            f"label_scheme: must be one of {sorted(_ALLOWED_SCHEMES)}, got {label_scheme!r}"
+            f"label_scheme: must be one of {sorted(_ALLOWED_SCHEMES)} "
+            f"or a dir3_band family scheme, got {label_scheme!r}"
         )
+    if label_scheme == LEGACY_DIR3_BAND:
+        # 前端发家族选择器 'dir3_band' + 独立字段 dir3_band_eps；缺省走 legacy 0.005。
+        # canonical_dir3_band_scheme 内部 quantize_eps 越界 / 非数字抛 ValueError（禁静默）。
+        eps_raw = params.get("dir3_band_eps", LEGACY_EPS)
+        label_scheme = canonical_dir3_band_scheme(eps_raw)
 
     # 4 & 5 new_listing_min_days —— bool 是 int 子类，先排除（True/False 在 [0,250] 会误判通过）
     new_listing_min_days = params.get("new_listing_min_days", 60)

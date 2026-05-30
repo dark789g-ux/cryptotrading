@@ -7,9 +7,10 @@
 所有指标都基于三分类 {down=0, flat=1, up=2}：
   - accuracy / macro_f1 / per_class(precision/recall/f1/support)
   - confusion_matrix：行=真实类、列=预测类，顺序固定 [down, flat, up]
-  - 兼容排序指标 ic / rank_ic：按 score = P(涨) − P(跌) 与「真实次日收益」算
-    （让现有 OosTrendChart / Overview 不空，spec 02 §5）。真实次日收益缺失时
-    退化用真实类别序数（down/flat/up → 0/1/2）做单调代理，仍能反映方向排序力。
+  - 兼容排序指标 ic / rank_ic：按 score = P(涨) − P(跌) 与**真实次日后复权收益**
+    r = close_adj(t+1)/close_adj(t)−1 算（口径同 labels/direction_3class，A1）。
+    真实收益由 training/forward_returns.load_forward_returns 回表取得；取不到 t+1 的
+    样本（停牌 / 退市 / 末日 / 缺数）填 NaN，在 score_ic_rank_ic 内剔除后再算相关性。
 """
 
 from __future__ import annotations
@@ -100,20 +101,24 @@ def _rankdata(x: np.ndarray) -> np.ndarray:
 def score_ic_rank_ic(
     score: np.ndarray, true_ret: np.ndarray
 ) -> tuple[float, float]:
-    """排序分 score = P(涨) − P(跌) 与真实次日收益的 IC / RankIC。
+    """排序分 score = P(涨) − P(跌) 与**真实次日后复权收益**的 IC / RankIC。
 
-    spec 02 §5：让现有 OosTrendChart / Overview 不空。score 越大代表越看涨。
+    true_ret = close_adj(t+1)/close_adj(t)−1（口径同 labels/direction_3class，A1）。
+    取不到 t+1 收益的样本（停牌 / 退市 / 末日 / 缺数）由调用方填 NaN。
+
+    计算 Pearson(IC) / Spearman(RankIC) 前对 NaN（含 ±inf）生成 mask，score 与 true_ret
+    **同步剔除**；有效样本不足 2 个 → ic = rank_ic = NaN（不静默填 0 / 序数）。
+    score 越大代表越看涨。
     """
 
     s = np.asarray(score, dtype=np.float64)
     r = np.asarray(true_ret, dtype=np.float64)
     mask = np.isfinite(s) & np.isfinite(r)
     s, r = s[mask], r[mask]
+    if s.size < 2:
+        return float("nan"), float("nan")
     ic = round(_safe_pearson(s, r), 6)
-    if s.size >= 2:
-        rank_ic = round(_safe_pearson(_rankdata(s), _rankdata(r)), 6)
-    else:
-        rank_ic = 0.0
+    rank_ic = round(_safe_pearson(_rankdata(s), _rankdata(r)), 6)
     return ic, rank_ic
 
 

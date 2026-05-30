@@ -28,8 +28,8 @@ from quant_pipeline.labels._common import (
     derive_delist_map,
     derive_suspended_set,
 )
+from quant_pipeline.labels.dir3_scheme import is_dir3_band_scheme
 from quant_pipeline.labels.direction_3class import (
-    SCHEME_DIR3_BAND,
     SCHEME_DIR3_TERCILE,
     compute_dir3_labels,
 )
@@ -273,16 +273,18 @@ def compute_labels(
         if job_id is not None:
             update_progress(job_id, progress, stage=stage)
 
+    # dir3_band 家族（legacy 'dir3_band' 或 'dir3_band_epsNNNN' 变体）由编解码器
+    # 单一判定放行；其它固定串精确匹配。
+    is_dir3_band = is_dir3_band_scheme(scheme)
     if scheme not in (
         LABEL_SCHEME,
         SCHEME_FWD_5D_RET,
-        SCHEME_DIR3_BAND,
         SCHEME_DIR3_TERCILE,
-    ):
+    ) and not is_dir3_band:
         raise NotImplementedError(
             f"labels scheme={scheme!r} not implemented "
             f"(supported: {LABEL_SCHEME!r}, {SCHEME_FWD_5D_RET!r}, "
-            f"{SCHEME_DIR3_BAND!r}, {SCHEME_DIR3_TERCILE!r})"
+            f"dir3_band family, {SCHEME_DIR3_TERCILE!r})"
         )
     start, end = date_range.split(":")
     if len(start) != 8 or len(end) != 8:
@@ -335,7 +337,7 @@ def compute_labels(
                 f"labels: compute_strategy_aware_labels produced 0 rows "
                 f"date_range={date_range!r} scheme={scheme!r}"
             )
-    elif scheme in (SCHEME_DIR3_BAND, SCHEME_DIR3_TERCILE):
+    elif is_dir3_band or scheme == SCHEME_DIR3_TERCILE:
         # dir3 三分类（spec 01 §1-2）。复用 fwd 同款 FallbackInputs（后复权报价 +
         # 停牌/退市/新股过滤上下文），仅"次日 r → 类别"逻辑不同。
         labels_df = compute_dir3_labels(

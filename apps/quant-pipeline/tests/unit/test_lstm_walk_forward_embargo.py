@@ -7,10 +7,13 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
+from quant_pipeline.training import lstm_walk_forward
 from quant_pipeline.training.lstm_walk_forward import (
     _MIN_EMBARGO_DAYS,
+    _build_true_ret,
     compute_embargo_eff,
 )
 from quant_pipeline.training.walk_forward import PurgedWalkForwardSplit
@@ -153,3 +156,52 @@ def test_smaller_embargo_would_leak_proving_expansion_needed() -> None:
             break
 
     assert leaked, "base_embargo=21 + lookback=32 本应发生输入窗泄漏，扩容公式才有意义"
+
+
+# ---------------------------------------------------------------------------
+# A1：_build_true_ret 行序对齐（val_index_all → load_forward_returns → true_ret_all）
+# ---------------------------------------------------------------------------
+
+
+def test_build_true_ret_row_order_alignment(monkeypatch) -> None:  # noqa: ANN001
+    """val_index_all 各折 concat 后与 score_all 同序；命中 r / 未命中 NaN 按行对齐。"""
+
+    # 两折验证索引：行序 = 折1[(A,d1),(B,d1)] + 折2[(A,d2)]
+    fold1 = pd.DataFrame(
+        {"ts_code": ["000001.SZ", "000002.SZ"], "trade_date": ["20260105", "20260105"]}
+    )
+    fold2 = pd.DataFrame({"ts_code": ["000001.SZ"], "trade_date": ["20260106"]})
+    val_index_all = [fold1, fold2]
+
+    # 桩 load_forward_returns：仅 (000001.SZ,20260105)、(000001.SZ,20260106) 命中。
+    fake_map = {
+        ("000001.SZ", "20260105"): 0.011,
+        ("000001.SZ", "20260106"): 0.022,
+    }
+
+    captured_pairs: list[tuple[str, str]] = []
+
+    def _fake_load(pairs):  # noqa: ANN001
+        captured_pairs.extend(pairs)
+        return {p: fake_map[p] for p in pairs if p in fake_map}
+
+    monkeypatch.setattr(lstm_walk_forward, "load_forward_returns", _fake_load)
+
+    true_ret = _build_true_ret(val_index_all, n_score=3)
+
+    # pairs 顺序严格等于 concat 行序（折1 两行 + 折2 一行）
+    assert captured_pairs == [
+        ("000001.SZ", "20260105"),
+        ("000002.SZ", "20260105"),
+        ("000001.SZ", "20260106"),
+    ]
+    # 行 0 命中、行 1 未命中(NaN)、行 2 命中——与样本一一对应
+    assert true_ret[0] == 0.011
+    assert np.isnan(true_ret[1])
+    assert true_ret[2] == 0.022
+
+
+def test_build_true_ret_empty_folds_all_nan() -> None:
+    out = _build_true_ret([], n_score=4)
+    assert out.shape == (4,)
+    assert np.isnan(out).all()

@@ -16,6 +16,24 @@
       />
     </n-form-item>
 
+    <n-form-item
+      v-if="modelValue.label_scheme === 'dir3_band'"
+      label="横盘阈值 ε"
+    >
+      <n-input-number
+        :value="modelValue.dir3_band_eps ?? DIR3_BAND_EPS_DEFAULT"
+        :min="0.001"
+        :max="0.1"
+        :step="0.001"
+        :precision="3"
+        @update:value="(v: number | null) => update('dir3_band_eps', v)"
+      >
+        <template #suffix>
+          ≈ {{ ((modelValue.dir3_band_eps ?? DIR3_BAND_EPS_DEFAULT) * 100).toFixed(1) }}%
+        </template>
+      </n-input-number>
+    </n-form-item>
+
     <n-form-item label="新股最少上市天数">
       <n-input-number
         :value="modelValue.new_listing_min_days"
@@ -87,6 +105,12 @@ export type ModelKind = 'lgb-lambdarank' | 'linear' | 'gbdt' | 'lstm'
 export interface E2EFormModel {
   factor_version: string
   label_scheme: LabelScheme
+  /**
+   * dir3_band 横盘阈值 ε（仅 label_scheme==='dir3_band' 时有意义）。
+   * null = 走后端默认 0.005（legacy）。0.1% 网格、范围 0<ε≤0.1。
+   * 编解码（ε→canonical scheme 串）在后端 dir3_scheme.py 单一源完成，前端只发原始 ε。
+   */
+  dir3_band_eps?: number | null
   /** null = 走后端默认 60（交易日） */
   new_listing_min_days: number | null
   /** 本地午夜 ms（n-date-picker daterange 原生格式，CLAUDE.md 硬约束） */
@@ -111,6 +135,9 @@ const props = defineProps<{ modelValue: E2EFormModel }>()
 const emit = defineEmits<{
   'update:modelValue': [value: E2EFormModel]
 }>()
+
+/** dir3_band 横盘阈值 ε 默认值（legacy 0.5%）。后端 canonical 回 'dir3_band' 串，守哈希不漂移。 */
+const DIR3_BAND_EPS_DEFAULT = 0.005
 
 const labelSchemeOptions: LabelSchemeOption[] = [
   { label: 'strategy-aware', value: 'strategy-aware' },

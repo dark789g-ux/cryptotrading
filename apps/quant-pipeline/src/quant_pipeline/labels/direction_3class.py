@@ -32,6 +32,11 @@ import numpy as np
 import pandas as pd
 
 from quant_pipeline.labels._common import dedup_labels, empty_labels_frame
+from quant_pipeline.labels.dir3_scheme import (
+    LEGACY_EPS,
+    is_dir3_band_scheme,
+    parse_dir3_band_eps,
+)
 from quant_pipeline.labels.fallback import FallbackInputs
 from quant_pipeline.labels.strategy_aware import (
     NEW_LISTING_MIN_DAYS,
@@ -43,8 +48,9 @@ logger = logging.getLogger(__name__)
 
 SCHEME_DIR3_BAND: Final[str] = "dir3_band"
 SCHEME_DIR3_TERCILE: Final[str] = "dir3_tercile"
-# v1 固定 ε；禁改为运行时参数（否则破坏 feature_set_id 决定性，见 spec 01 §4）。
-DIR3_BAND_EPS: Final[float] = 0.005
+# legacy 默认 ε（scheme=='dir3_band' 时的横盘阈值）；其它 ε 经 dir3_scheme 编解码
+# 进 label_scheme 串（如 'dir3_band_eps0080'），决定性 feature_set_id 哈希自然成立。
+DIR3_BAND_EPS: Final[float] = LEGACY_EPS
 # 次日方向：持有 1 日语义。
 DIR3_HOLD_DAYS: Final[int] = 1
 
@@ -52,8 +58,6 @@ DIR3_HOLD_DAYS: Final[int] = 1
 _CLS_DOWN: Final[float] = 0.0   # 跌
 _CLS_FLAT: Final[float] = 1.0   # 横盘
 _CLS_UP: Final[float] = 2.0     # 涨
-
-_SCHEMES: Final[frozenset[str]] = frozenset({SCHEME_DIR3_BAND, SCHEME_DIR3_TERCILE})
 
 
 def _bucket_band(r: pd.Series, eps: float) -> pd.Series:
@@ -105,10 +109,13 @@ def compute_dir3_labels(inputs: FallbackInputs, scheme: str) -> pd.DataFrame:
     仅"r → 类别"逻辑与 fwd_5d_ret 不同。
     """
 
-    if scheme not in _SCHEMES:
+    # dir3_band 家族（legacy 'dir3_band' 或 'dir3_band_epsNNNN' 变体）由编解码器
+    # 单一判定；tercile 固定串。其它（含畸形 epsXXXX）→ 未知 scheme 报错。
+    is_band = is_dir3_band_scheme(scheme)
+    if not is_band and scheme != SCHEME_DIR3_TERCILE:
         raise ValueError(
             f"compute_dir3_labels: unsupported scheme={scheme!r} "
-            f"(supported: {sorted(_SCHEMES)})"
+            f"(supported: dir3_band family or {SCHEME_DIR3_TERCILE!r})"
         )
 
     quotes = inputs.daily_quotes
@@ -173,8 +180,11 @@ def compute_dir3_labels(inputs: FallbackInputs, scheme: str) -> pd.DataFrame:
     kept = quotes.loc[keep_np, ["ts_code", "trade_date"]].copy()
     kept["r"] = r[keep_np].astype(float).to_numpy()
 
-    if scheme == SCHEME_DIR3_BAND:
-        value = _bucket_band(kept["r"], DIR3_BAND_EPS)
+    if is_band:
+        # ε 来源从常量变为解析自 scheme 串（'dir3_band'→0.005，epsNNNN→N/10000）。
+        eps = parse_dir3_band_eps(scheme)
+        assert eps is not None  # is_band 已保证，仅为类型收窄
+        value = _bucket_band(kept["r"], eps)
     else:
         value = _bucket_tercile(kept["r"], kept["trade_date"])
 

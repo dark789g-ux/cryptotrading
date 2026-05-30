@@ -80,6 +80,11 @@ export function buildJobPayload(
       walk_forward: e.walk_forward,
       seed: e.seed ?? 42,
     }
+    // dir3_band 横盘阈值 ε：仅 dir3_band 家族选择器有意义；null/空 → 走后端默认 0.005。
+    // 编解码（ε→canonical scheme 串）由后端 dir3_scheme.py 单一源完成，前端只透原始 ε。
+    if (e.label_scheme === 'dir3_band') {
+      params.dir3_band_eps = e.dir3_band_eps ?? 0.005
+    }
     if (e.model === 'lstm' && e.lstm) {
       // 仅打包用户显式填写的项（null/undefined 跳过 → 后端补默认，避免双源默认值）
       const hp = pickDefined(e.lstm as unknown as Record<string, unknown>)

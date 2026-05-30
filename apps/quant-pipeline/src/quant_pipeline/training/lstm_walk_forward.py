@@ -38,6 +38,7 @@ import numpy as np
 import pandas as pd
 
 from quant_pipeline.quality.report import gate_check
+from quant_pipeline.training.forward_returns import load_forward_returns
 from quant_pipeline.training.group_utils import flatten_features
 from quant_pipeline.training.lstm_metrics import CLASS_ORDER, build_oos_metrics
 from quant_pipeline.training.lstm_model import DEFAULT_LSTM_HYPERPARAMS, train_one_fold
@@ -150,13 +151,17 @@ def _run_folds(
 
     返回 (last_model, acc_buffers, fold_metrics_list)。
     acc_buffers = [y_true_all, y_pred_all, score_all, true_ret_all]，跨折累计。
+
+    折内 buffer 只累计 [y_true_all, y_pred_all, score_all] + val_index_all（验证样本的
+    [ts_code, trade_date]，与 score 同行序）；true_ret_all 不在折内累计，由折后
+    load_forward_returns 结果按 score 行序整体构造（命中真实收益 / 未命中 NaN）。
     """
 
     n_folds = len(splits)
     y_true_all: list[int] = []
     y_pred_all: list[int] = []
     score_all: list[float] = []
-    true_ret_all: list[float] = []
+    val_index_all: list[pd.DataFrame] = []  # 每折 bundle_va.index，与 score 同序
     fold_metrics: list[dict[str, Any]] = []
     last_model: Any = None
 
@@ -197,14 +202,13 @@ def _run_folds(
         y_pred = proba.argmax(axis=1)
         y_true = bundle_va.y
         score = proba[:, up_idx] - proba[:, down_idx]
-        # true_ret：dir3 方案下 feature_matrix 不含连续收益，用真实类别序数（0/1/2）
-        # 作单调代理（lstm_metrics.score_ic_rank_ic 文档约定的退化口径），仍反映方向排序力。
-        true_ret = y_true.astype(np.float64)
 
         y_true_all.extend(int(v) for v in y_true)
         y_pred_all.extend(int(v) for v in y_pred)
         score_all.extend(float(v) for v in score)
-        true_ret_all.extend(float(v) for v in true_ret)
+        # bundle_va.index 列 [ts_code, trade_date]，与 score 行序一一对齐，
+        # 折后用于 load_forward_returns 回表算真实次日后复权收益。
+        val_index_all.append(bundle_va.index)
 
         fold_metrics.append(
             {
@@ -226,13 +230,54 @@ def _run_folds(
             "请检查 lookback 是否过大 / 单票连续交易日是否足够。"
         )
 
+    # 折后：concat 验证样本索引 → pairs → 回表算真实次日后复权收益 → 按 score 行序构造
+    # true_ret_all（命中 r / 未命中 NaN）。score_all 与 val_index_all 行序严格一致。
+    true_ret_all = _build_true_ret(val_index_all, n_score=len(score_all))
+
     buffers = [
         np.asarray(y_true_all, dtype=np.int64),
         np.asarray(y_pred_all, dtype=np.int64),
         np.asarray(score_all, dtype=np.float64),
-        np.asarray(true_ret_all, dtype=np.float64),
+        true_ret_all,
     ]
     return last_model, buffers, {"fold_metrics": fold_metrics}
+
+
+def _build_true_ret(val_index_all: list[pd.DataFrame], *, n_score: int) -> np.ndarray:
+    """折后整体构造 true_ret_all：按 score 行序映射真实次日后复权收益。
+
+    val_index_all 各折 [ts_code, trade_date] 按折序 concat，行序与 score_all 严格一致。
+    load_forward_returns 命中 → r；未命中（停牌 / 退市 / 末日 / 缺数）→ NaN。
+
+    无验证样本（理论不可达，last_model 非空已保证至少一折有样本）→ 全 NaN 兜底。
+    """
+
+    if not val_index_all:
+        return np.full(n_score, np.nan, dtype=np.float64)
+
+    val_index = pd.concat(val_index_all, ignore_index=True)
+    pairs = [
+        (str(c), str(d))
+        for c, d in zip(val_index["ts_code"].to_numpy(), val_index["trade_date"].to_numpy())
+    ]
+    ret_map = load_forward_returns(pairs)
+
+    true_ret = np.array(
+        [ret_map.get(p, np.nan) for p in pairs], dtype=np.float64
+    )
+    n_hit = int(np.isfinite(true_ret).sum())
+    if n_hit < len(pairs):
+        sample = [p for p in pairs if p not in ret_map][:5]
+        logger.warning(
+            "lstm_true_ret_coverage_gap",
+            extra={
+                "missing": len(pairs) - n_hit,
+                "total": len(pairs),
+                "resolved": n_hit,
+                "sample": sample,
+            },
+        )
+    return true_ret
 
 
 def _write_lstm_artifact(

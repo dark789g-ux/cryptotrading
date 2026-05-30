@@ -112,3 +112,54 @@ describe('buildJobPayload LSTM 分支', () => {
     expect('hyperparams' in out.params).toBe(false)
   })
 })
+
+describe('buildJobPayload dir3_band ε 透传（A2）', () => {
+  it('label_scheme=dir3_band + 自定义 ε → params 含 dir3_band_eps', () => {
+    const f = freshForm()
+    f.e2e.model = 'lstm'
+    f.e2e.label_scheme = 'dir3_band'
+    f.e2e.dir3_band_eps = 0.008
+
+    const out = buildJobPayload(f, true)
+    // 前端只透原始 ε；ε→canonical scheme 串编码由后端 dir3_scheme.py 单一源完成
+    expect(out.params.label_scheme).toBe('dir3_band')
+    expect(out.params.dir3_band_eps).toBe(0.008)
+  })
+
+  it('label_scheme=dir3_band 但 ε 留空 → 走默认 0.005', () => {
+    const f = freshForm()
+    f.e2e.model = 'lstm'
+    f.e2e.label_scheme = 'dir3_band'
+    f.e2e.dir3_band_eps = null
+
+    const out = buildJobPayload(f, true)
+    expect(out.params.dir3_band_eps).toBe(0.005)
+  })
+
+  it('label_scheme=dir3_band 但未设 dir3_band_eps 字段 → 走默认 0.005', () => {
+    const f = freshForm()
+    f.e2e.model = 'lstm'
+    f.e2e.label_scheme = 'dir3_band'
+
+    const out = buildJobPayload(f, true)
+    expect(out.params.dir3_band_eps).toBe(0.005)
+  })
+
+  it('label_scheme=dir3_tercile → 不输出 dir3_band_eps（ε 仅 dir3_band 有意义）', () => {
+    const f = freshForm()
+    f.e2e.model = 'lstm'
+    f.e2e.label_scheme = 'dir3_tercile'
+    f.e2e.dir3_band_eps = 0.02
+
+    const out = buildJobPayload(f, true)
+    expect('dir3_band_eps' in out.params).toBe(false)
+  })
+
+  it('label_scheme=strategy-aware → 不输出 dir3_band_eps', () => {
+    const f = freshForm()
+    f.e2e.label_scheme = 'strategy-aware'
+
+    const out = buildJobPayload(f, true)
+    expect('dir3_band_eps' in out.params).toBe(false)
+  })
+})
