@@ -93,10 +93,6 @@ import type { BarChartRow, TrendFetchResult } from './money-flow.types'
 
 type ChartMode = 'bar' | 'kline'
 
-// 默认副图白名单：不含 AMV（保证 sector / 大盘 等非 type='I' 入口布局不变）；
-// 行业指数（type='I'）入口由 IndustryFlowPanel 显式传入含 0AMV / 0AMV_MACD 的列表。
-const DEFAULT_FLOW_KLINE_SUBPLOTS: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW']
-
 // fetchFn 的返回类型由调用方按 chartMode 自行约束：
 // - bar 模式：返回 BarChartRow[]
 // - kline 模式：返回 TrendFetchResult
@@ -117,7 +113,11 @@ const props = withDefaults(defineProps<{
   chartMode: 'bar',
   showMembersTab: false,
   membersTradeDate: null,
-  availableSubplots: () => [...DEFAULT_FLOW_KLINE_SUBPLOTS],
+  // 默认副图白名单：不含 AMV（保证 sector / 大盘 等非 type='I' 入口布局不变）；
+  // 行业指数（type='I'）入口由 IndustryFlowPanel 显式传入含 0AMV / 0AMV_MACD 的列表。
+  // 注意：defineProps/withDefaults 会被编译器提升到 setup() 外，default 工厂内
+  // 不能引用 <script setup> 里的局部 const，故此处直接内联字面量。
+  availableSubplots: () => ['VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW'],
 })
 
 defineEmits<{
