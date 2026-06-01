@@ -24,8 +24,13 @@ const WARMUP_ROWS = 90
 /** 后缀断言抽样上限（fail-fast 用，不需全量核对） */
 const SUFFIX_SAMPLE = 5
 
-/** 量侧成分股后缀（个股代码） */
-const STOCK_SUFFIX_RE = /\.(SZ|SH)$/i
+/**
+ * 量侧成分股后缀（个股代码）。
+ * 真实 ths_member_stocks 的 con_code 含沪深（.SZ/.SH）外，还有北交所 .BJ、新三板 .NQ——
+ * 均为合法成分股，断言只用于 catch 严重错配（如 con_code 误存成 .TI 指数代码），不得因 .BJ/.NQ 崩。
+ * 这类标的若不在 raw.daily_quote 中，量 join 自然不匹配，计入覆盖度 warn 即可。
+ */
+const STOCK_SUFFIX_RE = /\.(SZ|SH|BJ|NQ)$/i
 /** 价侧 / 指数后缀 */
 const INDEX_SUFFIX_RE = /\.TI$/i
 
