@@ -1,6 +1,6 @@
 import type { GraphicComponentOption } from 'echarts'
 import { colors } from '../../styles/tokens'
-import { BRICK_COLORS, CANDLE_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS } from './chartColors'
+import { AMV_COLORS, BRICK_COLORS, CANDLE_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS } from './chartColors'
 import { resolveKTopPct, resolveSubplotLayout } from './klineChartLayout'
 import { ARROW_RICH, arrow, arrowRichTag, fmt, fmtCompact, fmtXg } from './klineChartUtils'
 import type { SubplotConfig, SubplotKey } from './subplotConfig'
@@ -22,6 +22,9 @@ const SUBPLOT_GRAPHIC_ID: Record<SubplotKey, string> = {
   MACD: 'macd-values',
   BRICK: 'brick-values',
   FLOW: 'flow-values', // 当前 FLOW 暂无悬浮文本，保留 id 以备后续扩展
+  // id 不得以数字开头（DOM id 合法性），故用 amv-* 而非 0amv-*
+  '0AMV': 'amv-line-values',
+  '0AMV_MACD': 'amv-macd-values',
 }
 
 const buildMaText = (idx: number, data: KlineChartBar[]) => {
@@ -104,6 +107,32 @@ const buildMacdText = (idx: number, data: KlineChartBar[]) => {
   return { text, rich, ...GRAPHIC_BG }
 }
 
+const buildAmvLineText = (idx: number, data: KlineChartBar[]) => {
+  const row = idx >= 0 && idx < data.length ? data[idx] : undefined
+  const prev = idx > 0 && idx - 1 < data.length ? data[idx - 1] : undefined
+  const rich: Record<string, unknown> = { ...ARROW_RICH }
+  rich['amv'] = { fill: AMV_COLORS.line, fontSize: 12 }
+  if (!row) return { text: '', rich, ...GRAPHIC_BG }
+  const state = arrow(row['0AMV'], prev?.['0AMV'])
+  const text = `0AMV: {amv|${fmtCompact(row['0AMV'] ?? null)}}{${arrowRichTag(state.key)}|${state.sym}}`
+  return { text, rich, ...GRAPHIC_BG }
+}
+
+const buildAmvMacdText = (idx: number, data: KlineChartBar[]) => {
+  const row = idx >= 0 && idx < data.length ? data[idx] : undefined
+  const prev = idx > 0 && idx - 1 < data.length ? data[idx - 1] : undefined
+  const rich: Record<string, unknown> = { ...ARROW_RICH }
+  rich['dif'] = { fill: AMV_COLORS.DIF, fontSize: 12 }
+  rich['dea'] = { fill: AMV_COLORS.DEA, fontSize: 12 }
+  rich['macd'] = { fill: AMV_COLORS.macdUp, fontSize: 12 }
+  if (!row) return { text: '', rich, ...GRAPHIC_BG }
+  const difState = arrow(row['0AMV.DIF'], prev?.['0AMV.DIF'])
+  const deaState = arrow(row['0AMV.DEA'], prev?.['0AMV.DEA'])
+  const macdState = arrow(row['0AMV.MACD'], prev?.['0AMV.MACD'])
+  const text = `DIF: {dif|${fmt(row['0AMV.DIF'], 4)}}{${arrowRichTag(difState.key)}|${difState.sym}}  DEA: {dea|${fmt(row['0AMV.DEA'], 4)}}{${arrowRichTag(deaState.key)}|${deaState.sym}}  MACD: {macd|${fmt(row['0AMV.MACD'], 4)}}{${arrowRichTag(macdState.key)}|${macdState.sym}}`
+  return { text, rich, ...GRAPHIC_BG }
+}
+
 const SUBPLOT_TEXT_BUILDERS: Record<
   SubplotKey,
   ((idx: number, data: KlineChartBar[]) => unknown) | null
@@ -113,6 +142,8 @@ const SUBPLOT_TEXT_BUILDERS: Record<
   MACD: buildMacdText,
   BRICK: buildBrickText,
   FLOW: null, // FLOW 副图无悬浮文本（保持原 5 副图行为）
+  '0AMV': buildAmvLineText,
+  '0AMV_MACD': buildAmvMacdText,
 }
 
 /**

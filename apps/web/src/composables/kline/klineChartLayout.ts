@@ -39,6 +39,8 @@ const SUBPLOT_LEGEND_DATA: Record<SubplotKey, string[]> = {
   MACD: ['DIF', 'DEA', 'MACD'],
   BRICK: ['BRICK'],
   FLOW: ['FLOW'],
+  '0AMV': ['0AMV'],
+  '0AMV_MACD': ['0AMV.DIF', '0AMV.DEA', '0AMV.MACD'],
 }
 
 interface ResolvedSlot {
@@ -157,6 +159,10 @@ export function buildYAxes(subplots: SubplotConfig[]): EChartsOption['yAxis'] {
     }
     if (slot.key === 'FLOW') {
       base.name = '资金净流入(亿)'
+      base.nameTextStyle = { fontSize: 10, color: colors.text.DEFAULT }
+    }
+    if (slot.key === '0AMV') {
+      base.name = '活跃市值'
       base.nameTextStyle = { fontSize: 10, color: colors.text.DEFAULT }
     }
     yAxes.push(base)

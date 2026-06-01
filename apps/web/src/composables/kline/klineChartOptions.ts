@@ -10,7 +10,15 @@ import type {
   SeriesOption,
 } from 'echarts'
 import { colors } from '../../styles/tokens'
-import { ANCHOR_LINE_COLOR, BRICK_COLORS, CANDLE_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS } from './chartColors'
+import {
+  AMV_COLORS,
+  ANCHOR_LINE_COLOR,
+  BRICK_COLORS,
+  CANDLE_COLORS,
+  KDJ_COLORS,
+  MA_COLORS,
+  MACD_COLORS,
+} from './chartColors'
 import {
   buildDataZoom,
   buildGrid,
@@ -58,6 +66,33 @@ function defaultSubplotsForData(data: KlineChartBar[]): SubplotConfig[] {
 type BrickRangeDatum = [number, number, number]
 
 const DATA_ZOOM_THROTTLE_MS = 80
+
+/**
+ * 构造 MACD/AMV-MACD 柱状数据的一侧（正或负）。
+ * - sign='pos'：仅保留 >0 的柱；sign='neg'：仅保留 <0 的柱。
+ * - 上涨实心、下跌空心描边（与原 MACD 副图视觉一致）。
+ * 个股 MACD 与 AMV 的 MACD 共用此构造，避免四份重复。
+ */
+function buildMacdBarData(
+  data: KlineChartBar[],
+  valueOf: (row: KlineChartBar) => number | null | undefined,
+  sign: 'pos' | 'neg',
+  color: string,
+): BarSeriesOption['data'] {
+  return data.map((row, i) => {
+    const v = valueOf(row)
+    if (v == null) return null
+    if (sign === 'pos' ? v <= 0 : v >= 0) return null
+    const prev = i > 0 ? valueOf(data[i - 1]) : null
+    const isRising = prev == null || v > prev
+    return {
+      value: v,
+      itemStyle: isRising
+        ? { color }
+        : { color: 'transparent', borderColor: color, borderWidth: 1 },
+    }
+  })
+}
 
 function buildKdjMarkArea(data: KlineChartBar[]) {
   const greenZones: [number, number][] = []
@@ -114,6 +149,8 @@ export function buildKlineChartOption({
   const kdjAxis = resolveAxisIndex('KDJ', resolvedSubplots)
   const macdAxis = resolveAxisIndex('MACD', resolvedSubplots)
   const brickAxis = resolveAxisIndex('BRICK', resolvedSubplots)
+  const amvAxis = resolveAxisIndex('0AMV', resolvedSubplots)
+  const amvMacdAxis = resolveAxisIndex('0AMV_MACD', resolvedSubplots)
   const times = data.map((row) => row.open_time)
   const klines = data.map((row) => [row.open, row.close, row.low, row.high])
   const lastIdx = data.length - 1
@@ -132,29 +169,14 @@ export function buildKlineChartOption({
       color: row.close >= row.open ? CANDLE_COLORS.up : CANDLE_COLORS.down,
     },
   }))
-  const macdPositiveData = data.map((row, i) => {
-    if (row.MACD == null || row.MACD <= 0) return null
-    const prev = i > 0 ? data[i - 1].MACD : null
-    const isRising = prev == null || row.MACD > prev
-    return {
-      value: row.MACD,
-      itemStyle: isRising
-        ? { color: MACD_COLORS.macdUp }
-        : { color: 'transparent', borderColor: MACD_COLORS.macdUp, borderWidth: 1 },
-    }
-  })
+  const macdPositiveData = buildMacdBarData(data, (row) => row.MACD, 'pos', MACD_COLORS.macdUp)
+  const macdNegativeData = buildMacdBarData(data, (row) => row.MACD, 'neg', MACD_COLORS.macdDown)
 
-  const macdNegativeData = data.map((row, i) => {
-    if (row.MACD == null || row.MACD >= 0) return null
-    const prev = i > 0 ? data[i - 1].MACD : null
-    const isRising = prev == null || row.MACD > prev
-    return {
-      value: row.MACD,
-      itemStyle: isRising
-        ? { color: MACD_COLORS.macdDown }
-        : { color: 'transparent', borderColor: MACD_COLORS.macdDown, borderWidth: 1 },
-    }
-  })
+  const amvLineValues = data.map((row) => row['0AMV'] ?? null)
+  const amvDifValues = data.map((row) => row['0AMV.DIF'] ?? null)
+  const amvDeaValues = data.map((row) => row['0AMV.DEA'] ?? null)
+  const amvMacdPositiveData = buildMacdBarData(data, (row) => row['0AMV.MACD'], 'pos', AMV_COLORS.macdUp)
+  const amvMacdNegativeData = buildMacdBarData(data, (row) => row['0AMV.MACD'], 'neg', AMV_COLORS.macdDown)
 
   const candleSeries: CandlestickSeriesOption = {
     name: 'K',
@@ -305,6 +327,67 @@ export function buildKlineChartOption({
     barMaxWidth: 12,
   }
 
+  // 活跃市值（AMV）单线副图：画 row['0AMV']（amvClose），仅当用户偏好开启时构造
+  const amvLineSeries: LineSeriesOption | null = !amvAxis ? null : {
+    name: '0AMV',
+    type: 'line',
+    xAxisIndex: amvAxis.xAxisIndex,
+    yAxisIndex: amvAxis.yAxisIndex,
+    data: amvLineValues,
+    showSymbol: false,
+    lineStyle: { width: 1, color: AMV_COLORS.line },
+    itemStyle: { color: AMV_COLORS.line },
+  }
+
+  // 活跃市值的 MACD 副图：仿现有 MACD（柱 + DIF/DEA 双线）
+  const amvDifSeries: LineSeriesOption | null = !amvMacdAxis ? null : {
+    name: '0AMV.DIF',
+    type: 'line',
+    xAxisIndex: amvMacdAxis.xAxisIndex,
+    yAxisIndex: amvMacdAxis.yAxisIndex,
+    data: amvDifValues,
+    showSymbol: false,
+    lineStyle: { width: 1, color: AMV_COLORS.DIF },
+    itemStyle: { color: AMV_COLORS.DIF },
+    markLine: {
+      silent: true,
+      symbol: 'none',
+      data: [{ yAxis: 0 }],
+      lineStyle: { color: AMV_COLORS.zeroLine, type: 'dashed' },
+      label: { show: false },
+    },
+  }
+
+  const amvDeaSeries: LineSeriesOption | null = !amvMacdAxis ? null : {
+    name: '0AMV.DEA',
+    type: 'line',
+    xAxisIndex: amvMacdAxis.xAxisIndex,
+    yAxisIndex: amvMacdAxis.yAxisIndex,
+    data: amvDeaValues,
+    showSymbol: false,
+    lineStyle: { width: 1, color: AMV_COLORS.DEA },
+    itemStyle: { color: AMV_COLORS.DEA },
+    markLine: { silent: true, symbol: 'none', data: [], label: { show: false } },
+  }
+
+  const amvMacdPositiveSeries: BarSeriesOption | null = !amvMacdAxis ? null : {
+    name: '0AMV.MACD',
+    type: 'bar',
+    xAxisIndex: amvMacdAxis.xAxisIndex,
+    yAxisIndex: amvMacdAxis.yAxisIndex,
+    data: amvMacdPositiveData,
+    barGap: '-100%',
+  }
+
+  const amvMacdNegativeSeries: BarSeriesOption | null = !amvMacdAxis ? null : {
+    name: '0AMV.MACD',
+    type: 'bar',
+    xAxisIndex: amvMacdAxis.xAxisIndex,
+    yAxisIndex: amvMacdAxis.yAxisIndex,
+    data: amvMacdNegativeData,
+    barGap: '-100%',
+  }
+
   // 资金流副图：按 index 直接读 row.moneyFlow（合并已在 fetcher 层完成）。
   // 仅当用户偏好开启 FLOW 副图（flowAxis !== null）时构造，
   // 不再依据 data 是否含 moneyFlow 推断（hasFlow 语义已废弃）。
@@ -341,6 +424,11 @@ export function buildKlineChartOption({
     ...(macdNegativeSeries ? [macdNegativeSeries] : []),
     ...(brickSeries ? [brickSeries] : []),
     ...(moneyFlowSeries ? [moneyFlowSeries] : []),
+    ...(amvLineSeries ? [amvLineSeries] : []),
+    ...(amvDifSeries ? [amvDifSeries] : []),
+    ...(amvDeaSeries ? [amvDeaSeries] : []),
+    ...(amvMacdPositiveSeries ? [amvMacdPositiveSeries] : []),
+    ...(amvMacdNegativeSeries ? [amvMacdNegativeSeries] : []),
   ]
 
   return {

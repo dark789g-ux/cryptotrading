@@ -41,6 +41,7 @@
         :range="null"
         disabled-range
         prefs-key="backtest"
+        :available-subplots="backtestAvailableSubplots"
       />
     </template>
   </n-modal>
@@ -51,7 +52,11 @@ import { computed, ref, watch } from 'vue'
 import { NButton, NEmpty, NIcon, NModal, NSpin, useMessage } from 'naive-ui'
 import { ContractOutline, ExpandOutline } from '@vicons/ionicons5'
 import KlineChart from '../kline/KlineChart.vue'
+import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { backtestApi, type KlineChartBar } from '@/api'
+
+// 回测 K 线无活跃市值数据源：显式排除 0AMV / 0AMV_MACD，保持默认布局与接入前一致
+const backtestAvailableSubplots: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW']
 
 const props = defineProps<{
   show: boolean

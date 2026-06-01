@@ -53,5 +53,15 @@ export const MACD_COLORS = {
   zeroLine: '#848E9C',
 } as const
 
+// 活跃市值（AMV）副图配色：单线用紫调与 MA240 区分；其 MACD 复用 MACD_COLORS 口径
+export const AMV_COLORS = {
+  line: '#C882E7',
+  DIF: '#FFFFFF',
+  DEA: '#F0B90B',
+  macdUp: '#0ECB81',
+  macdDown: '#F6465D',
+  zeroLine: '#848E9C',
+} as const
+
 // 参考线（锚点价格线等）
 export const ANCHOR_LINE_COLOR = '#F0B90B'

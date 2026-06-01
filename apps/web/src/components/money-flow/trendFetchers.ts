@@ -11,7 +11,9 @@
 
 import { moneyFlowApi, type MoneyFlowQueryParams } from '@/api/modules/market/moneyFlow'
 import { thsIndexDailyApi } from '@/api/modules/market/thsIndexDaily'
+import { activeMvApi, type AmvSeriesRow } from '@/api/modules/market/active-mv'
 import { mergeKlineWithMoneyFlow } from '@/composables/kline/mergeMoneyFlow'
+import { mergeKlineWithAmv } from '@/composables/kline/mergeAmv'
 import type { TrendFetchResult } from './money-flow.types'
 
 function requireDateRange(params: MoneyFlowQueryParams): { ts_code: string; start_date: string; end_date: string } {
@@ -25,12 +27,16 @@ function requireDateRange(params: MoneyFlowQueryParams): { ts_code: string; star
 
 export async function fetchIndustryTrend(params: MoneyFlowQueryParams): Promise<TrendFetchResult> {
   const ranged = requireDateRange(params)
-  const [kline, flowRows] = await Promise.all([
+  // 行业指数（type='I'，.TI）：并行拉 K 线 + 资金流 + 活跃市值（AMV）。
+  // AMV 走 days 口径（这里取近 250 交易日），失败降级空序列（副图缺日填 null），
+  // 不拖垮 K 线主图。
+  const [kline, flowRows, amvRows] = await Promise.all([
     thsIndexDailyApi.query(ranged),
     moneyFlowApi.queryIndustries(params),
+    activeMvApi.getIndustry(ranged.ts_code, 250).catch(() => [] as AmvSeriesRow[]),
   ])
   return {
-    kline: mergeKlineWithMoneyFlow(kline, flowRows),
+    kline: mergeKlineWithAmv(mergeKlineWithMoneyFlow(kline, flowRows), amvRows),
   }
 }
 

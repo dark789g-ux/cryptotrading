@@ -33,6 +33,7 @@
                 granularity="date"
                 :range="klineRange"
                 prefs-key="money-flow-kline"
+                :available-subplots="availableSubplots"
                 @update:range="onKlineRangeChange"
               />
             </template>
@@ -80,10 +81,15 @@ import KlineChart from '@/components/kline/KlineChart.vue'
 import { moneyFlowApi, type MoneyFlowMemberRow, type MoneyFlowQueryParams } from '@/api/modules/market/moneyFlow'
 import { watchlistApi } from '@/api'
 import type { KlineChartBar } from '@/api'
+import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { useWatchlistStore } from '@/stores/watchlist'
 import type { BarChartRow, TrendFetchResult } from './money-flow.types'
 
 type ChartMode = 'bar' | 'kline'
+
+// 默认副图白名单：不含 AMV（保证 sector / 大盘 等非 type='I' 入口布局不变）；
+// 行业指数（type='I'）入口由 IndustryFlowPanel 显式传入含 0AMV / 0AMV_MACD 的列表。
+const DEFAULT_FLOW_KLINE_SUBPLOTS: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW']
 
 // fetchFn 的返回类型由调用方按 chartMode 自行约束：
 // - bar 模式：返回 BarChartRow[]
@@ -99,10 +105,13 @@ const props = withDefaults(defineProps<{
   chartMode?: ChartMode
   showMembersTab?: boolean
   membersTradeDate?: string | null
+  /** kline 模式副图白名单；默认不含 AMV，行业指数入口可显式传入含 0AMV 的列表 */
+  availableSubplots?: SubplotKey[]
 }>(), {
   chartMode: 'bar',
   showMembersTab: false,
   membersTradeDate: null,
+  availableSubplots: () => [...DEFAULT_FLOW_KLINE_SUBPLOTS],
 })
 
 defineEmits<{

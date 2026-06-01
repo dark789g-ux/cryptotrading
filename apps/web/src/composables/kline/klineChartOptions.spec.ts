@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { buildKlineChartOption } from './klineChartOptions'
 import { CANDLE_COLORS } from './chartColors'
+import { DEFAULT_SUBPLOT_HEIGHT_PCT, type SubplotConfig, type SubplotKey } from './subplotConfig'
 import type { KlineChartBar } from '@/api'
+
+function subplotsOf(keys: SubplotKey[]): SubplotConfig[] {
+  return keys.map((key) => ({ key, visible: true, heightPct: DEFAULT_SUBPLOT_HEIGHT_PCT[key] }))
+}
 
 // 构造最小可用 KlineChartBar 数组，open_time 用 Tushare 标准 YYYYMMDD
 function makeBar(overrides: Partial<KlineChartBar> & { open_time: string }): KlineChartBar {
@@ -180,5 +185,89 @@ describe('buildKlineChartOption — 有 moneyFlow（按行内嵌）', () => {
     expect(arrify(opt.series).length).toBe(15)
     const dz = arrify(opt.dataZoom) as any[]
     expect(dz[0].xAxisIndex).toEqual([0, 1, 2, 3, 4])
+  })
+})
+
+describe('buildKlineChartOption — 默认布局回归（不含 AMV 时与接入前一致）', () => {
+  it('显式传 VOL/KDJ/MACD/BRICK（无 AMV）：grid=5、series=15，与 4 副图布局等价', () => {
+    const subplots = subplotsOf(['VOL', 'KDJ', 'MACD', 'BRICK'])
+    const opt = buildKlineChartOption({ data: baseData, echartsTheme, subplots })
+    expect(arrify(opt.grid).length).toBe(5)
+    expect(arrify(opt.series).length).toBe(15)
+  })
+})
+
+describe('buildKlineChartOption — 活跃市值（0AMV / 0AMV_MACD）副图', () => {
+  // 构造带 AMV 字段的数据：单线 + DIF/DEA/柱
+  const amvData: KlineChartBar[] = baseData.map((row, i) => ({
+    ...row,
+    '0AMV': 1000 + i * 10,
+    '0AMV.DIF': i - 1.5, // -1.5, -0.5, 0.5, 1.5
+    '0AMV.DEA': 0,
+    '0AMV.MACD': (i - 1.5) * 2, // -3, -1, 1, 3
+  }))
+
+  it('开启 0AMV 单线：多 1 grid/xAxis/yAxis/legend + 1 line series；yAxis 名为活跃市值', () => {
+    const subplots = subplotsOf(['VOL', 'KDJ', 'MACD', 'BRICK', '0AMV'])
+    const opt = buildKlineChartOption({ data: amvData, echartsTheme, subplots })
+
+    expect(arrify(opt.grid).length).toBe(6)
+    expect(arrify(opt.xAxis).length).toBe(6)
+    expect(arrify(opt.yAxis).length).toBe(6)
+    expect(arrify(opt.legend).length).toBe(6)
+
+    const ys = arrify(opt.yAxis) as any[]
+    expect(ys[5].name).toBe('活跃市值')
+
+    const seriesArr = arrify(opt.series) as any[]
+    const amvLine = seriesArr.find((s) => s.name === '0AMV')
+    expect(amvLine).toBeTruthy()
+    expect(amvLine.type).toBe('line')
+    expect(amvLine.xAxisIndex).toBe(5)
+    expect(amvLine.data).toEqual([1000, 1010, 1020, 1030])
+  })
+
+  it('开启 0AMV_MACD：柱 + DIF/DEA 双线；正负柱按符号分桶', () => {
+    const subplots = subplotsOf(['VOL', 'KDJ', 'MACD', 'BRICK', '0AMV_MACD'])
+    const opt = buildKlineChartOption({ data: amvData, echartsTheme, subplots })
+
+    expect(arrify(opt.grid).length).toBe(6)
+
+    const seriesArr = arrify(opt.series) as any[]
+    const dif = seriesArr.find((s) => s.name === '0AMV.DIF')
+    const dea = seriesArr.find((s) => s.name === '0AMV.DEA')
+    const macdBars = seriesArr.filter((s) => s.name === '0AMV.MACD')
+    expect(dif?.type).toBe('line')
+    expect(dea?.type).toBe('line')
+    expect(macdBars.length).toBe(2) // 正负各一条 bar
+    expect(macdBars.every((s) => s.type === 'bar')).toBe(true)
+
+    // 柱值 [-3,-1,1,3]：正桶仅保留 >0，负桶仅保留 <0
+    const posBar = macdBars[0]
+    const negBar = macdBars[1]
+    expect(posBar.data.map((d: any) => d?.value ?? null)).toEqual([null, null, 1, 3])
+    expect(negBar.data.map((d: any) => d?.value ?? null)).toEqual([-3, -1, null, null])
+  })
+
+  it('未开启 AMV 副图时不渲染 AMV series（即便数据含 0AMV 字段）', () => {
+    const subplots = subplotsOf(['VOL', 'KDJ', 'MACD', 'BRICK'])
+    const opt = buildKlineChartOption({ data: amvData, echartsTheme, subplots })
+    const seriesArr = arrify(opt.series) as any[]
+    expect(seriesArr.some((s) => String(s.name).startsWith('0AMV'))).toBe(false)
+    expect(arrify(opt.grid).length).toBe(5)
+  })
+
+  it('AMV 字段缺日填 null：line/柱在缺位输出 null', () => {
+    const partial: KlineChartBar[] = [
+      { ...baseData[0], '0AMV': 100, '0AMV.MACD': 2 },
+      { ...baseData[1], '0AMV': null, '0AMV.MACD': null },
+      { ...baseData[2], '0AMV': 120, '0AMV.MACD': -1 },
+      { ...baseData[3] },
+    ]
+    const subplots = subplotsOf(['VOL', 'KDJ', 'MACD', 'BRICK', '0AMV', '0AMV_MACD'])
+    const opt = buildKlineChartOption({ data: partial, echartsTheme, subplots })
+    const seriesArr = arrify(opt.series) as any[]
+    const amvLine = seriesArr.find((s) => s.name === '0AMV')
+    expect(amvLine.data).toEqual([100, null, 120, null])
   })
 })

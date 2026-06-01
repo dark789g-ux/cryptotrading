@@ -10,32 +10,39 @@
 
 import { aSharesApi, type AShareKlineBar } from '@/api/modules/market/aShares'
 import { moneyFlowApi } from '@/api/modules/market/moneyFlow'
+import { activeMvApi, type AmvSeriesRow } from '@/api/modules/market/active-mv'
 import { mergeKlineWithMoneyFlow, type MoneyFlowRowLike } from '@/composables/kline/mergeMoneyFlow'
+import { mergeKlineWithAmv } from '@/composables/kline/mergeAmv'
 
 export interface AShareDetailFetchResult {
-  /** 已 merge moneyFlow 的 K 线数组，每根 bar 自带 row.moneyFlow */
+  /** 已 merge moneyFlow + AMV 的 K 线数组，每根 bar 自带 row.moneyFlow / '0AMV' 等 */
   kline: AShareKlineBar[]
   /** 透出 raw 资金流行，供 priceMode 切换路径复用（重 merge 不重拉） */
   flowRows: MoneyFlowRowLike[]
+  /** 透出 AMV 序列，供 priceMode 切换路径复用（重 merge 不重拉） */
+  amvRows: AmvSeriesRow[]
 }
 
-/** Drawer 首次加载 / 切换 row 时调用：并行拉 K 线 + 资金流 */
+/** Drawer 首次加载 / 切换 row 时调用：并行拉 K 线 + 资金流 + 活跃市值 */
 export async function fetchAShareDetail(
   tsCode: string,
   limit: number,
   priceMode: 'qfq' | 'raw',
 ): Promise<AShareDetailFetchResult> {
-  const [kline, flowRows] = await Promise.all([
+  const [kline, flowRows, amvRows] = await Promise.all([
     aSharesApi.getKlines(tsCode, limit, priceMode),
     moneyFlowApi.queryStocks({ ts_code: tsCode, limit }),
+    // AMV 失败不应拖垮 K 线主图：吞错降级为空序列（副图缺日填 null）
+    activeMvApi.getStock(tsCode, limit).catch(() => [] as AmvSeriesRow[]),
   ])
   return {
-    kline: mergeKlineWithMoneyFlow(kline, flowRows),
+    kline: mergeKlineWithAmv(mergeKlineWithMoneyFlow(kline, flowRows), amvRows),
     flowRows,
+    amvRows,
   }
 }
 
-/** priceMode 切换时调用：只重拉 K 线，资金流由调用方缓存复用 */
+/** priceMode 切换时调用：只重拉 K 线，资金流 / AMV 由调用方缓存复用 */
 export async function fetchAShareKlineOnly(
   tsCode: string,
   limit: number,

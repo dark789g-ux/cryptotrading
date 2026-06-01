@@ -35,6 +35,7 @@
             :range="null"
             disabled-range
             prefs-key="a-share"
+            :available-subplots="aShareAvailableSubplots"
           />
         </div>
       </div>
@@ -55,9 +56,17 @@ import {
 } from 'naive-ui'
 import KlineChart from '../../kline/KlineChart.vue'
 import { type AShareKlineBar, type AShareRow } from '@/api'
+import type { AmvSeriesRow } from '@/api/modules/market/active-mv'
+import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { mergeKlineWithMoneyFlow, type MoneyFlowRowLike } from '@/composables/kline/mergeMoneyFlow'
+import { mergeKlineWithAmv } from '@/composables/kline/mergeAmv'
 import { fetchAShareDetail, fetchAShareKlineOnly } from './aShareDetailFetcher'
 import { formatTradeDate } from './aSharesFormatters'
+
+// 个股 K 线：全副图 + 活跃市值（0AMV / 0AMV_MACD）
+const aShareAvailableSubplots: SubplotKey[] = [
+  'VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW', '0AMV', '0AMV_MACD',
+]
 
 const props = defineProps<{
   show: boolean
@@ -73,6 +82,8 @@ const loading = ref(false)
 const klineRows = ref<AShareKlineBar[]>([])
 // 缓存最近一次的资金流 raw 行，供 priceMode 切换路径复用
 const cachedFlowRows = ref<MoneyFlowRowLike[]>([])
+// 缓存最近一次的 AMV 序列，供 priceMode 切换路径复用（重 merge 不重拉）
+const cachedAmvRows = ref<AmvSeriesRow[]>([])
 
 /** Drawer 打开 / row 切换：并行拉 K 线 + 资金流 */
 async function loadDetail() {
@@ -81,10 +92,12 @@ async function loadDetail() {
   loading.value = true
   klineRows.value = []
   cachedFlowRows.value = []
+  cachedAmvRows.value = []
   try {
     const result = await fetchAShareDetail(tsCode, 360, props.priceMode)
     klineRows.value = result.kline
     cachedFlowRows.value = result.flowRows
+    cachedAmvRows.value = result.amvRows
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
   } finally {
@@ -99,8 +112,11 @@ async function reloadKlineOnly() {
   loading.value = true
   try {
     const rawKline = await fetchAShareKlineOnly(tsCode, 360, props.priceMode)
-    // 把缓存的资金流挂回新 K 线（开发模式下若日期格式漂移 R3 探针会触发）
-    klineRows.value = mergeKlineWithMoneyFlow(rawKline, cachedFlowRows.value)
+    // 把缓存的资金流 + AMV 挂回新 K 线（开发模式下若日期格式漂移 R3 探针会触发）
+    klineRows.value = mergeKlineWithAmv(
+      mergeKlineWithMoneyFlow(rawKline, cachedFlowRows.value),
+      cachedAmvRows.value,
+    )
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
   } finally {
@@ -114,6 +130,7 @@ watch(
     if (!show) {
       klineRows.value = []
       cachedFlowRows.value = []
+      cachedAmvRows.value = []
       return
     }
     if (!tsCode) return

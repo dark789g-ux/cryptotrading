@@ -49,6 +49,18 @@ export interface KlineChartBar {
    * - 不存在该字段表示业务方未启用资金流副图
    */
   moneyFlow?: number | null
+  /**
+   * 活跃市值（AMV）副图数据。由 mergeKlineWithAmv 在 fetcher 层按 trade_date 合并到行内，
+   * KlineChart 的 '0AMV' / '0AMV_MACD' 副图按 index 直读。
+   * - `'0AMV'`：活跃市值收盘（amvClose），单线
+   * - `'0AMV.DIF' / '0AMV.DEA' / '0AMV.MACD'`：AMV 序列的 MACD（柱 + 双线）
+   * - `null` 表示该 bar 当日无 AMV 数据（停牌 / 热身段裁掉 / 缺日）
+   * - 不存在这些字段表示业务方未启用 AMV 副图（crypto / backtest）
+   */
+  '0AMV'?: number | null
+  '0AMV.DIF'?: number | null
+  '0AMV.DEA'?: number | null
+  '0AMV.MACD'?: number | null
 }
 
 export interface SymbolDateRange {

@@ -2,11 +2,17 @@
  * KlineChart 副图配置：类型、默认值、归一化工具
  *
  * - 副图开关 / 顺序 / 高度由用户在工具栏调节
- * - 三个调用点（a-share / crypto / backtest）通过 prefsKey 在 localStorage 隔离
+ * - 调用点（a-share / crypto / backtest / 个股·行业 AMV）通过 prefsKey 在 localStorage 隔离
  * - 默认偏好下，buildGrid/buildXAxes/... 必须输出与重构前完全一致的视觉布局
+ *
+ * 硬约束（AMV 副图接入）：
+ * - 新增 '0AMV' / '0AMV_MACD' 仅供个股（a-share）与行业（ths-index）K 线视图使用，
+ *   通过各调用点显式传入的 availableSubplots 白名单门控。
+ * - crypto / backtest 必须在 availableSubplots 中**排除**这两个 key，
+ *   normalizePrefs 会据此过滤，保证其默认视觉布局与接入前完全一致。
  */
 
-export type SubplotKey = 'VOL' | 'KDJ' | 'MACD' | 'BRICK' | 'FLOW'
+export type SubplotKey = 'VOL' | 'KDJ' | 'MACD' | 'BRICK' | 'FLOW' | '0AMV' | '0AMV_MACD'
 
 export interface SubplotConfig {
   key: SubplotKey
@@ -22,11 +28,22 @@ export interface SubplotPrefs {
   heightPct: Record<SubplotKey, number>
 }
 
-export const ALL_SUBPLOT_KEYS: readonly SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW']
+export const ALL_SUBPLOT_KEYS: readonly SubplotKey[] = [
+  'VOL',
+  'KDJ',
+  'MACD',
+  'BRICK',
+  'FLOW',
+  '0AMV',
+  '0AMV_MACD',
+]
 
 /**
  * 默认高度（百分比）— 与重构前 GRID_WITH_FLOW 的 height 字段对齐。
  * K 主图高度 = 100% - 顶部留白 - sum(可见副图高度) - dataZoom 区高度，由布局函数动态计算。
+ *
+ * 0AMV / 0AMV_MACD 仅在被加入 availableSubplots 的调用点（个股 / 行业 K 线）出现，
+ * 默认 8%（与 KDJ/MACD 同量级）。
  */
 export const DEFAULT_SUBPLOT_HEIGHT_PCT: Record<SubplotKey, number> = {
   VOL: 8,
@@ -34,9 +51,19 @@ export const DEFAULT_SUBPLOT_HEIGHT_PCT: Record<SubplotKey, number> = {
   MACD: 8,
   BRICK: 6,
   FLOW: 10,
+  '0AMV': 8,
+  '0AMV_MACD': 8,
 }
 
-export const DEFAULT_SUBPLOT_ORDER: readonly SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW']
+export const DEFAULT_SUBPLOT_ORDER: readonly SubplotKey[] = [
+  'VOL',
+  'KDJ',
+  'MACD',
+  'BRICK',
+  'FLOW',
+  '0AMV',
+  '0AMV_MACD',
+]
 
 /**
  * 三个调用点的默认偏好。
@@ -51,6 +78,11 @@ export function defaultPrefsFor(prefsKey: string): SubplotPrefs {
     MACD: true,
     BRICK: true,
     FLOW: prefsKey !== 'crypto',
+    // 0AMV / 0AMV_MACD 默认开；仅在 availableSubplots 含这两个 key 的调用点
+    //（个股 / 行业 K 线）才会真正渲染，其余调用点经 normalizePrefs 过滤后不出现，
+    // 故对 crypto / backtest 的默认布局无影响。
+    '0AMV': true,
+    '0AMV_MACD': true,
   }
   return {
     order: [...DEFAULT_SUBPLOT_ORDER],

@@ -43,6 +43,7 @@
       chart-mode="kline"
       :show-members-tab="true"
       :members-trade-date="trendMembersTradeDate"
+      :available-subplots="industryAvailableSubplots"
     />
   </div>
 </template>
@@ -59,6 +60,12 @@ import FlowTrendModal from './FlowTrendModal.vue'
 import IndustryFilters from './IndustryFilters.vue'
 import { fetchIndustryTrend } from './trendFetchers'
 import type { NumericCondition } from '@/components/common/numericConditionFilterTypes'
+import type { SubplotKey } from '@/composables/kline/subplotConfig'
+
+// 行业指数（type='I'）K 线：全副图 + 活跃市值（0AMV / 0AMV_MACD）
+const industryAvailableSubplots: SubplotKey[] = [
+  'VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW', '0AMV', '0AMV_MACD',
+]
 
 const rows = ref<MoneyFlowIndustryRow[]>([])
 const loading = ref(false)
