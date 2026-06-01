@@ -25,18 +25,21 @@
             <n-spin />
           </div>
           <n-empty v-else-if="!klineRows.length" description="暂无K线数据" class="chart-empty" />
-          <kline-chart
-            v-else
-            :data="klineRows"
-            height="100%"
-            :slider-start="35"
-            show-toolbar
-            granularity="date"
-            :range="null"
-            disabled-range
-            prefs-key="a-share"
-            :available-subplots="aShareAvailableSubplots"
-          />
+          <div v-else class="chart-with-caption">
+            <kline-chart
+              :data="klineRows"
+              height="100%"
+              :slider-start="35"
+              show-toolbar
+              granularity="date"
+              :range="null"
+              disabled-range
+              prefs-key="a-share"
+              :available-subplots="aShareAvailableSubplots"
+            />
+            <!-- 0AMV 副图合规标注（spec §8/§11）：信号未回测校准 -->
+            <n-text :depth="3" class="amv-caption">{{ AMV_CAPTION_BASE }}</n-text>
+          </div>
         </div>
       </div>
       <n-empty v-else description="未选择股票" class="chart-empty" />
@@ -52,11 +55,13 @@ import {
   NEmpty,
   NSpin,
   NTag,
+  NText,
   useMessage,
 } from 'naive-ui'
 import KlineChart from '../../kline/KlineChart.vue'
 import { type AShareKlineBar, type AShareRow } from '@/api'
 import type { AmvSeriesRow } from '@/api/modules/market/active-mv'
+import { AMV_CAPTION_BASE } from '@/composables/kline/amvCaption'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { mergeKlineWithMoneyFlow, type MoneyFlowRowLike } from '@/composables/kline/mergeMoneyFlow'
 import { mergeKlineWithAmv } from '@/composables/kline/mergeAmv'
@@ -202,6 +207,28 @@ const priceModeLabel = computed(() => props.priceMode === 'raw' ? '原始价' : 
   display: flex;
   flex: 1;
   justify-content: center;
+}
+
+/* 图 + 标注：竖排，图占满剩余高度，标注占一行小字 */
+.chart-with-caption {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* KlineChart 根元素（.kline-chart-wrapper）占满除标注外的剩余高度 */
+.chart-with-caption > :first-child {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.amv-caption {
+  flex: 0 0 auto;
+  padding: 4px 8px 2px;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 @media (max-width: 960px) {

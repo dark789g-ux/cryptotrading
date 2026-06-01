@@ -36,6 +36,11 @@
                 :available-subplots="availableSubplots"
                 @update:range="onKlineRangeChange"
               />
+              <!-- 0AMV 副图合规标注（spec §8/§11）：信号未回测校准 + 行业量基于成分股当前快照。
+                   仅当本入口确实开了 0AMV 副图（行业指数 type='I'）才展示，sector/大盘 入口不出现 -->
+              <n-text v-if="klineBars.length && showAmvCaption" :depth="3" class="amv-caption">
+                {{ AMV_CAPTION_INDUSTRY }}
+              </n-text>
             </template>
           </div>
         </n-tab-pane>
@@ -72,7 +77,7 @@
 defineOptions({ name: 'FlowTrendModal' })
 
 import { computed, h, ref, watch } from 'vue'
-import { NButton, NDataTable, NSpin, NTabPane, NTabs, useMessage } from 'naive-ui'
+import { NButton, NDataTable, NSpin, NTabPane, NTabs, NText, useMessage } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import AppModal from '@/components/common/AppModal.vue'
 import FlowDateControl from './FlowDateControl.vue'
@@ -81,6 +86,7 @@ import KlineChart from '@/components/kline/KlineChart.vue'
 import { moneyFlowApi, type MoneyFlowMemberRow, type MoneyFlowQueryParams } from '@/api/modules/market/moneyFlow'
 import { watchlistApi } from '@/api'
 import type { KlineChartBar } from '@/api'
+import { AMV_CAPTION_INDUSTRY } from '@/composables/kline/amvCaption'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { useWatchlistStore } from '@/stores/watchlist'
 import type { BarChartRow, TrendFetchResult } from './money-flow.types'
@@ -122,6 +128,12 @@ const message = useMessage()
 
 const modalWidth = computed(() =>
   props.chartMode === 'kline' ? 'min(1080px, 96vw)' : 'min(720px, 92vw)',
+)
+
+// 仅当本入口确实展示了 0AMV 副图（行业指数 type='I' 入口显式传入含 0AMV 的白名单）
+// 才显示活跃市值标注；sector / 大盘 等不含 0AMV 的入口不出现该行小字。
+const showAmvCaption = computed(
+  () => props.chartMode === 'kline' && props.availableSubplots.includes('0AMV'),
 )
 
 // 最大化下 K 线高度 = 92vh 减去固定 chrome（modal header ~70 + card padding ~32 + tabs nav ~46 + tab pane padding ~12 + FlowDateControl ~40 + body gap ~16 = ~216px，留 24px 余量）
@@ -393,6 +405,12 @@ watch(activeTab, (tab) => {
   color: var(--color-text-muted);
   text-align: center;
   padding: 40px;
+}
+.amv-caption {
+  display: block;
+  margin-top: -8px;
+  font-size: 12px;
+  line-height: 1.4;
 }
 :deep(.positive) {
   color: #f04747;
