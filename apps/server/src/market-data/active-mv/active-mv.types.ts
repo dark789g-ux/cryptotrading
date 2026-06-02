@@ -37,14 +37,20 @@ export interface StockAmvSyncOptions {
   tsCodes?: string[]
 }
 
-/** 行业同步入参（spec §7：POST /active-mv/industry/sync） */
-export interface IndustryAmvSyncOptions {
+/**
+ * 同花顺指数（行业 type='I' / 概念 type='N'）AMV 同步入参。
+ * spec §7：POST /active-mv/{industry,concept}/sync。两类共用同一形态，不新增字段。
+ */
+export interface ThsIndexAmvSyncOptions {
   startDate?: string
   endDate?: string
   syncMode?: AmvSyncMode
-  /** 可选：仅同步指定行业指数代码（.TI，不传则全部 type='I'） */
+  /** 可选：仅同步指定指数代码（.TI；不传则按 type 取全部 I 或全部 N） */
   tsCodes?: string[]
 }
+
+/** 兼容别名（行业语境）：与 ThsIndexAmvSyncOptions 完全同形。 */
+export type IndustryAmvSyncOptions = ThsIndexAmvSyncOptions
 
 /** 同步结果 */
 export interface AmvSyncResult {

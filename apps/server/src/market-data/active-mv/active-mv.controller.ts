@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common'
 import { AdminOnly } from '../../auth/decorators/admin-only.decorator'
 import { ActiveMvService } from './active-mv.service'
-import type { IndustryAmvSyncOptions, StockAmvSyncOptions } from './active-mv.types'
+import type { StockAmvSyncOptions, ThsIndexAmvSyncOptions } from './active-mv.types'
 
 /**
  * 活跃市值（AMV）API。spec §7。全局 /api 前缀 + 全局 AuthGuard 已注册，
@@ -32,11 +32,11 @@ export class ActiveMvController {
     return this.activeMvService.getStock(tsCode, daysNum)
   }
 
-  // ==== 行业 ====
+  // ==== 行业（type='I'） ====
 
   @Post('industry/sync')
   @AdminOnly()
-  syncIndustry(@Body() body: IndustryAmvSyncOptions = {}) {
+  syncIndustry(@Body() body: ThsIndexAmvSyncOptions = {}) {
     return this.activeMvService.syncIndustry(body)
   }
 
@@ -49,5 +49,25 @@ export class ActiveMvController {
   getIndustry(@Param('tsCode') tsCode: string, @Query('days') days?: string) {
     const daysNum = days ? parseInt(days, 10) : 250
     return this.activeMvService.getIndustry(tsCode, daysNum)
+  }
+
+  // ==== 概念/板块（type='N'） ====
+
+  @Post('concept/sync')
+  @AdminOnly()
+  syncConcept(@Body() body: ThsIndexAmvSyncOptions = {}) {
+    return this.activeMvService.syncConcept(body)
+  }
+
+  // 路由顺序坑：静态 `signals` 必须排在动态 `:tsCode` 之前，否则会被当成 tsCode 吞掉。
+  @Get('concept/signals')
+  getConceptSignals(@Query('tradeDate') tradeDate: string) {
+    return this.activeMvService.getConceptSignals(tradeDate)
+  }
+
+  @Get('concept/:tsCode')
+  getConcept(@Param('tsCode') tsCode: string, @Query('days') days?: string) {
+    const daysNum = days ? parseInt(days, 10) : 250
+    return this.activeMvService.getConcept(tsCode, daysNum)
   }
 }

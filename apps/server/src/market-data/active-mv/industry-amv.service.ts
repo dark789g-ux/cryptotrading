@@ -2,8 +2,10 @@ import { Injectable, Logger } from '@nestjs/common'
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm'
 import { DataSource, Repository } from 'typeorm'
 import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock.entity'
+import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-catalog.entity'
 import { ThsIndexDailyQuoteEntity } from '../../entities/ths-index-daily/ths-index-daily-quote.entity'
 import { IndustryAmvDailyEntity } from '../../entities/active-mv/industry-amv-daily.entity'
+import { ConceptAmvDailyEntity } from '../../entities/active-mv/concept-amv-daily.entity'
 import {
   calcAmvSeries,
   calcMacd,
@@ -15,14 +17,23 @@ import type {
   AmvSeriesRow,
   AmvSignalRow,
   AmvSyncResult,
-  IndustryAmvSyncOptions,
+  ThsIndexAmvSyncOptions,
 } from './active-mv.types'
+
+/** 同花顺指数类别：'I'=行业指数、'N'=概念/题材板块。 */
+type ThsIndexType = 'I' | 'N'
+
+/** 结果表类型（两类同构，泛型约束公共字段）。 */
+type AmvDailyEntity = IndustryAmvDailyEntity | ConceptAmvDailyEntity
 
 /** 额外多取的热身交易行数（spec §6：250 + 90，EMA26 ~90 根收敛到 0.1%） */
 const WARMUP_ROWS = 90
 
 /** 后缀断言抽样上限（fail-fast 用，不需全量核对） */
 const SUFFIX_SAMPLE = 5
+
+/** 类别隔离断言抽样上限（防 I/N 混存回归） */
+const TYPE_SAMPLE = 5
 
 /**
  * 量侧成分股后缀（个股代码）。
@@ -41,56 +52,111 @@ interface AmtAggRow {
   member_count: string | null
 }
 
+/** 类别中文标签（日志/错误透出用） */
+function typeLabel(t: ThsIndexType): string {
+  return t === 'I' ? 'industry' : 'concept'
+}
+
 /**
- * 行业（同花顺 type='I' 指数）活跃市值（AMV）服务。
+ * 同花顺指数活跃市值（AMV）服务（行业 type='I' / 概念 type='N' 共用，按 type 参数化）。
  *
  * 双 join：
- *  - 量 join：ths_member_stocks.con_code (.SZ/.SH) = raw.daily_quote.ts_code，Σ amount × 1000
+ *  - 量 join：ths_member_stocks.con_code (.SZ/.SH/.BJ/.NQ) = raw.daily_quote.ts_code，Σ amount × 1000
  *  - 价 join：ths_member_stocks.ts_code (.TI) = ths_index_daily_quotes.ts_code（指数点位）
+ * 待同步指数由 resolveIndexCodes 按 type join ths_index_catalog 过滤，行业/概念互不越界。
  * Σ amount 聚合走裸 SQL（DataSource），规避 QueryBuilder .select() 水合坑（见 database-sql 规则）。
  */
 @Injectable()
-export class IndustryAmvService {
-  private readonly logger = new Logger(IndustryAmvService.name)
+export class ThsIndexAmvService {
+  private readonly logger = new Logger(ThsIndexAmvService.name)
 
   constructor(
     @InjectRepository(ThsMemberStockEntity)
     private readonly memberRepo: Repository<ThsMemberStockEntity>,
+    @InjectRepository(ThsIndexCatalogEntity)
+    private readonly catalogRepo: Repository<ThsIndexCatalogEntity>,
     @InjectRepository(ThsIndexDailyQuoteEntity)
     private readonly indexDailyRepo: Repository<ThsIndexDailyQuoteEntity>,
     @InjectRepository(IndustryAmvDailyEntity)
     private readonly industryAmvRepo: Repository<IndustryAmvDailyEntity>,
+    @InjectRepository(ConceptAmvDailyEntity)
+    private readonly conceptAmvRepo: Repository<ConceptAmvDailyEntity>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
 
+  // ============== 公开方法：行业（type='I'） ==============
+
+  /** 行业 AMV 增量同步落库（type='I' → industry_amv_daily）。spec §7。 */
+  syncIndustry(opts: ThsIndexAmvSyncOptions): Promise<AmvSyncResult> {
+    return this.syncByType('I', this.industryAmvRepo, opts)
+  }
+
+  /** 单行业 AMV K 线 + 指标 + signal（最近 days 个交易日）。spec §7。 */
+  getIndustry(tsCode: string, days: number): Promise<AmvSeriesRow[]> {
+    return this.getSeriesByType(this.industryAmvRepo, tsCode, days)
+  }
+
+  /** 某交易日行业信号榜。spec §7。 */
+  getIndustrySignals(tradeDate: string): Promise<AmvSignalRow[]> {
+    return this.getSignalsByType(this.industryAmvRepo, tradeDate)
+  }
+
+  // ============== 公开方法：概念/板块（type='N'） ==============
+
+  /** 概念 AMV 增量同步落库（type='N' → concept_amv_daily）。spec §7。 */
+  syncConcept(opts: ThsIndexAmvSyncOptions): Promise<AmvSyncResult> {
+    return this.syncByType('N', this.conceptAmvRepo, opts)
+  }
+
+  /** 单概念 AMV K 线 + 指标 + signal（最近 days 个交易日）。spec §7。 */
+  getConcept(tsCode: string, days: number): Promise<AmvSeriesRow[]> {
+    return this.getSeriesByType(this.conceptAmvRepo, tsCode, days)
+  }
+
+  /** 某交易日概念信号榜。spec §7。 */
+  getConceptSignals(tradeDate: string): Promise<AmvSignalRow[]> {
+    return this.getSignalsByType(this.conceptAmvRepo, tradeDate)
+  }
+
+  // ============== 共享算法主体（参数化 by type + 目标 repo） ==============
+
   /**
-   * 行业 AMV 增量同步落库。
-   * spec §7：POST /active-mv/industry/sync { startDate, endDate, syncMode }
+   * 按 type 同步落库到目标 repo。
+   * 不传 tsCodes 时只算该 type 全部指数（type='I' 不再含 N，反之亦然）。
    */
-  async syncIndustry(opts: IndustryAmvSyncOptions): Promise<AmvSyncResult> {
+  private async syncByType(
+    indexType: ThsIndexType,
+    targetRepo: Repository<AmvDailyEntity>,
+    opts: ThsIndexAmvSyncOptions,
+  ): Promise<AmvSyncResult> {
+    const label = typeLabel(indexType)
     const syncMode = opts.syncMode ?? 'incremental'
     const endDate = opts.endDate ?? this.todayYyyymmdd()
-    // 行业版无 0AMV 那种自然日窗口，热身按交易行取，startDate 缺省给一个足够早的下界
+    // 无 0AMV 那种自然日窗口，热身按交易行取，startDate 缺省给一个足够早的下界
     const startDate = opts.startDate ?? '00000000'
 
-    const indexCodes = await this.resolveIndexCodes(opts.tsCodes)
+    const indexCodes = await this.resolveIndexCodes(indexType, opts.tsCodes)
     if (indexCodes.length === 0) {
-      const msg = 'no_industry_index_codes: ths_member_stocks 无任何 .TI 指数成分股'
-      this.logger.warn(`[industry-amv] ${msg}（params: ${JSON.stringify(opts)}）`)
+      const msg = `no_${label}_index_codes: ths_index_catalog 无 type='${indexType}' 的有成分股指数`
+      this.logger.warn(`[${label}-amv] ${msg}（params: ${JSON.stringify(opts)}）`)
       return { synced: 0, errors: [msg] }
     }
 
     // 后缀断言（fail-fast）：抽样核对量侧 con_code / 价侧 ts_code 后缀
-    await this.assertSuffixes(indexCodes)
+    await this.assertSuffixes(indexType, indexCodes)
+    // 类别隔离断言（防回归）：解析出的指数 type 必须全为本路径的 indexType
+    await this.assertTypeIsolation(indexType, indexCodes)
 
     const errors: string[] = []
-    const failedItems: AmvSyncResult['failedItems'] = []
+    const failedItems: NonNullable<AmvSyncResult['failedItems']> = []
     let synced = 0
 
     for (const idx of indexCodes) {
       try {
-        const n = await this.syncOneIndustry(
+        const n = await this.syncOneIndex(
+          indexType,
+          targetRepo,
           idx,
           startDate,
           endDate,
@@ -101,9 +167,9 @@ export class IndustryAmvService {
         synced += n
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err)
-        this.logger.error(`[industry-amv] 指数 ${idx} 同步失败：${reason}`)
-        errors.push(`industry_amv_error:${idx}:${reason}`)
-        failedItems.push({ tsCode: idx, apiName: 'industry_amv_error', reason })
+        this.logger.error(`[${label}-amv] 指数 ${idx} 同步失败：${reason}`)
+        errors.push(`${label}_amv_error:${idx}:${reason}`)
+        failedItems.push({ tsCode: idx, apiName: `${label}_amv_error`, reason })
       }
     }
 
@@ -113,15 +179,17 @@ export class IndustryAmvService {
     return result
   }
 
-  /**
-   * 单行业 AMV K 线 + 指标 + signal（最近 days 个交易日）。
-   * spec §7：GET /active-mv/industry/:tsCode?days=250
-   */
-  async getIndustry(tsCode: string, days: number): Promise<AmvSeriesRow[]> {
-    const rows = await this.industryAmvRepo.find({
+  /** 单标的 AMV 序列（最近 days 个交易日），从目标 repo 取。 */
+  private async getSeriesByType(
+    targetRepo: Repository<AmvDailyEntity>,
+    tsCode: string,
+    days: number,
+  ): Promise<AmvSeriesRow[]> {
+    const take = days > 0 ? days : 250
+    const rows = await targetRepo.find({
       where: { tsCode },
       order: { tradeDate: 'DESC' },
-      take: days,
+      take,
     })
     return rows.reverse().map((r) => ({
       tradeDate: r.tradeDate,
@@ -138,12 +206,13 @@ export class IndustryAmvService {
     }))
   }
 
-  /**
-   * 某交易日行业信号榜（按 signal DESC、DIF DESC 排序，走 INDEX(trade_date, signal)）。
-   * spec §7：GET /active-mv/industry/signals?tradeDate=
-   */
-  async getIndustrySignals(tradeDate: string): Promise<AmvSignalRow[]> {
-    const rows = await this.industryAmvRepo.find({
+  /** 某交易日信号榜（按 signal DESC、DIF DESC 排序，走 INDEX(trade_date, signal)）。 */
+  private async getSignalsByType(
+    targetRepo: Repository<AmvDailyEntity>,
+    tradeDate: string,
+  ): Promise<AmvSignalRow[]> {
+    if (!tradeDate) return []
+    const rows = await targetRepo.find({
       where: { tradeDate },
       order: { signal: 'DESC', amvDif: 'DESC' },
     })
@@ -160,16 +229,20 @@ export class IndustryAmvService {
   // ============== 内部实现 ==============
 
   /**
-   * 解析待同步的行业指数代码（.TI）。
-   * 来源：ths_member_stocks 里 distinct 出有成分股的 .TI 指数（不依赖 ths_index_catalog，
-   * 因本模块未注入 catalog repo；且 spec §9 的覆盖度基线就用本表「当前成分总数」）。
-   * 传入 tsCodes 时与该集合取交集（仅同步既有成分股的指数）。
+   * 解析待同步的指数代码（按 type 过滤的病根修复）。
+   * 来源：ths_member_stocks 里 distinct 出有成分股、且 ths_index_catalog.type 匹配的指数。
+   * join ths_index_catalog 是按 type 过滤的唯一权威途径（ths_member_stocks 无 type 列）。
+   * 传入 tsCodes 时与该集合取交集（仅同步既有成分股且 type 匹配的指数）。
    */
-  private async resolveIndexCodes(tsCodes?: string[]): Promise<string[]> {
+  private async resolveIndexCodes(
+    indexType: ThsIndexType,
+    tsCodes?: string[],
+  ): Promise<string[]> {
     const raw = await this.memberRepo
       .createQueryBuilder('m')
+      .innerJoin(ThsIndexCatalogEntity, 'c', 'c.tsCode = m.tsCode')
       .select('DISTINCT m.tsCode', 'tsCode')
-      .where("m.tsCode LIKE '%.TI'")
+      .where('c.type = :indexType', { indexType })
       .orderBy('m.tsCode', 'ASC')
       .getRawMany<{ tsCode: string }>()
     const all = raw.map((r) => r.tsCode)
@@ -181,25 +254,64 @@ export class IndustryAmvService {
   }
 
   /**
-   * 后缀断言（fail-fast）：抽样核对
-   *  - 量侧：member.conCode 与 daily_quote.ts_code 同为 .SZ/.SH
-   *  - 价侧：member.tsCode 与 indexDaily.ts_code 同为 .TI
-   * 不符报错 + 明确日志，不静默产空。
+   * 类别隔离断言（防回归）：解析出的指数代码其 ths_index_catalog.type 必须全为本路径 indexType。
+   * 抽样核对，错配则 throw（apiName 标 amv_type_mismatch）。
    */
-  private async assertSuffixes(indexCodes: string[]): Promise<void> {
+  private async assertTypeIsolation(
+    indexType: ThsIndexType,
+    indexCodes: string[],
+  ): Promise<void> {
+    const sample = indexCodes.slice(0, TYPE_SAMPLE)
+    if (sample.length === 0) return
+    const rows = await this.catalogRepo
+      .createQueryBuilder('c')
+      .select('c.tsCode', 'tsCode')
+      .addSelect('c.type', 'type')
+      .where('c.tsCode IN (:...codes)', { codes: sample })
+      .getRawMany<{ tsCode: string; type: string }>()
+    const bad = rows.filter((r) => r.type !== indexType)
+    if (bad.length > 0) {
+      throw new Error(
+        `amv_type_mismatch: ${typeLabel(indexType)} 路径解析出非 type='${indexType}' 指数，` +
+          `样本=${JSON.stringify(bad)}`,
+      )
+    }
+    // 解析出的指数在 catalog 里查无 type（脏 join），同样视为错配
+    if (rows.length < sample.length) {
+      const found = new Set(rows.map((r) => r.tsCode))
+      const missing = sample.filter((c) => !found.has(c))
+      throw new Error(
+        `amv_type_mismatch: ${typeLabel(indexType)} 路径有指数在 ths_index_catalog 查无记录，` +
+          `样本=${JSON.stringify(missing)}`,
+      )
+    }
+  }
+
+  /**
+   * 后缀断言（fail-fast）：抽样核对
+   *  - 价侧：member.tsCode / indexDaily.ts_code 同为 .TI
+   *  - 量侧：member.conCode 与 daily_quote.ts_code 同为 .SZ/.SH/.BJ/.NQ
+   * 不符报错 + 明确日志，不静默产空。两类 type 共用。
+   */
+  private async assertSuffixes(
+    indexType: ThsIndexType,
+    indexCodes: string[],
+  ): Promise<void> {
+    const label = typeLabel(indexType)
     // 价侧：指数代码本身必须 .TI
     const badIdx = indexCodes.filter((c) => !INDEX_SUFFIX_RE.test(c)).slice(0, SUFFIX_SAMPLE)
     if (badIdx.length > 0) {
       throw new Error(
-        `industry_amv_suffix: 价侧指数代码非 .TI 后缀，样本=${JSON.stringify(badIdx)}`,
+        `${label}_amv_suffix: 价侧指数代码非 .TI 后缀，样本=${JSON.stringify(badIdx)}`,
       )
     }
 
-    // 量侧：抽样几个成分股 conCode 必须 .SZ/.SH
+    // 量侧：抽样几个本 type 指数的成分股 conCode 必须 .SZ/.SH/.BJ/.NQ
     const sampleMembers = await this.memberRepo
       .createQueryBuilder('m')
+      .innerJoin(ThsIndexCatalogEntity, 'c', 'c.tsCode = m.tsCode')
       .select('m.conCode', 'conCode')
-      .where("m.tsCode LIKE '%.TI'")
+      .where('c.type = :indexType', { indexType })
       .limit(SUFFIX_SAMPLE * 4)
       .getRawMany<{ conCode: string }>()
     const badCon = sampleMembers
@@ -208,7 +320,7 @@ export class IndustryAmvService {
       .slice(0, SUFFIX_SAMPLE)
     if (badCon.length > 0) {
       throw new Error(
-        `industry_amv_suffix: 量侧成分股 con_code 非 .SZ/.SH 后缀，样本=${JSON.stringify(badCon)}`,
+        `${label}_amv_suffix: 量侧成分股 con_code 非 .SZ/.SH/.BJ/.NQ 后缀，样本=${JSON.stringify(badCon)}`,
       )
     }
 
@@ -224,15 +336,17 @@ export class IndustryAmvService {
       .slice(0, SUFFIX_SAMPLE)
     if (badIdxDaily.length > 0) {
       throw new Error(
-        `industry_amv_suffix: 价侧 ths_index_daily_quotes.ts_code 非 .TI 后缀，样本=${JSON.stringify(badIdxDaily)}`,
+        `${label}_amv_suffix: 价侧 ths_index_daily_quotes.ts_code 非 .TI 后缀，样本=${JSON.stringify(badIdxDaily)}`,
       )
     }
   }
 
   /**
-   * 同步单个行业指数。返回落库行数。
+   * 同步单个指数（行业/概念共用）。返回落库行数。
    */
-  private async syncOneIndustry(
+  private async syncOneIndex(
+    indexType: ThsIndexType,
+    targetRepo: Repository<AmvDailyEntity>,
     idx: string,
     startDate: string,
     endDate: string,
@@ -240,6 +354,8 @@ export class IndustryAmvService {
     errors: string[],
     failedItems: NonNullable<AmvSyncResult['failedItems']>,
   ): Promise<number> {
+    const label = typeLabel(indexType)
+    const emptyApi = `${label}_amv_empty`
     // 该指数当前成分股 conCode 列表（覆盖度基线 expected = 名单总数）
     const members = await this.memberRepo
       .createQueryBuilder('m')
@@ -249,10 +365,10 @@ export class IndustryAmvService {
     const conCodes = members.map((m) => m.conCode)
     const expectedMembers = conCodes.length
     if (expectedMembers === 0) {
-      const msg = `industry_amv_empty:${idx}: 该指数无成分股名单`
-      this.logger.warn(`[industry-amv] ${msg}`)
+      const msg = `${emptyApi}:${idx}: 该指数无成分股名单`
+      this.logger.warn(`[${label}-amv] ${msg}`)
       errors.push(msg)
-      failedItems.push({ tsCode: idx, apiName: 'industry_amv_empty', reason: '无成分股名单' })
+      failedItems.push({ tsCode: idx, apiName: emptyApi, reason: '无成分股名单' })
       return 0
     }
 
@@ -268,12 +384,12 @@ export class IndustryAmvService {
       .getMany()
 
     if (priceRows.length === 0) {
-      const msg = `industry_amv_empty:${idx}: ths_index_daily_quotes 当窗口无行情`
+      const msg = `${emptyApi}:${idx}: ths_index_daily_quotes 当窗口无行情`
       this.logger.warn(
-        `[industry-amv] ${msg}（fetchStart=${fetchStart} endDate=${endDate}）`,
+        `[${label}-amv] ${msg}（fetchStart=${fetchStart} endDate=${endDate}）`,
       )
       errors.push(msg)
-      failedItems.push({ tsCode: idx, apiName: 'industry_amv_empty', reason: '指数无行情' })
+      failedItems.push({ tsCode: idx, apiName: emptyApi, reason: '指数无行情' })
       return 0
     }
 
@@ -283,7 +399,7 @@ export class IndustryAmvService {
     // 双路径空数据 warn（data-integrity 规则）
     if (amtMap.size === 0) {
       this.logger.warn(
-        `[industry-amv] amount=empty (items.length===0)：指数 ${idx} 成分股 ` +
+        `[${label}-amv] amount=empty (items.length===0)：指数 ${idx} 成分股 ` +
           `${expectedMembers} 只在 ${fetchStart}~${endDate} 无任何成交额` +
           `（apiName=daily_quote_sum, conCodes=${expectedMembers}）`,
       )
@@ -328,7 +444,7 @@ export class IndustryAmvService {
       // 覆盖度 warn：当日有 amount 的成分股 < 当前名单总数
       if (mc < expectedMembers && !coveredWarned) {
         this.logger.warn(
-          `[industry-amv] 成分股覆盖不足：指数 ${idx} ${td} covered=${mc} expected=${expectedMembers}`,
+          `[${label}-amv] 成分股覆盖不足：指数 ${idx} ${td} covered=${mc} expected=${expectedMembers}`,
         )
         coveredWarned = true
       }
@@ -350,14 +466,14 @@ export class IndustryAmvService {
     }
 
     if (rows.length === 0) {
-      const msg = `industry_amv_empty:${idx}: 裁热身/过滤异常后无可落库行`
-      this.logger.warn(`[industry-amv] ${msg}`)
+      const msg = `${emptyApi}:${idx}: 裁热身/过滤异常后无可落库行`
+      this.logger.warn(`[${label}-amv] ${msg}`)
       errors.push(msg)
-      failedItems.push({ tsCode: idx, apiName: 'industry_amv_empty', reason: '无有效指标行' })
+      failedItems.push({ tsCode: idx, apiName: emptyApi, reason: '无有效指标行' })
       return 0
     }
 
-    return this.persist(idx, rows, syncMode)
+    return this.persist(indexType, targetRepo, idx, rows, syncMode)
   }
 
   /**
@@ -417,23 +533,26 @@ export class IndustryAmvService {
   }
 
   /**
-   * upsert 落库。增量模式跳过已有 (tsCode, tradeDate)；upsert 前按 (tsCode, tradeDate) 去重。
+   * upsert 落库到目标表。增量模式跳过已有 (tsCode, tradeDate)；upsert 前按 (tsCode, tradeDate) 去重。
    */
   private async persist(
+    indexType: ThsIndexType,
+    targetRepo: Repository<AmvDailyEntity>,
     idx: string,
     rows: AmvDailyRow[],
     syncMode: 'incremental' | 'overwrite',
   ): Promise<number> {
+    const label = typeLabel(indexType)
     let toWrite = rows
     if (syncMode !== 'overwrite') {
-      const existing = await this.industryAmvRepo.find({
+      const existing = await targetRepo.find({
         where: { tsCode: idx },
         select: ['tradeDate'],
       })
       const existingSet = new Set(existing.map((e) => e.tradeDate))
       toWrite = rows.filter((r) => !existingSet.has(r.tradeDate))
       if (toWrite.length === 0) {
-        this.logger.log(`[industry-amv] 指数 ${idx} 增量无新数据`)
+        this.logger.log(`[${label}-amv] 指数 ${idx} 增量无新数据`)
         return 0
       }
     }
@@ -444,7 +563,7 @@ export class IndustryAmvService {
     const finalRows = [...dedup.values()]
     if (finalRows.length !== toWrite.length) {
       this.logger.warn(
-        `[industry-amv] 指数 ${idx} upsert 去重：原 ${toWrite.length} → ${finalRows.length}`,
+        `[${label}-amv] 指数 ${idx} upsert 去重：原 ${toWrite.length} → ${finalRows.length}`,
       )
     }
 
@@ -463,10 +582,10 @@ export class IndustryAmvService {
       memberCount: r.memberCount ?? null,
     }))
 
-    await this.industryAmvRepo
+    await targetRepo
       .createQueryBuilder()
       .insert()
-      .into(IndustryAmvDailyEntity)
+      .into(targetRepo.target)
       .values(entities)
       .orUpdate(
         [
@@ -485,7 +604,7 @@ export class IndustryAmvService {
       )
       .execute()
 
-    this.logger.log(`[industry-amv] 指数 ${idx} 落库 ${entities.length} 行`)
+    this.logger.log(`[${label}-amv] 指数 ${idx} 落库 ${entities.length} 行`)
     return entities.length
   }
 
