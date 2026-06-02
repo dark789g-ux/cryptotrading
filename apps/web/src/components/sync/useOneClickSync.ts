@@ -383,7 +383,7 @@ export function useOneClickSync(message: OneClickMessageApi) {
     i: number,
     key: OneClickStepKey,
     phaseLabel: string,
-    doSync: () => Promise<unknown>,
+    doSync: () => Promise<{ synced: number } | null>,
   ) {
     currentStepIndex.value = i
     setStepStatus(i, 'running')
@@ -395,11 +395,13 @@ export function useOneClickSync(message: OneClickMessageApi) {
       steps.value[i].phase = phaseLabel
       steps.value[i].message = '当前为增量模式（全量回填请走各自同步页）'
       steps.value[i].percent = 30
-      // AMV sync 是单次 HTTP 调用（无 SSE），内部 await 全程
-      await doSync()
+      // AMV sync 是单次 HTTP 调用（无 SSE），内部 await 全程；接住 synced 填写入行数
+      const result = await doSync()
+      const synced = result?.synced ?? 0
+      steps.value[i].rowsWritten = synced
       steps.value[i].percent = 100
       setStepStatus(i, 'success')
-      pushLog({ step: key, level: 'info', text: `${phaseLabel} 完成` })
+      pushLog({ step: key, level: 'info', text: `${phaseLabel} 完成，写入 ${synced} 行` })
     } catch (e: unknown) {
       setStepStatus(i, 'failed')
       const msg = e instanceof Error ? e.message : String(e)
