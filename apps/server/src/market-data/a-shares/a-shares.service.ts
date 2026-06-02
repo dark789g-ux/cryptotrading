@@ -109,14 +109,18 @@ export class ASharesService {
   async query(dto: QueryASharesDto) {
     const page = Math.max(1, Number(dto.page ?? 1));
     const pageSize = Math.min(100, Math.max(1, Number(dto.pageSize ?? 10)));
-    const baseQuery = buildASharesBaseQuery(dto);
+
+    // 按「评分」排序需当日 prod 模型版本以 JOIN ml.scores_daily（跨域只读，仅排序时触发）
+    const scoreModelVersion =
+      dto.sort?.field === 'modelScore' ? await this.resolveProdModelVersion() : null;
+    const baseQuery = buildASharesBaseQuery(dto, scoreModelVersion);
 
     const countRows = await this.dataSource.query<Array<{ count: string }>>(
       `SELECT COUNT(*) FROM (${baseQuery.sql}) sub`,
       baseQuery.params,
     );
     const total = Number(countRows[0]?.count ?? 0);
-    let sql = appendASharesSort(baseQuery.sql, dto);
+    let sql = appendASharesSort(baseQuery.sql, dto, scoreModelVersion != null);
     sql += ` LIMIT $${baseQuery.nextParamIndex} OFFSET $${baseQuery.nextParamIndex + 1}`;
 
     const rows = await this.dataSource.query<Array<Record<string, string | null>>>(
@@ -124,6 +128,20 @@ export class ASharesService {
       [...baseQuery.params, pageSize, (page - 1) * pageSize],
     );
     return { rows, total, page, pageSize };
+  }
+
+  /**
+   * 当前 prod 模型版本（`ml.model_runs.status='prod'` 最新一条；无则 null）。
+   *
+   * 评分（`ml.scores_daily`）归属 quant 业务域；A 股面板「按评分排序」需在主查询里
+   * JOIN 评分表 + ORDER BY + 分页，无法用纯服务调用替代（三者必须在同一条 SQL）。
+   * 经产品确认接受此跨域只读耦合（C2 方案不支持服务端排序，本次按需放开）。
+   */
+  private async resolveProdModelVersion(): Promise<string | null> {
+    const rows = await this.dataSource.query<Array<{ model_version: string }>>(
+      `SELECT model_version FROM ml.model_runs WHERE status = 'prod' ORDER BY created_at DESC LIMIT 1`,
+    );
+    return rows[0]?.model_version ?? null;
   }
 
   async getFilterOptions() {

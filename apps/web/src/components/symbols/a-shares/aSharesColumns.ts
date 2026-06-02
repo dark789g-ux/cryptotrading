@@ -78,7 +78,9 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
       key: 'modelScore',
       width: 110,
       defaultVisible: true,
-      // 不设 sorter：评分跨日/跨模型不可比，且来自二次异步请求、与主表 remote 分页排序不同源
+      // 表头排序：服务端按当日 prod 评分 JOIN 排序（同一快照日内评分可比）。
+      // 未评分行 NULLS LAST 恒置末尾。点击触发 remote 重新查询 + 评分重新回填。
+      sorter: true,
       render: (row) => {
         if (options.scoresLoading.value) {
           return h('span', { style: 'color: var(--color-text-secondary)' }, '…')

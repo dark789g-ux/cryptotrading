@@ -79,13 +79,33 @@ export interface ASharesQuerySql {
   nextParamIndex: number;
 }
 
-export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
+export function buildASharesBaseQuery(
+  dto: QueryASharesDto,
+  scoreModelVersion?: string | null,
+): ASharesQuerySql {
   const params: Array<string | number | string[]> = [];
   let paramIndex = 1;
   const priceMode = dto.priceMode === 'raw' ? 'raw' : 'qfq';
   const priceCols = priceMode === 'raw'
     ? { close: 'q.close', change: 'q.change', pctChg: 'q.pct_chg' }
     : { close: 'q.qfq_close', change: 'q.qfq_change', pctChg: 'q.qfq_pct_chg' };
+
+  // 按「评分」排序时 LEFT JOIN 当日 prod 评分（评分归属 quant 域，此处跨域只读）。
+  // - 命中 ml.scores_daily 主键 (trade_date, ts_code, model_version) → 至多一行，不放大 COUNT。
+  // - trade_date 对齐前端评分列用的全局最新交易日（= getSummary 的 latestTradeDate），
+  //   保证「排序依据」与「展示数值」同源。
+  // - model_version 参数置于 WHERE 过滤之前，故占 $1（后续过滤从 $2 起，paramIndex 已递增）。
+  let scoreJoin = '';
+  if (dto.sort?.field === 'modelScore' && scoreModelVersion) {
+    scoreJoin = `
+      LEFT JOIN ml.scores_daily sd
+        ON sd.ts_code = s.ts_code
+        AND sd.trade_date = (SELECT MAX(trade_date) FROM raw.daily_quote)
+        AND sd.model_version = $${paramIndex}`;
+    params.push(scoreModelVersion);
+    paramIndex++;
+  }
+
   let sql = `
       WITH latest AS (
         SELECT ts_code, MAX(trade_date) AS trade_date
@@ -121,7 +141,7 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
       LEFT JOIN latest l ON l.ts_code = s.ts_code
       LEFT JOIN raw.daily_quote q ON q.ts_code = s.ts_code AND q.trade_date = l.trade_date
       LEFT JOIN raw.daily_basic m ON m.ts_code = s.ts_code AND m.trade_date = l.trade_date
-      LEFT JOIN raw.daily_indicator i ON i.ts_code = s.ts_code AND i.trade_date = l.trade_date
+      LEFT JOIN raw.daily_indicator i ON i.ts_code = s.ts_code AND i.trade_date = l.trade_date${scoreJoin}
       WHERE s.list_status = 'L'
     `;
 
@@ -181,9 +201,19 @@ export function buildASharesBaseQuery(dto: QueryASharesDto): ASharesQuerySql {
   return { sql, params, nextParamIndex: paramIndex };
 }
 
-export function appendASharesSort(sql: string, dto: QueryASharesDto): string {
+export function appendASharesSort(
+  sql: string,
+  dto: QueryASharesDto,
+  hasScoreJoin = false,
+): string {
   const sortField = dto.sort?.field ?? 'tsCode';
-  const sortCol = (dto.priceMode === 'raw' ? RAW_SORT_COL_MAP : QFQ_SORT_COL_MAP)[sortField] ?? 's.ts_code';
   const sortAsc = dto.sort?.order ? dto.sort.order !== 'descend' : dto.sort?.asc !== false;
-  return `${sql} ORDER BY ${sortCol} ${sortAsc ? 'ASC' : 'DESC'} NULLS LAST`;
+  const dir = sortAsc ? 'ASC' : 'DESC';
+  // 评分排序：未评分(NULL)恒置末尾；ts_code 作稳定次序，避免同分/全 NULL 时翻页抖动。
+  // 仅在 JOIN 真实存在时走 sd.score（无 prod 模型则降级为默认排序，列本就全 —）。
+  if (sortField === 'modelScore' && hasScoreJoin) {
+    return `${sql} ORDER BY sd.score ${dir} NULLS LAST, s.ts_code ASC`;
+  }
+  const sortCol = (dto.priceMode === 'raw' ? RAW_SORT_COL_MAP : QFQ_SORT_COL_MAP)[sortField] ?? 's.ts_code';
+  return `${sql} ORDER BY ${sortCol} ${dir} NULLS LAST`;
 }
