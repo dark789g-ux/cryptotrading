@@ -6,6 +6,29 @@
 
 ---
 
+## 2026-06-02: 驱动 Vue「难填」控件 —— 走组件实例直接设 exposed ref
+
+**Symptom**：要给 `n-date-picker`（daterange）设值再触发同步。走 UI 得开日历、翻月、点日格，多个易错往返；`fill` 又因为它是格式化展示 + 需日历确认而设不进。
+**Cause**：复杂控件的值不在能直接 `fill` 的 input 上，藏在组件状态里。
+**Lesson**：找面板根 DOM（如 `.one-click-sync`）→ `el.__vueParentComponent`，向上 `.parent` 走到带 `exposed`（`defineExpose`）的实例，直接设它暴露的 ref（`ctrl.dateRange.value=[ms,ms]`）并读 `ctrl.steps.value` 做进度轮询——比驱动 UI 控件稳得多。日历日用本地午夜 ms（`new Date(y,m,d).getTime()`），别用 UTC。
+
+## 2026-06-02: evaluate 的正则字面量经 curl/JSON 多层传输会碎
+
+**Symptom**：evaluate code 里写 `str.replace(/\n/g,' ')`，daemon 报 `SyntaxError: Invalid regular expression: missing /`；再加力转义反斜杠也没用。
+**Cause**：反斜杠序列穿过 shell 单引号 + JSON 字符串 + daemon 解析多层，正则字面量里的 `\n`/`/` 被打碎。
+**Lesson**：evaluate 经 curl 传时避开正则字面量与裸换行——用 `String.fromCharCode(10)` 代替 `'\n'`、`split(x).join(y)` 代替 `replace(/x/g,y)`。关 Naive modal 同理：按 `aria-label==='close'` / `.n-base-close` 精确匹配，别 `querySelector('.n-modal .n-button')` 抓第一个（可能是「最大化」按钮）。
+
+## 2026-06-02: SPA 路由卡在 `/` matched=0 —— 真因是某子组件 Vite 转换 500
+
+**Symptom**：navigate / `router.push('/money-flow')` 后 `currentRoute.path` 一直是 `/`、`matched.length===0`、`<main>` 空白，但 `location.href` 已是目标 URL，且该路由确实在 `getRoutes()` 里。换新 tab、硬刷新都复现。`/api/auth/me` 直接 fetch 返回 200（不是登录态问题）。目标页主 chunk 的 network 请求也是 200。
+
+**Cause**：路由懒加载的 `import()` 整体 reject（`TypeError: Failed to fetch dynamically imported module`），但**主 .vue 文件本身 200**，真正 500 的是它 import 的某个**子组件**。Vite 对编译失败的 SFC 返回 HTTP 500 + 一段内嵌 error 的 HTML，于是 `import()` 链整体失败、`beforeEach` 的 navigation 永远 resolve 不了。本例子组件 `defineProps/withDefaults` 的 default 工厂引用了 `<script setup>` 里的局部 const（`@vue/compiler-sfc` 禁止：defineProps 会被提升到 setup() 外），编译直接报错。
+
+**Lesson**：遇到「路由 matched=0 但 URL/route 表都对、auth 也正常」，**别再怀疑 auth/guard**。两步定位：
+1. 在页面 `evaluate` 里 `router.push(target).catch(e=>e.message)` —— 能直接拿到 `Failed to fetch dynamically imported module: <文件>`。
+2. 对该文件**及其 import 的子组件**逐个 `curl -o /dev/null -w "%{http_code}" http://localhost:5173/src/.../X.vue`，500 的那个就是真凶；再 `curl` 它看内嵌的 `@vue/compiler-sfc` error message。
+主文件 200 不代表它能用 —— 失败藏在 transitive import 里。
+
 ## 2026-05-27: 从 view 文件路径推断路由前缀
 
 **Symptom**：因为 Vue view 文件在 `apps/web/src/views/market/MoneyFlowView.vue`，就 navigate 到 `/market/money-flow`。页面渲染出来 `<main>` 里只有空注释 `<!---->`。浪费 ~6 个 webbridge 往返追查「为啥内容空」。
