@@ -16,7 +16,8 @@ db.on('exit', (code) => {
   server.unref()
 
   // 3. 等待端口 3000 就绪后启动 web
-  import('wait-on').then(({ waitOn }) => {
+  import('wait-on').then((mod) => {
+    const waitOn = mod.default || mod
     waitOn({ resources: ['tcp:3000'], timeout: 60000 })
       .then(() => {
         console.log('\n✓ 后端已就绪，启动前端...\n')
