@@ -79,4 +79,16 @@ export const activeMvApi = {
     ),
   syncIndustry: (params: AmvSyncParams = {}) =>
     post<AmvSyncResult>(`${API_BASE}/active-mv/industry/sync`, params),
+
+  // ---- 概念板块（同花顺 type='N'，独立表 concept_amv_daily / 独立端点） ----
+  getConcept: (tsCode: string, days = 250) =>
+    request<AmvSeriesRow[]>(
+      `${API_BASE}/active-mv/concept/${encodeURIComponent(tsCode)}?days=${days}`,
+    ),
+  getConceptSignals: (tradeDate: string) =>
+    request<AmvSignalRow[]>(
+      `${API_BASE}/active-mv/concept/signals?tradeDate=${encodeURIComponent(tradeDate)}`,
+    ),
+  syncConcept: (params: AmvSyncParams = {}) =>
+    post<AmvSyncResult>(`${API_BASE}/active-mv/concept/sync`, params),
 }

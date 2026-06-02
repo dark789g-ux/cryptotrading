@@ -1,6 +1,13 @@
 // 一键同步相关类型与常量（从 useOneClickSync.ts 抽出，保持单文件 ≤500 行）
 
-export type OneClickStepKey = 'a-shares' | 'money-flow' | 'ths-index-daily' | 'oamv'
+export type OneClickStepKey =
+  | 'a-shares'
+  | 'money-flow'
+  | 'ths-index-daily'
+  | 'stock-amv'
+  | 'industry-amv'
+  | 'concept-amv'
+  | 'oamv'
 export type OneClickStepStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped'
 
 export interface OneClickErrorItem {
@@ -48,7 +55,10 @@ export const STEP_LABELS: Record<OneClickStepKey, string> = {
   'a-shares': 'A 股数据',
   'money-flow': '资金流向',
   'ths-index-daily': '指数日线 (ths_daily)',
-  oamv: '活跃市值 0AMV',
+  'stock-amv': '个股 AMV',
+  'industry-amv': '行业指数 AMV',
+  'concept-amv': '板块（概念）AMV',
+  oamv: '大盘 0AMV（中证全指）',
 }
 
 export function emptyStep(step: OneClickStepKey): OneClickStepState {
@@ -71,6 +81,9 @@ export function buildInitialSteps(): OneClickStepState[] {
     emptyStep('a-shares'),
     emptyStep('money-flow'),
     emptyStep('ths-index-daily'),
+    emptyStep('stock-amv'),
+    emptyStep('industry-amv'),
+    emptyStep('concept-amv'),
     emptyStep('oamv'),
   ]
 }

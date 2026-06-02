@@ -3,6 +3,7 @@ import { useASharesSync } from '@/components/symbols/a-shares/useASharesSync'
 import { useMoneyFlowSync } from './useMoneyFlowSync'
 import { useThsIndexDailySync } from './useThsIndexDailySync'
 import { useOamvSync } from './useOamvSync'
+import { useActiveMvSync } from './useActiveMvSync'
 import {
   LOG_LIMIT,
   buildInitialSteps,
@@ -56,6 +57,8 @@ export function useOneClickSync(message: OneClickMessageApi) {
   const moneyFlowCtrl = useMoneyFlowSync(message)
   const thsIndexCtrl = useThsIndexDailySync(message)
   const oamvCtrl = useOamvSync(message)
+  // 三类 AMV 共用一个 composable 实例（普通 POST，无 SSE）
+  const activeMvCtrl = useActiveMvSync(message)
 
   // ---- computed ----
   const totalPercent = computed(() => {
@@ -371,8 +374,54 @@ export function useOneClickSync(message: OneClickMessageApi) {
     }
   }
 
+  // ---- 三类 AMV 步骤（普通 POST，无 SSE，照 runOamv 模板）----
+  //
+  // 一键同步的三类 AMV 一律 syncMode='incremental'：日增量只算选定日期范围内的
+  // 新交易日，量很小，不会撞网关 60s timeout。全量回填（个股 ~4000 只最坏 ~13 分钟）
+  // **禁止进一键同步**，请走各自页面（/symbols 个股同步页等）的手动同步。
+  async function runAmvStep(
+    i: number,
+    key: OneClickStepKey,
+    phaseLabel: string,
+    doSync: () => Promise<unknown>,
+  ) {
+    currentStepIndex.value = i
+    setStepStatus(i, 'running')
+    pushLog({ step: key, level: 'info', text: `开始 ${phaseLabel}（增量模式）` })
+
+    try {
+      activeMvCtrl.syncDateRange.value = dateRange.value
+      activeMvCtrl.syncMode.value = 'incremental'
+      steps.value[i].phase = phaseLabel
+      steps.value[i].message = '当前为增量模式（全量回填请走各自同步页）'
+      steps.value[i].percent = 30
+      // AMV sync 是单次 HTTP 调用（无 SSE），内部 await 全程
+      await doSync()
+      steps.value[i].percent = 100
+      setStepStatus(i, 'success')
+      pushLog({ step: key, level: 'info', text: `${phaseLabel} 完成` })
+    } catch (e: unknown) {
+      setStepStatus(i, 'failed')
+      const msg = e instanceof Error ? e.message : String(e)
+      steps.value[i].errors.push({ step: key, level: 'error', message: msg })
+      pushLog({ step: key, level: 'error', text: msg })
+    }
+  }
+
+  async function runStockAmv() {
+    await runAmvStep(3, 'stock-amv', '同步个股 AMV', () => activeMvCtrl.syncStock())
+  }
+
+  async function runIndustryAmv() {
+    await runAmvStep(4, 'industry-amv', '同步行业指数 AMV', () => activeMvCtrl.syncIndustry())
+  }
+
+  async function runConceptAmv() {
+    await runAmvStep(5, 'concept-amv', '同步板块（概念）AMV', () => activeMvCtrl.syncConcept())
+  }
+
   async function runOamv() {
-    const i = 3
+    const i = 6
     const key: OneClickStepKey = 'oamv'
     currentStepIndex.value = i
     setStepStatus(i, 'running')
@@ -428,6 +477,21 @@ export function useOneClickSync(message: OneClickMessageApi) {
         markRemainingSkipped(3)
         return
       }
+      await runStockAmv()
+      if (cancelled.value) {
+        markRemainingSkipped(4)
+        return
+      }
+      await runIndustryAmv()
+      if (cancelled.value) {
+        markRemainingSkipped(5)
+        return
+      }
+      await runConceptAmv()
+      if (cancelled.value) {
+        markRemainingSkipped(6)
+        return
+      }
       await runOamv()
     } finally {
       stopElapsed()
@@ -475,7 +539,7 @@ export function useOneClickSync(message: OneClickMessageApi) {
       if (i === 1) moneyFlowCtrl.sse.reset()
       if (i === 2) thsIndexCtrl.sse.reset()
       // i === 0 (A 股) syncSse 句柄未暴露，依赖 cancelled watcher 让 awaitASharesDone 走 error 分支
-      // i === 3 (0AMV) 是普通 fetch，无 abort 句柄；等其返回
+      // i === 3/4/5 (个股/行业/概念 AMV) 与 i === 6 (0AMV) 均为普通 fetch，无 abort 句柄；等其返回
       setStepStatus(i, 'failed')
       const stepKey = steps.value[i].step
       steps.value[i].errors.push({ step: stepKey, level: 'warn', message: '用户取消' })

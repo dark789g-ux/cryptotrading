@@ -6,7 +6,9 @@
         <span class="ocs-header-icon" aria-hidden="true">🚀</span>
         <div class="ocs-header-text">
           <div class="ocs-title">一键同步 A 股核心数据</div>
-          <div class="ocs-subtitle">按顺序同步：A 股数据 → 资金流向 → 指数日线 → 活跃市值 0AMV</div>
+          <div class="ocs-subtitle">
+            按顺序同步：A股数据 → 资金流向 → 指数日线 → 个股/行业/板块 AMV → 大盘 0AMV
+          </div>
         </div>
       </div>
       <div class="ocs-header-right">
