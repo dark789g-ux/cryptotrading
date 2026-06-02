@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FactorDefinitionEntity } from '../../../entities/ml/factor-definition.entity';
 import { FactorsController } from './factors.controller';
+import { FactorVersionsController } from './factor-versions.controller';
 import { FactorsService } from './factors.service';
 
 /**
@@ -13,10 +14,13 @@ import { FactorsService } from './factors.service';
  * AdminGuard 由 `@auth/admin.guard.ts` 提供，无需 DI 容器额外配置
  * （只读 `req.user.role`，无外部依赖）；不在 providers 列出 AdminGuard，
  * 避免与它处直接 `new AdminGuard()` 不一致。
+ *
+ * 另含 `FactorVersionsController`：`GET /api/quant/factor-versions`（只读、非 admin），
+ * 供前端 factor_version 下拉枚举（spec 02-backend-passthrough.md）。复用 FactorsService。
  */
 @Module({
   imports: [TypeOrmModule.forFeature([FactorDefinitionEntity])],
-  controllers: [FactorsController],
+  controllers: [FactorsController, FactorVersionsController],
   providers: [FactorsService],
   exports: [FactorsService],
 })

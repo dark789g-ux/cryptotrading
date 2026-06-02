@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """features runner：DB IO 层。
 
 职责：
@@ -26,6 +25,19 @@ from quant_pipeline.features.builder import (
     build_feature_matrix_for_inference,
     build_feature_matrix_from_frames,
     resolve_feature_set_id,
+)
+from quant_pipeline.features.builder import (
+    FACTOR_CLIP_SIGMA as _BUILDER_FACTOR_CLIP_SIGMA,
+)
+from quant_pipeline.features.feature_set_hash import (  # spec 02 §哈希方案 A
+    apply_overlay_to_feature_set_id,
+    build_overlay,
+)
+from quant_pipeline.labels.strategy_aware import (
+    WINSORIZE_HI as _LABEL_WINSORIZE_HI,
+)
+from quant_pipeline.labels.strategy_aware import (
+    WINSORIZE_LO as _LABEL_WINSORIZE_LO,
 )
 from quant_pipeline.worker.progress import (
     JobCancelled,
@@ -304,6 +316,10 @@ def build_feature_matrix(
     label_scheme: str,
     date_range: str,
     new_listing_min_days: int,
+    neutralize_cols: tuple[str, ...] | None = None,
+    robust_z: bool | None = None,
+    factor_clip_sigma: float | None = None,
+    label_winsorize: tuple[float, float] | None = None,
     job_id: UUID | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> str:
@@ -312,8 +328,41 @@ def build_feature_matrix(
     参数：
         new_listing_min_days：新股门槛（spec 03 D-11/D-12 必填，进 feature_set_id
             哈希并写入 ``factors.feature_sets.new_listing_min_days`` 列）
+        neutralize_cols/robust_z：spec 02 §特征参数透传。None → 用 builder 默认
+            （``DEFAULT_NEUTRALIZE_COLS`` / ``DEFAULT_ROBUST_Z``）。这两项**已被
+            builder.build_feature_set_id 纳入基础层哈希**，故非默认值通过基础层
+            自然产生不同 id（不进覆盖层，避免双重影响）。
+        factor_clip_sigma/label_winsorize：spec 02 §特征/标签参数透传。None → 用
+            builder 默认（``FACTOR_CLIP_SIGMA`` / labels WINSORIZE_LO/HI）。这两项
+            **不在基础层哈希**，由 feature_set_hash.build_overlay 按方案 A 纳入覆盖层
+            （仅非默认值入哈希；全默认 → 最终 id == 基础 id == 改动前 id，回归红线）。
         progress_callback: 可选，CLI 终端进度条回调 (progress, stage) -> None
     """
+
+    # None → 取 builder / labels 单一真理源默认（保证不传时行为完全不变）。
+    eff_neutralize_cols = (
+        DEFAULT_NEUTRALIZE_COLS if neutralize_cols is None else tuple(neutralize_cols)
+    )
+    eff_robust_z = DEFAULT_ROBUST_Z if robust_z is None else bool(robust_z)
+    eff_factor_clip_sigma = (
+        _BUILDER_FACTOR_CLIP_SIGMA if factor_clip_sigma is None else float(factor_clip_sigma)
+    )
+    eff_label_winsorize = (
+        (_LABEL_WINSORIZE_LO, _LABEL_WINSORIZE_HI)
+        if label_winsorize is None
+        else (float(label_winsorize[0]), float(label_winsorize[1]))
+    )
+
+    # 方案 A 覆盖层：仅 factor_clip_sigma / label_winsorize（neutralize_cols / robust_z
+    # 已在基础层）。fwd_horizon_days / max_hold_days 是标签阶段参数，由 train_e2e
+    # 透传给 compute_labels；它们影响的是 factors.labels 数值，而 feature_set_id 的
+    # 基础层 scheme 串已区分（dir3_band_epsNNNN 等），此处覆盖层只纳入对 feature_matrix
+    # 数值有直接影响、且基础层未覆盖的两项。
+    overlay = build_overlay(
+        label_scheme=label_scheme,
+        factor_clip_sigma=factor_clip_sigma,
+        label_winsorize=label_winsorize,
+    )
 
     def _progress(progress: int, stage: str) -> None:
         if progress_callback is not None:
@@ -335,13 +384,31 @@ def build_feature_matrix(
     with session_scope() as _session:
         factor_ids = tuple(sorted(_load_factor_ids(_session, factor_version)))
 
-        # 预查复用：哈希契约升级后，老 row 与新跑同逻辑元组 → 复用老 ID
-        fsid, reused = resolve_feature_set_id(
+        # 预查复用：哈希契约升级后，老 row 与新跑同逻辑元组 → 复用老 ID。
+        # neutralize_cols / robust_z 进基础层（与 builder 一致）：非默认值 → 基础 id 不同
+        # → resolve 不会误命中默认配置的老行。
+        base_fsid, reused = resolve_feature_set_id(
             _session,
             factor_version=factor_version,
             label_scheme=label_scheme,
             new_listing_min_days=new_listing_min_days,
             factor_ids=factor_ids,
+            neutralize_cols=eff_neutralize_cols,
+            robust_z=eff_robust_z,
+        )
+
+    # 方案 A 覆盖层：覆盖层为空 → fsid == base_fsid（回归红线，命中历史缓存）；
+    # 覆盖层非空 → 折出新 id，且**不复用**老行（这是真正的新配置）。
+    fsid = apply_overlay_to_feature_set_id(base_fsid, overlay)
+    if overlay and fsid != base_fsid:
+        reused = False
+        logger.info(
+            "feature_set_overlay_applied",
+            extra={
+                "base_feature_set_id": base_fsid,
+                "feature_set_id": fsid,
+                "overlay": overlay,
+            },
         )
     if reused:
         logger.info(
@@ -407,13 +474,19 @@ def build_feature_matrix(
         label_scheme=label_scheme,
         new_listing_min_days=new_listing_min_days,
         factor_ids=factor_ids,
+        # spec 02 §特征参数透传：eff_* 已在上方按 None→默认归一，行为不变。
+        neutralize_cols=eff_neutralize_cols,
+        robust_z=eff_robust_z,
+        factor_clip_sigma=eff_factor_clip_sigma,
+        label_winsorize=eff_label_winsorize,
     )
-    # builder 自算的 ID 与预查得到的 fsid 应一致（reused=False 时），不一致
-    # 即三处排序约定破裂——以 fsid 为准并 warn，便于 surface 出来排查。
-    if bundle.feature_set_id != fsid:
+    # builder 自算的 ID 是**基础层** ID（不含覆盖层），应与预查得到的 base_fsid 一致
+    # （reused=False 时）；不一致即三处排序约定破裂——warn 便于 surface 排查。
+    # 注意：与 base_fsid 比，而非含覆盖层的 fsid。
+    if bundle.feature_set_id != base_fsid:
         logger.warning(
             "feature_set_id_mismatch_using_resolved",
-            extra={"resolved": fsid, "builder": bundle.feature_set_id},
+            extra={"resolved": base_fsid, "builder": bundle.feature_set_id},
         )
 
     _progress(70, "features:upsert")

@@ -15,8 +15,8 @@ import pytest
 
 from quant_pipeline.factors.base import Factor, FactorMetaMissing
 from quant_pipeline.factors.registry import (
-    FactorMeta,
     _REGISTRY_INSTANCES,
+    FactorMeta,
     _meta_cache,
     get_factor,
     list_factors,

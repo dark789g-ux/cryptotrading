@@ -17,7 +17,6 @@ import pandas as pd
 
 from quant_pipeline.factors.registry import get_factor
 
-
 # ----------------------------------------------------------------------
 # momentum_20d
 # ----------------------------------------------------------------------

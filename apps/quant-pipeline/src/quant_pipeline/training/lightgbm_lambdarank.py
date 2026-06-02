@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """LightGBM LambdaRank 训练函数（M2 Part B）。
 
 参数按 spec m2-training-mvp.md Part B 给定值（与 doc/量化/05-LightGBM训练体系.md

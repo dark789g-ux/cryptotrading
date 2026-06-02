@@ -25,7 +25,7 @@ class Volatility20d(Factor):
         close = df["close_adj"].unstack("ts_code").sort_index()
         if trade_date not in close.index:
             return pd.Series(dtype=float)
-        close = close.loc[:trade_date]
+        close = close.loc[:trade_date]  # type: ignore[misc]  # pandas 标签切片：str 标签运行时合法，stub 误判 slice index 类型
         if len(close) < self.min_trade_days:
             return pd.Series(dtype=float)
         log_close = np.log(close.tail(21))

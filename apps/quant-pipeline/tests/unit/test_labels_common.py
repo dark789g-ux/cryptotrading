@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """labels/_common.py 单测。
 
 覆盖：apply_hfq 后复权、empty_labels_frame、dedup_labels、derive_* 向量化版
@@ -28,7 +27,6 @@ from quant_pipeline.labels._common import (
     derive_suspended_set,
     empty_labels_frame,
 )
-
 
 # ----------------------------------------------------------------------
 # PROGRESS_* 不变式

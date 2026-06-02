@@ -36,7 +36,7 @@ import json
 import logging
 import shutil
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import numpy as np
@@ -79,7 +79,18 @@ class TrainResult:
 
 
 def _load_feature_matrix(feature_set_id: str) -> pd.DataFrame:
-    """从 factors.feature_matrix 拉某个 feature_set 的全量样本。"""
+    """从 factors.feature_matrix 拉某个 feature_set 的全量样本。
+
+    性能备注（#6）：此函数在多条训练通路（lambdarank / lstm / lgb-mc / tuning /
+    ab_compare）中各自被调用，单次 e2e 可能重复全量查库。
+    **故意不加 lru_cache**：
+      1. 大量单测通过 ``monkeypatch.setattr(runner, "_load_feature_matrix", ...)`` 打桩；
+         lru_cache 包装后 monkeypatch 只替换模块属性，底层已绑定的闭包不受影响，
+         会导致所有打桩测试失效。
+      2. 进程内跨 job 的全局缓存有陈旧数据风险（不同 feature_set_id 或同一 ID
+         在训练周期内更新）。
+    调用方如需避免重复查库，应自行在外层复用已加载的 DataFrame，再按需传入各训练函数。
+    """
 
     sql = text(
         """
@@ -258,20 +269,66 @@ def train_model(
         if job_id is not None:
             update_progress(job_id, progress, stage=stage)
 
-    if model != "lgb-lambdarank":
-        raise ValueError(
-            f"M2/M3 只支持 model='lgb-lambdarank'（其它后续里程碑接入），got {model!r}"
-        )
-
     # D-23：train_e2e 编排把 factor_version / label_scheme / new_listing_min_days
     # 通过 extra_hyperparams 透传进 ml.model_runs.hyperparams。
     # merge 顺序：调用方 hyperparams 在前，extra_hyperparams 覆盖（让 e2e 元字段
     # 即便与既有键冲突也优先生效，避免被 LightGBM 调参字段覆盖）。
     # 老调用方（runner_entrypoint / CLI train）不传 extra_hyperparams，行为不变。
+    # merge 在 model 分派**之前**完成：LSTM 路径拿到的 hyperparams 已含元字段
+    # （label_scheme 等），照常落 ml.model_runs.hyperparams（spec 02 §2）。
     if extra_hyperparams:
         merged_hyperparams: dict[str, Any] = dict(hyperparams or {})
         merged_hyperparams.update(extra_hyperparams)
         hyperparams = merged_hyperparams
+
+    if model == "lstm":
+        # LSTM 走独立路径（分类任务 + torch 训练循环 + 序列输入），自带数据加载 +
+        # 序列构造 + Purged Walk-Forward；不走下方 lgb 通路、不挂 lgb SHAP——分派
+        # 在 SHAP 后置钩子之前 return，天然不触发（spec 02 §2）。
+        from quant_pipeline.training.lstm_walk_forward import train_lstm_model
+
+        # 被调入口声明 -> Any（自带训练循环，未细化返回类型）；运行时返回 TrainResult，cast 仅修类型
+        return cast(
+            TrainResult,
+            train_lstm_model(
+                feature_set_id=feature_set_id,
+                seed=seed,
+                job_id=job_id,
+                hyperparams=hyperparams,
+                walk_forward_params=walk_forward_params or {},
+                progress_callback=_progress,
+                today_yyyymmdd=today_yyyymmdd,
+                insert_model_run=_insert_model_run,
+                write_artifact=_write_artifact,
+            ),
+        )
+    if model == "lgb-multiclass":
+        # lgb-multiclass 走独立路径（多分类 + 自己的 walk-forward），完全绕开
+        # ranking 的 compare_three；分派在 SHAP 后置钩子之前 return，天然不触发
+        # lgb-lambdarank 的 SHAP（spec 03 §定位）。始终 walk-forward（无 single_fold）。
+        from quant_pipeline.training.lgb_multiclass_walk_forward import (
+            train_lgb_multiclass_model,
+        )
+
+        # 同上：被调入口声明 -> Any，运行时返回 TrainResult，cast 仅修类型不改值
+        return cast(
+            TrainResult,
+            train_lgb_multiclass_model(
+                feature_set_id=feature_set_id,
+                seed=seed,
+                job_id=job_id,
+                hyperparams=hyperparams,
+                walk_forward_params=walk_forward_params or {},
+                progress_callback=_progress,
+                today_yyyymmdd=today_yyyymmdd,
+                insert_model_run=_insert_model_run,
+                write_artifact=_write_artifact,
+            ),
+        )
+    if model not in ("lgb-lambdarank",):
+        raise ValueError(
+            f"不支持的 model={model!r}（支持 lgb-lambdarank / lgb-multiclass / lstm）"
+        )
 
     _progress(0, "train:start")
 
@@ -301,7 +358,8 @@ def train_model(
     if walk_forward:
         from quant_pipeline.training.walk_forward_runner import train_walk_forward
 
-        result = train_walk_forward(
+        # 被调入口声明 -> Any，运行时返回 TrainResult；显式注解修类型不改值
+        result: TrainResult = train_walk_forward(
             feature_set_id=feature_set_id,
             df_train=df_train,
             X_all=X_all,

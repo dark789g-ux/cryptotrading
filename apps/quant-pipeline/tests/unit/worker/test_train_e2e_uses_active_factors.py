@@ -29,7 +29,6 @@ from quant_pipeline.factors.registry import (
 )
 from quant_pipeline.worker import train_e2e_runner as tr
 
-
 _JOB_ID = UUID("99999999-aaaa-bbbb-cccc-dddddddddddd")
 
 
@@ -121,8 +120,8 @@ def test_run_train_e2e_calls_reload_then_uses_active_factors(
     def _fake_train(*, progress_callback=None, **kwargs: Any) -> dict[str, Any]:
         return {"model_version": "v_test", "feature_set_id": kwargs["feature_set_id"]}
 
-    import quant_pipeline.labels.runner as labels_mod
     import quant_pipeline.features.runner as features_mod
+    import quant_pipeline.labels.runner as labels_mod
     import quant_pipeline.training.runner as training_mod
 
     monkeypatch.setattr(labels_mod, "compute_labels", _fake_labels)

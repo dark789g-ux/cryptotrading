@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """features/builder.py 单测。
 
 覆盖：
@@ -18,7 +17,6 @@ import numpy as np
 import pandas as pd
 
 from quant_pipeline.features.builder import (
-    DEFAULT_NEUTRALIZE_COLS,
     FACTOR_CLIP_SIGMA,
     build_feature_matrix_from_frames,
     build_feature_set_id,
@@ -30,7 +28,6 @@ from quant_pipeline.features.builder import (
     standardize_cross_sectional,
     winsorize_factors,
 )
-
 
 # ----------------------------------------------------------------------
 # feature_set_id 稳定性
@@ -191,7 +188,7 @@ def test_resolve_feature_set_id_hit_returns_existing_id() -> None:
     assert params["nd"] == 60
     # fmd5 由 sorted(factor_ids) join ',' 后 md5 折算
     import hashlib as _h
-    expected = _h.md5("f1,f2".encode("utf-8")).hexdigest()
+    expected = _h.md5(b"f1,f2").hexdigest()
     assert params["fmd5"] == expected
 
 
@@ -243,9 +240,13 @@ def _make_daily_factors() -> pd.DataFrame:
     rows = []
     for td in ("20240102", "20240103"):
         for ts, mv in zip(("000001.SZ", "000002.SZ", "000003.SZ", "000004.SZ"),
-                          (1e10, 5e9, 2e10, 8e9)):
-            rows.append({"trade_date": td, "ts_code": ts, "factor_id": "mom_20", "value": float(mv) / 1e10})
-            rows.append({"trade_date": td, "ts_code": ts, "factor_id": "vol_20", "value": float(mv) / 2e10})
+                          (1e10, 5e9, 2e10, 8e9), strict=False):
+            rows.append(
+                {"trade_date": td, "ts_code": ts, "factor_id": "mom_20", "value": float(mv) / 1e10}
+            )
+            rows.append(
+                {"trade_date": td, "ts_code": ts, "factor_id": "vol_20", "value": float(mv) / 2e10}
+            )
     return pd.DataFrame(rows)
 
 
@@ -304,7 +305,11 @@ def test_neutralize_by_industry_and_market_cap_reduces_mv_correlation() -> None:
         rows.append({"trade_date": "20240102", "ts_code": ts, "factor_id": "f", "value": f_val})
         mv_rows.append({"trade_date": "20240102", "ts_code": ts, "mv": mv})
         industry_rows.append(
-            {"trade_date": "20240102", "ts_code": ts, "industry_l1": "X" if ts_idx % 2 == 0 else "Y"}
+            {
+                "trade_date": "20240102",
+                "ts_code": ts,
+                "industry_l1": "X" if ts_idx % 2 == 0 else "Y",
+            }
         )
     wide = pivot_factors_long_to_wide(pd.DataFrame(rows))
     industry = pd.DataFrame(industry_rows)
@@ -314,7 +319,6 @@ def test_neutralize_by_industry_and_market_cap_reduces_mv_correlation() -> None:
     both = neutralize_by_industry_and_market_cap(wide, industry, mv)
 
     # 用 log(mv) 与每个因子计算相关；mv 中性化后应大幅降低
-    mv_log = np.log(mv["mv"].values)
     f_only_ind = only_ind.reset_index().merge(mv, on=["trade_date", "ts_code"])
     f_both = both.reset_index().merge(mv, on=["trade_date", "ts_code"])
     corr_ind = abs(np.corrcoef(f_only_ind["f"].values, np.log(f_only_ind["mv"].values))[0, 1])
@@ -382,7 +386,9 @@ def test_winsorize_factors_clips_to_sigma() -> None:
     base[0] = 10.0  # 极端值
     rows = []
     for i, v in enumerate(base):
-        rows.append({"trade_date": "20240102", "ts_code": f"S{i:03d}", "factor_id": "f", "value": float(v)})
+        rows.append(
+            {"trade_date": "20240102", "ts_code": f"S{i:03d}", "factor_id": "f", "value": float(v)}
+        )
     wide = pivot_factors_long_to_wide(pd.DataFrame(rows))
     out = winsorize_factors(wide, sigma=FACTOR_CLIP_SIGMA)
     # outlier 被截断

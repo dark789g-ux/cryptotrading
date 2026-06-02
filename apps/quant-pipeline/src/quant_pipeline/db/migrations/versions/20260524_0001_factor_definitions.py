@@ -26,6 +26,7 @@ quant_pipeline 包，保持 migration 是"凝固历史"）。
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 from alembic import op
 
@@ -45,7 +46,7 @@ depends_on: str | Sequence[str] | None = None
 # description 与 formula 拆分策略：当原 description 含明显公式表达，
 # 把短中文留 description，公式抽到 formula；拆不出的直接 description 全文，
 # formula 置 NULL（由维护者通过前端只读字段对照代码补全）。
-_INITIAL_ROWS: list[tuple] = [
+_INITIAL_ROWS: list[tuple[Any, ...]] = [
     # ---- price 类（11 个） ----
     (
         "amihud_illiq_20d",

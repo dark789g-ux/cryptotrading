@@ -417,6 +417,15 @@ export const quantApi = {
     return post<JobRow>(`${API_BASE}/quant/jobs`, body)
   },
 
+  /**
+   * 可用 factor_version 列表（DISTINCT factors.factor_definitions）。
+   * 后端 `GET /quant/factor-versions`，空表返回 `{ versions: [] }`。
+   * 供 TrainE2EFields 的 factor_version 下拉枚举；失败时前端回退手输。
+   */
+  listFactorVersions(): Promise<{ versions: string[] }> {
+    return request<{ versions: string[] }>(`${API_BASE}/quant/factor-versions`)
+  },
+
   /** 列表查询（按 status / run_type 过滤 + 分页）。M2: `GET /quant/jobs` */
   async listJobs(query: JobListQuery = {}): Promise<JobListPage> {
     const qs = new URLSearchParams()

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Strategy-aware labels（doc/量化/04 §4.2 推荐主用方案）。
 
 调用 strategy.exit_rules.simulate_exit 对每个 (signal_date, ts_code) 模拟
@@ -44,9 +43,9 @@ CLAUDE.md 硬约束：
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Callable, Final
+from typing import Final
 
 import numpy as np
 import pandas as pd
@@ -65,6 +64,11 @@ from quant_pipeline.strategy.exit_rules import (
     EXIT_FORCE_CLOSE,
     EXIT_STOP_LOSS,
     MAX_HOLD_DAYS,
+    STOP_LOSS_THRESHOLD,
+    MA5BreakRule,
+    MaxHoldRule,
+    StopLossRule,
+    combine_rules,
     default_rules,
     simulate_exit,
 )
@@ -134,7 +138,7 @@ def filter_limit_up_on_entry(
         return entries
     if not limit_up_set:
         return entries.reset_index(drop=True)
-    keys = list(zip(entries["ts_code"].astype(str), entries[entry_col].astype(str)))
+    keys = list(zip(entries["ts_code"].astype(str), entries[entry_col].astype(str), strict=False))
     mask = np.array([k not in limit_up_set for k in keys])
     dropped = int((~mask).sum())
     if dropped > 0:
@@ -162,7 +166,7 @@ def filter_suspended_on_entry(
         return entries
     if not suspended_set:
         return entries.reset_index(drop=True)
-    keys = list(zip(entries["ts_code"].astype(str), entries[entry_col].astype(str)))
+    keys = list(zip(entries["ts_code"].astype(str), entries[entry_col].astype(str), strict=False))
     mask = np.array([k not in suspended_set for k in keys])
     dropped = int((~mask).sum())
     if dropped > 0:
@@ -264,6 +268,10 @@ class LabelInputs:
     # 新股门槛交易日阈值。None → 走默认 NEW_LISTING_MIN_DAYS（60）；
     # 0 是合法值表示完全不过滤。禁忌写法：`if min_days:`（0 会被判 falsy）。
     new_listing_min_days: int | None = None
+    # spec 02 §标签参数透传：最大持仓交易日（MaxHoldRule 上限）。None → 走
+    # exit_rules.MAX_HOLD_DAYS(20) 默认，保证不传时行为完全不变。仅 strategy-aware
+    # 生效（dir3 / fwd 路径不走 simulate_exit）。
+    max_hold_days: int | None = None
 
 
 def _augment_quotes_for_exit(
@@ -283,14 +291,14 @@ def _augment_quotes_for_exit(
 
     if "is_suspended" not in out.columns:
         if suspended_set:
-            keys = list(zip(out["ts_code"], out["trade_date"]))
+            keys = list(zip(out["ts_code"], out["trade_date"], strict=False))
             out["is_suspended"] = [k in suspended_set for k in keys]
         else:
             out["is_suspended"] = False
 
     if "is_delisted" not in out.columns:
         if delist_map:
-            keys = list(zip(out["ts_code"], out["trade_date"]))
+            keys = list(zip(out["ts_code"], out["trade_date"], strict=False))
             out["is_delisted"] = [
                 (c in delist_map) and (d >= delist_map[c]) for c, d in keys
             ]
@@ -420,7 +428,20 @@ def compute_strategy_aware_labels(
     # 数据末尾截断 warning 的判别基准：查询区间 end，缺省退化为窗口末日
     truncation_threshold = str(inputs.end) if inputs.end else trade_dates_sorted[-1]
 
-    rules = default_rules()
+    # spec 02 §标签参数透传：max_hold_days 覆盖 MaxHoldRule 上限。None → default_rules()
+    # （MAX_HOLD_DAYS=20），与改动前完全一致；显式值则重建同序复合规则（止损 > MA5 > 持有上限）。
+    if inputs.max_hold_days is None:
+        rules = default_rules()
+        eff_max_hold = MAX_HOLD_DAYS
+    else:
+        eff_max_hold = int(inputs.max_hold_days)
+        rules = combine_rules(
+            [
+                StopLossRule(STOP_LOSS_THRESHOLD),
+                MA5BreakRule(),
+                MaxHoldRule(eff_max_hold),
+            ]
+        )
     records: list[dict[str, object]] = []
     # 按信号日去重（同一票同一信号日只保留一条候选）
     cand_dedup = cand.drop_duplicates(
@@ -463,7 +484,7 @@ def compute_strategy_aware_labels(
         # 非真退市、退出日落在缓冲尾部 → warning
         if (
             outcome.exit_reason == EXIT_FORCE_CLOSE
-            and outcome.hold_days < MAX_HOLD_DAYS
+            and outcome.hold_days < eff_max_hold
             and ts_code not in delist_map
             and str(outcome.exit_date) >= truncation_threshold
         ):

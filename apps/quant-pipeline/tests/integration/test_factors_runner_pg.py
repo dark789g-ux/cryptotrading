@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import re
 
-import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -24,7 +23,6 @@ from quant_pipeline.factors.runner import (
     _query_trade_dates,
     run_factors,
 )
-
 
 # ---------------------------------------------------------------------------
 # §7.1 用例 1：industry_pit 返回 l1_code

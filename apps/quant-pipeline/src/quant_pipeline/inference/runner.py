@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """inference runner —— predict_one_day + worker.dispatcher 入口（M2 Part B）。
 
 顺序（spec 04 §2 推理前必检 + m2 验收要求）：
@@ -23,7 +22,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import numpy as np
@@ -48,7 +47,9 @@ logger = logging.getLogger(__name__)
 _resolve_artifact_local_path = resolve_artifact_local_path
 
 
-def _load_model_run(session: Session, *, model_version: str | None, model_run_id: str | None) -> dict[str, Any]:
+def _load_model_run(
+    session: Session, *, model_version: str | None, model_run_id: str | None
+) -> dict[str, Any]:
     """按 model_version 或 model_run_id 取一条 ml.model_runs。"""
 
     if not model_version and not model_run_id:
@@ -91,7 +92,7 @@ def _load_meta_json(model_path: Path) -> dict[str, Any]:
     if not meta_path.exists():
         raise FileNotFoundError(f"meta.json 不存在: {meta_path}")
     with meta_path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        return cast("dict[str, Any]", json.load(f))
 
 
 def _load_daily_feature_section(
@@ -175,11 +176,26 @@ def predict_one_day(
             f"artifact 不存在: {model_path}（artifact_uri={artifact_uri_str}）"
         )
 
+    # 算法分派（spec 03 §2）：读 meta.json 的 algorithm 字段，lstm 走 lstm_predictor，
+    # 否则（含老 lgb 模型无该字段 → 兜底 'lgb-lambdarank'）走下方现有 lgb 路径。
+    # 分派收口在此一处；run_inference 主框架（gate → 预测 → write_scores）零改动。
+    meta = _load_meta_json(model_path)
+    algorithm = meta.get("algorithm", "lgb-lambdarank")
+    if algorithm == "lstm":
+        from quant_pipeline.inference.lstm_predictor import predict_one_day_lstm
+
+        return predict_one_day_lstm(model_version, trade_date, session)
+    if algorithm == "lgb-multiclass":
+        from quant_pipeline.inference.lgb_multiclass_predictor import (
+            predict_one_day_lgb_multiclass,
+        )
+
+        return predict_one_day_lgb_multiclass(model_version, trade_date, session)
+
     # 延迟 import（与训练共用），避免 worker 启动时强依赖 lightgbm
     import lightgbm as lgb
 
     booster = lgb.Booster(model_file=str(model_path))
-    meta = _load_meta_json(model_path)
     feature_columns = list(
         feature_columns_override
         or meta.get("feature_columns_order")

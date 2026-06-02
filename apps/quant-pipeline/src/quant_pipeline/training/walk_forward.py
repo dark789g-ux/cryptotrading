@@ -32,7 +32,6 @@ from collections.abc import Iterator
 import numpy as np
 import pandas as pd
 
-
 # Purged Walk-Forward 强约束（doc/05 §5.4 + spec m3 §验收门槛）
 _MIN_EMBARGO_DAYS = 21
 _MIN_N_FOLDS = 6
@@ -211,8 +210,72 @@ class PurgedWalkForwardSplit(WalkForwardSplit):
             yield train_idx, test_idx
 
 
+# 默认 inner-validation 占训练折交易日的比例（防泄漏早停用，见 time_series_inner_split）
+_DEFAULT_INNER_VAL_RATIO = 0.2
+
+
+def time_series_inner_split(
+    trade_dates: np.ndarray,
+    *,
+    val_ratio: float = _DEFAULT_INNER_VAL_RATIO,
+    embargo_days: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """把一个训练折按交易日时序切成 (inner_train_pos, inner_val_pos)。
+
+    用途（防泄漏修复 #1/#2）：lgb-multiclass / LSTM 的 walk-forward fold 内需要一个
+    early-stopping / 选最优轮次的验证集。绝不能用 OOS 测试折（测试集泄漏），改为从
+    **训练折自身的时序尾部**切出 inner-validation：
+
+        [····· inner-train ·····][ embargo ][ inner-val ]
+                                 └ 防 label(t+1)/序列回看跨界泄漏
+
+    切法：
+      1) 取输入行对应的 unique 交易日并升序；
+      2) inner-val = 时序最后 ``ceil(n_unique * val_ratio)``（至少 1）个交易日的**所有行**；
+      3) inner-train = 其前段，再去掉尾部 ``embargo_days`` 个交易日；
+      4) 若 inner-train 或 inner-val 切完为空（交易日不足）→ 回退
+         ``(arange(n), empty)``：由调用方决定是否退化为不早停 / 跳过该折。
+
+    同一交易日的所有行整体落在一侧（不拆截面）。返回值是相对输入数组的整数位置。
+
+    Args:
+        trade_dates: 训练折每行的 trade_date（顺序与对应特征矩阵行一致，已按时序排列）。
+        val_ratio:   inner-val 占 unique 交易日的比例（默认 0.2）。
+        embargo_days: inner-train 与 inner-val 之间保留的交易日 gap（防泄漏）。
+    """
+
+    if not 0.0 < val_ratio < 1.0:
+        raise ValueError(f"val_ratio 必须在 (0,1)，got {val_ratio}")
+    if embargo_days < 0:
+        raise ValueError(f"embargo_days 不能为负，got {embargo_days}")
+
+    td = np.asarray([str(x) for x in np.asarray(trade_dates)])
+    n_rows = td.shape[0]
+    fallback = (np.arange(n_rows), np.empty(0, dtype=np.int64))
+    if n_rows == 0:
+        return fallback
+
+    uniq = sorted(set(td.tolist()))
+    n_uniq = len(uniq)
+
+    n_val = max(1, int(np.ceil(n_uniq * val_ratio)))
+    n_train = n_uniq - n_val - int(embargo_days)
+    if n_train < 1 or n_val < 1:
+        return fallback
+
+    train_dates = set(uniq[:n_train])
+    val_dates = set(uniq[n_uniq - n_val:])
+
+    tr_pos = np.where(np.isin(td, list(train_dates)))[0].astype(np.int64)
+    va_pos = np.where(np.isin(td, list(val_dates)))[0].astype(np.int64)
+    if tr_pos.size == 0 or va_pos.size == 0:
+        return fallback
+    return tr_pos, va_pos
+
+
 __all__ = [
     "WalkForwardSplit",
     "SingleFoldSplit",
     "PurgedWalkForwardSplit",
+    "time_series_inner_split",
 ]

@@ -83,7 +83,9 @@ def test_portfolio_commission_slippage_reduces_return() -> None:
 
     sc, lb = _build_scores_labels(n_days=30, n_codes=10, signal_strength=2.0)
     out_no_cost = compute_portfolio_metrics(sc, lb, top_k=3, commission_rate=0.0, slippage_bps=0.0)
-    out_with_cost = compute_portfolio_metrics(sc, lb, top_k=3, commission_rate=0.0003, slippage_bps=5.0)
+    out_with_cost = compute_portfolio_metrics(
+        sc, lb, top_k=3, commission_rate=0.0003, slippage_bps=5.0
+    )
     # 当存在 turnover 时，扣成本后净收益均值必须更低
     if out_no_cost["turnover"] > 0:
         assert out_with_cost["net_return_mean"] < out_no_cost["net_return_mean"]

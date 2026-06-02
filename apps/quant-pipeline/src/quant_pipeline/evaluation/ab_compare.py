@@ -30,7 +30,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quant_pipeline.evaluation.portfolio import compute_portfolio_metrics
+from quant_pipeline.evaluation.portfolio import (
+    compute_portfolio_metrics,
+    resolve_avg_hold_days,
+)
 from quant_pipeline.evaluation.ranking_metrics import (
     ic_pearson,
     ndcg_at_k,
@@ -135,8 +138,13 @@ def _evaluate_one_model(
     top_k: int = 20,
     commission_rate: float = 0.0003,
     slippage_bps: float = 5.0,
+    avg_hold_days: float | None = None,
 ) -> tuple[dict[str, float], pd.Series]:
     """单模单折评估：NDCG@5/10 + IC + RankIC + portfolio 单笔净收益中位数。
+
+    Args:
+        avg_hold_days: 透传给 compute_portfolio_metrics 的 Sharpe 年化持仓天数；
+            None 表示沿用 portfolio 默认（10.0），保持向后兼容。
 
     Returns:
         (metrics_dict, portfolio_daily_returns)
@@ -165,13 +173,15 @@ def _evaluate_one_model(
             "label": labels,
         }
     )
-    portfolio = compute_portfolio_metrics(
-        scores_df,
-        label_df,
-        top_k=top_k,
-        commission_rate=commission_rate,
-        slippage_bps=slippage_bps,
-    )
+    # avg_hold_days=None 时不传给 portfolio，沿用其默认 10.0（向后兼容）。
+    portfolio_kwargs: dict[str, Any] = {
+        "top_k": top_k,
+        "commission_rate": commission_rate,
+        "slippage_bps": slippage_bps,
+    }
+    if avg_hold_days is not None:
+        portfolio_kwargs["avg_hold_days"] = avg_hold_days
+    portfolio = compute_portfolio_metrics(scores_df, label_df, **portfolio_kwargs)
 
     metrics = {
         "ndcg@5": ndcg5,
@@ -202,6 +212,7 @@ def compare_three(
     top_k: int = 20,
     commission_rate: float = 0.0003,
     slippage_bps: float = 5.0,
+    label_scheme: str | None = None,
     lgb_hyperparams: dict[str, Any] | None = None,
     lgb_num_boost_round: int = 100,
     lgb_early_stopping_rounds: int | None = None,
@@ -216,6 +227,11 @@ def compare_three(
         splits:      Iterator of (train_idx, test_idx)（PurgedWalkForwardSplit.split 输出）
         seed:        随机种子
         top_k / commission_rate / slippage_bps: 转给 portfolio
+        label_scheme: 当前 label 方案串（factors.labels.scheme，如 'strategy-aware'/
+            'fwd_5d_ret'/'dir3_band'）。据此经 resolve_avg_hold_days 解析持仓视界，
+            供 portfolio Sharpe 按实际持仓天数年化。**上游应按 label_scheme 传入**
+            （walk_forward_runner 的 hyperparams 含 label_scheme）；None 时回退默认
+            avg_hold_days=10.0，与改动前行为完全一致（100% 向后兼容）。
         progress_callback: 可选 (fold_idx, total_folds) → None；每折结束调一次
 
     Returns:
@@ -230,6 +246,9 @@ def compare_three(
         raise ValueError("df_features 需含 trade_date / ts_code 列")
     if len(df_features) != len(X_all) or len(df_features) != len(y_all):
         raise ValueError("df_features / X_all / y_all 行数必须一致")
+
+    # label_scheme → 平均持仓天数（Sharpe 年化）；None 回退默认 10.0（向后兼容）。
+    avg_hold_days = resolve_avg_hold_days(label_scheme) if label_scheme is not None else None
 
     fold_results: dict[str, list[dict[str, float]]] = {name: [] for name in MODEL_NAMES}
     # 评审 04-#6：累积 ensemble 每折的 portfolio daily returns，免去事后重训
@@ -276,6 +295,7 @@ def compare_three(
                 top_k=top_k,
                 commission_rate=commission_rate,
                 slippage_bps=slippage_bps,
+                avg_hold_days=avg_hold_days,
             )
             metrics["fold"] = fold_i
             fold_results[name].append(metrics)
@@ -359,6 +379,7 @@ def run_ab_compare(
     top_k: int = 20,
     commission_rate: float = 0.0003,
     slippage_bps: float = 5.0,
+    label_scheme: str | None = None,
     seed: int = 42,
     lgb_hyperparams: dict[str, Any] | None = None,
     lgb_num_boost_round: int = 100,
@@ -375,6 +396,8 @@ def run_ab_compare(
         baselines: 输出报告时保留的 baseline 名（compare_three 总是跑全 3 + ensemble）
         model_run_id / model_version: 仅写入报告元数据；CLI evaluate 应传 run-id
         output_dir: 报告落地目录；默认 ./artifacts/<run_id>/（必须包含 model_run_id）
+        label_scheme: 当前 label 方案串，透传给 compare_three 决定 Sharpe 年化的
+            平均持仓天数；None 回退默认 10.0（向后兼容）。
         其它参数：透传给 PurgedWalkForwardSplit / compare_three / portfolio
 
     Returns:
@@ -418,6 +441,7 @@ def run_ab_compare(
         top_k=top_k,
         commission_rate=commission_rate,
         slippage_bps=slippage_bps,
+        label_scheme=label_scheme,
         lgb_hyperparams=lgb_hyperparams,
         lgb_num_boost_round=lgb_num_boost_round,
         lgb_early_stopping_rounds=lgb_early_stopping_rounds,

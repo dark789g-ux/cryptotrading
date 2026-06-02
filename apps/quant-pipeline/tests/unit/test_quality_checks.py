@@ -24,7 +24,6 @@ from quant_pipeline.quality.checks import (
     make_threshold_relaxation_record,
 )
 
-
 # ----------------------------------------------------------------------
 # FakeSession：根据 SQL 关键字返回值的最小实现
 # ----------------------------------------------------------------------
@@ -55,10 +54,10 @@ class FakeResult:
     def all(self) -> list[tuple[Any, ...]]:
         return list(self._rows)
 
-    def scalars(self) -> "FakeResult":
+    def scalars(self) -> FakeResult:
         return FakeResult(rows=[(r[0],) for r in self._rows])
 
-    def mappings(self) -> "FakeResult":
+    def mappings(self) -> FakeResult:
         return FakeResult(mappings_rows=self._mappings_rows or [dict(r) for r in []])
 
 
@@ -107,7 +106,7 @@ class _ResultWrapper:
     def all(self) -> Any:
         return self._inner.all()
 
-    def scalars(self) -> "_ResultWrapper":
+    def scalars(self) -> _ResultWrapper:
         return _ResultWrapper(self._inner.scalars())
 
     def mappings(self) -> FakeMappings:

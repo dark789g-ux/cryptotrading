@@ -220,3 +220,57 @@ def test_compare_three_progress_callback_called() -> None:
     )
     assert len(calls) == 6
     assert calls[-1] == (6, 6)
+
+
+def _sharpe_ratio_for_scheme(label_scheme: str | None) -> float:
+    """跑 compare_three 取 ensemble 的 sharpe_mean（用于对比不同 label_scheme 年化）。"""
+
+    df_meta, X, y = _build_mock_panel(n_dates=400, n_codes=6, n_features=4, seed=7)
+    splitter = PurgedWalkForwardSplit(n_folds=6, embargo_days=21, min_train_days=252)
+    summary = compare_three(
+        df_meta, X, y, splitter.split(df_meta),
+        seed=42, top_k=3,
+        label_scheme=label_scheme,
+        lgb_hyperparams={"min_data_in_leaf": 5, "num_leaves": 7},
+        lgb_num_boost_round=20, lgb_early_stopping_rounds=None,
+    )
+    return float(summary["ensemble"]["sharpe_mean"])
+
+
+def test_compare_three_label_scheme_changes_sharpe_annualization() -> None:
+    """不同 label_scheme → 不同 avg_hold_days → Sharpe 年化系数随之变化。
+
+    fwd_5d_ret(=5 天) vs dir3_band(=1 天)：单折内年化系数比 = sqrt(252/5)/sqrt(252/1)，
+    其余（收益序列、IC 等）完全一致。逐折 sharpe 按同一系数缩放，sharpe_mean 也按此比例。
+    """
+
+    s_fwd5 = _sharpe_ratio_for_scheme("fwd_5d_ret")
+    s_dir3 = _sharpe_ratio_for_scheme("dir3_band")
+    assert not np.isnan(s_fwd5) and not np.isnan(s_dir3)
+    expected_ratio = np.sqrt(252.0 / 5.0) / np.sqrt(252.0 / 1.0)
+    assert s_fwd5 / s_dir3 == pytest.approx(expected_ratio, rel=1e-9)
+
+
+def test_compare_three_default_label_scheme_backward_compatible() -> None:
+    """不传 label_scheme（None）→ 仍按默认 avg_hold_days=10 年化（向后兼容）。"""
+
+    s_none = _sharpe_ratio_for_scheme(None)
+    s_strategy = _sharpe_ratio_for_scheme("strategy-aware")  # 也映射到 10
+    assert not np.isnan(s_none) and not np.isnan(s_strategy)
+    assert s_none == pytest.approx(s_strategy, rel=1e-9)
+
+
+def test_compare_three_unknown_label_scheme_warns_and_falls_back(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """未知 label_scheme → warn + 回退默认 10（与不传一致）。"""
+
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        s_unknown = _sharpe_ratio_for_scheme("nonexistent-scheme")
+    s_none = _sharpe_ratio_for_scheme(None)
+    assert s_unknown == pytest.approx(s_none, rel=1e-9)
+    assert any(
+        "unknown" in r.message.lower() or "未知" in r.message for r in caplog.records
+    )

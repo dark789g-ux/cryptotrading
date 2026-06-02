@@ -13,13 +13,15 @@ Part E 追加 quality 子命令（check / pit-audit）。
 from __future__ import annotations
 
 import typer
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from quant_pipeline import __version__
 from quant_pipeline.cli_common import (
     console,
-    make_progress_callback as _make_progress_callback,
     validate_date_range,
+)
+from quant_pipeline.cli_common import (
+    make_progress_callback as _make_progress_callback,
 )
 from quant_pipeline.config.logging import setup_logging
 
@@ -80,7 +82,12 @@ app.command("infer")(cmd_infer)
 app.command("evaluate")(cmd_evaluate)
 
 # M4 顶层命令（cli_m4.py）
-from quant_pipeline.cli_m4 import cmd_monitor, cmd_seed_avg, cmd_shap_explain, cmd_tune  # noqa: E402
+from quant_pipeline.cli_m4 import (  # noqa: E402
+    cmd_monitor,
+    cmd_seed_avg,
+    cmd_shap_explain,
+    cmd_tune,
+)
 
 app.command("tune")(cmd_tune)
 app.command("seed-avg")(cmd_seed_avg)
@@ -93,14 +100,14 @@ app.command("shap-explain")(cmd_shap_explain)
 # ----------------------------------------------------------------------
 
 
-@app.command()
+@app.command()  # type: ignore[untyped-decorator]  # typer 装饰器在 mypy strict 下判为 untyped，仅类型层屏蔽
 def version() -> None:
     """打印版本号。"""
 
     typer.echo(f"quant-pipeline {__version__}")
 
 
-@worker_app.command("run")
+@worker_app.command("run")  # type: ignore[untyped-decorator]  # typer 装饰器在 mypy strict 下判为 untyped，仅类型层屏蔽
 def worker_run() -> None:
     """启动常驻 worker（轮询 ml.jobs）。"""
 
@@ -115,7 +122,7 @@ def worker_run() -> None:
 # ----------------------------------------------------------------------
 
 
-@sync_app.command("raw")
+@sync_app.command("raw")  # type: ignore[untyped-decorator]  # typer 装饰器在 mypy strict 下判为 untyped，仅类型层屏蔽
 def sync_raw(
     date_range: str = typer.Option(
         ...,
@@ -181,12 +188,7 @@ def sync_raw(
     )
 
     typer.echo(
-        "sync raw {dr}: rows_total={rt} failed_items={fi} errors={er}".format(
-            dr=date_range,
-            rt=outcome.rows_total,
-            fi=len(outcome.failed_items),
-            er=len(outcome.errors),
-        )
+        f"sync raw {date_range}: rows_total={outcome.rows_total} failed_items={len(outcome.failed_items)} errors={len(outcome.errors)}"
     )
     for tbl, n in outcome.per_table_rows.items():
         typer.echo(f"  - {tbl:20s} rows_upserted={n}")
@@ -208,7 +210,7 @@ def sync_raw(
 # ----------------------------------------------------------------------
 
 
-@labels_app.command("build")
+@labels_app.command("build")  # type: ignore[untyped-decorator]  # typer 装饰器在 mypy strict 下判为 untyped，仅类型层屏蔽
 def labels_build(
     scheme: str = typer.Option(
         "strategy-aware",
@@ -281,7 +283,7 @@ def labels_build(
 # ----------------------------------------------------------------------
 
 
-@features_app.command("build")
+@features_app.command("build")  # type: ignore[untyped-decorator]  # typer 装饰器在 mypy strict 下判为 untyped，仅类型层屏蔽
 def features_build(
     factor_version: str = typer.Option(
         ...,
@@ -448,7 +450,7 @@ def features_build_inference(
 # ----------------------------------------------------------------------
 
 
-@factors_app.command("compute")
+@factors_app.command("compute")  # type: ignore[untyped-decorator]  # typer 装饰器在 mypy strict 下判为 untyped，仅类型层屏蔽
 def factors_compute(
     version: str    = typer.Option(..., "--version",    help="factor_version，如 v1"),
     date_range: str = typer.Option(..., "--date-range", help="YYYYMMDD:YYYYMMDD"),

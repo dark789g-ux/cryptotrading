@@ -12,14 +12,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 
 from quant_pipeline.factors.base import FactorMetaMissing
 from quant_pipeline.factors.registry import (
-    FactorMeta,
     _meta_cache,
     list_active,
     list_factors,
@@ -80,8 +80,14 @@ def _baseline_rows() -> list[tuple]:
         ("volume_ratio_20d", "v1", "vol_ratio", "price", 42, "trade_date", True, 200, 21),
         ("industry_momentum_20d", "v1", "ind_mom", "industry", 42, "trade_date", True, 300, 21),
         ("momentum_20d_neu", "v1", "ind_neu", "industry", 42, "trade_date", True, 310, 21),
-        ("industry_rank_in_sector_mom20", "v1", "ind_rank", "industry", 42, "trade_date", True, 320, 21),
-        ("industry_relative_strength", "v1", "ind_rel", "industry", 42, "trade_date", True, 330, 21),
+        (
+            "industry_rank_in_sector_mom20", "v1", "ind_rank", "industry", 42,
+            "trade_date", True, 320, 21,
+        ),
+        (
+            "industry_relative_strength", "v1", "ind_rel", "industry", 42,
+            "trade_date", True, 330, 21,
+        ),
         ("sector_volume_concentration", "v1", "hhi", "industry", 5, "trade_date", True, 340, 1),
     ]
 
@@ -189,8 +195,8 @@ def test_feature_set_id_changes_on_enabled_toggle(
     """启停一个因子 → list_active 输出变化 → builder SHA256 哈希变化 →
     新 feature_set_id。"""
 
-    from quant_pipeline.features.builder import build_feature_set_id
     from quant_pipeline.factors.registry import load_from_db
+    from quant_pipeline.features.builder import build_feature_set_id
 
     # 第一轮：全部启用
     _patch_session_scope(monkeypatch, _baseline_rows())

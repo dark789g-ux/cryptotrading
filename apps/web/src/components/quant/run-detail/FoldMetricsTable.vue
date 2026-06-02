@@ -27,6 +27,8 @@ interface FoldRow {
   ndcg_at_10: number | null
   ic: number | null
   portfolio_annual_after_cost: number | null
+  accuracy: number | null
+  macro_f1: number | null
 }
 
 const props = defineProps<{ metrics: Record<string, unknown> }>()
@@ -63,14 +65,25 @@ const rows = computed<FoldRow[]>(() => {
       ndcg_at_10: num(o.ndcg_at_10 ?? (o as Record<string, unknown>)['ndcg@10']),
       ic: num(o.ic),
       portfolio_annual_after_cost: num(o.portfolio_annual_after_cost),
+      accuracy: num(o.accuracy),
+      macro_f1: num(o.macro_f1 ?? (o as Record<string, unknown>)['macro-f1']),
     }
   })
 })
 
-const columns = computed<DataTableColumns<FoldRow>>(() => [
+/** 分类 Run（task=classification_3class 或 fold 含 accuracy）→ 显示 accuracy/macro_f1 列 */
+const isClassification = computed(() => {
+  if (props.metrics?.task === 'classification_3class') return true
+  return rows.value.some(r => r.accuracy !== null || r.macro_f1 !== null)
+})
+
+const baseColumns: DataTableColumns<FoldRow> = [
   { title: 'Fold', key: 'fold', width: 60 },
   { title: '训练区间', key: 'train_dates', minWidth: 200, ellipsis: { tooltip: true } },
   { title: '验证区间', key: 'valid_dates', minWidth: 200, ellipsis: { tooltip: true } },
+]
+
+const sortColumns: DataTableColumns<FoldRow> = [
   {
     title: 'NDCG@5',
     key: 'ndcg_at_5',
@@ -103,5 +116,37 @@ const columns = computed<DataTableColumns<FoldRow>>(() => [
     render: r => h(MetricBadge, { label: '', value: r.portfolio_annual_after_cost,
       percent: true, digits: 2, thresholds: { good: 0.002, warn: 0 } }),
   },
+]
+
+const classColumns: DataTableColumns<FoldRow> = [
+  {
+    title: 'Accuracy',
+    key: 'accuracy',
+    width: 120,
+    align: 'right',
+    render: r => h(MetricBadge, { label: '', value: r.accuracy, digits: 4,
+      thresholds: { good: 0.45, warn: 0.34 } }),
+  },
+  {
+    title: 'Macro-F1',
+    key: 'macro_f1',
+    width: 120,
+    align: 'right',
+    render: r => h(MetricBadge, { label: '', value: r.macro_f1, digits: 4,
+      thresholds: { good: 0.45, warn: 0.34 } }),
+  },
+  {
+    title: 'IC',
+    key: 'ic',
+    width: 100,
+    align: 'right',
+    render: r => h(MetricBadge, { label: '', value: r.ic, digits: 4,
+      thresholds: { good: 0.05, warn: 0.02 } }),
+  },
+]
+
+const columns = computed<DataTableColumns<FoldRow>>(() => [
+  ...baseColumns,
+  ...(isClassification.value ? classColumns : sortColumns),
 ])
 </script>

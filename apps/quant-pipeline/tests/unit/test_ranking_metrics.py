@@ -60,7 +60,7 @@ def test_daily_rank_ic_and_ir() -> None:
     rows = []
     for d in range(10):
         td = f"2026010{d}"
-        for i in range(20):
+        for _ in range(20):
             x = rng.normal()
             rows.append({"td": td, "score": x, "label": x + rng.normal(scale=0.1)})
     df = pd.DataFrame(rows)

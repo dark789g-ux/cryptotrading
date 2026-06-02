@@ -16,7 +16,6 @@ from quant_pipeline.quality.pit_audit import (
 )
 from tests.unit.test_quality_checks import FakeResult, FakeSession
 
-
 # ----------------------------------------------------------------------
 # 铁律 1：财务用披露日（复用 check_pit_finance）
 # ----------------------------------------------------------------------
@@ -94,7 +93,7 @@ class _FakeFactor:
     def __init__(self) -> None:
         self.calls: list[tuple[str, list[str]]] = []
 
-    def compute(self, trade_date: str, data: "_FakeDataFrame") -> None:
+    def compute(self, trade_date: str, data: _FakeDataFrame) -> None:
         self.calls.append((trade_date, list(data["trade_date"])))
 
 

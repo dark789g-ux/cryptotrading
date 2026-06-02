@@ -5,11 +5,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from quant_pipeline.config.settings import get_settings
-
 
 # ----------------------------------------------------------------------
 # 搜索空间（doc/05 §5.5 四主旋钮）
@@ -34,10 +33,11 @@ def suggest_hyperparams(trial: Any, space_name: str) -> dict[str, Any]:
             f"未知搜索空间 {space_name!r}；可选: {sorted(SEARCH_SPACES)}"
         )
     space = SEARCH_SPACES[space_name]
-    nl_lo, nl_hi = space["num_leaves"]
-    ml_lo, ml_hi = space["min_data_in_leaf"]
-    ff_lo, ff_hi = space["feature_fraction"]
-    lr_lo, lr_hi, lr_log = space["learning_rate"]
+    # dict 值类型是 2-tuple | 3-tuple 联合，mypy 无法按 key 区分元数；运行时元数固定且正确
+    nl_lo, nl_hi = space["num_leaves"]  # type: ignore[misc]
+    ml_lo, ml_hi = space["min_data_in_leaf"]  # type: ignore[misc]
+    ff_lo, ff_hi = space["feature_fraction"]  # type: ignore[misc]
+    lr_lo, lr_hi, lr_log = space["learning_rate"]  # type: ignore[misc]
     return {
         "num_leaves": int(trial.suggest_int("num_leaves", int(nl_lo), int(nl_hi))),
         "min_data_in_leaf": int(
@@ -63,7 +63,7 @@ def build_study_name(feature_set_id: str, today_yyyymmdd: str | None = None) -> 
     """study 名规则：`optuna_<feature_set_id>_<YYYYMMDD>`。"""
 
     if today_yyyymmdd is None:
-        today_yyyymmdd = datetime.now(timezone.utc).strftime("%Y%m%d")
+        today_yyyymmdd = datetime.now(UTC).strftime("%Y%m%d")
     return f"optuna_{feature_set_id}_{today_yyyymmdd}"
 
 

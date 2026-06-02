@@ -12,10 +12,8 @@ from __future__ import annotations
 
 import re
 
-import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-
 
 _PARENT_TABLES: tuple[str, ...] = ("daily_factors", "labels", "feature_matrix")
 _PARTITIONS_PER_PARENT: int = 156  # 2018-01 ~ 2030-12

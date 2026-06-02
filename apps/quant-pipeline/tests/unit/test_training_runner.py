@@ -17,8 +17,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quant_pipeline.training import runner as runner_mod
 from quant_pipeline.quality.runner import QualityGateBlocked
+from quant_pipeline.training import runner as runner_mod
 
 
 def _mock_feature_matrix(n_dates: int = 25, n_codes: int = 10) -> pd.DataFrame:

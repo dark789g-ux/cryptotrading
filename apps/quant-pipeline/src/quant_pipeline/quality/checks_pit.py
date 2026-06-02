@@ -63,7 +63,7 @@ def check_pit_finance(
     # 扫描 fundamental 类因子的 ts_code 样本，看是否能在 trade_date 当日找到对应
     # ann_date <= trade_date 的 fina_indicator 记录；找不到说明用了 end_date。
     sample_sql = text(
-        f"""
+        """
         WITH ff AS (
             SELECT factor_id, ts_code
             FROM factors.daily_factors

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """labels/strategy_aware.py 单测。
 
 每个"坑"独立 case，外加 compute_strategy_aware_labels 的 value 正确性 +
@@ -28,7 +27,6 @@ from quant_pipeline.labels.strategy_aware import (
     filter_new_listing,
     filter_suspended_on_entry,
 )
-
 
 # ----------------------------------------------------------------------
 # 坑 1：涨停过滤

@@ -5,8 +5,6 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-import pytest
-
 from tools.lint_no_silent_degradation import lint_directory, lint_file
 
 
@@ -31,7 +29,7 @@ class TestLintFile:
         # 用白名单中的文件名
         p = self._write_tmp(tmp_path, "worker_loop.py", code)
         # 手动模拟白名单匹配
-        violations = lint_file(p)
+        lint_file(p)
         # 因为文件名不含 "worker/loop.py"，会报告
         # 这里测试的是：如果文件路径匹配白名单则不报告
         # 实际测试用 lint_directory 配合正确路径

@@ -14,7 +14,6 @@ import pytest
 from quant_pipeline.worker import train_e2e_runner as tr
 from quant_pipeline.worker.progress import JobCancelled
 
-
 _JOB_ID = UUID("11111111-2222-3333-4444-555555555555")
 
 
@@ -62,6 +61,69 @@ class TestValidateParams:
     def test_unknown_label_scheme(self) -> None:
         with pytest.raises(ValueError, match="label_scheme"):
             tr._validate_params(_valid_params(label_scheme="bogus"))
+
+    # ---- A2：dir3_band ε 可配（前端发 'dir3_band' + 独立字段 dir3_band_eps）----
+
+    def test_dir3_band_default_eps_canonical_to_legacy(self) -> None:
+        """label_scheme='dir3_band' 缺 dir3_band_eps → 走 legacy 0.005 →
+        canonical 回 legacy 串 'dir3_band'（守哈希不漂移）。"""
+
+        p = tr._validate_params(_valid_params(label_scheme="dir3_band"))
+        assert p.label_scheme == "dir3_band"
+
+    def test_dir3_band_explicit_legacy_eps_canonical_to_legacy(self) -> None:
+        """显式 dir3_band_eps=0.005 也 canonical 回 legacy 串。"""
+
+        p = tr._validate_params(
+            _valid_params(label_scheme="dir3_band", dir3_band_eps=0.005)
+        )
+        assert p.label_scheme == "dir3_band"
+
+    def test_dir3_band_custom_eps_canonical_to_eps_scheme(self) -> None:
+        """自定义 ε=0.008 → canonical 写回 'dir3_band_eps0080'。"""
+
+        p = tr._validate_params(
+            _valid_params(label_scheme="dir3_band", dir3_band_eps=0.008)
+        )
+        assert p.label_scheme == "dir3_band_eps0080"
+
+    def test_dir3_band_off_grid_eps_quantized(self) -> None:
+        """off-grid ε=0.0083 → 量化 0.008 → 'dir3_band_eps0080'。"""
+
+        p = tr._validate_params(
+            _valid_params(label_scheme="dir3_band", dir3_band_eps=0.0083)
+        )
+        assert p.label_scheme == "dir3_band_eps0080"
+
+    def test_dir3_band_eps_out_of_range_raises(self) -> None:
+        with pytest.raises(ValueError, match="dir3_band_eps"):
+            tr._validate_params(
+                _valid_params(label_scheme="dir3_band", dir3_band_eps=0.2)
+            )
+        with pytest.raises(ValueError, match="dir3_band_eps"):
+            tr._validate_params(
+                _valid_params(label_scheme="dir3_band", dir3_band_eps=0.0)
+            )
+
+    def test_dir3_band_eps_non_number_raises(self) -> None:
+        with pytest.raises(ValueError, match="dir3_band_eps"):
+            tr._validate_params(
+                _valid_params(label_scheme="dir3_band", dir3_band_eps="0.008")
+            )
+
+    def test_dir3_band_eps_family_scheme_passes_through(self) -> None:
+        """前端如直接发 canonical 串 'dir3_band_eps0200'（家族成员）→ 放行不变。"""
+
+        p = tr._validate_params(_valid_params(label_scheme="dir3_band_eps0200"))
+        assert p.label_scheme == "dir3_band_eps0200"
+
+    def test_dir3_band_eps_ignored_for_tercile(self) -> None:
+        """ε 给了非 dir3_band 方案（dir3_tercile）→ 忽略（不影响 scheme）。"""
+
+        p = tr._validate_params(
+            _valid_params(label_scheme="dir3_tercile", dir3_band_eps=0.02)
+        )
+        assert p.label_scheme == "dir3_tercile"
 
     def test_new_listing_min_days_wrong_type(self) -> None:
         with pytest.raises(ValueError, match="new_listing_min_days"):
@@ -162,8 +224,8 @@ def _install_fake_substeps(
 
     # 关键：monkeypatch 模块属性，三个 _step_* 内部都是延迟 import
     # 所以要 patch 源模块的函数
-    import quant_pipeline.labels.runner as labels_mod
     import quant_pipeline.features.runner as features_mod
+    import quant_pipeline.labels.runner as labels_mod
     import quant_pipeline.training.runner as training_mod
 
     monkeypatch.setattr(labels_mod, "compute_labels", _fake_labels)
@@ -297,8 +359,8 @@ def test_features_returns_plain_string_compat(
     spec 04 表格规定返回 bundle；老仓库返回纯字符串。getattr 兜底应工作。
     """
 
-    import quant_pipeline.labels.runner as labels_mod
     import quant_pipeline.features.runner as features_mod
+    import quant_pipeline.labels.runner as labels_mod
     import quant_pipeline.training.runner as training_mod
 
     monkeypatch.setattr(labels_mod, "compute_labels", lambda **kw: None)

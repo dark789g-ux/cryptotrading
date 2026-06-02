@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -63,7 +64,9 @@ def train_walk_forward(
     top_k = int(walk_forward_params.get("top_k", 20))
     commission_rate = float(walk_forward_params.get("commission_rate", 0.0003))
     slippage_bps = float(walk_forward_params.get("slippage_bps", 5.0))
-    lgb_num_boost_round = int(walk_forward_params.get("lgb_num_boost_round", DEFAULT_NUM_BOOST_ROUND))
+    lgb_num_boost_round = int(
+        walk_forward_params.get("lgb_num_boost_round", DEFAULT_NUM_BOOST_ROUND)
+    )
     lgb_early_stopping_rounds = walk_forward_params.get("lgb_early_stopping_rounds")
 
     splitter = PurgedWalkForwardSplit(
@@ -96,6 +99,10 @@ def train_walk_forward(
         top_k=top_k,
         commission_rate=commission_rate,
         slippage_bps=slippage_bps,
+        # #3：透传 label_scheme，让 portfolio Sharpe 按该标签方案的实际持仓视界年化
+        # （train_e2e 经 extra_hyperparams 把 label_scheme 注入 hyperparams；旧调用方
+        # 不含该键时为 None，compare_three 回退默认 avg_hold_days=10，向后兼容）。
+        label_scheme=(hyperparams or {}).get("label_scheme"),
         lgb_hyperparams=hyperparams,
         lgb_num_boost_round=lgb_num_boost_round,
         lgb_early_stopping_rounds=lgb_early_stopping_rounds,
@@ -148,9 +155,9 @@ def train_walk_forward(
 
     # 命名 + artifact 落盘
     run_id = uuid4()
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    today = today_yyyymmdd or datetime.now(timezone.utc).strftime("%Y%m%d")
+    today = today_yyyymmdd or datetime.now(UTC).strftime("%Y%m%d")
     model_version = f"lgb-lambdarank-v1-{today}-seed{seed}"
 
     used_hp: dict[str, Any] = dict(DEFAULT_HYPERPARAMS)
@@ -175,7 +182,7 @@ def train_walk_forward(
         "factor_ids": feature_cols,
         "hyperparams": used_hp,
         "oos_metrics": oos_metrics,
-        "trained_at_utc": datetime.now(timezone.utc).isoformat(),
+        "trained_at_utc": datetime.now(UTC).isoformat(),
         "latest_train_date": latest_trade_date,
         "train_dates": train_dates_used,
         "seed": seed,

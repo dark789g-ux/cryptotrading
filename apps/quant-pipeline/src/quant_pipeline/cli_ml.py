@@ -6,10 +6,12 @@
 from __future__ import annotations
 
 import typer
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from quant_pipeline.cli_common import (
     console,
+)
+from quant_pipeline.cli_common import (
     make_progress_callback as _make_progress_callback,
 )
 from quant_pipeline.config.logging import setup_logging
