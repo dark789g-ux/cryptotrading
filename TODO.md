@@ -168,21 +168,22 @@
   - 当前：GBDT NDCG@10=0.3868, Linear NDCG@10=0.3471, 提升=0.0397 ✅
   - 达 → 进 M4
 
-- [ ] 前端三页手测（启动 web dev server）
+- [x] 前端三页手测（启动 web dev server）
   ```powershell
   pnpm --filter @cryptotrading/web dev
   # 浏览器：http://localhost:5173/quant
   ```
   逐项验证：
-  - [ ] `/quant` Overview：当日 Top-K + OOS 趋势图正常
-  - [ ] `/quant/scores` 切换日期 / 模型版本 / top_k，URL 同步刷新
-  - [ ] `/quant/runs` 列表 + OOS 指标徽章
+  - [x] `/quant` Overview：当日 Top-K + OOS 趋势图正常
+  - [x] `/quant/scores` 切换日期 / 模型版本 / top_k，URL 同步刷新
+  - [x] `/quant/runs` 列表 + OOS 指标徽章
 
-- [ ] **M3 验收**：scores 查询 P95 < 500ms（PG EXPLAIN）
+- [x] **M3 验收**：scores 查询 P95 < 500ms（PG EXPLAIN）
   ```powershell
   docker exec crypto-postgres psql -U cryptouser -d cryptodb -c `
-    "EXPLAIN ANALYZE SELECT ts_code, score, rank_in_day FROM ml.scores_daily WHERE trade_date='20260516' AND model_version='lgb-lambdarank-v1-20260517-seed42' ORDER BY rank_in_day LIMIT 50;"
+    "EXPLAIN ANALYZE SELECT ts_code, score, rank_in_day FROM ml.scores_daily WHERE trade_date='20260515' AND model_version='lgb-lambdarank-v1-20260521-seed42' ORDER BY rank_in_day LIMIT 50;"
   ```
+  > Execution Time = 0.236ms ✅
 
 ---
 
@@ -218,34 +219,38 @@
   uv run quant quality monitor --model-version <ensemble_model_version> --date 20260516
   ```
 
-- [ ] **M4 验收**：模拟特征漂移触发 critical
+- [x] **M4 验收**：模拟特征漂移触发 critical
   ```sql
   -- 手动插入一条假漂移
   INSERT INTO ml.quality_reports (trade_date, level, rule, detail)
-  VALUES ('20260517', 'critical', 'feature_drift_psi',
+  VALUES ('20260515', 'critical', 'feature_drift_psi',
           '{"feature_id":"momentum_20d","psi":0.42,"bins":[]}'::jsonb);
   -- 然后刷新 /quant 顶部应出现红色告警条
   ```
+  > 红色告警条显示 "20260515 数据质量告警：3 条 critical" ✅
 
 ### 4.4 训练 UI 全流程
 
-- [ ] 浏览器手测：
-  - [ ] `/quant/jobs` 点"触发训练" → 选 train + 填 feature_set → 提交
+- [x] 浏览器手测：
+  - [x] `/quant/jobs` 点"触发训练" → 选 train + 填 feature_set → 提交
   - [ ] 跳转 `/quant/jobs?highlight=<id>` 看进度条 < 2 秒延迟
   - [ ] 完成后跳 `/quant/runs/:id` 看 SHAP top-20 柱状图
+  > 注：后两项需要实际训练完成后验证，当前训练已暂停
 
 ### 4.5 任务计划注册（运维上线）
 
-- [ ] 注册 Windows 任务计划（22:00 sync→quality→infer 链）
+- [x] 注册 Windows 任务计划（22:00 sync→quality→infer 链）
   ```powershell
   pwsh -File C:\codes\cryptotrading\scripts\quant-daily\register-task.ps1
   schtasks /Query /TN CryptoQuantDaily /V /FO LIST
   ```
+  > 注册成功：TN=CryptoQuantDaily ST=22:00
 
-- [ ] 干跑确认命令拼装正确
+- [x] 干跑确认命令拼装正确
   ```powershell
   pwsh -File C:\codes\cryptotrading\scripts\quant-daily\daily-sync-quality-infer.ps1 -DryRun
   ```
+  > DryRun 通过，三阶段命令拼装正确
 
 - [ ] **M4 验收**：连续 3 个交易日无人值守
   - 每日 22:30 前 `ml.scores_daily` 行数 = `raw.daily_quote` 行数
@@ -277,7 +282,7 @@
   git push origin quant-migration-base   # rollback tag
   ```
 
-- [ ] 把 `TODO.md` 在做完后转成 `doc/quant-runbook.md`（作为长期运维手册）
+- [x] 把 `TODO.md` 在做完后转成 `doc/quant-runbook.md`（作为长期运维手册）
 
 ---
 
