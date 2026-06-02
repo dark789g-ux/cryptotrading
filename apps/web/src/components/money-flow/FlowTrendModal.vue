@@ -36,10 +36,11 @@
                 :available-subplots="availableSubplots"
                 @update:range="onKlineRangeChange"
               />
-              <!-- 0AMV 副图合规标注（spec §8/§11）：信号未回测校准 + 行业量基于成分股当前快照。
-                   仅当本入口确实开了 0AMV 副图（行业指数 type='I'）才展示，sector/大盘 入口不出现 -->
+              <!-- 0AMV 副图合规标注（spec §8/§11）：信号未回测校准 + 成分股当前快照。
+                   仅当本入口确实开了 0AMV 副图（行业 type='I' / 概念 type='N'）才展示，
+                   大盘等不含 0AMV 的入口不出现；文案由调用方经 amvCaption prop 区分行业/板块措辞 -->
               <n-text v-if="klineBars.length && showAmvCaption" :depth="3" class="amv-caption">
-                {{ AMV_CAPTION_INDUSTRY }}
+                {{ amvCaption }}
               </n-text>
             </template>
           </div>
@@ -109,6 +110,8 @@ const props = withDefaults(defineProps<{
   membersTradeDate?: string | null
   /** kline 模式副图白名单；默认不含 AMV，行业指数入口可显式传入含 0AMV 的列表 */
   availableSubplots?: SubplotKey[]
+  /** 0AMV 副图合规标注文案；默认行业版（含「行业量」），概念板块入口可传板块版 */
+  amvCaption?: string
 }>(), {
   chartMode: 'bar',
   showMembersTab: false,
@@ -116,8 +119,9 @@ const props = withDefaults(defineProps<{
   // 默认副图白名单：不含 AMV（保证 sector / 大盘 等非 type='I' 入口布局不变）；
   // 行业指数（type='I'）入口由 IndustryFlowPanel 显式传入含 0AMV / 0AMV_MACD 的列表。
   // 注意：defineProps/withDefaults 会被编译器提升到 setup() 外，default 工厂内
-  // 不能引用 <script setup> 里的局部 const，故此处直接内联字面量。
+  // 不能引用 <script setup> 里的局部 const，故此处直接内联字面量 / 模块顶层 import 常量。
   availableSubplots: () => ['VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW'],
+  amvCaption: AMV_CAPTION_INDUSTRY,
 })
 
 defineEmits<{

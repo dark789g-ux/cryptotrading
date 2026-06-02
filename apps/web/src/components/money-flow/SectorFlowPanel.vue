@@ -31,6 +31,8 @@
       chart-mode="kline"
       :show-members-tab="true"
       :members-trade-date="trendMembersTradeDate"
+      :available-subplots="conceptAvailableSubplots"
+      :amv-caption="AMV_CAPTION_CONCEPT"
     />
   </div>
 </template>
@@ -45,6 +47,14 @@ import { moneyFlowApi, type MoneyFlowQueryParams, type MoneyFlowSectorRow } from
 import FlowDateControl from './FlowDateControl.vue'
 import FlowTrendModal from './FlowTrendModal.vue'
 import { fetchSectorTrend } from './trendFetchers'
+import { AMV_CAPTION_CONCEPT } from '@/composables/kline/amvCaption'
+import type { SubplotKey } from '@/composables/kline/subplotConfig'
+
+// 概念板块指数（同花顺 type='N'，.TI）K 线：全副图 + 活跃市值（0AMV / 0AMV_MACD）。
+// 同源性已真 DB 核实：money_flow_sectors.ts_code 100% 落在 ths_index_catalog type='N'。
+const conceptAvailableSubplots: SubplotKey[] = [
+  'VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW', '0AMV', '0AMV_MACD',
+]
 
 const rows = ref<MoneyFlowSectorRow[]>([])
 const loading = ref(false)

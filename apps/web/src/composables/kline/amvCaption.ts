@@ -21,3 +21,15 @@ export const AMV_CAPTION_INDUSTRY_SNAPSHOT =
 /** 行业视图完整标注 = 第 1 条 + 第 2 条 */
 export const AMV_CAPTION_INDUSTRY =
   `${AMV_CAPTION_BASE}；${AMV_CAPTION_INDUSTRY_SNAPSHOT}`
+
+/** 第 2 条（概念板块版）：板块量基于成分股当前快照（仅概念视图追加） */
+export const AMV_CAPTION_CONCEPT_SNAPSHOT =
+  '板块量基于成分股当前快照，无历史成分，回溯存在成分漂移'
+
+/**
+ * 概念板块视图完整标注 = 第 1 条 + 第 2 条（概念版）。
+ * 概念板块（同花顺 type='N'）与行业同样按成分股聚合 AMV，
+ * 「当前快照、无历史成分」的成分漂移免责声明同样适用，仅措辞由「行业」改为「板块」。
+ */
+export const AMV_CAPTION_CONCEPT =
+  `${AMV_CAPTION_BASE}；${AMV_CAPTION_CONCEPT_SNAPSHOT}`

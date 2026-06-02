@@ -42,11 +42,16 @@ export async function fetchIndustryTrend(params: MoneyFlowQueryParams): Promise<
 
 export async function fetchSectorTrend(params: MoneyFlowQueryParams): Promise<TrendFetchResult> {
   const ranged = requireDateRange(params)
-  const [kline, flowRows] = await Promise.all([
+  // 概念板块（同花顺 type='N'，.TI）：并行拉 K 线 + 资金流 + 活跃市值（AMV）。
+  // 同源性已真 DB 核实：money_flow_sectors.ts_code 100% 落在 ths_index_catalog type='N'，
+  // 故副图直接走 activeMvApi.getConcept(tsCode)。AMV 走 days 口径（近 250 交易日），
+  // 失败降级空序列（副图缺日填 null），不拖垮 K 线主图。
+  const [kline, flowRows, amvRows] = await Promise.all([
     thsIndexDailyApi.query(ranged),
     moneyFlowApi.querySectors(params),
+    activeMvApi.getConcept(ranged.ts_code, 250).catch(() => [] as AmvSeriesRow[]),
   ])
   return {
-    kline: mergeKlineWithMoneyFlow(kline, flowRows),
+    kline: mergeKlineWithAmv(mergeKlineWithMoneyFlow(kline, flowRows), amvRows),
   }
 }
