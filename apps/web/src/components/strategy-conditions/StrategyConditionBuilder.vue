@@ -148,6 +148,14 @@ const aShareFields: FieldOption[] = [
   { label: '成交量', value: 'volume' },
   { label: '成交额', value: 'amount' },
   { label: '涨跌幅', value: 'pct_chg' },
+  // 个股 AMV-MACD（stock_amv_daily）
+  { label: 'AMV-MACD-DIF', value: 'amv_dif', supportsCross: false },
+  { label: 'AMV-MACD-DEA', value: 'amv_dea', supportsCross: false },
+  { label: 'AMV-MACD-MACD', value: 'amv_macd', supportsCross: false },
+  // 个股所在行业 AMV-MACD（industry_amv_daily，任一行业达标即命中）
+  { label: '行业AMV-MACD-DIF', value: 'ind_amv_dif', supportsCross: false },
+  { label: '行业AMV-MACD-DEA', value: 'ind_amv_dea', supportsCross: false },
+  { label: '行业AMV-MACD-MACD', value: 'ind_amv_macd', supportsCross: false },
 ];
 
 const cryptoFields: FieldOption[] = [
