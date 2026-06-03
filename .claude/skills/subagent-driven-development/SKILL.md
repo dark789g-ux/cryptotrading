@@ -48,9 +48,9 @@ digraph when_to_use {
 
 不满足任一条件的任务排到后续批次（批次之间串行）。一个批次的所有任务都验收通过后，再开下一个批次（下一批次可依赖上一批次的产物）。
 
-**并行提交的 git 安全：** 同一分支上多个 implementer 并发提交会抢占 git 索引。二选一：
-- 让每个并行 implementer 在隔离 worktree 中工作（Agent 工具 `isolation: "worktree"`）；或
-- 令 implementer 只实现 + 测试、**不提交**，由控制者在批次结束后按任务逐个提交其不相交的文件集。
+**并行提交的 git 安全：** 同一分支上多个 implementer 并发提交会抢占 git 索引。做法固定一种：**令并行 implementer 只实现 + 测试、不提交**，由控制者在批次结束后按任务逐个提交其不相交的文件集。
+
+**禁止用 git worktree 隔离**（即调用 `Agent` 工具时不要传 `isolation: "worktree"`）：worktree 子目录在 Windows 上会被 `node_modules` 等文件锁占用，`git worktree remove` 经常失败、`.claude/worktrees/` 留下顽固残留，还要额外把改动 patch 回主分支。冲突应靠"按不相交文件域切批次"从源头避免，而非靠 worktree 物理隔离。唯一例外：agent 必须执行破坏性操作（`git reset --hard`、大范围分支重写）时才考虑 worktree。
 
 拿不准两个任务是否真不相交时，**当作相交、排进不同批次**——错误的并行会制造冲突，代价远高于少一点并行度。
 
@@ -68,7 +68,7 @@ digraph process {
         "并行派发本批次各 implementer 子代理 (./implementer-prompt.md)" [shape=box];
         "某 implementer 有疑问？" [shape=diamond];
         "回答疑问、提供上下文" [shape=box];
-        "各 implementer 实现、测试、提交、自审（worktree 隔离避免 git 冲突）" [shape=box];
+        "各 implementer 实现、测试、自审（不提交，控制者批次末按序提交）" [shape=box];
         "对每个完成的任务派发审查者子代理 (./reviewer-prompt.md)" [shape=box];
         "审查者通过（spec 合规 且 代码质量）？" [shape=diamond];
         "对应 implementer 修复（spec 缺口优先于质量问题）" [shape=box];
@@ -83,8 +83,8 @@ digraph process {
     "并行派发本批次各 implementer 子代理 (./implementer-prompt.md)" -> "某 implementer 有疑问？";
     "某 implementer 有疑问？" -> "回答疑问、提供上下文" [label="是"];
     "回答疑问、提供上下文" -> "并行派发本批次各 implementer 子代理 (./implementer-prompt.md)" [label="重新派发该 implementer"];
-    "某 implementer 有疑问？" -> "各 implementer 实现、测试、提交、自审（worktree 隔离避免 git 冲突）" [label="否"];
-    "各 implementer 实现、测试、提交、自审（worktree 隔离避免 git 冲突）" -> "对每个完成的任务派发审查者子代理 (./reviewer-prompt.md)";
+    "某 implementer 有疑问？" -> "各 implementer 实现、测试、自审（不提交，控制者批次末按序提交）" [label="否"];
+    "各 implementer 实现、测试、自审（不提交，控制者批次末按序提交）" -> "对每个完成的任务派发审查者子代理 (./reviewer-prompt.md)";
     "对每个完成的任务派发审查者子代理 (./reviewer-prompt.md)" -> "审查者通过（spec 合规 且 代码质量）？";
     "审查者通过（spec 合规 且 代码质量）？" -> "对应 implementer 修复（spec 缺口优先于质量问题）" [label="否"];
     "对应 implementer 修复（spec 缺口优先于质量问题）" -> "对每个完成的任务派发审查者子代理 (./reviewer-prompt.md)" [label="重新审查"];
@@ -151,15 +151,15 @@ implementer 子代理会报告四种状态之一。分别妥善处理：
 
 == 批次 1：任务 1 与任务 2 并行 ==
 
-[同一条消息里并行派发两个实现子代理，各带完整任务文本 + 上下文，worktree 隔离]
+[同一条消息里并行派发两个实现子代理，各带完整任务文本 + 上下文；明确要求只实现 + 测试、不提交，由我批次末统一提交]
 
 implementer#1（任务 1）："开始之前——hook 应该安装在用户级还是系统级？"
 你："用户级（~/.config/superpowers/hooks/）"
 implementer#2（任务 2）：[无疑问，直接开始]
 
 [稍后，两者各自回报]
-implementer#1：实现 install-hook、5/5 通过、自审补上漏掉的 --force、已提交
-implementer#2：加了 verify/repair 模式、8/8 通过、自审一切正常、已提交
+implementer#1：实现 install-hook、5/5 通过、自审补上漏掉的 --force、未提交（交控制者）
+implementer#2：加了 verify/repair 模式、8/8 通过、自审一切正常、未提交（交控制者）
 
 [对两个完成的任务并行派发审查者，各自一次审 spec + 质量]
 
@@ -167,7 +167,7 @@ implementer#2：加了 verify/repair 模式、8/8 通过、自审一切正常、
   spec 合规：✅ 所有需求满足，无多余
   代码质量：优点——覆盖好、干净；问题——无
   总评：✅ 通过
-[标记任务 1 完成]
+[控制者提交任务 1 的文件，标记任务 1 完成]
 
 审查者#2（任务 2）：
   spec 合规：❌ 缺失"每 100 项报告进度"；多余 --json 标志（未要求）
@@ -177,7 +177,7 @@ implementer#2：加了 verify/repair 模式、8/8 通过、自审一切正常、
 [implementer#2 修复：先解 spec 缺口（加进度上报、移除 --json），再解质量（抽常量）]
 [审查者#2 重新审查]
 审查者#2：spec 合规 ✅；代码质量 ✅；总评 ✅ 通过
-[标记任务 2 完成]
+[控制者提交任务 2 的文件，标记任务 2 完成]
 
 == 批次 1 全部通过，进入批次 2 ==
 
@@ -230,7 +230,8 @@ implementer#2：加了 verify/repair 模式、8/8 通过、自审一切正常、
 - 带着未修复的问题继续推进
 - **并行派发共享文件或有先后依赖的任务**（会冲突——只有不相交任务才能同批次并行）
 - 拿不准是否不相交时仍强行并行（当作相交、排进不同批次）
-- 让多个并行 implementer 在同一分支上并发提交而不做 worktree 隔离（会抢 git 索引）
+- 让并行 implementer 各自向同一分支提交（会抢 git 索引——并行任务应只实现 + 测试不提交，由控制者批次末按序提交）
+- 用 git worktree 隔离来跑并行（本项目禁用：Windows 上 `node_modules` 文件锁致 `git worktree remove` 失败、残留难清；仅破坏性操作例外）
 - 让子代理去读计划文件（应改为提供全文）
 - 省略场景铺垫上下文（子代理需要理解任务所处的位置）
 - 忽视子代理的提问（让它们继续前先回答）
