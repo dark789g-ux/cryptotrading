@@ -1,0 +1,97 @@
+import { StrategyConditionsQueryBuilder } from './strategy-conditions.query-builder';
+import { StrategyConditionItem } from '../entities/strategy/strategy-condition.entity';
+
+/** 折叠所有空白便于做不受换行/缩进影响的子串断言 */
+function squash(sql: string): string {
+  return sql.replace(/\s+/g, ' ').trim();
+}
+
+describe('StrategyConditionsQueryBuilder — AMV-MACD 字段', () => {
+  let builder: StrategyConditionsQueryBuilder;
+  let warnSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    builder = new StrategyConditionsQueryBuilder();
+    // 静音并捕获 warn，便于断言 warn+skip 路径
+    warnSpy = jest
+      .spyOn((builder as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')
+      .mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  it('个股 AMV 比常量：amv_dif gt 0 → sa.amv_dif > $1', () => {
+    const conditions: StrategyConditionItem[] = [{ field: 'amv_dif', operator: 'gt', value: 0 }];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    expect(squash(sql)).toContain('sa.amv_dif > $1');
+    expect(params).toEqual([0]);
+  });
+
+  it('个股 AMV 字段对字段：amv_dif gt amv_dea → sa.amv_dif > sa.amv_dea（同表非 i. 前缀字段对字段）', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'amv_dif', operator: 'gt', compareField: 'amv_dea' },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    expect(squash(sql)).toContain('sa.amv_dif > sa.amv_dea');
+    expect(params).toEqual([]);
+  });
+
+  it('行业 AMV 比常量：ind_amv_dif gt 0 → EXISTS 子查询 + ia.amv_dif > $1', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'ind_amv_dif', operator: 'gt', value: 0 },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    const flat = squash(sql);
+    expect(flat).toContain('EXISTS (');
+    expect(flat).toContain('ths_member_stocks');
+    expect(flat).toContain('industry_amv_daily');
+    expect(flat).toContain('mem.con_code = i.ts_code');
+    expect(flat).toContain('ia.ts_code = mem.ts_code');
+    expect(flat).toContain('ia.trade_date = i.trade_date');
+    expect(flat).toContain('ia.amv_dif > $1');
+    expect(params).toEqual([0]);
+  });
+
+  it('行业 AMV 字段对字段：ind_amv_dif gt ind_amv_dea → EXISTS 内 ia.amv_dif > ia.amv_dea，无新增 param', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'ind_amv_dif', operator: 'gt', compareField: 'ind_amv_dea' },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    const flat = squash(sql);
+    expect(flat).toContain('EXISTS (');
+    expect(flat).toContain('ia.amv_dif > ia.amv_dea');
+    expect(params).toEqual([]);
+  });
+
+  it('行业 AMV 与个股字段混比：ind_amv_dif gt close → warn+skip，sql 为 TRUE', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'ind_amv_dif', operator: 'gt', compareField: 'close' },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    expect(sql).toBe('TRUE');
+    expect(params).toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('行业 AMV 上穿：ind_amv_dif cross_above ind_amv_dea → warn+skip，sql 为 TRUE', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'ind_amv_dif', operator: 'cross_above', compareField: 'ind_amv_dea' },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    expect(sql).toBe('TRUE');
+    expect(params).toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('crypto 不支持行业字段：ind_amv_dif gt 0 → 未知字段 warn+skip，sql 为 TRUE', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'ind_amv_dif', operator: 'gt', value: 0 },
+    ];
+    const { sql, params } = builder.buildCryptoQuery(conditions);
+    expect(sql).toBe('TRUE');
+    expect(params).toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+});

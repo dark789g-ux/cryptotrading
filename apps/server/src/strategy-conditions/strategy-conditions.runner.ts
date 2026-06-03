@@ -106,6 +106,8 @@ export class StrategyConditionsRunner {
           ON q.ts_code = s.ts_code AND q.trade_date = i.trade_date
         LEFT JOIN raw.daily_basic m
           ON m.ts_code = s.ts_code AND m.trade_date = i.trade_date
+        LEFT JOIN stock_amv_daily sa
+          ON sa.ts_code = s.ts_code AND sa.trade_date = i.trade_date
         WHERE s.list_status = 'L'
           AND ${where.sql}
         ORDER BY s.ts_code

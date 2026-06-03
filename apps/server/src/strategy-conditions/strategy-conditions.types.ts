@@ -33,6 +33,16 @@ export const ASHARE_FIELD_COL_MAP: Record<string, string> = {
   pb: 'm.pb',
   total_mv: 'm.total_mv',
   circ_mv: 'm.circ_mv',
+  amv_dif: 'sa.amv_dif',
+  amv_dea: 'sa.amv_dea',
+  amv_macd: 'sa.amv_macd',
+};
+
+/** 行业 AMV-MACD 字段（个股所在行业 type='I' 指数；走 EXISTS 子查询） */
+export const ASHARE_INDUSTRY_AMV_COL_MAP: Record<string, string> = {
+  ind_amv_dif: 'ia.amv_dif',
+  ind_amv_dea: 'ia.amv_dea',
+  ind_amv_macd: 'ia.amv_macd',
 };
 
 export const CRYPTO_FIELD_COL_MAP: Record<string, string> = {

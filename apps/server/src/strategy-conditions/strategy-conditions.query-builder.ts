@@ -3,6 +3,7 @@ import { StrategyConditionItem } from '../entities/strategy/strategy-condition.e
 import {
   ASHARE_BOOLEAN_COLS,
   ASHARE_FIELD_COL_MAP,
+  ASHARE_INDUSTRY_AMV_COL_MAP,
   CRYPTO_FIELD_COL_MAP,
 } from './strategy-conditions.types';
 
@@ -25,13 +26,32 @@ export class StrategyConditionsQueryBuilder {
   private readonly logger = new Logger(StrategyConditionsQueryBuilder.name);
 
   buildAShareQuery(conditions: StrategyConditionItem[]): BuiltWhere {
-    return this.build(conditions, ASHARE_FIELD_COL_MAP, 'i.', 'A股', {
-      tablePrev: 'raw.daily_indicator',
-      prevAlias: 'prev',
-      prevJoinKey: 'ts_code',
-      prevDateKey: 'trade_date',
-      booleanCols: ASHARE_BOOLEAN_COLS,
-    });
+    return this.build(
+      conditions,
+      ASHARE_FIELD_COL_MAP,
+      'i.',
+      'A股',
+      {
+        tablePrev: 'raw.daily_indicator',
+        prevAlias: 'prev',
+        prevJoinKey: 'ts_code',
+        prevDateKey: 'trade_date',
+        booleanCols: ASHARE_BOOLEAN_COLS,
+      },
+      {
+        fieldMap: ASHARE_INDUSTRY_AMV_COL_MAP,
+        memberTable: 'ths_member_stocks',
+        memberAlias: 'mem',
+        memberConKey: 'con_code',
+        memberIndexKey: 'ts_code',
+        amvTable: 'industry_amv_daily',
+        amvAlias: 'ia',
+        amvIndexKey: 'ts_code',
+        amvDateKey: 'trade_date',
+        outerCodeRef: 'i.ts_code',
+        outerDateRef: 'i.trade_date',
+      },
+    );
   }
 
   buildCryptoQuery(conditions: StrategyConditionItem[]): BuiltWhere {
@@ -59,6 +79,19 @@ export class StrategyConditionsQueryBuilder {
       prevExtraSubquery?: string;
       booleanCols?: Set<string>;
     },
+    industryCfg?: {
+      fieldMap: Record<string, string>;
+      memberTable: string;
+      memberAlias: string;
+      memberConKey: string;
+      memberIndexKey: string;
+      amvTable: string;
+      amvAlias: string;
+      amvIndexKey: string;
+      amvDateKey: string;
+      outerCodeRef: string;
+      outerDateRef: string;
+    },
   ): BuiltWhere {
     const whereClauses: string[] = [];
     const params: unknown[] = [];
@@ -66,6 +99,52 @@ export class StrategyConditionsQueryBuilder {
 
     for (const cond of conditions) {
       const { field, operator, value, compareField } = cond;
+
+      const industryCol = industryCfg?.fieldMap[field];
+      if (industryCfg && industryCol) {
+        if (operator === 'cross_above' || operator === 'cross_below') {
+          this.logger.warn(`[${label}] 行业字段 "${field}" 不支持上穿/下穿，已跳过`);
+          continue;
+        }
+        const sqlOp = COMPARISON_OPERATORS[operator];
+        if (!sqlOp) {
+          this.logger.warn(`[${label}] 未知操作符 "${operator}"，已跳过`);
+          continue;
+        }
+
+        let predicate: string;
+        if (compareField) {
+          const compareIndustryCol = industryCfg.fieldMap[compareField];
+          if (!compareIndustryCol) {
+            this.logger.warn(
+              `[${label}] 行业字段 "${field}" 只能与行业 AMV 字段或常量比较，比较字段 "${compareField}" 非法，已跳过`,
+            );
+            continue;
+          }
+          predicate = `${industryCol} ${sqlOp} ${compareIndustryCol}`;
+        } else {
+          if (typeof value !== 'number' || !Number.isFinite(value)) {
+            this.logger.warn(`[${label}] 字段 "${field}" 比较值非法（${String(value)}），已跳过`);
+            continue;
+          }
+          params.push(value);
+          predicate = `${industryCol} ${sqlOp} ${ph()}`;
+        }
+
+        whereClauses.push(`
+          EXISTS (
+            SELECT 1
+            FROM ${industryCfg.memberTable} ${industryCfg.memberAlias}
+            JOIN ${industryCfg.amvTable} ${industryCfg.amvAlias}
+              ON ${industryCfg.amvAlias}.${industryCfg.amvIndexKey} = ${industryCfg.memberAlias}.${industryCfg.memberIndexKey}
+             AND ${industryCfg.amvAlias}.${industryCfg.amvDateKey} = ${industryCfg.outerDateRef}
+            WHERE ${industryCfg.memberAlias}.${industryCfg.memberConKey} = ${industryCfg.outerCodeRef}
+              AND ${predicate}
+          )
+        `);
+        continue;
+      }
+
       const col = fieldMap[field];
       if (!col) {
         this.logger.warn(`[${label}] 未知字段 "${field}"，已跳过`);
