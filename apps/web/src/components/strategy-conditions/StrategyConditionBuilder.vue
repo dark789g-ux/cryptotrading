@@ -41,7 +41,7 @@
           <template v-if="condition.compareMode === 'field'">
             <n-select
               v-model:value="condition.compareField"
-              :options="fieldOptions"
+              :options="getCompareFieldOptions(condition.field)"
               placeholder="比较指标"
               style="width: 180px"
             />
@@ -115,6 +115,9 @@ interface FieldOption extends SelectOption {
   supportsCross?: boolean;
 }
 
+/** 行业 AMV 字段：只能与行业 AMV 字段或常量比较（后端约束） */
+const INDUSTRY_FIELD_VALUES = new Set(['ind_amv_dif', 'ind_amv_dea', 'ind_amv_macd']);
+
 const aShareFields: FieldOption[] = [
   { label: 'KDJ_J', value: 'kdj_j', supportsCross: true },
   { label: 'KDJ_K', value: 'kdj_k', supportsCross: true },
@@ -185,6 +188,18 @@ const fieldOptions = computed(() => {
   return form.value.targetType === 'a-share' ? aShareFields : cryptoFields;
 });
 
+/**
+ * 比较目标（字段引用模式）的可选字段：按左侧字段是否为行业 AMV 字段过滤。
+ * 左侧是行业字段 → 只返回行业字段；左侧非行业字段 → 只返回非行业字段。
+ * 从 UI 层杜绝"行业字段 vs 个股字段"这类后端会 warn+skip 静默失效的组合。
+ * crypto 无行业字段，leftIsIndustry 恒 false，过滤后等于全部 crypto 字段（行为不变）。
+ */
+function getCompareFieldOptions(fieldValue: string) {
+  const all = form.value.targetType === 'a-share' ? aShareFields : cryptoFields;
+  const leftIsIndustry = INDUSTRY_FIELD_VALUES.has(fieldValue);
+  return all.filter(f => INDUSTRY_FIELD_VALUES.has(f.value as string) === leftIsIndustry);
+}
+
 const BASE_OPERATOR_OPTIONS = [
   { label: '大于', value: 'gt' },
   { label: '大于等于', value: 'gte' },
@@ -213,6 +228,13 @@ function handleFieldChange(condition: StrategyConditionItem, newField: string) {
     !getOperatorOptions(newField).find(o => o.value === condition.operator && !o.disabled)
   ) {
     condition.operator = 'gt';
+  }
+  // 切换左侧字段后，若已选的比较字段不在新的可选范围内（行业/非行业类别变了），重置避免残留非法跨类比较目标
+  if (
+    condition.compareField &&
+    !getCompareFieldOptions(newField).some(o => o.value === condition.compareField)
+  ) {
+    condition.compareField = undefined;
   }
 }
 
