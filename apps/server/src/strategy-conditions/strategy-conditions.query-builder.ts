@@ -219,9 +219,20 @@ export class StrategyConditionsQueryBuilder {
       }
     }
 
-    return {
-      sql: whereClauses.length > 0 ? whereClauses.join(' AND ') : 'TRUE',
-      params,
-    };
+    if (whereClauses.length > 0) {
+      return { sql: whereClauses.join(' AND '), params };
+    }
+
+    // 配了条件但全部被跳过（未知字段/操作符/非法比较等）：fail-closed 返回 FALSE，
+    // 不退化成匹配全部 list_status='L' 的"伪装成功"。
+    if (conditions.length > 0) {
+      this.logger.warn(
+        `[${label}] 全部 ${conditions.length} 条条件均无法翻译为 SQL，本次查询不匹配任何标的（sql=FALSE）`,
+      );
+      return { sql: 'FALSE', params };
+    }
+
+    // 真正无条件（runner 已在更上层短路 return []，此处保留以防被直接调用）。
+    return { sql: 'TRUE', params };
   }
 }

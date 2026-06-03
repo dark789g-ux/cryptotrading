@@ -65,32 +65,32 @@ describe('StrategyConditionsQueryBuilder — AMV-MACD 字段', () => {
     expect(params).toEqual([]);
   });
 
-  it('行业 AMV 与个股字段混比：ind_amv_dif gt close → warn+skip，sql 为 TRUE', () => {
+  it('行业 AMV 与个股字段混比：ind_amv_dif gt close → warn+skip，sql 为 FALSE', () => {
     const conditions: StrategyConditionItem[] = [
       { field: 'ind_amv_dif', operator: 'gt', compareField: 'close' },
     ];
     const { sql, params } = builder.buildAShareQuery(conditions);
-    expect(sql).toBe('TRUE');
+    expect(sql).toBe('FALSE');
     expect(params).toEqual([]);
     expect(warnSpy).toHaveBeenCalled();
   });
 
-  it('行业 AMV 上穿：ind_amv_dif cross_above ind_amv_dea → warn+skip，sql 为 TRUE', () => {
+  it('行业 AMV 上穿：ind_amv_dif cross_above ind_amv_dea → warn+skip，sql 为 FALSE', () => {
     const conditions: StrategyConditionItem[] = [
       { field: 'ind_amv_dif', operator: 'cross_above', compareField: 'ind_amv_dea' },
     ];
     const { sql, params } = builder.buildAShareQuery(conditions);
-    expect(sql).toBe('TRUE');
+    expect(sql).toBe('FALSE');
     expect(params).toEqual([]);
     expect(warnSpy).toHaveBeenCalled();
   });
 
-  it('crypto 不支持行业字段：ind_amv_dif gt 0 → 未知字段 warn+skip，sql 为 TRUE', () => {
+  it('crypto 不支持行业字段：ind_amv_dif gt 0 → 未知字段 warn+skip，sql 为 FALSE', () => {
     const conditions: StrategyConditionItem[] = [
       { field: 'ind_amv_dif', operator: 'gt', value: 0 },
     ];
     const { sql, params } = builder.buildCryptoQuery(conditions);
-    expect(sql).toBe('TRUE');
+    expect(sql).toBe('FALSE');
     expect(params).toEqual([]);
     expect(warnSpy).toHaveBeenCalled();
   });
@@ -107,13 +107,30 @@ describe('StrategyConditionsQueryBuilder — AMV-MACD 字段', () => {
     expect(params).toEqual([5, 3]);
   });
 
-  it('个股 AMV 字段选上穿：amv_dif cross_above amv_dea → 非 i. 前缀 warn+skip，sql 为 TRUE', () => {
+  it('个股 AMV 字段选上穿：amv_dif cross_above amv_dea → 非 i. 前缀 warn+skip，sql 为 FALSE', () => {
     const conditions: StrategyConditionItem[] = [
       { field: 'amv_dif', operator: 'cross_above', compareField: 'amv_dea' },
     ];
     const { sql, params } = builder.buildAShareQuery(conditions);
-    expect(sql).toBe('TRUE');
+    expect(sql).toBe('FALSE');
     expect(params).toEqual([]);
     expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('多条件全无效：两条未知字段 → 全跳过，sql 为 FALSE，params 空，warn 被调用', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: '不存在A', operator: 'gt', value: 1 },
+      { field: '不存在B', operator: 'gt', value: 2 },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    expect(sql).toBe('FALSE');
+    expect(params).toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('空 conditions：无条件仍返回 TRUE，params 空（不被 fail-closed 误伤）', () => {
+    const { sql, params } = builder.buildAShareQuery([]);
+    expect(sql).toBe('TRUE');
+    expect(params).toEqual([]);
   });
 });
