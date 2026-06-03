@@ -94,4 +94,26 @@ describe('StrategyConditionsQueryBuilder — AMV-MACD 字段', () => {
     expect(params).toEqual([]);
     expect(warnSpy).toHaveBeenCalled();
   });
+
+  it('混合个股+行业 value 条件：占位编号与 params 顺序严格对齐（$1/$2，[5,3]）', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'amv_dif', operator: 'gt', value: 5 },
+      { field: 'ind_amv_dif', operator: 'gt', value: 3 },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    const flat = squash(sql);
+    expect(flat).toContain('sa.amv_dif > $1');
+    expect(flat).toContain('ia.amv_dif > $2');
+    expect(params).toEqual([5, 3]);
+  });
+
+  it('个股 AMV 字段选上穿：amv_dif cross_above amv_dea → 非 i. 前缀 warn+skip，sql 为 TRUE', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'amv_dif', operator: 'cross_above', compareField: 'amv_dea' },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    expect(sql).toBe('TRUE');
+    expect(params).toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
 });

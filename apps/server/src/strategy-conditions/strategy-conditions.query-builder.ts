@@ -38,6 +38,10 @@ export class StrategyConditionsQueryBuilder {
         prevDateKey: 'trade_date',
         booleanCols: ASHARE_BOOLEAN_COLS,
       },
+      // 行业 AMV 走 EXISTS。这里只 JOIN industry_amv_daily（恒为同花顺 type='I' 行业指数），
+      // 概念指数（type='N'）在 concept_amv_daily、JOIN 不上自然排除——"仅算行业、不算概念"
+      // 这一语义依赖 industry_amv_daily 只存 type='I' 这一数据事实。若该表将来也存概念，
+      // 需在此 EXISTS 显式 JOIN ths_index_catalog 过滤 c.type='I'。
       {
         fieldMap: ASHARE_INDUSTRY_AMV_COL_MAP,
         memberTable: 'ths_member_stocks',
