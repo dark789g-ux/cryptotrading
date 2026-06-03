@@ -123,7 +123,7 @@ industryCfg = {
 
 ```text
 若 field ∈ industryCfg.fieldMap：
-  · operator 是 cross_*            → warn + skip（不支持上穿）
+  · operator 是 cross_*            → warn + skip（不支持上穿；warn 文案可复用现有通用提示）
   · compareField 也是行业字段       → EXISTS(... ia.<col> <op> ia.<col2> ...)
   · compareField 是非行业字段       → warn + skip（不支持跨表混比）
   · 无 compareField（比常量值）     → 校验 value 有限数字，EXISTS(... ia.<col> <op> $n ...)
@@ -167,7 +167,7 @@ crypto 不传 `industryCfg`，行业字段对 crypto 即「未知字段」→ wa
 ## 10. 验证清单
 
 - 后端单测：`pnpm --filter @cryptotrading/server exec jest strategy-conditions`
-  - 个股 AMV：value 比较、字段对字段比较生成的 SQL 正确。
+  - 个股 AMV：value 比较、字段对字段比较生成的 SQL 正确；显式加一例 `amv_dif > amv_dea`（同表非 `i.` 前缀的字段对字段）应生成 `sa.amv_dif > sa.amv_dea`。
   - 行业 AMV：value 比较、行业对行业比较生成 EXISTS；cross / 混比走 warn+skip。
 - 后端改动后 **必须重启 `nest start`**（无 watch）再端到端验证。
 - 前端：`pnpm --filter @cryptotrading/web type-check` + **`build`(vite)**，并真机打开策略条件页确认 6 个新字段可选、可保存、可运行命中。
