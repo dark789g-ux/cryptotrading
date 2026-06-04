@@ -4,8 +4,12 @@
  * CLAUDE.md 硬约束：n-date-picker daterange 的 [number, number] 是本地午夜 ms。
  * formatDateRange 必须用 getFullYear/getMonth/getDate，禁 getUTC*——曾把
  * `20260509` 漂成 `20260508` 导致整次同步看似完成实则一行未写。
+ *
+ * 2026-06-05 quant-label-management spec：
+ * - label_scheme 下拉已废弃；E2E 改用 labelRef:{label_id, label_version}
+ * - applyFeatureLabelParams 移除 fwd_horizon_days / max_hold_days（已进标签定义）
  */
-import type { JobRunType } from '@/api/modules/quant'
+import type { JobRunType, LabelRef } from '@/api/modules/quant'
 import type { E2EFormModel } from './TrainE2EFields.vue'
 import type { LgbHyperModel } from './LgbHyperFields.vue'
 import type { NeutralizeCols } from './FeatureLabelFields.vue'
@@ -73,6 +77,8 @@ export function pickDefined<T extends Record<string, unknown>>(
 export interface BuiltJobPayload {
   run_type: JobRunType
   params: Record<string, unknown>
+  /** 训练类任务必填，后端展开为明文 base_type/classify_mode 等参数 */
+  labelRef?: LabelRef
 }
 
 export function formatDateRange(range: [number, number]): string {
@@ -109,7 +115,7 @@ export function isWinsorizePaired(e: E2EFormModel): boolean {
 
 /**
  * 把 E2E 特征/标签参数打包进 params（仅非 null 项；neutralize 枚举映射；winsorize 成对打包）。
- * fwd_horizon_days 仅 fwd_5d_ret、max_hold_days 仅 strategy-aware 时打包。
+ * fwd_horizon_days / max_hold_days 已进标签定义，不再从前端参数打包。
  */
 function applyFeatureLabelParams(
   params: Record<string, unknown>,
@@ -130,11 +136,19 @@ function applyFeatureLabelParams(
   if (fl.label_winsorize_lo != null && fl.label_winsorize_hi != null) {
     params.label_winsorize = [fl.label_winsorize_lo, fl.label_winsorize_hi]
   }
-  if (e.label_scheme === 'fwd_5d_ret' && fl.fwd_horizon_days != null) {
-    params.fwd_horizon_days = fl.fwd_horizon_days
-  }
-  if (e.label_scheme === 'strategy-aware' && fl.max_hold_days != null) {
-    params.max_hold_days = fl.max_hold_days
+}
+
+/**
+ * 从 E2E 表单的 labelKey（"label_id:label_version"）解析出 LabelRef。
+ * labelKey 为 null 时返回 undefined（调用方应在提交前校验）。
+ */
+export function parseLabelRef(labelKey: string | null): LabelRef | undefined {
+  if (!labelKey) return undefined
+  const idx = labelKey.indexOf(':')
+  if (idx < 0) return undefined
+  return {
+    label_id: labelKey.slice(0, idx),
+    label_version: labelKey.slice(idx + 1),
   }
 }
 
@@ -146,17 +160,11 @@ export function buildJobPayload(
     const e = form.e2e
     const params: Record<string, unknown> = {
       factor_version: e.factor_version.trim(),
-      label_scheme: e.label_scheme,
       new_listing_min_days: e.new_listing_min_days ?? 60,
       date_range: formatDateRange(e.date_range as [number, number]),
       model: e.model,
       walk_forward: e.walk_forward,
       seed: e.seed ?? 42,
-    }
-    // dir3_band 横盘阈值 ε：仅 dir3_band 家族选择器有意义；null/空 → 走后端默认 0.005。
-    // 编解码（ε→canonical scheme 串）由后端 dir3_scheme.py 单一源完成，前端只透原始 ε。
-    if (e.label_scheme === 'dir3_band') {
-      params.dir3_band_eps = e.dir3_band_eps ?? 0.005
     }
     // 模型超参（仅打包用户显式填写的项 → 后端补默认，避免双源默认值）
     if (e.model === 'lstm' && e.lstm) {
@@ -168,7 +176,9 @@ export function buildJobPayload(
     }
     // 特征/标签参数（E2E 专属；普通 train 不打包，特征矩阵已由 feature_set_id 固定）
     applyFeatureLabelParams(params, e)
-    return { run_type: 'train_e2e', params }
+    // labelRef：由 parseLabelRef 从 labelKey 解析，作为顶层字段传给 createJob
+    const labelRef = parseLabelRef(e.labelKey ?? null)
+    return { run_type: 'train_e2e', params, labelRef }
   }
   if (form.run_type === 'train') {
     const p: Record<string, unknown> = {

@@ -1,11 +1,10 @@
 /**
  * train-modal/buildParams：lgb 超参 + 特征/标签参数 + 枚举映射单测。
  *
- * 覆盖（04-testing-and-rollout.md「前端 vitest」段）：
- *  - E2E + lgb-lambdarank + 部分超参 → params.hyperparams 仅含已填项
- *  - E2E + lgb-multiclass → 特征参数正确打包（neutralize 映射、winsorize 成对）
- *  - 普通 train + lgb → p.hyperparams 不含 early_stopping_rounds（UI disabled → 留 null）
- *  - neutralize 三档语义映射；winsorize 成对校验
+ * 2026-06-05 quant-label-management spec 更新：
+ *  - label_scheme 字段已废弃，改为 labelKey（label_id:label_version）
+ *  - fwd_horizon_days / max_hold_days 已进标签定义，不再从 FeatureLabelModel 打包
+ *  - buildJobPayload E2E 路径输出 labelRef（由 parseLabelRef 从 labelKey 解析）
  */
 import { describe, it, expect } from 'vitest'
 import {
@@ -13,6 +12,7 @@ import {
   isLgbModel,
   mapNeutralizeCols,
   isWinsorizePaired,
+  parseLabelRef,
   type TrainTriggerFormShape,
 } from '../train-modal/buildParams'
 
@@ -34,8 +34,6 @@ const EMPTY_FL = {
   factor_clip_sigma: null,
   label_winsorize_lo: null,
   label_winsorize_hi: null,
-  fwd_horizon_days: null,
-  max_hold_days: null,
 }
 
 function freshForm(): TrainTriggerFormShape {
@@ -44,7 +42,7 @@ function freshForm(): TrainTriggerFormShape {
     train: { feature_set_id: '', model: 'lgb-lambdarank', walk_forward: true, seed: null },
     e2e: {
       factor_version: 'v1',
-      label_scheme: 'strategy-aware',
+      labelKey: 'my_label:v1',
       new_listing_min_days: 60,
       date_range: [new Date(2026, 4, 9).getTime(), new Date(2026, 4, 11).getTime()],
       model: 'lgb-lambdarank',
@@ -74,6 +72,21 @@ describe('mapNeutralizeCols', () => {
   })
 })
 
+describe('parseLabelRef', () => {
+  it('正常 key → { label_id, label_version }', () => {
+    expect(parseLabelRef('my_label:v1')).toEqual({ label_id: 'my_label', label_version: 'v1' })
+  })
+  it('null → undefined', () => {
+    expect(parseLabelRef(null)).toBeUndefined()
+  })
+  it('无冒号 → undefined', () => {
+    expect(parseLabelRef('nocolon')).toBeUndefined()
+  })
+  it('多冒号取第一个', () => {
+    expect(parseLabelRef('a:b:c')).toEqual({ label_id: 'a', label_version: 'b:c' })
+  })
+})
+
 describe('isWinsorizePaired', () => {
   it('两者皆填 → true', () => {
     const e = { ...freshForm().e2e, featureLabel: { ...EMPTY_FL, label_winsorize_lo: -0.5, label_winsorize_hi: 0.5 } }
@@ -96,6 +109,34 @@ describe('isWinsorizePaired', () => {
   })
 })
 
+describe('buildJobPayload E2E labelRef 输出', () => {
+  it('labelKey 存在 → payload.labelRef 解析正确', () => {
+    const f = freshForm()
+    f.e2e.labelKey = 'fwd_ret_h1:v1'
+    const out = buildJobPayload(f, true)
+    expect(out.labelRef).toEqual({ label_id: 'fwd_ret_h1', label_version: 'v1' })
+  })
+
+  it('labelKey=null → payload.labelRef=undefined', () => {
+    const f = freshForm()
+    f.e2e.labelKey = null
+    const out = buildJobPayload(f, true)
+    expect(out.labelRef).toBeUndefined()
+  })
+
+  it('params 不再含 label_scheme', () => {
+    const f = freshForm()
+    const out = buildJobPayload(f, true)
+    expect('label_scheme' in out.params).toBe(false)
+  })
+
+  it('params 不含 dir3_band_eps', () => {
+    const f = freshForm()
+    const out = buildJobPayload(f, true)
+    expect('dir3_band_eps' in out.params).toBe(false)
+  })
+})
+
 describe('buildJobPayload E2E lgb 超参', () => {
   it('lgb-lambdarank + 部分超参 → hyperparams 仅含已填项', () => {
     const f = freshForm()
@@ -109,7 +150,6 @@ describe('buildJobPayload E2E lgb 超参', () => {
   it('lgb-multiclass + lgb 全留空 → 不输出 hyperparams', () => {
     const f = freshForm()
     f.e2e.model = 'lgb-multiclass'
-    f.e2e.label_scheme = 'dir3_band'
     f.e2e.lgb = { ...EMPTY_LGB }
     const out = buildJobPayload(f, true)
     expect('hyperparams' in out.params).toBe(false)
@@ -182,28 +222,12 @@ describe('buildJobPayload E2E 特征/标签参数', () => {
     expect(out.params.factor_clip_sigma).toBe(3.0)
   })
 
-  it('fwd_horizon_days 仅 fwd_5d_ret 打包', () => {
+  it('fwd_horizon_days / max_hold_days 不再从前端参数打包（已进标签定义）', () => {
+    // 这两个字段已从 FeatureLabelModel 中移除，buildParams 不应输出
     const f = freshForm()
-    f.e2e.label_scheme = 'fwd_5d_ret'
-    f.e2e.featureLabel = { ...EMPTY_FL, fwd_horizon_days: 5 }
-    const out = buildJobPayload(f, true)
-    expect(out.params.fwd_horizon_days).toBe(5)
-  })
-
-  it('fwd_horizon_days 在非 fwd_5d_ret 下不打包', () => {
-    const f = freshForm()
-    f.e2e.label_scheme = 'strategy-aware'
-    f.e2e.featureLabel = { ...EMPTY_FL, fwd_horizon_days: 5 }
     const out = buildJobPayload(f, true)
     expect('fwd_horizon_days' in out.params).toBe(false)
-  })
-
-  it('max_hold_days 仅 strategy-aware 打包', () => {
-    const f = freshForm()
-    f.e2e.label_scheme = 'strategy-aware'
-    f.e2e.featureLabel = { ...EMPTY_FL, max_hold_days: 20 }
-    const out = buildJobPayload(f, true)
-    expect(out.params.max_hold_days).toBe(20)
+    expect('max_hold_days' in out.params).toBe(false)
   })
 })
 

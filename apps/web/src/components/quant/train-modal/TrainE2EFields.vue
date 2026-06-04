@@ -13,31 +13,21 @@
       />
     </n-form-item>
 
-    <n-form-item label="label_scheme" required>
+    <n-form-item label="命名标签" required>
       <n-select
-        :value="modelValue.label_scheme"
-        :options="labelSchemeOptions"
-        @update:value="(v: LabelScheme) => update('label_scheme', v)"
+        :value="selectedLabelKey"
+        :options="labelOptions"
+        :loading="loadingLabels"
+        clearable
+        placeholder="选择标签定义…"
+        data-testid="e2e-label-select"
+        @update:value="onLabelSelect"
       />
     </n-form-item>
 
-    <n-form-item
-      v-if="modelValue.label_scheme === 'dir3_band'"
-      label="横盘阈值 ε"
-    >
-      <n-input-number
-        :value="modelValue.dir3_band_eps ?? DIR3_BAND_EPS_DEFAULT"
-        :min="0.001"
-        :max="0.1"
-        :step="0.001"
-        :precision="3"
-        @update:value="(v: number | null) => update('dir3_band_eps', v)"
-      >
-        <template #suffix>
-          ≈ {{ ((modelValue.dir3_band_eps ?? DIR3_BAND_EPS_DEFAULT) * 100).toFixed(1) }}%
-        </template>
-      </n-input-number>
-    </n-form-item>
+    <div v-if="selectedLabelSummary" class="label-summary">
+      {{ selectedLabelSummary }}
+    </div>
 
     <n-form-item label="新股最少上市天数">
       <n-input-number
@@ -87,7 +77,6 @@
       <n-collapse-item title="特征 / 标签参数" name="feature">
         <FeatureLabelFields
           :model-value="featureLabelModel"
-          :label-scheme="modelValue.label_scheme"
           @update:model-value="onFeatureLabelUpdate"
         />
       </n-collapse-item>
@@ -113,7 +102,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onActivated, onMounted } from 'vue'
+import { computed, onActivated, onMounted, ref } from 'vue'
 import {
   NCollapse, NCollapseItem, NDatePicker, NDivider, NFormItem,
   NInputNumber, NSelect, NSwitch, useMessage,
@@ -125,20 +114,14 @@ import LgbHyperFields from './LgbHyperFields.vue'
 import type { LgbHyperModel } from './LgbHyperFields.vue'
 import FeatureLabelFields from './FeatureLabelFields.vue'
 import type { FeatureLabelModel } from './FeatureLabelFields.vue'
-import { quantApi } from '@/api/modules/quant'
+import { quantApi, type LabelDefinition } from '@/api/modules/quant'
 
-export type LabelScheme = 'strategy-aware' | 'fwd_5d_ret' | 'dir3_band' | 'dir3_tercile'
 export type ModelKind = 'lgb-lambdarank' | 'lgb-multiclass' | 'linear' | 'gbdt' | 'lstm'
 
 export interface E2EFormModel {
   factor_version: string
-  label_scheme: LabelScheme
-  /**
-   * dir3_band 横盘阈值 ε（仅 label_scheme==='dir3_band' 时有意义）。
-   * null = 走后端默认 0.005（legacy）。0.1% 网格、范围 0<ε≤0.1。
-   * 编解码（ε→canonical scheme 串）在后端 dir3_scheme.py 单一源完成，前端只发原始 ε。
-   */
-  dir3_band_eps?: number | null
+  /** 命名标签 key（label_id:label_version），对应 labelRef */
+  labelKey: string | null
   /** null = 走后端默认 60（交易日） */
   new_listing_min_days: number | null
   /** 本地午夜 ms（n-date-picker daterange 原生格式，CLAUDE.md 硬约束） */
@@ -154,10 +137,13 @@ export interface E2EFormModel {
   featureLabel?: FeatureLabelModel
 }
 
-interface LabelSchemeOption extends SelectOption {
+interface LabelSelectOption extends SelectOption {
   label: string
-  value: LabelScheme
+  value: string
+  /** 持有原始 LabelDefinition 供摘要展示 */
+  def: LabelDefinition
 }
+
 interface ModelOption extends SelectOption {
   label: string
   value: ModelKind
@@ -169,16 +155,6 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
-
-/** dir3_band 横盘阈值 ε 默认值（legacy 0.5%）。后端 canonical 回 'dir3_band' 串，守哈希不漂移。 */
-const DIR3_BAND_EPS_DEFAULT = 0.005
-
-const labelSchemeOptions: LabelSchemeOption[] = [
-  { label: 'strategy-aware', value: 'strategy-aware' },
-  { label: 'fwd_5d_ret', value: 'fwd_5d_ret' },
-  { label: '次日方向·固定阈值带 (dir3_band)', value: 'dir3_band' },
-  { label: '次日方向·截面三分位 (dir3_tercile)', value: 'dir3_tercile' },
-]
 
 const modelOptions: ModelOption[] = [
   { label: 'LightGBM LambdaRank', value: 'lgb-lambdarank' },
@@ -216,8 +192,6 @@ const EMPTY_FEATURE_LABEL: FeatureLabelModel = {
   factor_clip_sigma: null,
   label_winsorize_lo: null,
   label_winsorize_hi: null,
-  fwd_horizon_days: null,
-  max_hold_days: null,
 }
 
 const isLgb = computed(
@@ -259,35 +233,84 @@ async function loadFactorVersions() {
   }
 }
 
-// keep-alive 规范：异步数据放 onActivated；onMounted 兜底首次（组件未被 keep-alive 缓存时）
+// ---- 命名标签下拉 ----
+const loadingLabels = ref(false)
+const labelDefs = ref<LabelDefinition[]>([])
+
+async function loadLabels() {
+  loadingLabels.value = true
+  try {
+    const res = await quantApi.listLabels({ enabled: true })
+    labelDefs.value = res.items ?? []
+  } catch {
+    message.warning('获取标签列表失败，请检查后端连接')
+  } finally {
+    loadingLabels.value = false
+  }
+}
+
+/** label_id:label_version 组成选项 key，避免两标签 id 相同只是版本不同时冲突 */
+function labelKey(d: LabelDefinition): string {
+  return `${d.label_id}:${d.label_version}`
+}
+
+/** 单条标签的摘要文本（用于下拉项副标题） */
+function buildSummary(d: LabelDefinition): string {
+  const basePart = d.base_type === 'fwd_ret'
+    ? `fwd_ret h${d.base_params?.horizon ?? '?'}`
+    : d.base_type === 'strategy_aware'
+      ? `strategy_aware mhd${d.base_params?.max_hold_days ?? '?'}`
+      : d.base_type
+
+  let clsPart = '连续'
+  if (d.classify_mode === 'band') {
+    const eps = d.classify_params?.eps
+    clsPart = typeof eps === 'number' ? `band ${(eps * 100).toFixed(2)}%` : 'band'
+  } else if (d.classify_mode === 'tercile') {
+    clsPart = 'tercile'
+  } else if (d.classify_mode === 'custom') {
+    clsPart = `custom p${d.classify_params?.lo_pct ?? '?'}-p${d.classify_params?.hi_pct ?? '?'}`
+  }
+
+  return `${basePart} | ${clsPart}`
+}
+
+const labelOptions = computed<LabelSelectOption[]>(() =>
+  labelDefs.value.map((d) => ({
+    label: `${d.name} (${d.label_version}) — ${buildSummary(d)}`,
+    value: labelKey(d),
+    def: d,
+  })),
+)
+
+const selectedLabelKey = computed(() => props.modelValue.labelKey ?? null)
+
+/** 当前选中标签的摘要（显示在下拉框下方） */
+const selectedLabelSummary = computed<string | null>(() => {
+  const key = props.modelValue.labelKey
+  if (!key) return null
+  const def = labelDefs.value.find((d) => labelKey(d) === key)
+  if (!def) return null
+  return `${def.name}（${buildSummary(def)}）`
+})
+
+function onLabelSelect(key: string | null) {
+  update('labelKey', key)
+}
+
+// keep-alive 规范：异步数据放 onActivated；onMounted 兜底首次
 let activatedOnce = false
 onMounted(() => {
-  if (!activatedOnce) void loadFactorVersions()
+  if (!activatedOnce) {
+    void loadFactorVersions()
+    void loadLabels()
+  }
 })
 onActivated(() => {
   activatedOnce = true
   void loadFactorVersions()
+  void loadLabels()
 })
-
-/**
- * 默认联动（降低误配）：
- *  - 选 lstm 或 lgb-multiclass 且当前 label_scheme 非 dir3_* → 自动切 'dir3_band'
- *  - 切回非方向三分类模型且当前 dir3_* → 切回 'strategy-aware'
- * 用户仍可手动覆盖（非强制）。
- */
-watch(
-  () => props.modelValue.model,
-  (model) => {
-    const scheme = props.modelValue.label_scheme
-    const isDir3 = scheme === 'dir3_band' || scheme === 'dir3_tercile'
-    const wantsDir3 = model === 'lstm' || model === 'lgb-multiclass'
-    if (wantsDir3 && !isDir3) {
-      update('label_scheme', 'dir3_band')
-    } else if (!wantsDir3 && isDir3) {
-      update('label_scheme', 'strategy-aware')
-    }
-  },
-)
 
 /** 默认近 30 天，本地午夜口径（CLAUDE.md 硬约束：禁 getUTC*） */
 const defaultRange = computed<[number, number]>(() => {
@@ -304,5 +327,14 @@ function update<K extends keyof E2EFormModel>(key: K, value: E2EFormModel[K]) {
 <style scoped>
 .train-e2e-fields {
   display: contents;
+}
+.label-summary {
+  margin: -8px 0 12px 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-border) 16%, transparent);
+  border-radius: 6px;
+  border-left: 2px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
 }
 </style>

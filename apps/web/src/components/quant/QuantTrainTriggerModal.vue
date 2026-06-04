@@ -172,7 +172,7 @@ const form = reactive({
   },
   e2e: {
     factor_version: '',
-    label_scheme: 'strategy-aware',
+    labelKey: null,
     new_listing_min_days: null,
     date_range: null,
     model: 'lgb-lambdarank',
@@ -204,7 +204,7 @@ const canSubmit = computed(() => {
   if (form.run_type === 'train' && modeIsE2E.value) {
     const e = form.e2e
     return e.factor_version.trim().length > 0
-      && !!e.label_scheme
+      && !!e.labelKey
       && Array.isArray(e.date_range)
       && typeof e.date_range[0] === 'number'
       && typeof e.date_range[1] === 'number'
@@ -254,6 +254,7 @@ async function onSubmit() {
       run_type: payload.run_type,
       params: payload.params,
       priority: form.priority,
+      label_ref: payload.labelRef,
     })
     if (form.run_type === 'train' && modeIsE2E.value) {
       // D-20：长任务排队提示
@@ -283,6 +284,6 @@ watch(
   },
 )
 
-// 暴露给单测：直接拿到内部 reactive form / mode / canSubmit / buildParams
-defineExpose({ form, modeIsE2E, canSubmit, buildParams })
+// 暴露给单测：直接拿到内部 reactive form / mode / canSubmit / buildParams / onSubmit
+defineExpose({ form, modeIsE2E, canSubmit, buildParams, onSubmit })
 </script>

@@ -54,28 +54,6 @@
         @update:value="(v: number | null) => update('label_winsorize_hi', v)"
       />
     </n-form-item>
-
-    <n-form-item v-if="labelScheme === 'fwd_5d_ret'" label="fwd_horizon_days">
-      <n-select
-        :value="modelValue.fwd_horizon_days"
-        :options="fwdHorizonOptions"
-        clearable
-        placeholder="5"
-        @update:value="(v: number | null) => update('fwd_horizon_days', v)"
-      />
-    </n-form-item>
-
-    <n-form-item v-if="labelScheme === 'strategy-aware'" label="max_hold_days">
-      <n-input-number
-        :value="modelValue.max_hold_days"
-        :min="10"
-        :max="30"
-        :step="1"
-        clearable
-        placeholder="20"
-        @update:value="(v: number | null) => update('max_hold_days', v)"
-      />
-    </n-form-item>
   </div>
 </template>
 
@@ -89,6 +67,7 @@ export type NeutralizeCols = 'none' | 'industry' | 'industry_mv'
 /**
  * 仅 E2E（train_e2e）模式有意义；留空（null）= 不传 → 后端用硬编码默认值。
  * label_winsorize_lo / hi 必须同填或同空（区间成对）。
+ * fwd_horizon_days / max_hold_days 已移入标签定义（2026-06-05 spec），不再是训练超参。
  */
 export interface FeatureLabelModel {
   neutralize_cols: NeutralizeCols | null
@@ -96,24 +75,15 @@ export interface FeatureLabelModel {
   factor_clip_sigma: number | null
   label_winsorize_lo: number | null
   label_winsorize_hi: number | null
-  /** 仅 label_scheme==='fwd_5d_ret' */
-  fwd_horizon_days: number | null
-  /** 仅 label_scheme==='strategy-aware' */
-  max_hold_days: number | null
 }
 
 interface NeutralizeOption extends SelectOption {
   label: string
   value: NeutralizeCols
 }
-interface FwdHorizonOption extends SelectOption {
-  label: string
-  value: number
-}
 
 const props = defineProps<{
   modelValue: FeatureLabelModel
-  labelScheme: string
 }>()
 const emit = defineEmits<{
   'update:modelValue': [value: FeatureLabelModel]
@@ -123,12 +93,6 @@ const neutralizeOptions: NeutralizeOption[] = [
   { label: '无中性化', value: 'none' },
   { label: '行业', value: 'industry' },
   { label: '行业+市值', value: 'industry_mv' },
-]
-
-const fwdHorizonOptions: FwdHorizonOption[] = [
-  { label: '3 日', value: 3 },
-  { label: '5 日', value: 5 },
-  { label: '10 日', value: 10 },
 ]
 
 /** 区间成对校验：只填一个时报错（lo 与 hi 必须同填或同空）。 */

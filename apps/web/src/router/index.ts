@@ -125,6 +125,13 @@ const routes: any[] = [
     component: () => import('../views/quant/QuantFactorsView.vue'),
     meta: { title: '量化因子清单', requireAdmin: true },
   },
+  {
+    // quant-label-management spec：标签库（admin-only，继承 /quant/* 守卫）
+    path: '/quant/labels',
+    name: 'quant-labels',
+    component: () => import('../views/quant/QuantLabelsView.vue'),
+    meta: { title: '量化标签库', requireAdmin: true },
+  },
 ]
 
 const router = createRouter({

@@ -229,6 +229,62 @@ export interface JobProgressEvent {
   stage: string
 }
 
+// ---------- 标签库（quant-label-management，2026-06-05 spec） ----------
+
+/**
+ * `factors.label_definitions` 行，对齐后端实体 snake_case 字段。
+ * 详见 docs/superpowers/specs/2026-06-05-quant-label-management-design/03-backend.md
+ */
+export interface LabelDefinition {
+  label_id: string
+  label_version: string
+  name: string
+  description: string | null
+  base_type: string          // 'fwd_ret' | 'strategy_aware'（枚举权威在 Python）
+  base_params: Record<string, unknown>     // e.g. { horizon: 1 }
+  classify_mode: string | null             // 'band' | 'tercile' | 'custom' | null=连续
+  classify_params: Record<string, unknown> | null   // e.g. { eps: 0.005 }
+  enabled: boolean
+  display_order: number
+  created_at: string         // UTC 墙钟字符串
+}
+
+export interface ListLabelsQuery {
+  enabled?: boolean
+  base_type?: string
+}
+
+export interface CreateLabelBody {
+  label_id: string
+  label_version: string
+  name: string
+  description?: string
+  base_type: string
+  base_params: Record<string, unknown>
+  classify_mode?: string | null
+  classify_params?: Record<string, unknown> | null
+  display_order?: number
+}
+
+export interface UpdateLabelPatch {
+  name?: string
+  description?: string
+  enabled?: boolean
+  display_order?: number
+}
+
+/** base-types 枚举端点响应 */
+export interface LabelBaseTypesResponse {
+  base_types: string[]
+  classify_modes: string[]
+}
+
+/** labelRef 供 createJob 传入（训练类任务必填） */
+export interface LabelRef {
+  label_id: string
+  label_version: string
+}
+
 // ---------- 因子清单（factor-registry-frontend，2026-05-23 spec） ----------
 
 /**
@@ -407,12 +463,15 @@ export const quantApi = {
   /**
    * 触发新作业（M2 已实现 `POST /quant/jobs`）。
    * 返回 NestJS 落库后的 job 行；前端拿 id 后跳 `/quant/jobs` 并高亮。
+   * labelRef：训练类 run_type（train_e2e/train/optuna/seed_avg）必填，后端展开为明文参数。
    */
   createJob(body: {
     run_type: JobRunType
     params: Record<string, unknown>
     priority?: number
     max_attempts?: number
+    /** snake_case：与后端 DTO label_ref 字段完全对齐，禁止改成 camelCase（wire 键名即此） */
+    label_ref?: LabelRef
   }): Promise<JobRow> {
     return post<JobRow>(`${API_BASE}/quant/jobs`, body)
   },
@@ -528,6 +587,52 @@ export const quantApi = {
   /** 可用因子类别列表（用于筛选下拉）。后端 `GET /quant/factors/categories` */
   listFactorCategories(): Promise<{ items: string[] }> {
     return request<{ items: string[] }>(`${API_BASE}/quant/factors/categories`)
+  },
+
+  // ============ 标签库（quant-label-management，2026-06-05 spec） ============
+
+  /**
+   * 列出标签定义。后端 `GET /quant/labels`，支持 enabled / base_type 过滤。
+   */
+  listLabels(query: ListLabelsQuery = {}): Promise<{ items: LabelDefinition[] }> {
+    const qs = new URLSearchParams()
+    if (typeof query.enabled === 'boolean') {
+      qs.set('enabled', query.enabled ? 'true' : 'false')
+    }
+    appendQueryParam(qs, 'base_type', query.base_type)
+    const s = qs.toString()
+    return request<{ items: LabelDefinition[] }>(
+      `${API_BASE}/quant/labels${s ? `?${s}` : ''}`,
+    )
+  },
+
+  /** 单条标签详情。后端 `GET /quant/labels/:id/:version` */
+  getLabel(id: string, version: string): Promise<{ item: LabelDefinition }> {
+    return request<{ item: LabelDefinition }>(
+      `${API_BASE}/quant/labels/${encodeURIComponent(id)}/${encodeURIComponent(version)}`,
+    )
+  },
+
+  /** 新建标签定义（含新建版本）。后端 `POST /quant/labels` */
+  createLabel(body: CreateLabelBody): Promise<{ item: LabelDefinition }> {
+    return post<{ item: LabelDefinition }>(`${API_BASE}/quant/labels`, body)
+  },
+
+  /** 改元数据（name/description/enabled/display_order）。后端 `PATCH /quant/labels/:id/:version` */
+  updateLabel(
+    id: string,
+    version: string,
+    body: UpdateLabelPatch,
+  ): Promise<{ item: LabelDefinition }> {
+    return patch<{ item: LabelDefinition }>(
+      `${API_BASE}/quant/labels/${encodeURIComponent(id)}/${encodeURIComponent(version)}`,
+      body,
+    )
+  },
+
+  /** 获取 base_type / classify_mode 合法枚举列表（供下拉使用）。后端 `GET /quant/labels/base-types` */
+  listLabelBaseTypes(): Promise<LabelBaseTypesResponse> {
+    return request<LabelBaseTypesResponse>(`${API_BASE}/quant/labels/base-types`)
   },
 
   /**
