@@ -15,7 +15,18 @@ import type { MlJobRunType } from '../../../entities/ml/ml-job.entity';
  *   内部字段不在 NestJS 侧校验，由 Python worker 按 §4.1 schema 校验（避免双重 schema 维护）
  * - priority / max_attempts 若传须为正整数（priority 范围 0..1000；max_attempts 至少 1）
  * - parent_job_id / created_by 透传（created_by 通常由 controller 覆盖为当前 user.id）
+ * - labelRef：训练类 run_type（TRAIN_RUN_TYPES）必填；其余 run_type 不涉及标签
+ *   由 QuantJobsService.create() 调 LabelsService.expandForTraining() 展开写入 params
  */
+
+/** 需要 labelRef 的训练类 run_type（spec 03-backend.md） */
+export const TRAIN_RUN_TYPES: ReadonlySet<MlJobRunType> = new Set<MlJobRunType>([
+  'train_e2e',
+  'train',
+  'optuna',
+  'seed_avg',
+]);
+
 export class CreateJobDto {
   run_type!: MlJobRunType;
   params?: Record<string, unknown>;
@@ -23,6 +34,8 @@ export class CreateJobDto {
   max_attempts?: number;
   parent_job_id?: string;
   created_by?: string;
+  /** 训练类 run_type 必填；后端展开写入 params */
+  label_ref?: { label_id: string; label_version: string };
 }
 
 export const ALLOWED_RUN_TYPES: readonly MlJobRunType[] = [
@@ -47,6 +60,8 @@ export interface ValidatedCreateJob {
   parentJobId?: string;
   /** controller 通常会用当前 user.id 覆盖；body 中显式传入仅供 cron / 内部脚本使用 */
   createdBy?: string;
+  /** 训练类 run_type 时由 controller/service 展开填入 params；非训练类不存在 */
+  labelRef?: { labelId: string; labelVersion: string };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -114,6 +129,33 @@ export function validateCreateJob(input: unknown): ValidatedCreateJob {
     createdBy = body.created_by;
   }
 
+  // labelRef：训练类 run_type 必填，非训练类不接受
+  let labelRef: { labelId: string; labelVersion: string } | undefined;
+  const isTrainType = TRAIN_RUN_TYPES.has(runType as MlJobRunType);
+  if (body.label_ref !== undefined && body.label_ref !== null) {
+    if (typeof body.label_ref !== 'object' || Array.isArray(body.label_ref)) {
+      throw new BadRequestException('label_ref 必须为对象 { label_id, label_version }');
+    }
+    const lr = body.label_ref as Record<string, unknown>;
+    if (typeof lr.label_id !== 'string' || lr.label_id.length === 0 || lr.label_id.length > 64) {
+      throw new BadRequestException('label_ref.label_id 必须为 1..64 字符的字符串');
+    }
+    if (
+      typeof lr.label_version !== 'string' ||
+      lr.label_version.length === 0 ||
+      lr.label_version.length > 16
+    ) {
+      throw new BadRequestException('label_ref.label_version 必须为 1..16 字符的字符串');
+    }
+    labelRef = { labelId: lr.label_id, labelVersion: lr.label_version };
+  } else if (isTrainType) {
+    // 训练类 run_type 未传 labelRef → fail-fast
+    throw new BadRequestException(
+      `run_type=${runType as string} 为训练类任务，labelRef 必填。` +
+        '请在请求体中提供 label_ref: { label_id, label_version }。',
+    );
+  }
+
   return {
     runType: runType as MlJobRunType,
     params,
@@ -121,5 +163,6 @@ export function validateCreateJob(input: unknown): ValidatedCreateJob {
     maxAttempts,
     parentJobId,
     createdBy,
+    labelRef,
   };
 }

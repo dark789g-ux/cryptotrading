@@ -8,6 +8,7 @@ import {
   resolveJobsFilterColumn,
 } from './quant-jobs.service';
 import { SseTokenService } from './sse-token.service';
+import { LabelsService } from '../labels/labels.service';
 import { MlJobEntity } from '../../../entities/ml/ml-job.entity';
 import type { ValidatedCreateJob } from '../dto/create-job.dto';
 import type { ValidatedJobQuery } from '../dto/job-query.dto';
@@ -57,12 +58,24 @@ describe('QuantJobsService', () => {
     configGet = jest.fn((k: string) => (k === 'QUANT_SSE_TOKEN_SECRET' ? secret : undefined));
     const config: any = { get: configGet };
 
+    const labelsServiceMock = {
+      expandForTraining: jest.fn().mockResolvedValue({
+        base_type: 'ret_fwd',
+        base_params: { days: 5 },
+        classify_mode: 'quantile',
+        classify_params: { bins: 3 },
+        label_id: 'mock-label',
+        label_version: 'v1',
+      }),
+    };
+
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         QuantJobsService,
         SseTokenService,
         { provide: getRepositoryToken(MlJobEntity), useValue: repo },
         { provide: ConfigService, useValue: config },
+        { provide: LabelsService, useValue: labelsServiceMock },
       ],
     }).compile();
 

@@ -22,7 +22,6 @@ describe('validateCreateJob (train_e2e 扩展)', () => {
       run_type: 'train_e2e',
       params: {
         factor_version: 'v1',
-        label_scheme: 'strategy-aware',
         new_listing_min_days: 60,
         date_range: '20260101:20260131',
         model: 'lgb-lambdarank',
@@ -31,6 +30,7 @@ describe('validateCreateJob (train_e2e 扩展)', () => {
       },
       priority: 50,
       max_attempts: 1,
+      label_ref: { label_id: 'ret5d', label_version: 'v1' },
     };
     const out = validateCreateJob(body);
     expect(out.runType).toBe('train_e2e');
@@ -38,6 +38,7 @@ describe('validateCreateJob (train_e2e 扩展)', () => {
     expect(out.params).toEqual(body.params);
     expect(out.priority).toBe(50);
     expect(out.maxAttempts).toBe(1);
+    expect(out.labelRef).toEqual({ labelId: 'ret5d', labelVersion: 'v1' });
   });
 
   it('拒绝未知 run_type "train_e2e_extra"(防止笔误绕过 CHECK)', () => {
@@ -58,10 +59,14 @@ describe('validateCreateJob (train_e2e 扩展)', () => {
     ).toThrow(BadRequestException);
   });
 
-  it('train_e2e 不传 params 时,默认 {} 兼容', () => {
-    const out = validateCreateJob({ run_type: 'train_e2e' });
+  it('train_e2e 不传 params 时,默认 {} 兼容（须传 label_ref）', () => {
+    const out = validateCreateJob({
+      run_type: 'train_e2e',
+      label_ref: { label_id: 'ret5d', label_version: 'v1' },
+    });
     expect(out.runType).toBe('train_e2e');
     expect(out.params).toEqual({});
+    expect(out.labelRef).toEqual({ labelId: 'ret5d', labelVersion: 'v1' });
   });
 });
 

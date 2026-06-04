@@ -6,6 +6,7 @@ import type { ValidatedCreateJob } from '../dto/create-job.dto';
 import type { ValidatedJobQuery } from '../dto/job-query.dto';
 import type { SseTokenResponse } from '../dto/sse-token.dto';
 import { SseTokenService } from './sse-token.service';
+import { LabelsService } from '../labels/labels.service';
 
 /**
  * 列表接口的 job 摘要形态：在 entity 字段之上额外暴露 `warnings_count`，
@@ -62,6 +63,7 @@ export class QuantJobsService {
     @InjectRepository(MlJobEntity)
     private readonly jobsRepo: Repository<MlJobEntity>,
     private readonly sseTokens: SseTokenService,
+    private readonly labels: LabelsService,
   ) {}
 
   /**
@@ -69,14 +71,41 @@ export class QuantJobsService {
    *
    * params 走 jsonb 列；CLAUDE.md 禁止裸 `'[]'::jsonb`，但本字段 TypeORM 会把对象序列化为 jsonb，
    * 默认值 `'{}'::jsonb` 已在 entity 处声明。
+   *
+   * 训练类 run_type 展开 labelRef（spec 03-backend.md §expandForTraining）：
+   *   - 调 LabelsService.expandForTraining(id, version)
+   *   - 把 base_type/base_params/classify_mode/classify_params 明文 + label_id/label_version 透传
+   *     写进 ml.jobs.params
+   *   - label 不存在 / enabled=false → fail-fast 抛 400（禁止静默回退默认）
    */
   async create(dto: ValidatedCreateJob, createdBy: string | null): Promise<MlJobEntity> {
     // body 中显式传入的 created_by 仅供 cron / 内部脚本使用；controller 调用时 createdBy
     // 已用当前 user.id 覆盖。这里以参数优先于 dto.createdBy。
     const finalCreatedBy = createdBy ?? dto.createdBy ?? null;
+
+    // 展开 labelRef（训练类 run_type 时 dto.labelRef 已由 validateCreateJob 保证非空）
+    let finalParams = { ...dto.params };
+    if (dto.labelRef) {
+      const expanded = await this.labels.expandForTraining(
+        dto.labelRef.labelId,
+        dto.labelRef.labelVersion,
+      );
+      // 展开字段放在 dto.params **之后**覆盖，防止前端误传同名字段绕过后端展开。
+      // 语义：expandForTraining 的权威结果不可被请求体中的 params 静默覆盖。
+      finalParams = {
+        ...dto.params,
+        base_type: expanded.base_type,
+        base_params: expanded.base_params,
+        classify_mode: expanded.classify_mode,
+        classify_params: expanded.classify_params,
+        label_id: expanded.label_id,
+        label_version: expanded.label_version,
+      };
+    }
+
     const entity = this.jobsRepo.create({
       runType: dto.runType,
-      params: dto.params,
+      params: finalParams,
       priority: dto.priority,
       maxAttempts: dto.maxAttempts,
       status: 'pending',

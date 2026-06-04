@@ -21,6 +21,7 @@ import { QuantQualityController } from './controllers/quant-quality.controller';
 import { SseTokenGuard } from './guards/sse-token.guard';
 import { PgListenService } from './realtime/pg-listen.service';
 import { FactorsModule } from './factors/factors.module';
+import { LabelsModule } from './labels/labels.module';
 
 /**
  * `apps/server/src/modules/quant/`：量化模型训练相关 HTTP 表面。
@@ -67,6 +68,8 @@ import { FactorsModule } from './factors/factors.module';
     ]),
     // 因子元数据 admin 管理 API（spec 2026-05-23-factor-registry-frontend-design）
     FactorsModule,
+    // 标签定义 CRUD + expandForTraining（spec 2026-06-05-quant-label-management-design）
+    LabelsModule,
   ],
   controllers: [
     QuantJobsController,
