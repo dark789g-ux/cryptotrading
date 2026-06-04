@@ -197,3 +197,38 @@ def test_train_model_runner_entrypoint_validates_params() -> None:
 
     with pytest.raises(ValueError, match="feature_set_id"):
         runner_mod.runner_entrypoint(_MockJob())
+
+
+# ---------------------------------------------------------------------------
+# 误配护栏（分类后移，spec 2026-06-05 §误配护栏）
+# ---------------------------------------------------------------------------
+
+
+def test_lstm_with_classify_mode_none_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """误配护栏：lstm + classify_mode=None → raise ValueError（连续标签不支持三分类）。"""
+
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs: _mock_feature_matrix())
+
+    with pytest.raises(ValueError, match="误配护栏|classify_mode"):
+        runner_mod.train_model("fs_v1", model="lstm", classify_mode=None)
+
+
+def test_lgb_multiclass_with_classify_mode_none_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """误配护栏：lgb-multiclass + classify_mode=None → raise ValueError。"""
+
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs: _mock_feature_matrix())
+
+    with pytest.raises(ValueError, match="误配护栏|classify_mode"):
+        runner_mod.train_model("fs_v1", model="lgb-multiclass", classify_mode=None)
+
+
+def test_lgb_lambdarank_with_non_null_classify_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """误配护栏：lgb-lambdarank + classify_mode='band' → raise ValueError（排序模型用连续值）。"""
+
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs: _mock_feature_matrix())
+
+    with pytest.raises(ValueError, match="误配护栏|classify_mode"):
+        runner_mod.train_model(
+            "fs_v1", model="lgb-lambdarank",
+            classify_mode="band", classify_params={"eps": 0.005},
+        )

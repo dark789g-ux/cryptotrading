@@ -332,15 +332,20 @@ def test_early_stop_valid_is_inner_split_not_test_fold(
         assert _rowset(train_X).isdisjoint(test_rows)
 
 
-def test_train_lgb_multiclass_guardrail_continuous_labels(
+def test_train_lgb_multiclass_guardrail_continuous_labels_no_classify_mode(
     fake_lgb: types.ModuleType, artifact_tmp: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """分类后移护栏：连续 label + classify_mode=None（缺省）→ _validate_dir3_labels raise。
+
+    runner.train_model 已在上游拦截"分类模型 + classify_mode=None"的误配；
+    此处直接调子 runner 验证内部护栏（最后一道防线）依然有效。
+    """
     import quant_pipeline.training.lgb_multiclass_walk_forward as wf
     import quant_pipeline.training.runner as runner_mod
 
     fm = _synthetic_feature_matrix()
     rng = np.random.default_rng(2)
-    fm["label"] = rng.normal(size=len(fm)) * 0.02  # 连续收益标签
+    fm["label"] = rng.normal(size=len(fm)) * 0.02  # 连续收益标签（无 classify_mode 离散）
     monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid: fm.copy())
     monkeypatch.setattr(wf, "gate_check", lambda *a, **k: None)
 
@@ -349,13 +354,80 @@ def test_train_lgb_multiclass_guardrail_continuous_labels(
             "fs_bad",
             seed=1,
             job_id=None,
-            hyperparams={},
+            hyperparams={},          # 不传 classify_mode → 连续标签直达护栏
             walk_forward_params={},
             progress_callback=None,
             today_yyyymmdd="20260530",
             insert_model_run=lambda *a, **k: None,
             write_artifact=None,
         )
+
+
+def _synthetic_continuous_feature_matrix() -> pd.DataFrame:
+    """同 _synthetic_feature_matrix，但 label 为连续涨跌幅（分类后移闭环测试用）。"""
+    rng = np.random.default_rng(99)
+    dates = [f"d{d:04d}" for d in range(320)]
+    codes = [f"{i:06d}.SZ" for i in range(5)]
+    rows = []
+    for d in dates:
+        for c in codes:
+            rows.append(
+                {
+                    "trade_date": d,
+                    "ts_code": c,
+                    "features": {
+                        "f0": float(rng.normal()),
+                        "f1": float(rng.normal()),
+                        "f2": float(rng.normal()),
+                    },
+                    "label": float(rng.normal() * 0.02),  # 连续收益（如 0.013 / -0.007）
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+@pytest.mark.parametrize("classify_mode,classify_params", [
+    ("band", {"eps": 0.005}),
+    ("tercile", {}),
+])
+def test_lgb_multiclass_classify_mode_end_to_end(
+    classify_mode: str,
+    classify_params: dict,
+    fake_lgb: types.ModuleType,
+    artifact_tmp: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """闭环测试（分类后移 spec 2026-06-05）：连续 label + classify_mode → 离散后训练成功。
+
+    连续 fwd_ret_h1 label（如 0.013）经 classify() 离散为 {0,1,2} 后，
+    _validate_dir3_labels 护栏通过，lgb-multiclass walk-forward 正常完成。
+    """
+    import quant_pipeline.training.lgb_multiclass_walk_forward as wf
+    import quant_pipeline.training.runner as runner_mod
+
+    fm = _synthetic_continuous_feature_matrix()
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid: fm.copy())
+    monkeypatch.setattr(wf, "gate_check", lambda *a, **k: None)
+    rng = np.random.default_rng(7)
+    monkeypatch.setattr(
+        wf, "load_forward_returns",
+        lambda pairs, **k: {p: float(rng.normal() * 0.01) for p in pairs},
+    )
+
+    # 不应 raise —— classify 先离散，护栏后通过
+    res = wf.train_lgb_multiclass_model(
+        "fs_cls",
+        seed=42,
+        job_id=None,
+        hyperparams={"classify_mode": classify_mode, "classify_params": classify_params},
+        walk_forward_params={"n_folds": 6, "embargo_days": 21, "min_train_days": 252},
+        progress_callback=None,
+        today_yyyymmdd="20260601",
+        insert_model_run=lambda *a, **k: None,
+        write_artifact=None,
+    )
+    assert res.model_version.startswith("lgb-multiclass-v1-")
+    assert res.oos_metrics["task"] == "classification_3class"
 
 
 # ---------------------------------------------------------------- 端到端推理

@@ -1,7 +1,10 @@
-"""train_e2e_runner 单测（spec 04 + 06）。
+"""train_e2e_runner 单测（spec 04 + 06 + 分类后移改造 spec 2026-06-05）。
 
 不连 DB：用 monkeypatch 把 compute_labels / build_feature_matrix / train_model
 全替换成 fake，验证编排顺序、错误包装、取消传播、进度回调范围。
+
+分类后移改造后：_validate_params 走单路径（base_type/base_params/classify_mode/classify_params），
+移除旧 label_scheme 入参路径。
 """
 
 from __future__ import annotations
@@ -29,11 +32,18 @@ def _stub_reload_from_db(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _valid_params(**overrides: Any) -> dict[str, Any]:
-    """构造一个能通过 _validate_params 的 baseline params dict。"""
+    """构造一个能通过 _validate_params 的 baseline params dict（新单路径）。
+
+    base_type='fwd_ret' + base_params={'horizon':1} → fwd_ret_h1（次日收益）。
+    model='lgb-lambdarank'（连续，classify_mode=None）。
+    """
 
     base: dict[str, Any] = {
         "factor_version": "v1",
-        "label_scheme": "strategy-aware",
+        "base_type": "fwd_ret",
+        "base_params": {"horizon": 1},
+        "classify_mode": None,
+        "classify_params": None,
         "new_listing_min_days": 60,
         "date_range": "20240601:20240630",
         "model": "lgb-lambdarank",
@@ -45,11 +55,89 @@ def _valid_params(**overrides: Any) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# _validate_params：8 个非法 case
+# _validate_params：合法 case
 # ---------------------------------------------------------------------------
 
 
-class TestValidateParams:
+class TestValidateParamsLegal:
+    def test_fwd_ret_h1_valid(self) -> None:
+        p = tr._validate_params(_valid_params())
+        assert p.base_type == "fwd_ret"
+        assert p.base_params == {"horizon": 1}
+        assert p.base_scheme == "fwd_ret_h1"
+        assert p.classify_mode is None
+
+    def test_fwd_ret_h5_legacy_alias(self) -> None:
+        """fwd_ret + horizon=5 → base_scheme='fwd_5d_ret'（legacy 别名）。"""
+        p = tr._validate_params(_valid_params(base_params={"horizon": 5}))
+        assert p.base_scheme == "fwd_5d_ret"
+
+    def test_strategy_aware_valid(self) -> None:
+        p = tr._validate_params(
+            _valid_params(base_type="strategy_aware", base_params={}, classify_mode=None)
+        )
+        assert p.base_type == "strategy_aware"
+        assert p.base_scheme == "strategy-aware"
+
+    def test_strategy_aware_max_hold_days_not_in_scheme(self) -> None:
+        """max_hold_days 不进 base_scheme（scheme 固定为 'strategy-aware'）。"""
+        p = tr._validate_params(
+            _valid_params(base_type="strategy_aware", base_params={"max_hold_days": 15})
+        )
+        assert p.base_scheme == "strategy-aware"
+        assert p.base_params == {"max_hold_days": 15}
+
+    def test_classify_mode_band_valid(self) -> None:
+        p = tr._validate_params(
+            _valid_params(
+                model="lstm",
+                classify_mode="band",
+                classify_params={"eps": 0.005},
+            )
+        )
+        assert p.classify_mode == "band"
+        assert p.classify_params == {"eps": 0.005}
+
+    def test_classify_mode_tercile_valid(self) -> None:
+        p = tr._validate_params(
+            _valid_params(model="lgb-multiclass", classify_mode="tercile", classify_params={})
+        )
+        assert p.classify_mode == "tercile"
+        assert p.classify_params == {}
+
+    def test_classify_mode_custom_valid(self) -> None:
+        p = tr._validate_params(
+            _valid_params(
+                model="lgb-multiclass",
+                classify_mode="custom",
+                classify_params={"thresholds": [-0.01, 0.01]},
+            )
+        )
+        assert p.classify_mode == "custom"
+
+    def test_label_id_version_transparent(self) -> None:
+        """label_id / label_version 为 Optional，透传即可。"""
+        p = tr._validate_params(
+            _valid_params(label_id="next_day_band05", label_version="v1")
+        )
+        assert p.label_id == "next_day_band05"
+        assert p.label_version == "v1"
+
+    def test_min_days_zero_is_legal(self) -> None:
+        p = tr._validate_params(_valid_params(new_listing_min_days=0))
+        assert p.new_listing_min_days == 0
+
+    def test_min_days_boundary_250(self) -> None:
+        p = tr._validate_params(_valid_params(new_listing_min_days=250))
+        assert p.new_listing_min_days == 250
+
+
+# ---------------------------------------------------------------------------
+# _validate_params：非法 case
+# ---------------------------------------------------------------------------
+
+
+class TestValidateParamsIllegal:
     def test_missing_factor_version(self) -> None:
         with pytest.raises(ValueError, match="factor_version"):
             tr._validate_params(_valid_params(factor_version=None))
@@ -58,72 +146,66 @@ class TestValidateParams:
         with pytest.raises(ValueError, match="factor_version"):
             tr._validate_params(_valid_params(factor_version="   "))
 
-    def test_unknown_label_scheme(self) -> None:
-        with pytest.raises(ValueError, match="label_scheme"):
-            tr._validate_params(_valid_params(label_scheme="bogus"))
+    def test_unknown_base_type(self) -> None:
+        with pytest.raises(ValueError, match="base_type"):
+            tr._validate_params(_valid_params(base_type="dir3_band"))
 
-    # ---- A2：dir3_band ε 可配（前端发 'dir3_band' + 独立字段 dir3_band_eps）----
+    def test_fwd_ret_missing_horizon(self) -> None:
+        with pytest.raises(ValueError, match="horizon"):
+            tr._validate_params(_valid_params(base_params={}))
 
-    def test_dir3_band_default_eps_canonical_to_legacy(self) -> None:
-        """label_scheme='dir3_band' 缺 dir3_band_eps → 走 legacy 0.005 →
-        canonical 回 legacy 串 'dir3_band'（守哈希不漂移）。"""
+    def test_fwd_ret_horizon_zero(self) -> None:
+        with pytest.raises(ValueError, match="horizon"):
+            tr._validate_params(_valid_params(base_params={"horizon": 0}))
 
-        p = tr._validate_params(_valid_params(label_scheme="dir3_band"))
-        assert p.label_scheme == "dir3_band"
-
-    def test_dir3_band_explicit_legacy_eps_canonical_to_legacy(self) -> None:
-        """显式 dir3_band_eps=0.005 也 canonical 回 legacy 串。"""
-
-        p = tr._validate_params(
-            _valid_params(label_scheme="dir3_band", dir3_band_eps=0.005)
-        )
-        assert p.label_scheme == "dir3_band"
-
-    def test_dir3_band_custom_eps_canonical_to_eps_scheme(self) -> None:
-        """自定义 ε=0.008 → canonical 写回 'dir3_band_eps0080'。"""
-
-        p = tr._validate_params(
-            _valid_params(label_scheme="dir3_band", dir3_band_eps=0.008)
-        )
-        assert p.label_scheme == "dir3_band_eps0080"
-
-    def test_dir3_band_off_grid_eps_quantized(self) -> None:
-        """off-grid ε=0.0083 → 量化 0.008 → 'dir3_band_eps0080'。"""
-
-        p = tr._validate_params(
-            _valid_params(label_scheme="dir3_band", dir3_band_eps=0.0083)
-        )
-        assert p.label_scheme == "dir3_band_eps0080"
-
-    def test_dir3_band_eps_out_of_range_raises(self) -> None:
-        with pytest.raises(ValueError, match="dir3_band_eps"):
+    def test_strategy_aware_max_hold_days_out_of_range(self) -> None:
+        with pytest.raises(ValueError, match="max_hold_days"):
             tr._validate_params(
-                _valid_params(label_scheme="dir3_band", dir3_band_eps=0.2)
-            )
-        with pytest.raises(ValueError, match="dir3_band_eps"):
-            tr._validate_params(
-                _valid_params(label_scheme="dir3_band", dir3_band_eps=0.0)
+                _valid_params(
+                    base_type="strategy_aware",
+                    base_params={"max_hold_days": 5},  # < 10
+                )
             )
 
-    def test_dir3_band_eps_non_number_raises(self) -> None:
-        with pytest.raises(ValueError, match="dir3_band_eps"):
+    def test_unknown_classify_mode(self) -> None:
+        with pytest.raises(ValueError, match="classify_mode"):
+            tr._validate_params(_valid_params(classify_mode="dir3_tercile"))
+
+    def test_band_missing_eps(self) -> None:
+        with pytest.raises(ValueError, match="eps"):
             tr._validate_params(
-                _valid_params(label_scheme="dir3_band", dir3_band_eps="0.008")
+                _valid_params(model="lstm", classify_mode="band", classify_params={})
             )
 
-    def test_dir3_band_eps_family_scheme_passes_through(self) -> None:
-        """前端如直接发 canonical 串 'dir3_band_eps0200'（家族成员）→ 放行不变。"""
+    def test_band_eps_zero(self) -> None:
+        with pytest.raises(ValueError, match="eps"):
+            tr._validate_params(
+                _valid_params(
+                    model="lstm",
+                    classify_mode="band",
+                    classify_params={"eps": 0.0},
+                )
+            )
 
-        p = tr._validate_params(_valid_params(label_scheme="dir3_band_eps0200"))
-        assert p.label_scheme == "dir3_band_eps0200"
+    def test_custom_missing_thresholds(self) -> None:
+        with pytest.raises(ValueError, match="thresholds"):
+            tr._validate_params(
+                _valid_params(
+                    model="lgb-multiclass",
+                    classify_mode="custom",
+                    classify_params={},
+                )
+            )
 
-    def test_dir3_band_eps_ignored_for_tercile(self) -> None:
-        """ε 给了非 dir3_band 方案（dir3_tercile）→ 忽略（不影响 scheme）。"""
-
-        p = tr._validate_params(
-            _valid_params(label_scheme="dir3_tercile", dir3_band_eps=0.02)
-        )
-        assert p.label_scheme == "dir3_tercile"
+    def test_custom_thresholds_lo_ge_hi(self) -> None:
+        with pytest.raises(ValueError, match="lo < hi"):
+            tr._validate_params(
+                _valid_params(
+                    model="lgb-multiclass",
+                    classify_mode="custom",
+                    classify_params={"thresholds": [0.01, 0.01]},
+                )
+            )
 
     def test_new_listing_min_days_wrong_type(self) -> None:
         with pytest.raises(ValueError, match="new_listing_min_days"):
@@ -137,7 +219,6 @@ class TestValidateParams:
 
     def test_new_listing_min_days_bool_rejected(self) -> None:
         """bool 是 int 子类，必须显式排除，否则 True 会被当成 1 通过。"""
-
         with pytest.raises(ValueError, match="new_listing_min_days"):
             tr._validate_params(_valid_params(new_listing_min_days=True))
 
@@ -153,14 +234,19 @@ class TestValidateParams:
         with pytest.raises(ValueError, match="model"):
             tr._validate_params(_valid_params(model="xgboost"))
 
-    # 合法 case：min_days=0 是合法值（不过滤新股），不应抛
-    def test_min_days_zero_is_legal(self) -> None:
-        p = tr._validate_params(_valid_params(new_listing_min_days=0))
-        assert p.new_listing_min_days == 0
-
-    def test_min_days_boundary_250(self) -> None:
-        p = tr._validate_params(_valid_params(new_listing_min_days=250))
-        assert p.new_listing_min_days == 250
+    def test_old_label_scheme_rejected(self) -> None:
+        """旧 label_scheme 入参路径已移除；base_type 缺失 → base_type 报错。"""
+        params = {
+            "factor_version": "v1",
+            "label_scheme": "strategy-aware",   # 旧路径
+            "new_listing_min_days": 60,
+            "date_range": "20240601:20240630",
+            "model": "lgb-lambdarank",
+            "walk_forward": True,
+            "seed": 42,
+        }
+        with pytest.raises(ValueError, match="base_type"):
+            tr._validate_params(params)
 
 
 # ---------------------------------------------------------------------------

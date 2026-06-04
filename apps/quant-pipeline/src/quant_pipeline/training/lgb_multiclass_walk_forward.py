@@ -273,7 +273,8 @@ def train_lgb_multiclass_model(
     from quant_pipeline.training.runner import ArtifactWriteError, TrainResult
 
     hp: dict[str, Any] = dict(hyperparams or {})
-    label_scheme = hp.get("label_scheme")
+    classify_mode: str | None = hp.get("classify_mode")
+    classify_params: dict[str, Any] = hp.get("classify_params") or {}
 
     _progress(progress_callback, 0, "train:lgb_mc_start")
 
@@ -282,7 +283,24 @@ def train_lgb_multiclass_model(
     if not feature_cols:
         raise ValueError(f"feature_set_id={feature_set_id!r} 无可训练特征列")
 
+    # 分类后移（spec 2026-06-05 §training/runner.py 训练时套分类）：
+    # feature_matrix.label 是连续涨跌幅，先按 classify_mode/classify_params 离散成
+    # {0=跌, 1=横盘, 2=涨} 再进标签护栏；离散后护栏自然通过。
+    if classify_mode is not None:
+        from quant_pipeline.labels.classify import classify
+
+        wide_df["label"] = classify(
+            wide_df["label"].to_numpy(),
+            classify_mode,
+            classify_params,
+            trade_date=(
+                wide_df["trade_date"].to_numpy() if classify_mode == "tercile" else None
+            ),
+        )
+
     # 标签护栏（spec 03 §标签消费）：必须 dir3 系（⊆{0,1,2}）。
+    # classify_mode 非 None 时标签已离散，自然通过；
+    # classify_mode=None 时连续标签直接进此护栏 raise（runner 误配护栏应先行拦截）。
     y_all_int = _validate_dir3_labels(wide_df["label"].to_numpy())
     # 丢 NaN label 行（与整数化口径一致：以 finite mask 过滤）。
     finite_mask = np.isfinite(wide_df["label"].to_numpy(dtype=np.float64))
@@ -453,7 +471,8 @@ def train_lgb_multiclass_model(
         "feature_set_id": feature_set_id,
         "feature_cols": feature_cols,
         "feature_columns_order": feature_cols,  # 推理列对齐权威契约
-        "label_scheme": label_scheme,
+        "classify_mode": classify_mode,
+        "classify_params": classify_params,
         "class_order": list(CLASS_ORDER),
         "num_class": 3,
         "objective": "multiclass",

@@ -382,7 +382,8 @@ def train_lstm_model(
 
     hp: dict[str, Any] = dict(hyperparams or {})
     lookback = _resolve_lookback(hp)
-    label_scheme = hp.get("label_scheme")
+    classify_mode: str | None = hp.get("classify_mode")
+    classify_params: dict[str, Any] = hp.get("classify_params") or {}
 
     _progress(progress_callback, 0, "train:lstm_start")
 
@@ -391,6 +392,21 @@ def train_lstm_model(
     if not feature_cols:
         raise ValueError(f"feature_set_id={feature_set_id!r} 无可训练特征列")
     latest_trade_date = str(wide_df["trade_date"].astype(str).max())
+
+    # 分类后移（spec 2026-06-05 §training/runner.py 训练时套分类）：
+    # feature_matrix.label 是连续涨跌幅，先按 classify_mode/classify_params 离散成
+    # {0=跌, 1=横盘, 2=涨} 再传入 _run_folds → build_sequences（其整数护栏离散后自然通过）。
+    if classify_mode is not None:
+        from quant_pipeline.labels.classify import classify
+
+        wide_df["label"] = classify(
+            wide_df["label"].to_numpy(),
+            classify_mode,
+            classify_params,
+            trade_date=(
+                wide_df["trade_date"].to_numpy() if classify_mode == "tercile" else None
+            ),
+        )
 
     # ---- 10%：训练前 quality 门禁（与 lgb 同一 training_pregate）----
     gate_check(latest_trade_date, mode="training_pregate", strict=True, job_id=job_id)
@@ -459,7 +475,8 @@ def train_lstm_model(
         "num_layers": int(used_hp["num_layers"]),
         "dropout": float(used_hp["dropout"]),
         "feature_cols": feature_cols,
-        "label_scheme": label_scheme,
+        "classify_mode": classify_mode,
+        "classify_params": classify_params,
         "class_order": list(CLASS_ORDER),
         "trained_at_utc": datetime.now(UTC).isoformat(),
         "latest_train_date": latest_trade_date,

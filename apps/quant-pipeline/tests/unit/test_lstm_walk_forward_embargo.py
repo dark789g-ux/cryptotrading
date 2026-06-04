@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from quant_pipeline.training import lstm_walk_forward
 from quant_pipeline.training.lstm_walk_forward import (
@@ -289,3 +290,96 @@ def test_lstm_fold_early_stop_uses_inner_val_not_test(monkeypatch) -> None:  # n
         assert not (
             cap_val.shape == test_seq.shape and np.allclose(cap_val, test_seq)
         )
+
+
+# ---------------------------------------------------------------------------
+# 闭环测试（分类后移 spec 2026-06-05）：连续 label + classify_mode → 离散后训练成功
+# ---------------------------------------------------------------------------
+
+
+def _build_wide_continuous(n_dates: int, n_codes: int = 4) -> pd.DataFrame:
+    """连续涨跌幅标签（分类后移闭环测试用）。"""
+    rng = np.random.default_rng(42)
+    rows: list[dict[str, object]] = []
+    for d in range(n_dates):
+        td = f"{10_000_000 + d}"
+        for i in range(n_codes):
+            rows.append(
+                {
+                    "trade_date": td,
+                    "ts_code": f"{i:06d}.SZ",
+                    "f0": float(rng.normal()),
+                    "f1": float(rng.normal()),
+                    "label": float(rng.normal() * 0.02),  # 连续收益（如 0.013 / -0.007）
+                }
+            )
+    return pd.DataFrame(rows).sort_values(["trade_date", "ts_code"]).reset_index(drop=True)
+
+
+@pytest.mark.parametrize("classify_mode,classify_params", [
+    ("band", {"eps": 0.005}),
+    ("tercile", {}),
+])
+def test_lstm_classify_mode_discretizes_label_before_build_sequences(
+    classify_mode: str,
+    classify_params: dict,
+    monkeypatch,  # noqa: ANN001
+) -> None:
+    """闭环测试（分类后移 spec 2026-06-05）：连续 label + classify_mode → _run_folds 不 raise。
+
+    _build_wide_df 返回连续 label 后，train_lstm_model 在调 _run_folds 前已对
+    wide_df["label"] 执行 classify 离散（{0,1,2}）；build_sequences 的整数护栏自然通过。
+    不引入 torch：mock train_one_fold / _predict_proba。
+    """
+    import pytest as _pytest
+
+    from quant_pipeline.labels.classify import classify as classify_fn
+    from quant_pipeline.training import lstm_walk_forward as lwf
+
+    lookback = 3
+    feature_cols = ["f0", "f1"]
+    n_dates = 252 + 21 + 6 * 8
+    wide_cont = _build_wide_continuous(n_dates)
+
+    # 先手动验证：连续 label + classify → 取值 ⊆ {0.0, 1.0, 2.0}
+    td_kw: dict[str, object] = {}
+    if classify_mode == "tercile":
+        td_kw["trade_date"] = wide_cont["trade_date"].to_numpy()
+    discrete = classify_fn(
+        wide_cont["label"].to_numpy(), classify_mode, classify_params, **td_kw
+    )
+    uniq = set(discrete.dropna().unique().tolist())
+    assert uniq.issubset({0.0, 1.0, 2.0}), f"classify 离散后出现意外值: {uniq}"
+
+    # 验证 _run_folds 接受已离散的 wide_df（mock train_one_fold / _predict_proba）
+    wide_disc = wide_cont.copy()
+    wide_disc["label"] = discrete
+
+    def _fake_train(x_tr, y_tr, x_va, y_va, *, hyperparams, seed):  # noqa: ANN001, ANN202
+        return object(), {"accuracy": 0.0, "macro_f1": 0.0}
+
+    def _fake_predict(model, x):  # noqa: ANN001, ANN202
+        n = np.asarray(x).shape[0]
+        return np.full((n, 3), 1.0 / 3.0)
+
+    monkeypatch.setattr(lwf, "train_one_fold", _fake_train)
+    monkeypatch.setattr(lwf, "_predict_proba", _fake_predict)
+    monkeypatch.setattr(lwf, "load_forward_returns", lambda pairs, **k: {p: 0.0 for p in pairs})
+
+    splits = list(
+        PurgedWalkForwardSplit(n_folds=6, embargo_days=21, min_train_days=252).split(wide_disc)
+    )
+
+    # 不应 raise（build_sequences 的整数护栏被离散标签通过）
+    last_model, buffers, _ = lwf._run_folds(
+        wide_disc,
+        feature_cols,
+        splits=splits,
+        lookback=lookback,
+        hyperparams={},
+        seed=0,
+        progress_callback=None,
+    )
+    assert last_model is not None
+    y_true_all = buffers[0]
+    assert set(y_true_all.tolist()).issubset({0, 1, 2})

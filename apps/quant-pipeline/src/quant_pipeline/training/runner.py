@@ -248,6 +248,8 @@ def train_model(
     with_shap: bool = True,
     today_yyyymmdd: str | None = None,
     extra_hyperparams: dict[str, Any] | None = None,
+    classify_mode: str | None = None,
+    classify_params: dict[str, Any] | None = None,
 ) -> TrainResult:
     """完整训练通路。
 
@@ -261,6 +263,18 @@ def train_model(
 
     today_yyyymmdd: 可注入今天日期（YYYYMMDD）用于 model_version / trained_at；
         默认 None 时由各子通路硬取 datetime.now(UTC)。注入后跨 UTC 午夜运行也可控。
+
+    classify_mode: 分类模式（分类后移，spec 2026-06-05）。
+        None  → 连续/排序标签（lgb-lambdarank 专用，misconfig raise）。
+        'band' / 'tercile' / 'custom' → 训练前离散化（lstm/lgb-multiclass 专用）。
+
+    classify_params: 分类参数 dict（band→{'eps':float}，tercile→{}，custom→{'thresholds':[lo,hi]}）。
+
+    误配护栏（沿用现状架构理念，不在 _validate_params 新增矩阵）：
+        分类模型（lstm/lgb-multiclass）要求 classify_mode 非 None，否则 raise；
+        lgb-lambdarank 要求 classify_mode 为 None，否则 raise。
+        现状整数护栏（sequence_builder._validate_label_integers /
+        lgb_multiclass._validate_dir3_labels）也会在连续标签误配时兜底 raise。
     """
 
     def _progress(progress: int, stage: str) -> None:
@@ -280,6 +294,31 @@ def train_model(
         merged_hyperparams: dict[str, Any] = dict(hyperparams or {})
         merged_hyperparams.update(extra_hyperparams)
         hyperparams = merged_hyperparams
+
+    # ---------------------------------------------------------------------------
+    # 误配护栏（分类后移，spec 2026-06-05 §误配护栏）
+    # 沿用现状架构：不在 _validate_params 新增配对矩阵；在训练入口 raise（fail-closed）。
+    # 现状整数护栏（sequence_builder._validate_label_integers /
+    # lgb_multiclass._validate_dir3_labels）也会在连续标签误配时兜底 raise。
+    # ---------------------------------------------------------------------------
+    _CLASSIFY_MODELS = frozenset({"lstm", "lgb-multiclass"})
+    if model in _CLASSIFY_MODELS and classify_mode is None:
+        raise ValueError(
+            f"train_model 误配护栏：model={model!r} 需要 classify_mode 非 None，"
+            f"连续标签不支持三分类训练（请传 classify_mode='band'/'tercile'/'custom'）"
+        )
+    if model not in _CLASSIFY_MODELS and classify_mode is not None:
+        raise ValueError(
+            f"train_model 误配护栏：model={model!r} 要求 classify_mode=None（连续/排序），"
+            f"got classify_mode={classify_mode!r}"
+        )
+
+    # 分类参数随 hyperparams 透传到子 runner（lstm/lgb-multiclass 从 hyperparams 读取）
+    if classify_mode is not None:
+        _classify_meta: dict[str, Any] = dict(hyperparams or {})
+        _classify_meta.setdefault("classify_mode", classify_mode)
+        _classify_meta.setdefault("classify_params", classify_params or {})
+        hyperparams = _classify_meta
 
     if model == "lstm":
         # LSTM 走独立路径（分类任务 + torch 训练循环 + 序列输入），自带数据加载 +

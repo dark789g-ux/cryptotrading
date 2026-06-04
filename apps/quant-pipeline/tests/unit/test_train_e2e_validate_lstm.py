@@ -1,7 +1,9 @@
-"""train_e2e_runner._validate_params 对 LSTM 接入的白名单单测（spec 04 §2.1）。
+"""train_e2e_runner._validate_params 对 LSTM/lgb-multiclass 接入的单测
+（分类后移改造后，spec 2026-06-05）。
 
-放行 model='lstm' + label_scheme∈{dir3_band, dir3_tercile}；仍拒绝未知 model/scheme。
-不连 DB、不依赖 torch。
+新单路径：model='lstm'/'lgb-multiclass' + classify_mode 非 NULL；
+classify_mode=NULL 的误配由训练入口护栏兜（不在 _validate_params 强制）。
+不连 DB / 不依赖 torch。
 """
 
 from __future__ import annotations
@@ -16,7 +18,10 @@ from quant_pipeline.worker import train_e2e_runner as tr
 def _params(**overrides: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "factor_version": "v1",
-        "label_scheme": "dir3_band",
+        "base_type": "fwd_ret",
+        "base_params": {"horizon": 1},
+        "classify_mode": "band",
+        "classify_params": {"eps": 0.005},
         "new_listing_min_days": 60,
         "date_range": "20240601:20240630",
         "model": "lstm",
@@ -28,67 +33,96 @@ def _params(**overrides: Any) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# 放行：lstm + dir3_band / dir3_tercile
+# 放行：lstm / lgb-multiclass + classify_mode 非 NULL
 # ---------------------------------------------------------------------------
 
 
-def test_lstm_with_dir3_band_passes() -> None:
-    p = tr._validate_params(_params(model="lstm", label_scheme="dir3_band"))
+def test_lstm_with_band_classify_passes() -> None:
+    p = tr._validate_params(_params(model="lstm", classify_mode="band", classify_params={"eps": 0.005}))
     assert p.model == "lstm"
-    assert p.label_scheme == "dir3_band"
+    assert p.classify_mode == "band"
+    assert p.classify_params == {"eps": 0.005}
 
 
-def test_lstm_with_dir3_tercile_passes() -> None:
-    p = tr._validate_params(_params(model="lstm", label_scheme="dir3_tercile"))
+def test_lstm_with_tercile_classify_passes() -> None:
+    p = tr._validate_params(_params(model="lstm", classify_mode="tercile", classify_params={}))
     assert p.model == "lstm"
-    assert p.label_scheme == "dir3_tercile"
+    assert p.classify_mode == "tercile"
 
 
-def test_dir3_schemes_in_allowed_set() -> None:
-    assert "dir3_band" in tr._ALLOWED_SCHEMES
-    assert "dir3_tercile" in tr._ALLOWED_SCHEMES
+def test_lgb_multiclass_with_band_classify_passes() -> None:
+    p = tr._validate_params(
+        _params(model="lgb-multiclass", classify_mode="band", classify_params={"eps": 0.01})
+    )
+    assert p.model == "lgb-multiclass"
+    assert p.classify_mode == "band"
+
+
+def test_lgb_multiclass_with_tercile_classify_passes() -> None:
+    p = tr._validate_params(
+        _params(model="lgb-multiclass", classify_mode="tercile", classify_params={})
+    )
+    assert p.model == "lgb-multiclass"
+    assert p.classify_mode == "tercile"
+
+
+def test_allowed_classify_modes_in_set() -> None:
+    assert "band" in tr._ALLOWED_CLASSIFY_MODES
+    assert "tercile" in tr._ALLOWED_CLASSIFY_MODES
+    assert "custom" in tr._ALLOWED_CLASSIFY_MODES
 
 
 def test_lstm_in_allowed_models() -> None:
     assert "lstm" in tr._ALLOWED_MODELS
 
 
+def test_lgb_multiclass_in_allowed_models() -> None:
+    assert "lgb-multiclass" in tr._ALLOWED_MODELS
+
+
 def test_lstm_keeps_lgb_path_intact() -> None:
     """新增 lstm 不破坏既有 lgb-lambdarank 放行。"""
-
-    p = tr._validate_params(_params(model="lgb-lambdarank", label_scheme="strategy-aware"))
+    p = tr._validate_params(
+        _params(model="lgb-lambdarank", classify_mode=None, classify_params=None)
+    )
     assert p.model == "lgb-lambdarank"
+    assert p.classify_mode is None
 
 
 # ---------------------------------------------------------------------------
-# 仍拒绝：未知 model / 未知 scheme
+# classify_mode=None + 分类模型：_validate_params 放行（误配护栏在训练入口）
 # ---------------------------------------------------------------------------
 
 
-def test_unknown_model_still_rejected() -> None:
-    with pytest.raises(ValueError, match="model"):
-        tr._validate_params(_params(model="xgboost"))
-
-
-def test_unknown_scheme_still_rejected() -> None:
-    with pytest.raises(ValueError, match="label_scheme"):
-        tr._validate_params(_params(label_scheme="dir3_bogus"))
-
-
-def test_lstm_with_unknown_scheme_rejected() -> None:
-    """lstm + 非白名单 scheme 仍拒。
-
-    v1 不强制 model↔scheme 配对，但 scheme 自身白名单仍生效。
+def test_lstm_with_classify_none_passes_validate_params() -> None:
+    """_validate_params 松耦合：不在此处强制 model↔classify_mode 配对。
+    误配（lstm + classify_mode=None）由训练入口护栏兜（train_model 检测）。
     """
-
-    with pytest.raises(ValueError, match="label_scheme"):
-        tr._validate_params(_params(model="lstm", label_scheme="not_a_scheme"))
-
-
-def test_lstm_with_continuous_scheme_passes_validate_guarded_at_train() -> None:
-    """v1 _validate_params 不强制 model↔scheme 配对：lstm + fwd_5d_ret 在校验层放行，
-    误配由 LSTM 训练入口 label 整数护栏兜住（spec 02 §3 / 04 §2.1 备注）。"""
-
-    p = tr._validate_params(_params(model="lstm", label_scheme="fwd_5d_ret"))
+    # 这里 _validate_params 放行；误配护栏在 train_model 里 raise
+    p = tr._validate_params(
+        _params(model="lstm", classify_mode=None, classify_params=None)
+    )
     assert p.model == "lstm"
-    assert p.label_scheme == "fwd_5d_ret"
+    assert p.classify_mode is None
+
+
+# ---------------------------------------------------------------------------
+# 非法 classify 参数
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_classify_mode_raises() -> None:
+    with pytest.raises(ValueError, match="classify_mode"):
+        tr._validate_params(_params(classify_mode="dir3_band"))
+
+
+def test_band_missing_eps_raises() -> None:
+    with pytest.raises(ValueError, match="eps"):
+        tr._validate_params(_params(classify_mode="band", classify_params={}))
+
+
+def test_band_eps_zero_raises() -> None:
+    with pytest.raises(ValueError, match="eps"):
+        tr._validate_params(
+            _params(classify_mode="band", classify_params={"eps": 0.0})
+        )

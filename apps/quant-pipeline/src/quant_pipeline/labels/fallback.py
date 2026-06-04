@@ -1,10 +1,10 @@
-"""Fwd_5d_ret 兜底标签（doc/量化/04 §4.1）。
+"""Fwd_ret 兜底标签（doc/量化/04 §4.1）。
 
-简单 5 日后向收益率（毛收益，未扣交易成本）：
-    value = close_adj[t+5] / close_adj[t] - 1
+简单 N 日后向收益率（毛收益，未扣交易成本）：
+    value = close_adj[t+N] / close_adj[t] - 1
 
 口径声明（见 spec 02 §item-4，项目决策）：
-  - value 为**毛收益**（未扣交易成本）。`fwd_5d_ret` 是 **T 日起算**的简单前向
+  - value 为**毛收益**（未扣交易成本）。`fwd_ret` 是 **T 日起算**的简单前向
     收益，无 T+1 入场概念 —— 学术 baseline / 单因子 IC 研究惯例用毛收益。
   - strategy-aware 的 value 同为毛收益（T+1 入场）；两 scheme value 口径统一为
     毛收益、彼此可比，交易成本由 portfolio 评估层统一扣减。差异仅在入场时点
@@ -17,11 +17,17 @@
 
 实现要点：
   - 后复权 close（runner 用 raw.adj_factor 反推，注入 close_adj 列）
-  - 停牌：t 或 t+5 日停牌 → 跳过该样本
+  - 停牌：t 或 t+N 日停牌 → 跳过该样本
   - 退市：跨越退市日的样本 → 跳过
   - 标签 trade_date 字段写 t（信号日）
 
-scheme = 'fwd_5d_ret'
+scheme 由 base_scheme_codec 决定：
+  - horizon=5 → 'fwd_5d_ret'（legacy 别名，守哈希不漂移）
+  - horizon=N≠5 → 'fwd_ret_h{N}'（新串，含 h=1 次日）
+  - base_scheme_codec 是 scheme 字符串的单一真相源（labels/dir3_scheme.py）
+
+向后兼容：SCHEME_FWD_5D_RET / compute_fwd_5d_ret 接口不变；
+scheme 列由 base_scheme_codec(fwd_ret, {horizon:N}) 生成，h=5 仍回 'fwd_5d_ret'。
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ from typing import Final
 import pandas as pd
 
 from quant_pipeline.labels._common import dedup_labels, empty_labels_frame
+from quant_pipeline.labels.dir3_scheme import base_scheme_codec
 from quant_pipeline.labels.strategy_aware import (
     NEW_LISTING_MIN_DAYS,
     _validate_min_days,
@@ -140,11 +147,14 @@ def compute_fwd_5d_ret(
         logger.warning("fallback_labels_no_outcomes")
         return empty_labels_frame()
 
+    # scheme 由 base_scheme_codec 决定性生成：h=5→'fwd_5d_ret'（legacy 别名），
+    # h≠5→'fwd_ret_h{N}'（含 h=1 次日）。不含分类参数，基础键唯一真相源。
+    scheme_str = base_scheme_codec("fwd_ret", {"horizon": horizon})
     out = pd.DataFrame(
         {
             "trade_date": t[keep].astype(str).to_numpy(),
             "ts_code": ts[keep].astype(str).to_numpy(),
-            "scheme": SCHEME_FWD_5D_RET,
+            "scheme": scheme_str,
             "value": value[keep].astype(float).to_numpy(),
             "exit_reason": "fwd_horizon",
             "hold_days": horizon,

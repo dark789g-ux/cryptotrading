@@ -27,8 +27,7 @@ from quant_pipeline.labels.dir3_scheme import (
     parse_dir3_band_eps,
     quantize_eps,
 )
-from quant_pipeline.labels.direction_3class import _bucket_band, compute_dir3_labels
-from quant_pipeline.labels.fallback import FallbackInputs
+from quant_pipeline.labels.classify import _bucket_band
 
 _DOWN = 0.0
 _FLAT = 1.0
@@ -255,39 +254,33 @@ def test_bucket_band_boundaries_per_eps(eps: float) -> None:
     assert out.tolist() == [_DOWN, _FLAT, _FLAT, _FLAT, _UP]
 
 
-def _two_day(ts: str, c0: float, c1: float) -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {"ts_code": ts, "trade_date": "20240102", "close_adj": c0},
-            {"ts_code": ts, "trade_date": "20240103", "close_adj": c1},
-        ]
-    )
-
-
-def test_compute_dir3_labels_eps_scheme_drives_bucket() -> None:
-    """compute_dir3_labels 用 epsNNNN 串：ε 解析自 scheme 串而非常量。
+def test_bucket_band_eps_scheme_drives_bucket() -> None:
+    """parse_dir3_band_eps + _bucket_band：ε 解析自 scheme 串而非常量。
 
     ε=0.02（'dir3_band_eps0200'）下 +1% 收益 < ε → 横盘；
     legacy ε=0.005 下同样 +1% 收益 > ε → 涨。
+
+    注：compute_dir3_labels 已按 spec 删除（分类后移）；此处直接测 parse_eps + bucket_band
+    的组合正确性（原测试逻辑等价）。
     """
 
-    quotes = _two_day("000001.SZ", 100.0, 101.0)  # +1%
-    out_wide = compute_dir3_labels(
-        FallbackInputs(daily_quotes=quotes), scheme="dir3_band_eps0200"
-    )
-    assert out_wide["value"].iloc[0] == _FLAT  # ε=2% → 横盘
+    r = pd.Series([0.01])   # +1%
+    eps_wide = parse_dir3_band_eps("dir3_band_eps0200")  # ε=2%
+    assert eps_wide is not None
+    out_wide = _bucket_band(r, eps_wide)
+    assert out_wide.iloc[0] == _FLAT  # ε=2% → 横盘
 
-    out_legacy = compute_dir3_labels(
-        FallbackInputs(daily_quotes=quotes), scheme="dir3_band"
-    )
-    assert out_legacy["value"].iloc[0] == _UP  # ε=0.5% → 涨
+    eps_legacy = parse_dir3_band_eps("dir3_band")  # ε=0.5%
+    assert eps_legacy is not None
+    out_legacy = _bucket_band(r, eps_legacy)
+    assert out_legacy.iloc[0] == _UP  # ε=0.5% → +1% > ε → 涨
 
 
-def test_compute_dir3_labels_malformed_eps_scheme_raises() -> None:
-    """畸形 epsXXXX（如 0050 / 越界）非家族 → compute_dir3_labels 报未知 scheme。"""
+def test_malformed_eps_scheme_not_family() -> None:
+    """畸形 epsXXXX（如 0050 / 越界）→ parse_dir3_band_eps 返回 None（不属家族）。
 
-    quotes = _two_day("000001.SZ", 100.0, 101.0)
-    with pytest.raises(ValueError, match="unsupported scheme"):
-        compute_dir3_labels(
-            FallbackInputs(daily_quotes=quotes), scheme="dir3_band_eps0050"
-        )
+    注：compute_dir3_labels 已按 spec 删除（分类后移）；此处验证 parse 层的畸形判定
+    （原测试意图保留：畸形 scheme 不被认可为合法家族成员）。
+    """
+    assert parse_dir3_band_eps("dir3_band_eps0050") is None   # legacy 别名抢占，畸形
+    assert is_dir3_band_scheme("dir3_band_eps0050") is False

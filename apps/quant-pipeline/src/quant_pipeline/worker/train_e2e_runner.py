@@ -6,13 +6,21 @@
 设计点（spec 04 + 00-index 决策表）：
 - D-2 / D-7：单 run_type='train_e2e'，worker 内顺序执行三步 + 进度切片
 - D-13：返回 dict 写 ml.jobs.result_payload（feature_set_id + last_completed_step）
-- D-14：三个元字段（factor_version / label_scheme / new_listing_min_days）通过
+- D-14：元字段（factor_version / base_scheme / classify_mode / label_id 等）通过
   `train_model(extra_hyperparams=...)` 落到 ml.model_runs.hyperparams
 - D-17：Modal 隐藏 neutralize_cols / robust_z；这里 ValidatedParams 用 None 让
   下游 builder 走 default（不在本层 hardcode default 防双源真理）
 - D-18：子 runner 抛任何 Exception → 包装成 StepError，让 dispatcher 写
   error_text 首行 `[step:<name>] <traceback>`
 - D-23：train 步骤调用 `train_model(extra_hyperparams=...)` 写元信息
+
+分类后移改造（spec 2026-06-05）：
+- _validate_params 改为单路径：只认 base_type/base_params/classify_mode/classify_params
+  新形态，移除旧 label_scheme 入参路径。
+- dir3_scheme.parse_*/is_* 仅保留用于识别历史 scheme 串，不参与 _validate_params 入参。
+- _step_labels 按 base_scheme（base_scheme_codec 生成）物化连续值（已存在则跳过）。
+- _step_train 透传 classify_mode/classify_params，label_id/label_version 经
+  extra_hyperparams 机制写进 ml.model_runs.hyperparams。
 
 new_listing_min_days=0 是合法值（不过滤新股），全链路绝不用 `if min_days:` 判
 falsy，统一 `isinstance(int) and 0 <= x <= 250`。
@@ -36,11 +44,14 @@ from quant_pipeline.worker.progress import (
 logger = logging.getLogger(__name__)
 
 # 合法白名单（与 spec 03 / NestJS DTO / 前端 select options 保持一致）
-# spec 04 §2.1：新增 lstm 模型 + dir3_band / dir3_tercile 标签方案。
-# v1 不在此处强制 model↔scheme 配对（保持松耦合，允许实验组合）；lstm + 连续标签
-# 的误配由 LSTM 训练入口的 label 整数护栏兜住报错（见 spec 02 §3 / 04 §2.1 备注）。
-_ALLOWED_SCHEMES = {"strategy-aware", "fwd_5d_ret", "dir3_band", "dir3_tercile"}
+# spec 04 §2.1：新增 lstm 模型 + 分类后移改造 base_type/classify_mode 路径。
+# v1 不在此处强制 model↔classify_mode 配对（保持松耦合，允许实验组合）；
+# 误配由 train_model 入口的误配护栏兜住报错（见 spec 2026-06-05 §误配护栏）。
 _ALLOWED_MODELS = {"lgb-lambdarank", "linear", "gbdt", "lstm", "lgb-multiclass"}
+
+# 分类后移（spec 2026-06-05）：base_type 和 classify_mode 合法枚举。
+_ALLOWED_BASE_TYPES = {"fwd_ret", "strategy_aware"}
+_ALLOWED_CLASSIFY_MODES: set[str] = {"band", "tercile", "custom"}  # None=连续也合法
 
 # spec 02 §严格校验：lgb 系超参白名单 + 范围（与前端 LgbHyperFields 一致）。
 # 未知键 logger.warn + 跳过，不静默接受。范围越界 raise ValueError（禁夹取）。
@@ -69,7 +80,8 @@ _LGB_MODELS = {"lgb-lambdarank", "lgb-multiclass"}
 
 # feature/label 参数范围（spec 02 §严格校验表）。
 _FACTOR_CLIP_SIGMA_RANGE = (1.5, 5.0)
-_FWD_HORIZON_DAYS_ALLOWED = {3, 5, 10}
+# fwd_ret horizon: 任意正整数（spec 2026-06-05 §base_scheme_codec）
+_FWD_HORIZON_MIN = 1
 _MAX_HOLD_DAYS_RANGE = (10, 30)
 # neutralize_cols 三档规范组合（去重排序后比对）。
 _NEUTRALIZE_COLS_CANONICAL = {
@@ -91,26 +103,37 @@ _WINDOW_TRAIN = (60, 100)
 
 @dataclass(frozen=True)
 class ValidatedParams:
-    """`_validate_params` 出来的不可变结构。frozen 防中途被改坏。"""
+    """`_validate_params` 出来的不可变结构。frozen 防中途被改坏。
+
+    分类后移改造（spec 2026-06-05）：
+      - 新增 base_type / base_params / base_scheme（codec 生成）
+      - 新增 classify_mode / classify_params
+      - 新增 label_id / label_version（追溯用，落 ml.model_runs.hyperparams）
+      - 移除 label_scheme / fwd_horizon_days / max_hold_days（已合并到 base_params）
+    """
 
     factor_version: str
-    label_scheme: str
+    base_type: str           # 'fwd_ret' | 'strategy_aware'
+    base_params: dict[str, Any]   # {'horizon': N} | {'max_hold_days': N}
+    base_scheme: str         # base_scheme_codec(base_type, base_params) 生成
     new_listing_min_days: int
     date_range: str
     model: str
     walk_forward: bool
     seed: int
     # D-17：Modal 隐藏 neutralize_cols / robust_z；None 表示走 builder default。
-    # 留出 hook 是为了将来如果要从前端开放，校验层入口已就位。
     neutralize_cols: tuple[str, ...] | None
     robust_z: bool | None
-    # spec 02 §ValidatedParams 扩展：以下均带默认值 = 现硬编码常量，
-    # None 表示「用下游默认」，不传时行为完全不变。
+    # 分类后移：classify 参数
+    classify_mode: str | None = None   # None=连续 | 'band' | 'tercile' | 'custom'
+    classify_params: dict[str, Any] | None = None
+    # 追溯用：后端透传的标签定义 id / version（写 ml.model_runs.hyperparams）
+    label_id: str | None = None
+    label_version: str | None = None
+    # 模型超参 / 特征参数（None 表示用下游默认，不传时行为完全不变）
     hyperparams: dict[str, Any] | None = None  # lgb / lstm 模型超参
     factor_clip_sigma: float | None = None
     label_winsorize: tuple[float, float] | None = None
-    fwd_horizon_days: int | None = None  # 仅 fwd_5d_ret
-    max_hold_days: int | None = None  # 仅 strategy-aware
 
 
 class StepError(Exception):
@@ -275,108 +298,177 @@ def _validate_label_winsorize(raw: Any) -> tuple[float, float] | None:
     return (lo, hi)
 
 
-def _validate_fwd_horizon_days(raw: Any, *, label_scheme: str) -> int | None:
-    """校验 fwd_horizon_days：None → None；须为 int ∈ {3,5,10}；
-    且仅当 label_scheme=='fwd_5d_ret' 才接受，否则 warn + 忽略（返回 None）。"""
+def _validate_base_type_and_params(
+    base_type: Any,
+    base_params: Any,
+) -> tuple[str, dict[str, Any]]:
+    """校验 base_type ∈ {fwd_ret, strategy_aware} + base_params 匹配。
 
-    if raw is None:
-        return None
-    if isinstance(raw, bool) or not isinstance(raw, int):
+    fwd_ret:      base_params['horizon'] 为 int >= 1（任意正整数）。
+    strategy_aware: base_params['max_hold_days'] 为 int ∈ [10,30]（或不传，走下游默认）。
+
+    返回 (validated_base_type, validated_base_params_dict)。
+    """
+
+    if not isinstance(base_type, str) or base_type not in _ALLOWED_BASE_TYPES:
         raise ValueError(
-            f"fwd_horizon_days: must be int, got {raw!r}"
+            f"base_type: must be one of {sorted(_ALLOWED_BASE_TYPES)}, got {base_type!r}"
         )
-    if raw not in _FWD_HORIZON_DAYS_ALLOWED:
+
+    if base_params is None:
+        params: dict[str, Any] = {}
+    elif not isinstance(base_params, dict):
         raise ValueError(
-            f"fwd_horizon_days: must be one of {sorted(_FWD_HORIZON_DAYS_ALLOWED)}, "
-            f"got {raw!r}"
+            f"base_params: must be a dict if present, got {type(base_params).__name__}"
         )
-    if label_scheme != "fwd_5d_ret":
-        logger.warning(
-            "train_e2e_fwd_horizon_days_ignored",
-            extra={
-                "label_scheme": label_scheme,
-                "value": raw,
-                "reason": "fwd_horizon_days 仅对 fwd_5d_ret 生效，已忽略",
-            },
-        )
-        return None
-    # 上方 isinstance 守卫后 raw 必为 int；raw 静态类型 Any，cast 仅修类型不改值
-    return cast(int, raw)
+    else:
+        params = dict(base_params)
+
+    if base_type == "fwd_ret":
+        horizon_raw = params.get("horizon")
+        if horizon_raw is None:
+            raise ValueError("base_params: fwd_ret requires base_params={'horizon': N}")
+        if isinstance(horizon_raw, bool) or not isinstance(horizon_raw, int):
+            raise ValueError(
+                f"base_params.horizon: must be int, got {horizon_raw!r}"
+            )
+        if horizon_raw < _FWD_HORIZON_MIN:
+            raise ValueError(
+                f"base_params.horizon: must be >= {_FWD_HORIZON_MIN}, got {horizon_raw!r}"
+            )
+        params = {"horizon": int(horizon_raw)}
+
+    elif base_type == "strategy_aware":
+        mhd_raw = params.get("max_hold_days")
+        if mhd_raw is not None:
+            if isinstance(mhd_raw, bool) or not isinstance(mhd_raw, int):
+                raise ValueError(
+                    f"base_params.max_hold_days: must be int, got {mhd_raw!r}"
+                )
+            lo, hi = _MAX_HOLD_DAYS_RANGE
+            if mhd_raw < lo or mhd_raw > hi:
+                raise ValueError(
+                    f"base_params.max_hold_days: must be in [{lo}, {hi}], got {mhd_raw!r}"
+                )
+            params = {"max_hold_days": int(mhd_raw)}
+        else:
+            params = {}
+
+    return base_type, params
 
 
-def _validate_max_hold_days(raw: Any, *, label_scheme: str) -> int | None:
-    """校验 max_hold_days：None → None；须为 int ∈ [10,30]；
-    且仅当 label_scheme=='strategy-aware' 才接受，否则 warn + 忽略（返回 None）。"""
+def _validate_classify(
+    classify_mode: Any,
+    classify_params: Any,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """校验 classify_mode ∈ {None, band, tercile, custom} + classify_params 匹配。
 
-    if raw is None:
-        return None
-    if isinstance(raw, bool) or not isinstance(raw, int):
+    返回 (validated_classify_mode, validated_classify_params)。
+    """
+
+    if classify_mode is None:
+        return None, None
+
+    if not isinstance(classify_mode, str) or classify_mode not in _ALLOWED_CLASSIFY_MODES:
         raise ValueError(
-            f"max_hold_days: must be int, got {raw!r}"
+            f"classify_mode: must be None or one of {sorted(_ALLOWED_CLASSIFY_MODES)}, "
+            f"got {classify_mode!r}"
         )
-    lo, hi = _MAX_HOLD_DAYS_RANGE
-    if raw < lo or raw > hi:
+
+    if classify_params is None:
+        cp: dict[str, Any] = {}
+    elif not isinstance(classify_params, dict):
         raise ValueError(
-            f"max_hold_days: must be in [{lo}, {hi}], got {raw!r}"
+            f"classify_params: must be a dict if present, got {type(classify_params).__name__}"
         )
-    if label_scheme != "strategy-aware":
-        logger.warning(
-            "train_e2e_max_hold_days_ignored",
-            extra={
-                "label_scheme": label_scheme,
-                "value": raw,
-                "reason": "max_hold_days 仅对 strategy-aware 生效，已忽略",
-            },
-        )
-        return None
-    # 上方 isinstance 守卫后 raw 必为 int；raw 静态类型 Any，cast 仅修类型不改值
-    return cast(int, raw)
+    else:
+        cp = dict(classify_params)
+
+    if classify_mode == "band":
+        eps_raw = cp.get("eps")
+        if eps_raw is None:
+            raise ValueError("classify_params: band mode requires {'eps': float}")
+        if isinstance(eps_raw, bool) or not isinstance(eps_raw, (int, float)):
+            raise ValueError(f"classify_params.eps: must be a number, got {eps_raw!r}")
+        eps = float(eps_raw)
+        if eps <= 0:
+            raise ValueError(f"classify_params.eps: must be > 0, got {eps!r}")
+        cp = {"eps": eps}
+
+    elif classify_mode == "tercile":
+        cp = {}  # tercile 无参
+
+    elif classify_mode == "custom":
+        thresholds = cp.get("thresholds")
+        if thresholds is None or not isinstance(thresholds, (list, tuple)) or len(thresholds) != 2:
+            raise ValueError(
+                "classify_params: custom mode requires {'thresholds': [lo, hi]}"
+            )
+        lo_raw, hi_raw = thresholds
+        for v in (lo_raw, hi_raw):
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ValueError(
+                    f"classify_params.thresholds: lo/hi must be numbers, got {thresholds!r}"
+                )
+        lo_f, hi_f = float(lo_raw), float(hi_raw)
+        if lo_f >= hi_f:
+            raise ValueError(
+                f"classify_params.thresholds: lo < hi required, got {thresholds!r}"
+            )
+        cp = {"thresholds": [lo_f, hi_f]}
+
+    return classify_mode, cp
 
 
 def _validate_params(params: dict[str, Any]) -> ValidatedParams:
-    """把前端 / DTO 透传过来的 dict 严校验成 ValidatedParams。
+    """把后端 expandForTraining 透传过来的 dict 严校验成 ValidatedParams（单路径）。
 
-    8 个非法 case（spec 06 单测矩阵 "_validate_params 8 个非法 case"）：
-    1) factor_version 缺失 / 非字符串
-    2) factor_version 空白
-    3) label_scheme 不在白名单
-    4) new_listing_min_days 非 int（含 None / "60" / 60.0 / bool）
-    5) new_listing_min_days 越界（<0 或 >250）
-    6) date_range 格式错（不是 YYYYMMDD:YYYYMMDD）
-    7) date_range start > end
-    8) model 不在白名单
+    分类后移改造（spec 2026-06-05）：
+      只认 base_type/base_params/classify_mode/classify_params 新形态；
+      移除旧 label_scheme 入参路径。训练类 job 一律经后端 expandForTraining 展开。
+
+    非法 case：
+    1) factor_version 缺失 / 非字符串 / 空白
+    2) base_type 不在合法集合
+    3) base_params 缺参 / 参数非法（horizon < 1 / max_hold_days 越界等）
+    4) classify_mode 非合法值
+    5) classify_params 与 classify_mode 不匹配（缺参 / 范围越界）
+    6) new_listing_min_days 非 int（含 None / bool）或越界
+    7) date_range 格式错（不是 YYYYMMDD:YYYYMMDD）
+    8) date_range start > end
+    9) model 不在白名单
     """
 
-    # 1 & 2 factor_version
+    from quant_pipeline.labels.dir3_scheme import base_scheme_codec
+
+    # 1 factor_version
     factor_version = params.get("factor_version")
     if not isinstance(factor_version, str) or not factor_version.strip():
         raise ValueError("factor_version: non-empty string required")
 
-    # 3 label_scheme —— 固定白名单 ∪ dir3_band 家族（编解码器单一判定）。
-    # label_scheme=='dir3_band' 时读 params['dir3_band_eps']（缺省 0.005），量化 +
-    # 范围校验（越界抛 ValueError）+ canonical 化写回，此后全链路用 canonical 串。
-    from quant_pipeline.labels.dir3_scheme import (
-        LEGACY_DIR3_BAND,
-        LEGACY_EPS,
-        canonical_dir3_band_scheme,
-        is_dir3_band_scheme,
+    # 2 & 3 base_type + base_params
+    base_type, base_params = _validate_base_type_and_params(
+        params.get("base_type"),
+        params.get("base_params"),
+    )
+    # base_scheme 由 codec 决定性生成（max_hold_days 不进 scheme）
+    base_scheme = base_scheme_codec(base_type, base_params)
+
+    # 4 & 5 classify_mode + classify_params
+    classify_mode, classify_params = _validate_classify(
+        params.get("classify_mode"),
+        params.get("classify_params"),
     )
 
-    label_scheme = params.get("label_scheme")
-    if not isinstance(label_scheme, str) or (
-        label_scheme not in _ALLOWED_SCHEMES and not is_dir3_band_scheme(label_scheme)
-    ):
-        raise ValueError(
-            f"label_scheme: must be one of {sorted(_ALLOWED_SCHEMES)} "
-            f"or a dir3_band family scheme, got {label_scheme!r}"
-        )
-    if label_scheme == LEGACY_DIR3_BAND:
-        # 前端发家族选择器 'dir3_band' + 独立字段 dir3_band_eps；缺省走 legacy 0.005。
-        # canonical_dir3_band_scheme 内部 quantize_eps 越界 / 非数字抛 ValueError（禁静默）。
-        eps_raw = params.get("dir3_band_eps", LEGACY_EPS)
-        label_scheme = canonical_dir3_band_scheme(eps_raw)
+    # 可选追溯字段（后端 expandForTraining 透传，不存在时 None）
+    label_id = params.get("label_id")
+    if label_id is not None and not isinstance(label_id, str):
+        raise ValueError(f"label_id: must be str if present, got {label_id!r}")
+    label_version = params.get("label_version")
+    if label_version is not None and not isinstance(label_version, str):
+        raise ValueError(f"label_version: must be str if present, got {label_version!r}")
 
-    # 4 & 5 new_listing_min_days —— bool 是 int 子类，先排除（True/False 在 [0,250] 会误判通过）
+    # 6 new_listing_min_days —— bool 是 int 子类，先排除（True/False 在 [0,250] 会误判通过）
     new_listing_min_days = params.get("new_listing_min_days", 60)
     if isinstance(new_listing_min_days, bool) or not isinstance(new_listing_min_days, int):
         raise ValueError(
@@ -387,7 +479,7 @@ def _validate_params(params: dict[str, Any]) -> ValidatedParams:
             f"new_listing_min_days: must be in [0,250], got {new_listing_min_days}"
         )
 
-    # 6 & 7 date_range
+    # 7 & 8 date_range
     date_range = params.get("date_range")
     if not isinstance(date_range, str) or not re.fullmatch(r"\d{8}:\d{8}", date_range):
         raise ValueError(f"date_range: 'YYYYMMDD:YYYYMMDD' required, got {date_range!r}")
@@ -395,7 +487,7 @@ def _validate_params(params: dict[str, Any]) -> ValidatedParams:
     if start > end:
         raise ValueError(f"date_range: start <= end required, got {date_range!r}")
 
-    # 8 model
+    # 9 model
     model = params.get("model")
     if model not in _ALLOWED_MODELS:
         raise ValueError(
@@ -405,8 +497,6 @@ def _validate_params(params: dict[str, Any]) -> ValidatedParams:
     walk_forward = bool(params.get("walk_forward", True))
     seed = int(params.get("seed", 42))
 
-    # spec 02 §严格校验：新参数逐项校验（label_scheme 已 canonical 化，
-    # fwd/max_hold 的 scheme 匹配判断以 canonical 串前缀语义为准）。
     hyperparams = _validate_hyperparams(
         params.get("hyperparams"), model=model, walk_forward=walk_forward
     )
@@ -416,16 +506,12 @@ def _validate_params(params: dict[str, Any]) -> ValidatedParams:
         raise ValueError(f"robust_z: must be bool if present, got {robust_z!r}")
     factor_clip_sigma = _validate_factor_clip_sigma(params.get("factor_clip_sigma"))
     label_winsorize = _validate_label_winsorize(params.get("label_winsorize"))
-    fwd_horizon_days = _validate_fwd_horizon_days(
-        params.get("fwd_horizon_days"), label_scheme=label_scheme
-    )
-    max_hold_days = _validate_max_hold_days(
-        params.get("max_hold_days"), label_scheme=label_scheme
-    )
 
     return ValidatedParams(
         factor_version=factor_version.strip(),
-        label_scheme=label_scheme,
+        base_type=base_type,
+        base_params=base_params,
+        base_scheme=base_scheme,
         new_listing_min_days=new_listing_min_days,
         date_range=date_range,
         model=model,
@@ -433,11 +519,13 @@ def _validate_params(params: dict[str, Any]) -> ValidatedParams:
         seed=seed,
         neutralize_cols=neutralize_cols,
         robust_z=robust_z,
+        classify_mode=classify_mode,
+        classify_params=classify_params,
+        label_id=label_id,
+        label_version=label_version,
         hyperparams=hyperparams,
         factor_clip_sigma=factor_clip_sigma,
         label_winsorize=label_winsorize,
-        fwd_horizon_days=fwd_horizon_days,
-        max_hold_days=max_hold_days,
     )
 
 
@@ -451,32 +539,40 @@ def _step_labels(
     job_id: UUID,
     parent_cb: ProgressCallback,
 ) -> None:
-    """labels step（进度窗口 0-30）。"""
+    """labels step（进度窗口 0-30）。
+
+    按 base_scheme 物化连续值（已存在则 upsert 覆盖去重共享，compute_labels 幂等）。
+    base_scheme = base_scheme_codec(base_type, base_params)，不含分类参数。
+    strategy_aware 的 max_hold_days 从 base_params 解析（None → 走下游默认 20）。
+    fwd_ret 的 horizon 已编入 base_scheme 字符串（fwd_ret_hN / fwd_5d_ret legacy）。
+    """
 
     # 延迟 import 避免 worker 模块在 labels 子树未就绪时启动报错
     from quant_pipeline.labels.runner import compute_labels
 
     lo, hi = _WINDOW_LABELS
+
+    # strategy_aware 的 max_hold_days 从 base_params 解析
+    max_hold_days: int | None = None
+    if p.base_type == "strategy_aware":
+        max_hold_days = p.base_params.get("max_hold_days")
+
     logger.info(
         "train_e2e_step_start",
         extra={
             "job_id": str(job_id),
             "step": "labels",
-            "scheme": p.label_scheme,
+            "base_scheme": p.base_scheme,
             "date_range": p.date_range,
             "new_listing_min_days": p.new_listing_min_days,
         },
     )
     try:
         compute_labels(
-            scheme=p.label_scheme,
+            scheme=p.base_scheme,
             date_range=p.date_range,
             new_listing_min_days=p.new_listing_min_days,
-            # spec 02 §标签参数透传：None 时下游走现常量默认，行为不变。
-            # fwd_horizon_days/max_hold_days 已在 _validate_params 按 scheme 校验
-            # （不匹配的 scheme → 校验阶段已 warn+忽略为 None）。
-            fwd_horizon_days=p.fwd_horizon_days,
-            max_hold_days=p.max_hold_days,
+            max_hold_days=max_hold_days,
             label_winsorize=p.label_winsorize,
             job_id=job_id,
             progress_callback=make_scaled_callback(parent_cb, lo, hi),
@@ -511,7 +607,7 @@ def _step_features(
             "job_id": str(job_id),
             "step": "features",
             "factor_version": p.factor_version,
-            "label_scheme": p.label_scheme,
+            "base_scheme": p.base_scheme,
             "date_range": p.date_range,
             "new_listing_min_days": p.new_listing_min_days,
         },
@@ -519,7 +615,7 @@ def _step_features(
     try:
         bundle = build_feature_matrix(
             factor_version=p.factor_version,
-            label_scheme=p.label_scheme,
+            label_scheme=p.base_scheme,
             date_range=p.date_range,
             new_listing_min_days=p.new_listing_min_days,
             # spec 02 §特征参数透传：None 时 build_feature_matrix 走 builder 默认，
@@ -563,16 +659,29 @@ def _step_train(
     feature_set_id: str,
     parent_cb: ProgressCallback,
 ) -> dict[str, Any]:
-    """train step（进度窗口 60-100）。返回结果 dict（含 model_version 等）。"""
+    """train step（进度窗口 60-100）。返回结果 dict（含 model_version 等）。
+
+    extra_hyperparams 写入 ml.model_runs.hyperparams：
+      - factor_version / base_scheme / new_listing_min_days（可复现基础字段）
+      - classify_mode / classify_params（分类后移追溯）
+      - label_id / label_version（命名标签追溯，Optional，由后端 expandForTraining 透传）
+    """
 
     from quant_pipeline.training.runner import train_model
 
     lo, hi = _WINDOW_TRAIN
-    extra_hyperparams = {
+    extra_hyperparams: dict[str, Any] = {
         "factor_version": p.factor_version,
-        "label_scheme": p.label_scheme,
+        "base_scheme": p.base_scheme,
         "new_listing_min_days": p.new_listing_min_days,
+        "classify_mode": p.classify_mode,
+        "classify_params": p.classify_params,
     }
+    # label_id / label_version 仅在后端透传时才写（None 不进 extra_hyperparams 防空键污染）
+    if p.label_id is not None:
+        extra_hyperparams["label_id"] = p.label_id
+    if p.label_version is not None:
+        extra_hyperparams["label_version"] = p.label_version
     logger.info(
         "train_e2e_step_start",
         extra={
@@ -590,11 +699,14 @@ def _step_train(
             model=p.model,
             walk_forward=p.walk_forward,
             seed=p.seed,
-            # spec 02 §lgb 超参透传：用户模型超参（已严格校验/未知键剔除）→
-            # train_model(hyperparams=) → train_lambdarank / lgb-multiclass 的 params。
+            # lgb / lstm 模型超参（已严格校验/未知键剔除）→ train_model(hyperparams=)
+            # → train_lambdarank / lgb-multiclass / lstm 的 params。
             # None 时走各模型 DEFAULT_HYPERPARAMS，行为不变。
             hyperparams=p.hyperparams,
             extra_hyperparams=extra_hyperparams,
+            # 分类后移：classify_mode/classify_params 透传给 train_model 做误配护栏
+            classify_mode=p.classify_mode,
+            classify_params=p.classify_params,
             job_id=job_id,
             progress_callback=make_scaled_callback(parent_cb, lo, hi),
         )

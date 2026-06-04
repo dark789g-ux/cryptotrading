@@ -35,7 +35,10 @@ _JOB_ID = UUID("99999999-aaaa-bbbb-cccc-dddddddddddd")
 def _valid_params(**overrides: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "factor_version": "v1",
-        "label_scheme": "strategy-aware",
+        "base_type": "strategy_aware",
+        "base_params": {},
+        "classify_mode": None,
+        "classify_params": None,
         "new_listing_min_days": 60,
         "date_range": "20240601:20240630",
         "model": "lgb-lambdarank",

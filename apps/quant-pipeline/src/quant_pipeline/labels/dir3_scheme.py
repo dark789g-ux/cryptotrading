@@ -104,6 +104,60 @@ def is_dir3_band_scheme(scheme: str) -> bool:
     return parse_dir3_band_eps(scheme) is not None
 
 
+# ---------------------------------------------------------------------------
+# base_scheme_codec：(base_type, base_params) → base_scheme 字符串
+# ---------------------------------------------------------------------------
+
+#: fwd_ret + horizon=5 的 legacy 别名（守现存 feature_set_id 哈希不漂移）。
+#: 现状 fallback.py 所有 horizon 的 scheme 列均写 'fwd_5d_ret'（已 grep 核实），
+#: 故 h=5 回 legacy 串，h≠5 用新串 fwd_ret_h{N}（含 h=1 次日）。
+_LEGACY_FWD5_SCHEME: Final[str] = "fwd_5d_ret"
+#: strategy_aware.LABEL_SCHEME 写死为 'strategy-aware'，不参与 codec 改动，
+#: max_hold_days 不进 scheme 串（已 grep strategy_aware.py:87 核实）。
+_STRATEGY_AWARE_SCHEME: Final[str] = "strategy-aware"
+
+_VALID_BASE_TYPES: Final[frozenset[str]] = frozenset({"fwd_ret", "strategy_aware"})
+
+
+def base_scheme_codec(base_type: str, base_params: dict | None = None) -> str:
+    """(base_type, base_params) → base_scheme 字符串（决定性，不含分类参数）。
+
+    Legacy 回归约束（关键）：
+      - fwd_ret + {horizon:5}   → 'fwd_5d_ret'  （legacy 别名，守哈希不漂移）
+      - fwd_ret + {horizon:N≠5} → 'fwd_ret_h{N}' （新串，含 h=1 次日）
+      - strategy_aware          → 'strategy-aware'（max_hold_days 不进 scheme）
+
+    Raises:
+        ValueError: base_type 不在合法集合；fwd_ret 缺 horizon 或 horizon < 1。
+    """
+
+    if base_type not in _VALID_BASE_TYPES:
+        raise ValueError(
+            f"base_scheme_codec: base_type must be one of {sorted(_VALID_BASE_TYPES)}, "
+            f"got {base_type!r}"
+        )
+
+    if base_type == "strategy_aware":
+        # max_hold_days 不进 scheme 串（与现状 strategy_aware.LABEL_SCHEME='strategy-aware' 一致）
+        return _STRATEGY_AWARE_SCHEME
+
+    # base_type == "fwd_ret"
+    params = base_params or {}
+    horizon_raw = params.get("horizon")
+    if horizon_raw is None:
+        raise ValueError(
+            "base_scheme_codec: fwd_ret requires base_params={'horizon': N}, got None"
+        )
+    horizon = int(horizon_raw)
+    if horizon < 1:
+        raise ValueError(
+            f"base_scheme_codec: fwd_ret horizon must be >= 1, got {horizon!r}"
+        )
+    if horizon == 5:
+        return _LEGACY_FWD5_SCHEME          # legacy 别名，守哈希不漂移
+    return f"fwd_ret_h{horizon}"             # 新串（h=1 次日 / h=N 任意）
+
+
 __all__ = [
     "EPS_GRID",
     "EPS_MIN",
@@ -114,4 +168,7 @@ __all__ = [
     "canonical_dir3_band_scheme",
     "parse_dir3_band_eps",
     "is_dir3_band_scheme",
+    "base_scheme_codec",
+    "_LEGACY_FWD5_SCHEME",
+    "_STRATEGY_AWARE_SCHEME",
 ]

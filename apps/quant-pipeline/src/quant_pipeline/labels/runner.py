@@ -2,16 +2,24 @@
 
 职责：
 1. 从 raw 表加载 daily_quote / stk_limit / suspend_d / 退市 / 上市 信息
-2. 调 strategy_aware.compute_strategy_aware_labels 计算标签
+2. 调 strategy_aware.compute_strategy_aware_labels 或 compute_fwd_5d_ret 计算标签
 3. upsert 到 factors.labels（PK 去重）
 4. 每日进度回写
 
 dispatcher 路由：run_type='labels' → runner_entrypoint。
+
+分类后移改造（spec 2026-06-05）：
+  - compute_labels 支持 base_scheme：'strategy-aware' / 'fwd_5d_ret' / 'fwd_ret_h{N}'
+    只物化基础连续涨跌幅，不再写入离散 0/1/2 标签。
+  - 新路径：fwd_ret_h{N} → compute_fwd_5d_ret(horizon=N)，写 scheme='fwd_ret_h{N}'
+    （h=1=次日，h=5='fwd_5d_ret' legacy 别名，由 base_scheme_codec 决定性生成）。
+  - dir3_band / dir3_tercile 路径已移除（不靠重跑老代码路径，历史数据在 DB）。
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 from uuid import UUID
 
@@ -26,11 +34,6 @@ from quant_pipeline.labels._common import (
     apply_hfq,
     derive_delist_map,
     derive_suspended_set,
-)
-from quant_pipeline.labels.dir3_scheme import is_dir3_band_scheme
-from quant_pipeline.labels.direction_3class import (
-    SCHEME_DIR3_TERCILE,
-    compute_dir3_labels,
 )
 from quant_pipeline.labels.fallback import (
     SCHEME_FWD_5D_RET,
@@ -48,6 +51,9 @@ from quant_pipeline.worker.progress import (
     check_cancel_requested,
     update_progress,
 )
+
+# fwd_ret_h{N} 新串正则（分类后移改造，spec 2026-06-05）。
+_FWD_RET_HN_RE: re.Pattern[str] = re.compile(r"^fwd_ret_h(\d+)$")
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +267,7 @@ def compute_labels(
     """计算并 upsert 标签；返回写入的行数。
 
     参数：
-        scheme:                "strategy-aware" / "fwd_5d_ret"
+        scheme:                "strategy-aware" / "fwd_5d_ret" / "fwd_ret_h{N}"
         date_range:            "YYYYMMDD:YYYYMMDD"
         new_listing_min_days:  新股门槛交易日阈值。None → 走默认 60；0 表示不过滤。
                                非法值由 _validate_min_days 抛 ValueError。
@@ -288,18 +294,14 @@ def compute_labels(
         if job_id is not None:
             update_progress(job_id, progress, stage=stage)
 
-    # dir3_band 家族（legacy 'dir3_band' 或 'dir3_band_epsNNNN' 变体）由编解码器
-    # 单一判定放行；其它固定串精确匹配。
-    is_dir3_band = is_dir3_band_scheme(scheme)
-    if scheme not in (
-        LABEL_SCHEME,
-        SCHEME_FWD_5D_RET,
-        SCHEME_DIR3_TERCILE,
-    ) and not is_dir3_band:
+    # 新路径：fwd_ret_h{N}（分类后移改造，spec 2026-06-05）
+    # 旧路径：'strategy-aware' / 'fwd_5d_ret'（向后兼容）
+    # dir3_band / dir3_tercile 路径已移除（历史数据在 DB，不靠重跑老代码路径）
+    fwd_ret_hn_match = _FWD_RET_HN_RE.match(scheme)
+    if scheme not in (LABEL_SCHEME, SCHEME_FWD_5D_RET) and fwd_ret_hn_match is None:
         raise NotImplementedError(
             f"labels scheme={scheme!r} not implemented "
-            f"(supported: {LABEL_SCHEME!r}, {SCHEME_FWD_5D_RET!r}, "
-            f"dir3_band family, {SCHEME_DIR3_TERCILE!r})"
+            f"(supported: {LABEL_SCHEME!r}, {SCHEME_FWD_5D_RET!r}, fwd_ret_h{{N}})"
         )
     start, end = date_range.split(":")
     if len(start) != 8 or len(end) != 8:
@@ -354,33 +356,17 @@ def compute_labels(
                 f"labels: compute_strategy_aware_labels produced 0 rows "
                 f"date_range={date_range!r} scheme={scheme!r}"
             )
-    elif is_dir3_band or scheme == SCHEME_DIR3_TERCILE:
-        # dir3 三分类（spec 01 §1-2）。复用 fwd 同款 FallbackInputs（后复权报价 +
-        # 停牌/退市/新股过滤上下文），仅"次日 r → 类别"逻辑不同。
-        labels_df = compute_dir3_labels(
-            FallbackInputs(
-                daily_quotes=quotes,
-                suspended_set=derive_suspended_set(suspend if not suspend.empty else None),
-                delist_map=derive_delist_map(delist if not delist.empty else None),
-                listing=listing if not listing.empty else None,
-                new_listing_min_days=new_listing_min_days,
-            ),
-            scheme=scheme,
-        )
-        # compute_* 原始输出（区间过滤前）为空 → 真异常
-        if labels_df.empty:
-            raise RuntimeError(
-                f"labels: compute_dir3_labels produced 0 rows "
-                f"date_range={date_range!r} scheme={scheme!r}"
-            )
-        # 区间过滤（trade_date 为 YYYYMMDD 定宽字符串，字典序即时序）。
-        # compute_dir3_labels 用 end_padded 的 quotes，每票末 1 行被 shift 丢弃属正常；
-        # 区间过滤之后合法地为空 → 仅 warning + return 0，不 raise（同 fwd_5d_ret）。
-        labels_df = labels_df.loc[
-            (labels_df["trade_date"] >= start) & (labels_df["trade_date"] <= end)
-        ].reset_index(drop=True)
     else:
-        # fwd_5d_ret 兜底（doc/04 §4.1）。listing 透传以支持新股过滤（D-1 缺口补齐）。
+        # fwd_5d_ret（legacy）或 fwd_ret_h{N}（新路径）。
+        # 新路径：从 scheme 串解析 horizon（例 fwd_ret_h1 → horizon=1）。
+        # 旧路径：fwd_5d_ret → horizon 由 fwd_horizon_days 参数或默认值(5) 决定。
+        if fwd_ret_hn_match is not None:
+            resolved_horizon: int | None = int(fwd_ret_hn_match.group(1))
+        else:
+            # fwd_5d_ret：fwd_horizon_days 参数或 None（下游走 FWD_HORIZON_DAYS=5）
+            resolved_horizon = fwd_horizon_days
+
+        # fwd_ret / fwd_5d_ret（doc/04 §4.1）。listing 透传以支持新股过滤（D-1 缺口补齐）。
         labels_df = compute_fwd_5d_ret(
             FallbackInputs(
                 daily_quotes=quotes,
@@ -389,8 +375,7 @@ def compute_labels(
                 listing=listing if not listing.empty else None,
                 new_listing_min_days=new_listing_min_days,
             ),
-            # spec 02：仅 fwd_5d_ret 生效；None → FWD_HORIZON_DAYS(5)。
-            fwd_horizon_days=fwd_horizon_days,
+            fwd_horizon_days=resolved_horizon,
         )
         # compute_* 原始输出（区间过滤前）为空 → 真异常
         if labels_df.empty:
@@ -399,7 +384,7 @@ def compute_labels(
                 f"date_range={date_range!r} scheme={scheme!r}"
             )
         # 区间过滤（trade_date 为 YYYYMMDD 定宽字符串，字典序即时序）。
-        # compute_fwd_5d_ret 用 end_padded 的 quotes，每票末 5 行被 shift 丢弃属正常；
+        # compute_fwd_5d_ret 用 end_padded 的 quotes，每票末 horizon 行被 shift 丢弃属正常；
         # 区间过滤之后合法地为空 → 仅 warning + return 0，不 raise。
         labels_df = labels_df.loc[
             (labels_df["trade_date"] >= start) & (labels_df["trade_date"] <= end)
