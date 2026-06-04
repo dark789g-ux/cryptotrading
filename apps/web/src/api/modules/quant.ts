@@ -168,23 +168,23 @@ export interface WarningItem {
 /** `ml.jobs` 一行（NestJS 出参字段；时间为 UTC 墙钟字符串） */
 export interface JobRow {
   id: string
-  run_type: JobRunType
+  runType: JobRunType
   status: JobStatus
   progress: number
   stage: string | null
   priority: number
   attempts: number
-  max_attempts: number
-  cancel_requested: boolean
-  parent_job_id: string | null
+  maxAttempts: number
+  cancelRequested: boolean
+  parentJobId: string | null
   params: Record<string, unknown>
-  error_text: string | null
-  blocked_reason: string | null
-  created_by: string | null
-  created_at: string
-  started_at: string | null
-  finished_at: string | null
-  heartbeat_at: string | null
+  errorText: string | null
+  blockedReason: string | null
+  createdBy: string | null
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+  heartbeatAt: string | null
   /**
    * job 期间累积的警告条目。GET /quant/jobs/:id 返回全量明细；
    * 列表 GET /quant/jobs 出于负载考虑通常只返 warnings_count。

@@ -148,9 +148,9 @@ const columns = computed<DataTableColumns<JobRow>>(() => [
   },
   {
     title: 'run_type',
-    key: 'run_type',
+    key: 'runType',
     width: 110,
-    render: row => h('span', { class: 'mono' }, row.run_type),
+    render: row => h('span', { class: 'mono' }, row.runType),
   },
   {
     title: '进度',
@@ -161,7 +161,7 @@ const columns = computed<DataTableColumns<JobRow>>(() => [
       if (row.status === 'running' || row.status === 'pending') {
         return h(ProgressLine, {
           jobId: row.id,
-          createdAt: row.created_at,
+          createdAt: row.createdAt,
           onDone: () => { void reload() },
         })
       }
@@ -177,7 +177,7 @@ const columns = computed<DataTableColumns<JobRow>>(() => [
     key: 'attempts',
     width: 90,
     align: 'right',
-    render: row => `${row.attempts}/${row.max_attempts}`,
+    render: row => `${row.attempts}/${row.maxAttempts}`,
   },
   {
     title: '警告',
@@ -193,9 +193,9 @@ const columns = computed<DataTableColumns<JobRow>>(() => [
   },
   {
     title: '创建时间',
-    key: 'created_at',
+    key: 'createdAt',
     width: 200,
-    render: row => row.created_at,
+    render: row => row.createdAt,
   },
   {
     title: '操作',
@@ -212,9 +212,9 @@ const columns = computed<DataTableColumns<JobRow>>(() => [
         h(NButton, {
           size: 'tiny',
           quaternary: true,
-          disabled: !canCancel || row.cancel_requested,
+          disabled: !canCancel || row.cancelRequested,
           onClick: () => onCancel(row),
-        }, { default: () => (row.cancel_requested ? '已请求取消' : '取消') }),
+        }, { default: () => (row.cancelRequested ? '已请求取消' : '取消') }),
       ])
     },
   },
@@ -280,13 +280,13 @@ function openDetail(row: JobRow) {
       const j = fullJob.value
       const lines = [
         `id: ${j.id}`,
-        `run_type: ${j.run_type}`,
+        `run_type: ${j.runType}`,
         `status: ${j.status}`,
         `stage: ${j.stage ?? '—'}`,
         `progress: ${j.progress}`,
         `params: ${JSON.stringify(j.params, null, 2)}`,
-        j.error_text ? `error_text: ${j.error_text}` : '',
-        j.blocked_reason ? `blocked_reason: ${j.blocked_reason}` : '',
+        j.errorText ? `error_text: ${j.errorText}` : '',
+        j.blockedReason ? `blocked_reason: ${j.blockedReason}` : '',
       ].filter(Boolean).join('\n')
       const warnings: WarningItem[] = Array.isArray(j.warnings) ? j.warnings : []
       return h('div', null, [
