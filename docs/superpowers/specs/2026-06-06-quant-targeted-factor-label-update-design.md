@@ -95,7 +95,9 @@
 实际待办（均为小项）：
 
 1. **更正误导性注释**：`create-job.dto.ts:63,132` 注释写"非训练类不存在/不接受 labelRef"，与实际代码相反（非训练类也接受），需更新以免后续误判。
-2. **（推荐，真实新增工作量）labels 专属 400 校验**：当 `run_type==='labels'` 且 `scheme` 与 `label_ref` **同时缺失** → 400。**当前后端不拦**，会延迟到 Python `runner_entrypoint` 抛 `ValueError` → job 直接 failed，体验差。在 DTO/service 显式加这条校验把错误前移。
+2. **（推荐，真实新增工作量）labels 专属 400 校验**：`run_type==='labels'` 时，要求 `params.scheme` / `label_ref` / (`params.strategy_id` 且 `params.strategy_version`) **三者至少其一**；全缺 → 400。
+   - 注意**不能**简单写成"scheme 与 label_ref 都缺 → 400"——`runner_entrypoint` 还接受 top-level `strategy_id`+`strategy_version`（CLI/脚本路径），漏掉这一支会误杀。
+   - **当前后端不拦**，三者全缺会延迟到 Python `runner_entrypoint` 抛 `ValueError` → job 直接 failed，体验差。在 DTO `validateCreateJob` 把错误前移成 400。
 3. **classify_* 注入但无害**：`expandForTraining` 会把 `classify_mode/classify_params` 一并注入 `params`（`quant-jobs.service.ts:99-100`），但 labels runner **不消费** classify_*（见 §6），仅 `base_type/base_params` 用于 codec。功能无害，无需特殊处理。
 - 向后兼容：`labels` job 仍允许直接传 `scheme`（CLI/脚本既有用法）；`label_ref` 与 `scheme` 二选一。
 
@@ -143,7 +145,7 @@
 - **factors job 仅在 `factor_ids` 非空时发送，禁止发空数组**（空数组会被 Python 当"全量"，见 §4 决策 1）。
 - 日期范围必填且 start ≤ end。
 - `factor_version` 默认 `v1`。
-- labels 侧 `scheme`/`label_ref` 二选一：若要后端把"同时缺失"前移成 400，需新增 §5 待办 2 的校验（否则错误延迟到 Python）。
+- labels 侧 `scheme`/`label_ref`/(`strategy_id`+`strategy_version`) 三选一：本入口走 `label_ref`；若要后端把"全缺"前移成 400，需新增 §5 待办 2 的校验（否则错误延迟到 Python）。
 
 ## 9. 测试计划
 
