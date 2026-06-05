@@ -41,14 +41,16 @@ _LABEL_COLUMNS: list[str] = [
 # ----------------------------------------------------------------------
 
 def apply_hfq(df: pd.DataFrame) -> pd.DataFrame:
-    """注入后复权列 close_adj / low_adj。
+    """注入后复权列 close_adj / low_adj / high_adj。
 
-    纯后复权：close_adj = close × adj_factor、low_adj = low × adj_factor（逐行）。
-    只依赖各交易日当日已知的 adj_factor、不除任何窗口基准 → 绝对水平 PIT 安全。
+    纯后复权：close_adj = close × adj_factor、low_adj = low × adj_factor、
+    high_adj = high × adj_factor（逐行）。只依赖各交易日当日已知的 adj_factor、
+    不除任何窗口基准 → 绝对水平 PIT 安全。
     因逐行计算、不再 groupby ts_code，本函数对「ts_code 在 column」（labels 长表）
     与「ts_code 在 MultiIndex level」（factors panel）两种 df 通用，是 factors 与
     labels 各处复用的后复权唯一真理源。
-    adj_factor 为 NULL 的行 → close_adj/low_adj 为 NaN；统计并 warn。
+    low_adj / high_adj 仅在源 df 含对应原始列时注入（对称处理）。
+    adj_factor 为 NULL 的行 → close_adj/low_adj/high_adj 为 NaN；统计并 warn。
     """
 
     out = df.copy()
@@ -56,6 +58,8 @@ def apply_hfq(df: pd.DataFrame) -> pd.DataFrame:
     out["close_adj"] = out["close"] * af
     if "low" in out.columns:
         out["low_adj"] = out["low"] * af
+    if "high" in out.columns:
+        out["high_adj"] = out["high"] * af
     na_cnt = int(af.isna().sum())
     if na_cnt > 0:
         logger.warning(

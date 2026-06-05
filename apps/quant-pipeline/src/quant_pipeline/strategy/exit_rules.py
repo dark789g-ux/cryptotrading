@@ -6,10 +6,13 @@
 
 设计原则：
 1. 规则采用 ExitRule(ABC) → decide(state) 抽象基类形式，每条规则一个独立类。
-   - MA5BreakRule        收盘跌破 MA5 出场
+   - MABreakRule(period) 收盘跌破 MA(period) 出场（MA5BreakRule 为 period=5 别名）
    - StopLossRule(-0.08) 当日 low_price 触及 -8% 强制止损（按 stop_price 出）
    - MaxHoldRule(20)     持仓达上限强制平仓
+   - TakeProfitRule(pct) 盘中 high 触及 entry×(1+pct) 限价止盈
+   - TrailingStopRule(pct) 收盘跌破持仓期峰值×(1−pct) 移动止损
 2. combine_rules() 提供 first-match 复合规则：按列表顺序，命中即返回。
+   build_exit_rules() 从 exit_rules 配置（list[dict]）构造复合规则 + MA 窗口。
 3. simulate_exit() 模拟从 buy_date 持仓到出场，处理：
    - 停牌：A 股停牌日 raw.daily_quote 无行（Tushare daily 停牌不提供数据），停牌日
      因缺行被自然跳过，hold_days 只数实际交易日 —— 这恰好实现「停牌挂起」语义。
@@ -39,11 +42,23 @@ STOP_LOSS_THRESHOLD: Final[float] = -0.08
 MAX_HOLD_DAYS: Final[int] = 20
 MA_WINDOW: Final[int] = 5
 
+# MA 窗口合法范围（spec 02 §2：ma_break period ∈ [2,250]）。
+MA_WINDOW_MIN: Final[int] = 2
+MA_WINDOW_MAX: Final[int] = 250
+# max_hold 天数合法范围（spec 02 §2：max_hold days ∈ [1,250]）。
+MAX_HOLD_MIN: Final[int] = 1
+MAX_HOLD_MAX: Final[int] = 250
+# take_profit pct 合法范围（spec 02 §2：(0,5]）。
+TAKE_PROFIT_PCT_MAX: Final[float] = 5.0
+
 # 出场原因常量（外部依赖此字符串字面量，回测引擎也会读，禁止随意改名）
+# 注：MABreakRule 即便 period≠5，reason 仍用 'ma5_break'（spec 02 §2†，下游禁改名）。
 EXIT_BELOW_MA5: Final[str] = "ma5_break"
 EXIT_STOP_LOSS: Final[str] = "stop_loss"
 EXIT_MAX_HOLD: Final[str] = "max_hold"
 EXIT_FORCE_CLOSE: Final[str] = "force_close"
+EXIT_TAKE_PROFIT: Final[str] = "take_profit"
+EXIT_TRAILING_STOP: Final[str] = "trailing_stop"
 
 
 # ----------------------------------------------------------------------
@@ -62,7 +77,9 @@ class ExitState:
     entry_price: float
     current_price: float           # 当日 close（含复权）
     low_price: float               # 当日 low（含复权）—— 用于止损穿透判断
-    ma5: float                     # 当日 MA5（含复权 close 滚动 5 日均值）
+    high_price: float              # 当日 high（含复权）—— 用于止盈触发判断
+    peak_price: float              # 入场以来 high 的运行峰值（含当日）—— 移动止损用
+    ma: float                      # 当日 MA(period)（含复权 close 滚动 period 日均值）
     hold_days: int                 # 含当日在内的已持有交易日数（停牌日不计）
     is_suspended: bool             # 当日是否停牌
     is_limit_up: bool              # 当日是否涨停（出场日如涨停 → 卖不出，调用方顺延）
@@ -108,24 +125,39 @@ class ExitRule(ABC):
         """对当日状态做决策。停牌 / 退市等由 simulate_exit 拦截，规则不需处理。"""
 
 
-class MA5BreakRule(ExitRule):
-    """收盘跌破 MA5 出场（doc/04 §4.2.3 规则 1）。
+class MABreakRule(ExitRule):
+    """收盘跌破 MA(period) 出场（doc/04 §4.2.3 规则 1 的泛化）。
 
-    出场价：当日 close。
-    MA5 不足 5 日有效数据时不触发。
+    出场价：当日 close。MA 不足 period 日有效数据时不触发（state.ma 为 NaN）。
+    period=5 时与原 MA5BreakRule 逐行等价（回归安全）。
+    exit_reason 固定 'ma5_break'（即便 period≠5，spec 02 §2†，下游禁改名）。
     """
 
-    name = "ma5_break"
+    name = "ma_break"
+
+    def __init__(self, period: int = MA_WINDOW) -> None:
+        if isinstance(period, bool) or not isinstance(period, int):
+            raise ValueError(f"MABreakRule period 必须是 int，got {period!r}")
+        if period < MA_WINDOW_MIN or period > MA_WINDOW_MAX:
+            raise ValueError(
+                f"MABreakRule period 必须 ∈ [{MA_WINDOW_MIN},{MA_WINDOW_MAX}]，got {period}"
+            )
+        self.period = int(period)
 
     def decide(self, state: ExitState) -> ExitDecision | None:
-        if not np.isfinite(state.ma5):
+        if not np.isfinite(state.ma):
             return None
-        if state.current_price < state.ma5:
+        if state.current_price < state.ma:
             return ExitDecision(
                 exit_reason=EXIT_BELOW_MA5,
                 exit_price=float(state.current_price),
             )
         return None
+
+
+#: 向后兼容别名：现有 import（strategy_aware.py / 单测）继续用 MA5BreakRule()，
+#: 等价于 MABreakRule(period=5)。
+MA5BreakRule = MABreakRule
 
 
 class StopLossRule(ExitRule):
@@ -179,6 +211,69 @@ class MaxHoldRule(ExitRule):
         return None
 
 
+class TakeProfitRule(ExitRule):
+    """止盈：当日盘中最高价 high 触及 entry×(1+pct) → 出场（spec 03 §1.2）。
+
+    成交价取 target = entry×(1+pct)（假设盘中触及限价单成交，决定性、不乐观
+    高估到 high）。pct 为正数小数（0.15 = +15%），范围 (0, 5]。
+    """
+
+    name = "take_profit"
+
+    def __init__(self, pct: float) -> None:
+        if isinstance(pct, bool) or not isinstance(pct, (int, float)):
+            raise ValueError(f"TakeProfitRule pct 必须是数值，got {pct!r}")
+        pct_f = float(pct)
+        if not (0.0 < pct_f <= TAKE_PROFIT_PCT_MAX):
+            raise ValueError(
+                f"TakeProfitRule pct 必须 ∈ (0,{TAKE_PROFIT_PCT_MAX}]，got {pct_f}"
+            )
+        self.pct = pct_f
+
+    def decide(self, state: ExitState) -> ExitDecision | None:
+        if not np.isfinite(state.high_price) or not np.isfinite(state.entry_price):
+            return None
+        target = float(state.entry_price) * (1.0 + self.pct)
+        if state.high_price >= target:
+            return ExitDecision(
+                exit_reason=EXIT_TAKE_PROFIT,
+                exit_price=target,
+            )
+        return None
+
+
+class TrailingStopRule(ExitRule):
+    """移动止损：当日收盘价跌破持仓期峰值×(1−pct) → 出场（spec 03 §1.3）。
+
+    用 close（current_price）判定与成交，与 ma_break 同口径（保守、避免盘中
+    穿透歧义）。pct 为正数小数（0.10 = 峰值回撤 10%），范围 (0, 1)。
+    peak_price 由模拟器逐日维护（入场以来 high 的运行峰值）。
+    """
+
+    name = "trailing_stop"
+
+    def __init__(self, pct: float) -> None:
+        if isinstance(pct, bool) or not isinstance(pct, (int, float)):
+            raise ValueError(f"TrailingStopRule pct 必须是数值，got {pct!r}")
+        pct_f = float(pct)
+        if not (0.0 < pct_f < 1.0):
+            raise ValueError(
+                f"TrailingStopRule pct 必须 ∈ (0,1)，got {pct_f}"
+            )
+        self.pct = pct_f
+
+    def decide(self, state: ExitState) -> ExitDecision | None:
+        if not np.isfinite(state.peak_price) or not np.isfinite(state.current_price):
+            return None
+        stop = float(state.peak_price) * (1.0 - self.pct)
+        if state.current_price <= stop:
+            return ExitDecision(
+                exit_reason=EXIT_TRAILING_STOP,
+                exit_price=float(state.current_price),
+            )
+        return None
+
+
 class _CombinedRule(ExitRule):
     """first-match 复合规则。"""
 
@@ -207,15 +302,93 @@ def combine_rules(rules: Sequence[ExitRule]) -> ExitRule:
 
 
 def default_rules() -> ExitRule:
-    """labels.strategy_aware 与回测引擎共用的默认复合规则。"""
+    """labels.strategy_aware 与回测引擎共用的默认复合规则。
+
+    等价于 build_exit_rules(default_exit@v1 的 exit_rules)，回归基准。
+    """
 
     return combine_rules(
         [
             StopLossRule(STOP_LOSS_THRESHOLD),
-            MA5BreakRule(),
+            MABreakRule(MA_WINDOW),
             MaxHoldRule(MAX_HOLD_DAYS),
         ]
     )
+
+
+# ----------------------------------------------------------------------
+# build_exit_rules：exit_rules 配置（list[dict]）→ 复合规则 + MA 窗口
+# ----------------------------------------------------------------------
+
+#: type → 实例化函数（params 已解析）。stop_loss 存正数 pct → threshold=-pct
+#: （spec 02 §2.1 符号约定）。
+_RULE_BUILDERS: Final[dict[str, object]] = {
+    "stop_loss": lambda p: StopLossRule(threshold=-float(p["pct"])),
+    "ma_break": lambda p: MABreakRule(period=int(p["period"])),
+    "max_hold": lambda p: MaxHoldRule(max_days=int(p["days"])),
+    "take_profit": lambda p: TakeProfitRule(pct=float(p["pct"])),
+    "trailing_stop": lambda p: TrailingStopRule(pct=float(p["pct"])),
+}
+
+
+def build_exit_rules(exit_rules: list[dict]) -> tuple[ExitRule, int | None]:
+    """从 exit_rules 配置（list[dict]）构造复合出场规则 + MA 窗口（spec 03 §1.5）。
+
+    每元素形如 {"type": str, "params": dict}，first-match（列表顺序即优先级）。
+    校验（任一失败 raise ValueError，由 worker 顶层捕获标记 job=failed）：
+      - 非空数组
+      - 每条 type ∈ _RULE_BUILDERS
+      - **恰含一条 max_hold**（终止条件，防无限持仓）
+      - 每种 type 至多一条（v1 约束）
+      - 各 params 范围由对应 Rule 的 __init__ 校验（越界 raise，禁夹取）
+
+    返回 (rule, ma_window)：
+      - rule       = combine_rules(按列表顺序实例化的规则)
+      - ma_window  = 唯一 ma_break 的 period；无 ma_break 则 None（ma 列恒 NaN）
+    """
+
+    if not isinstance(exit_rules, list) or not exit_rules:
+        raise ValueError(f"build_exit_rules: exit_rules 必须是非空 list，got {exit_rules!r}")
+
+    rules: list[ExitRule] = []
+    seen_types: set[str] = set()
+    ma_window: int | None = None
+    for idx, item in enumerate(exit_rules):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"build_exit_rules: exit_rules[{idx}] 必须是 dict，got {item!r}"
+            )
+        rtype = item.get("type")
+        if rtype not in _RULE_BUILDERS:
+            raise ValueError(
+                f"build_exit_rules: 未知 type {rtype!r}（合法：{sorted(_RULE_BUILDERS)}）"
+            )
+        if rtype in seen_types:
+            raise ValueError(
+                f"build_exit_rules: type {rtype!r} 重复（每种 type 至多一条）"
+            )
+        seen_types.add(rtype)
+        params = item.get("params") or {}
+        if not isinstance(params, dict):
+            raise ValueError(
+                f"build_exit_rules: exit_rules[{idx}].params 必须是 dict，got {params!r}"
+            )
+        try:
+            rule = _RULE_BUILDERS[rtype](params)  # type: ignore[operator]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                f"build_exit_rules: type {rtype!r} params 缺字段或类型错：{params!r}（{exc}）"
+            ) from exc
+        rules.append(rule)
+        if rtype == "ma_break":
+            ma_window = int(params["period"])
+
+    if "max_hold" not in seen_types:
+        raise ValueError(
+            "build_exit_rules: 必须恰含一条 max_hold（终止条件，防无限持仓）"
+        )
+
+    return combine_rules(rules), ma_window
 
 
 # ----------------------------------------------------------------------
@@ -225,25 +398,30 @@ def default_rules() -> ExitRule:
 _REQUIRED_PRICE_COLS: Final[tuple[str, ...]] = ("trade_date", "close")
 
 
-def _ensure_ma5(prices_df: pd.DataFrame) -> pd.DataFrame:
-    """若缺 ma5 列，按 trade_date 顺序滚动 5 日 close 均值补齐。
+def _ensure_ma(prices_df: pd.DataFrame, window: int | None) -> pd.DataFrame:
+    """按 trade_date 顺序滚动 window 日 close 均值，写入 'ma' 列。
 
+    window=None（exit_rules 无 ma_break）→ ma 列全 NaN（MABreakRule 不会被构造，
+    即便构造也因 NaN 不触发）。window=5 时与原 _ensure_ma5 的 ma5 列逐行等价。
     注：调用方应传入"单一 ts_code、按日升序"的 prices_df。
+    总是重算（不复用外部 ma 列），避免 window 与外部预填窗口不一致。
     """
 
-    if "ma5" in prices_df.columns:
-        return prices_df
     out = prices_df.copy()
     out = out.sort_values("trade_date").reset_index(drop=True)
-    out["ma5"] = out["close"].rolling(MA_WINDOW, min_periods=MA_WINDOW).mean()
+    if window is None:
+        out["ma"] = np.nan
+    else:
+        out["ma"] = out["close"].rolling(window, min_periods=window).mean()
     return out
 
 
 def _normalize_prices(prices_df: pd.DataFrame) -> pd.DataFrame:
-    """补齐 low / is_suspended / is_limit_up / is_limit_down / is_delisted 等可选列。
+    """补齐 low / high / is_suspended / is_limit_up / is_limit_down / is_delisted 等可选列。
 
     缺失语义：
         low                 → 默认等于 close（无穿透检测能力，stop 退化为 close 比对）
+        high                → 默认等于 close（无止盈触发能力，take_profit 退化为 close 比对）
         is_suspended        → False
         is_limit_up / down  → False
         is_delisted         → False
@@ -257,6 +435,8 @@ def _normalize_prices(prices_df: pd.DataFrame) -> pd.DataFrame:
     out["trade_date"] = out["trade_date"].astype(str)
     if "low" not in out.columns:
         out["low"] = out["close"]
+    if "high" not in out.columns:
+        out["high"] = out["close"]
     for col, default in (
         ("is_suspended", False),
         ("is_limit_up", False),
@@ -279,6 +459,7 @@ def simulate_exit(
     rules: ExitRule | Sequence[ExitRule],
     *,
     force_close_date: str | None = None,
+    ma_window: int | None = MA_WINDOW,
 ) -> ExitOutcome | None:
     """模拟从 buy_date 持仓到出场。
 
@@ -286,11 +467,13 @@ def simulate_exit(
         buy_date:         入场日 YYYYMMDD（本函数把 buy_date 当日的 close 视为入场价）
         ts_code:          股票代码
         prices_df:        单只票按日升序的 DataFrame；必须含 [trade_date, close]，
-                          可选 [low, ma5, is_suspended, is_limit_up, is_limit_down,
+                          可选 [low, high, is_suspended, is_limit_up, is_limit_down,
                           is_delisted]
         rules:            ExitRule 实例，或多条 ExitRule 的 sequence（自动 combine）
         force_close_date: 退市公告日 / 数据末尾等外部强制平仓日（YYYYMMDD）；
                           当 current_date >= force_close_date 时按当日 close 强平。
+        ma_window:        MA 滚动窗口（由 build_exit_rules 回传）。默认 5（与原
+                          MA5 行为一致）；None → ma 列恒 NaN（无 ma_break 规则）。
 
     返回：
         ExitOutcome 或 None（无法形成有效交易，如入场日不在数据中）。
@@ -315,7 +498,7 @@ def simulate_exit(
         rule = combine_rules(list(rules))
 
     prices = _normalize_prices(prices_df)
-    prices = _ensure_ma5(prices)
+    prices = _ensure_ma(prices, ma_window)
 
     # 切到 buy_date 起
     sub = prices[prices["trade_date"] >= str(buy_date)].reset_index(drop=True)
@@ -327,6 +510,10 @@ def simulate_exit(
     entry_price = float(entry_row["close"])
     if not np.isfinite(entry_price) or entry_price <= 0:
         return None
+
+    # 持仓期峰值：入场日 high 起算（trailing_stop 用）。入场日 high 缺/NaN → 退回入场 close。
+    entry_high = float(entry_row["high"])
+    peak = entry_high if np.isfinite(entry_high) else entry_price
 
     hold_days = 0
     # 从入场日次日开始决策
@@ -376,7 +563,11 @@ def simulate_exit(
                 hold_days=hold_days,
             )
         low_val = float(row["low"]) if np.isfinite(float(row["low"])) else close_val
-        ma5_val = float(row["ma5"]) if pd.notna(row["ma5"]) else np.nan
+        high_val = float(row["high"]) if np.isfinite(float(row["high"])) else close_val
+        ma_val = float(row["ma"]) if pd.notna(row["ma"]) else np.nan
+
+        # 持仓期峰值：含当日 high（仅有效交易日更新；停牌日已 continue 跳过）
+        peak = max(peak, high_val)
 
         state = ExitState(
             entry_date=str(buy_date),
@@ -384,7 +575,9 @@ def simulate_exit(
             entry_price=entry_price,
             current_price=close_val,
             low_price=low_val,
-            ma5=ma5_val,
+            high_price=high_val,
+            peak_price=peak,
+            ma=ma_val,
             hold_days=hold_days,
             is_suspended=False,
             is_limit_up=bool(row["is_limit_up"]),
@@ -477,11 +670,15 @@ def _find_first_tradable(sub: pd.DataFrame, *, start_idx: int) -> int | None:
 __all__ = [
     # 抽象 + 实现
     "ExitRule",
+    "MABreakRule",
     "MA5BreakRule",
     "StopLossRule",
     "MaxHoldRule",
+    "TakeProfitRule",
+    "TrailingStopRule",
     "combine_rules",
     "default_rules",
+    "build_exit_rules",
     # 状态 / 决策 / 结果
     "ExitState",
     "ExitDecision",
@@ -492,8 +689,15 @@ __all__ = [
     "STOP_LOSS_THRESHOLD",
     "MAX_HOLD_DAYS",
     "MA_WINDOW",
+    "MA_WINDOW_MIN",
+    "MA_WINDOW_MAX",
+    "MAX_HOLD_MIN",
+    "MAX_HOLD_MAX",
+    "TAKE_PROFIT_PCT_MAX",
     "EXIT_BELOW_MA5",
     "EXIT_STOP_LOSS",
     "EXIT_MAX_HOLD",
     "EXIT_FORCE_CLOSE",
+    "EXIT_TAKE_PROFIT",
+    "EXIT_TRAILING_STOP",
 ]

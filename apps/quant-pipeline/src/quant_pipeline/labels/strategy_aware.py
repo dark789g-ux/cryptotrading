@@ -63,12 +63,10 @@ from quant_pipeline.labels._common import (
 from quant_pipeline.strategy.exit_rules import (
     EXIT_FORCE_CLOSE,
     EXIT_STOP_LOSS,
+    MA_WINDOW,
     MAX_HOLD_DAYS,
-    STOP_LOSS_THRESHOLD,
-    MA5BreakRule,
-    MaxHoldRule,
-    StopLossRule,
-    combine_rules,
+    ExitRule,
+    build_exit_rules,
     default_rules,
     simulate_exit,
 )
@@ -244,9 +242,10 @@ class LabelInputs:
     """compute_strategy_aware_labels 的入参容器。
 
     daily_quotes: 必须含 [ts_code, trade_date, close, close_adj]；可选
-                  [low, low_adj, adj_factor, ma5, is_suspended, is_limit_up,
-                  is_limit_down, is_delisted]。close_adj/low_adj 为后复权价
-                  （见 spec 01）。
+                  [low, low_adj, high, high_adj, adj_factor, ma5, is_suspended,
+                  is_limit_up, is_limit_down, is_delisted]。close_adj/low_adj/
+                  high_adj 为后复权价（见 spec 01）。take_profit/trailing_stop
+                  规则需要 high_adj，缺则模拟器退化为按 close 比对。
     stk_limit:    raw.stk_limit
     suspend_d:    raw.suspend_d（[ts_code, trade_date]）
     delist:       退市信息中 delist_date 不空的行
@@ -268,10 +267,10 @@ class LabelInputs:
     # 新股门槛交易日阈值。None → 走默认 NEW_LISTING_MIN_DAYS（60）；
     # 0 是合法值表示完全不过滤。禁忌写法：`if min_days:`（0 会被判 falsy）。
     new_listing_min_days: int | None = None
-    # spec 02 §标签参数透传：最大持仓交易日（MaxHoldRule 上限）。None → 走
-    # exit_rules.MAX_HOLD_DAYS(20) 默认，保证不传时行为完全不变。仅 strategy-aware
-    # 生效（dir3 / fwd 路径不走 simulate_exit）。
-    max_hold_days: int | None = None
+    # 出场规则配置（list[dict]，见 strategy.exit_rules.build_exit_rules）。
+    # None → default_rules()（止损-8% / 跌破MA5 / 最大持仓20日），与 default_exit@v1
+    # 逐行等价，保证不传时行为完全不变。仅 strategy-aware 生效。
+    exit_rules: list[dict] | None = None
 
 
 def _augment_quotes_for_exit(
@@ -315,9 +314,9 @@ def _augment_quotes_for_exit(
 def _prices_for_simulator(sub: pd.DataFrame) -> pd.DataFrame:
     """把 per-stock 切片转成 simulate_exit 需要的价格表。
 
-    close_adj → close、low_adj → low（spec 01 §2.6）：模拟器消费后复权价，
-    与 exit_rules 注释「含复权」一致。raw close/low 仅用于涨停派生（已在前置
-    阶段完成），此处不再需要。
+    close_adj → close、low_adj → low、high_adj → high（spec 01 §2.6 / spec 03 §4）：
+    模拟器消费后复权价，与 exit_rules 注释「含复权」一致。take_profit / trailing_stop
+    需要后复权 high。raw close/low/high 仅用于涨停派生（已在前置阶段完成），此处不再需要。
     """
 
     out = sub.copy()
@@ -325,12 +324,30 @@ def _prices_for_simulator(sub: pd.DataFrame) -> pd.DataFrame:
         out["close"] = out["close_adj"]
     if "low_adj" in out.columns:
         out["low"] = out["low_adj"]
+    if "high_adj" in out.columns:
+        out["high"] = out["high_adj"]
     return out
+
+
+def _extract_max_hold_days(exit_rules: list[dict]) -> int:
+    """从 exit_rules 配置取 max_hold 的 days（仅用于 truncation warning 阈值）。
+
+    build_exit_rules 已保证恰含一条合法 max_hold；此处只读取，不再校验。
+    找不到（理论上不会发生，build_exit_rules 已先 raise）→ 退回 MAX_HOLD_DAYS。
+    """
+
+    for item in exit_rules:
+        if isinstance(item, dict) and item.get("type") == "max_hold":
+            params = item.get("params") or {}
+            return int(params["days"])
+    return MAX_HOLD_DAYS
 
 
 def compute_strategy_aware_labels(
     inputs: LabelInputs,
     progress_callback: Callable[[int, str], None] | None = None,
+    *,
+    scheme: str = LABEL_SCHEME,
 ) -> pd.DataFrame:
     """计算 strategy-aware 标签长表（factors.labels 直接 upsert 列）。
 
@@ -342,6 +359,11 @@ def compute_strategy_aware_labels(
       - exit_price 由 simulate_exit 给出（后复权价）；
       - value = exit_price / buy_price - 1（毛收益，不扣成本；成本由 portfolio 扣）。
     信号日为窗口最后一个交易日、取不到 T+1 → 跳过该候选（边界样本，正常）。
+
+    参数 scheme：写入 records 的 scheme 字段（factors.labels.scheme）。默认
+      'strategy-aware'（default_exit@v1 的 legacy 别名）；非 default 策略由 codec
+      生成 'strategy-aware__{id}_{ver}'，调用方（runner）透传以区分多策略。
+    inputs.exit_rules：出场规则配置；None → default_rules()（与 default_exit@v1 逐行等价）。
     """
 
     quotes = inputs.daily_quotes
@@ -428,20 +450,18 @@ def compute_strategy_aware_labels(
     # 数据末尾截断 warning 的判别基准：查询区间 end，缺省退化为窗口末日
     truncation_threshold = str(inputs.end) if inputs.end else trade_dates_sorted[-1]
 
-    # spec 02 §标签参数透传：max_hold_days 覆盖 MaxHoldRule 上限。None → default_rules()
-    # （MAX_HOLD_DAYS=20），与改动前完全一致；显式值则重建同序复合规则（止损 > MA5 > 持有上限）。
-    if inputs.max_hold_days is None:
-        rules = default_rules()
+    # spec 03 §3.2：exit_rules 配置 → (复合规则, MA 窗口)。
+    # None（直跑且未给）→ default_rules() + MA_WINDOW(5)，与 default_exit@v1 逐行等价，
+    # 保证不传时行为完全不变；显式 list[dict] → build_exit_rules 解析（first-match）。
+    if inputs.exit_rules is None:
+        rules: ExitRule = default_rules()
+        ma_window: int | None = MA_WINDOW
         eff_max_hold = MAX_HOLD_DAYS
     else:
-        eff_max_hold = int(inputs.max_hold_days)
-        rules = combine_rules(
-            [
-                StopLossRule(STOP_LOSS_THRESHOLD),
-                MA5BreakRule(),
-                MaxHoldRule(eff_max_hold),
-            ]
-        )
+        rules, ma_window = build_exit_rules(inputs.exit_rules)
+        # truncation warning 需要 max_hold 上限：build_exit_rules 已保证恰含一条 max_hold，
+        # 从配置解析其 days（无须再校验存在性）。
+        eff_max_hold = _extract_max_hold_days(inputs.exit_rules)
     records: list[dict[str, object]] = []
     # 按信号日去重（同一票同一信号日只保留一条候选）
     cand_dedup = cand.drop_duplicates(
@@ -468,6 +488,7 @@ def compute_strategy_aware_labels(
             prices_df=sub,
             rules=rules,
             force_close_date=delist_map.get(ts_code),
+            ma_window=ma_window,
         )
         if outcome is None:
             continue
@@ -502,7 +523,9 @@ def compute_strategy_aware_labels(
             {
                 "trade_date": signal_date,
                 "ts_code": ts_code,
-                "scheme": LABEL_SCHEME,
+                # scheme 由入参决定（runner 透传 codec 算出的串）：default_exit@v1
+                # → 'strategy-aware' legacy 别名；其它策略 → 'strategy-aware__{id}_{ver}'。
+                "scheme": scheme,
                 # 毛收益（项目决策）：不扣 ROUND_TRIP_COST，成本由 portfolio 评估层扣
                 "value": gross,
                 "exit_reason": outcome.exit_reason,

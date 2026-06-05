@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from quant_pipeline.worker.progress import (
@@ -82,7 +82,10 @@ _LGB_MODELS = {"lgb-lambdarank", "lgb-multiclass"}
 _FACTOR_CLIP_SIGMA_RANGE = (1.5, 5.0)
 # fwd_ret horizon: 任意正整数（spec 2026-06-05 §base_scheme_codec）
 _FWD_HORIZON_MIN = 1
-_MAX_HOLD_DAYS_RANGE = (10, 30)
+# strategy_aware 策略引用校验（spec 03 §3.3 / 02 §4）：id 限小写字母数字下划线、
+# version 限 v 后跟数字（与 scheme 串分隔符 '__' '_' 无歧义）。
+_STRATEGY_ID_RE = re.compile(r"^[a-z0-9_]{1,64}$")
+_STRATEGY_VERSION_RE = re.compile(r"^v\d+$")
 # neutralize_cols 三档规范组合（去重排序后比对）。
 _NEUTRALIZE_COLS_CANONICAL = {
     (),
@@ -114,7 +117,7 @@ class ValidatedParams:
 
     factor_version: str
     base_type: str           # 'fwd_ret' | 'strategy_aware'
-    base_params: dict[str, Any]   # {'horizon': N} | {'max_hold_days': N}
+    base_params: dict[str, Any]   # {'horizon': N} | {'strategy_id','strategy_version'}
     base_scheme: str         # base_scheme_codec(base_type, base_params) 生成
     new_listing_min_days: int
     date_range: str
@@ -304,8 +307,9 @@ def _validate_base_type_and_params(
 ) -> tuple[str, dict[str, Any]]:
     """校验 base_type ∈ {fwd_ret, strategy_aware} + base_params 匹配。
 
-    fwd_ret:      base_params['horizon'] 为 int >= 1（任意正整数）。
-    strategy_aware: base_params['max_hold_days'] 为 int ∈ [10,30]（或不传，走下游默认）。
+    fwd_ret:        base_params['horizon'] 为 int >= 1（任意正整数）。
+    strategy_aware: base_params={strategy_id: ^[a-z0-9_]{1,64}$,
+                    strategy_version: ^v\\d+$}（策略引用，spec 03 §3.3）。
 
     返回 (validated_base_type, validated_base_params_dict)。
     """
@@ -339,20 +343,21 @@ def _validate_base_type_and_params(
         params = {"horizon": int(horizon_raw)}
 
     elif base_type == "strategy_aware":
-        mhd_raw = params.get("max_hold_days")
-        if mhd_raw is not None:
-            if isinstance(mhd_raw, bool) or not isinstance(mhd_raw, int):
-                raise ValueError(
-                    f"base_params.max_hold_days: must be int, got {mhd_raw!r}"
-                )
-            lo, hi = _MAX_HOLD_DAYS_RANGE
-            if mhd_raw < lo or mhd_raw > hi:
-                raise ValueError(
-                    f"base_params.max_hold_days: must be in [{lo}, {hi}], got {mhd_raw!r}"
-                )
-            params = {"max_hold_days": int(mhd_raw)}
-        else:
-            params = {}
+        # spec 03 §3.3：strategy_aware 必须引用一个命名策略 (strategy_id, strategy_version)；
+        # scheme/exit_rules 由该引用决定。不再接受 max_hold_days（已迁入 strategy_definitions）。
+        sid = params.get("strategy_id")
+        sver = params.get("strategy_version")
+        if not isinstance(sid, str) or not _STRATEGY_ID_RE.fullmatch(sid):
+            raise ValueError(
+                "base_params.strategy_id: must match ^[a-z0-9_]{1,64}$, "
+                f"got {sid!r}"
+            )
+        if not isinstance(sver, str) or not _STRATEGY_VERSION_RE.fullmatch(sver):
+            raise ValueError(
+                "base_params.strategy_version: must match ^v\\d+$, "
+                f"got {sver!r}"
+            )
+        params = {"strategy_id": sid, "strategy_version": sver}
 
     return base_type, params
 
@@ -543,19 +548,26 @@ def _step_labels(
 
     按 base_scheme 物化连续值（已存在则 upsert 覆盖去重共享，compute_labels 幂等）。
     base_scheme = base_scheme_codec(base_type, base_params)，不含分类参数。
-    strategy_aware 的 max_hold_days 从 base_params 解析（None → 走下游默认 20）。
+    strategy_aware 时从 factors.strategy_definitions 加载引用策略的 exit_rules（spec 03 §3.3）。
     fwd_ret 的 horizon 已编入 base_scheme 字符串（fwd_ret_hN / fwd_5d_ret legacy）。
     """
 
     # 延迟 import 避免 worker 模块在 labels 子树未就绪时启动报错
-    from quant_pipeline.labels.runner import compute_labels
+    from quant_pipeline.labels.runner import (
+        _load_strategy_definition,
+        compute_labels,
+    )
 
     lo, hi = _WINDOW_LABELS
 
-    # strategy_aware 的 max_hold_days 从 base_params 解析
-    max_hold_days: int | None = None
+    # strategy_aware 从 strategy_definitions 加载引用策略的 exit_rules（取不到 → RuntimeError）。
+    # fwd_ret 不走出场规则（exit_rules 保持 None）。
+    exit_rules: list[dict] | None = None
     if p.base_type == "strategy_aware":
-        max_hold_days = p.base_params.get("max_hold_days")
+        exit_rules = _load_strategy_definition(
+            p.base_params["strategy_id"],
+            p.base_params["strategy_version"],
+        )
 
     logger.info(
         "train_e2e_step_start",
@@ -572,7 +584,7 @@ def _step_labels(
             scheme=p.base_scheme,
             date_range=p.date_range,
             new_listing_min_days=p.new_listing_min_days,
-            max_hold_days=max_hold_days,
+            exit_rules=exit_rules,
             label_winsorize=p.label_winsorize,
             job_id=job_id,
             progress_callback=make_scaled_callback(parent_cb, lo, hi),
@@ -665,6 +677,7 @@ def _step_train(
       - factor_version / base_scheme / new_listing_min_days（可复现基础字段）
       - classify_mode / classify_params（分类后移追溯）
       - label_id / label_version（命名标签追溯，Optional，由后端 expandForTraining 透传）
+      - strategy_id / strategy_version（出场策略引用追溯，仅 strategy_aware 时存在）
     """
 
     from quant_pipeline.training.runner import train_model
@@ -682,6 +695,14 @@ def _step_train(
         extra_hyperparams["label_id"] = p.label_id
     if p.label_version is not None:
         extra_hyperparams["label_version"] = p.label_version
+    # strategy_aware 策略引用（追溯：哪个出场策略生成的标签）。仅 strategy_aware
+    # 时 base_params 含这两键；仿 label_id 风格——仅非 None 才写，防空键污染。
+    strategy_id = p.base_params.get("strategy_id")
+    if strategy_id is not None:
+        extra_hyperparams["strategy_id"] = strategy_id
+    strategy_version = p.base_params.get("strategy_version")
+    if strategy_version is not None:
+        extra_hyperparams["strategy_version"] = strategy_version
     logger.info(
         "train_e2e_step_start",
         extra={

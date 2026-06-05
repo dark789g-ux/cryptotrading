@@ -112,8 +112,9 @@ def is_dir3_band_scheme(scheme: str) -> bool:
 #: 现状 fallback.py 所有 horizon 的 scheme 列均写 'fwd_5d_ret'（已 grep 核实），
 #: 故 h=5 回 legacy 串，h≠5 用新串 fwd_ret_h{N}（含 h=1 次日）。
 _LEGACY_FWD5_SCHEME: Final[str] = "fwd_5d_ret"
-#: strategy_aware.LABEL_SCHEME 写死为 'strategy-aware'，不参与 codec 改动，
-#: max_hold_days 不进 scheme 串（已 grep strategy_aware.py:87 核实）。
+#: default_exit@v1 的 legacy 别名串。strategy_aware 的 scheme 由 (strategy_id,
+#: strategy_version) 决定（见 base_scheme_codec）；default_exit@v1 回此 legacy 串，
+#: 守历史 factors.labels（scheme='strategy-aware'）不漂移（spec 02 §4）。
 _STRATEGY_AWARE_SCHEME: Final[str] = "strategy-aware"
 
 _VALID_BASE_TYPES: Final[frozenset[str]] = frozenset({"fwd_ret", "strategy_aware"})
@@ -125,10 +126,14 @@ def base_scheme_codec(base_type: str, base_params: dict | None = None) -> str:
     Legacy 回归约束（关键）：
       - fwd_ret + {horizon:5}   → 'fwd_5d_ret'  （legacy 别名，守哈希不漂移）
       - fwd_ret + {horizon:N≠5} → 'fwd_ret_h{N}' （新串，含 h=1 次日）
-      - strategy_aware          → 'strategy-aware'（max_hold_days 不进 scheme）
+      - strategy_aware + {strategy_id:'default_exit', strategy_version:'v1'}
+                                → 'strategy-aware'（legacy 别名，守历史数据不漂移）
+      - strategy_aware + {strategy_id:sid, strategy_version:sver}（其它）
+                                → 'strategy-aware__{sid}_{sver}'（决定性、可复现）
 
     Raises:
-        ValueError: base_type 不在合法集合；fwd_ret 缺 horizon 或 horizon < 1。
+        ValueError: base_type 不在合法集合；fwd_ret 缺 horizon 或 horizon < 1；
+                    strategy_aware 缺 strategy_id / strategy_version。
     """
 
     if base_type not in _VALID_BASE_TYPES:
@@ -138,8 +143,20 @@ def base_scheme_codec(base_type: str, base_params: dict | None = None) -> str:
         )
 
     if base_type == "strategy_aware":
-        # max_hold_days 不进 scheme 串（与现状 strategy_aware.LABEL_SCHEME='strategy-aware' 一致）
-        return _STRATEGY_AWARE_SCHEME
+        # scheme 由 (strategy_id, strategy_version) 决定（spec 02 §4）。
+        # id/version 不可变 → scheme 是其决定性函数，无需把 exit_rules 内容编进 scheme。
+        sp = base_params or {}
+        sid = sp.get("strategy_id")
+        sver = sp.get("strategy_version")
+        if not sid or not sver:
+            raise ValueError(
+                "base_scheme_codec: strategy_aware requires "
+                "base_params={strategy_id, strategy_version}, "
+                f"got {base_params!r}"
+            )
+        if sid == "default_exit" and sver == "v1":
+            return _STRATEGY_AWARE_SCHEME       # legacy 别名，守历史数据不漂移
+        return f"strategy-aware__{sid}_{sver}"
 
     # base_type == "fwd_ret"
     params = base_params or {}

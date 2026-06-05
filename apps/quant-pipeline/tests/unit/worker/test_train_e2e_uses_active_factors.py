@@ -33,10 +33,12 @@ _JOB_ID = UUID("99999999-aaaa-bbbb-cccc-dddddddddddd")
 
 
 def _valid_params(**overrides: Any) -> dict[str, Any]:
+    # 用 fwd_ret baseline：本测试聚焦 factor registry reload，不涉及策略加载；
+    # fwd_ret 的 _step_labels 不触发 _load_strategy_definition（无需 mock DB）。
     base: dict[str, Any] = {
         "factor_version": "v1",
-        "base_type": "strategy_aware",
-        "base_params": {},
+        "base_type": "fwd_ret",
+        "base_params": {"horizon": 1},
         "classify_mode": None,
         "classify_params": None,
         "new_listing_min_days": 60,

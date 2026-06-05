@@ -41,7 +41,6 @@ from quant_pipeline.labels.fallback import (
     compute_fwd_5d_ret,
 )
 from quant_pipeline.labels.strategy_aware import (
-    LABEL_SCHEME,
     LabelInputs,
     compute_strategy_aware_labels,
 )
@@ -54,6 +53,9 @@ from quant_pipeline.worker.progress import (
 
 # fwd_ret_h{N} 新串正则（分类后移改造，spec 2026-06-05）。
 _FWD_RET_HN_RE: re.Pattern[str] = re.compile(r"^fwd_ret_h(\d+)$")
+# strategy-aware 系串正则（spec 03 §2）：legacy 'strategy-aware' 与多策略
+# 'strategy-aware__{id}_{ver}' 都走 strategy_aware 分支。
+_STRATEGY_AWARE_RE: re.Pattern[str] = re.compile(r"^strategy-aware(__.+)?$")
 
 logger = logging.getLogger(__name__)
 
@@ -65,14 +67,16 @@ logger = logging.getLogger(__name__)
 def _load_daily_quotes(start: str, end_padded: str) -> pd.DataFrame:
     """加载 [start, end_padded] 区间的 daily_quote，并注入后复权列。
 
-    JOIN raw.adj_factor 取复权因子；经 _common.apply_hfq 注入 close_adj/low_adj。
-    返回列 [ts_code, trade_date, close, low, adj_factor, close_adj, low_adj]。
+    JOIN raw.adj_factor 取复权因子；经 _common.apply_hfq 注入 close_adj/low_adj/high_adj。
+    返回列 [ts_code, trade_date, close, low, high, adj_factor,
+            close_adj, low_adj, high_adj]。
+    high 供 strategy-aware 的 take_profit / trailing_stop 规则用（spec 03 §4）。
     end_padded 含 max_hold 缓冲。
     """
 
     sql = text(
         """
-        SELECT q.ts_code, q.trade_date, q.close, q.low, a.adj_factor
+        SELECT q.ts_code, q.trade_date, q.close, q.low, q.high, a.adj_factor
         FROM raw.daily_quote q
         LEFT JOIN raw.adj_factor a
                ON a.ts_code = q.ts_code AND a.trade_date = q.trade_date
@@ -83,11 +87,11 @@ def _load_daily_quotes(start: str, end_padded: str) -> pd.DataFrame:
     try:
         with session_scope() as session:
             rows = session.execute(sql, {"start": start, "end": end_padded}).fetchall()
-        cols = ["ts_code", "trade_date", "close", "low", "adj_factor"]
+        cols = ["ts_code", "trade_date", "close", "low", "high", "adj_factor"]
         if not rows:
-            return pd.DataFrame(columns=[*cols, "close_adj", "low_adj"])
+            return pd.DataFrame(columns=[*cols, "close_adj", "low_adj", "high_adj"])
         df = pd.DataFrame(rows, columns=cols)
-        for c in ("close", "low", "adj_factor"):
+        for c in ("close", "low", "high", "adj_factor"):
             df[c] = pd.to_numeric(df[c], errors="coerce")
         return apply_hfq(df)
     except Exception as exc:  # noqa: BLE001
@@ -212,6 +216,42 @@ def _load_listing_info() -> tuple[pd.DataFrame, pd.DataFrame]:
         raise
 
 
+def _load_strategy_definition(strategy_id: str, strategy_version: str) -> list[dict]:
+    """查 factors.strategy_definitions 取 exit_rules（jsonb → list[dict]）。
+
+    spec 03 §3.1：取不到行 → raise RuntimeError（fail-fast，CLAUDE.md data-integrity，
+    禁静默吞错）。jsonb 列由驱动反序列化为 Python list；非 list（如被改坏）→ raise。
+    """
+
+    sql = text(
+        """
+        SELECT exit_rules
+        FROM factors.strategy_definitions
+        WHERE strategy_id = :sid AND strategy_version = :sver
+        """
+    )
+    try:
+        with session_scope() as session:
+            row = session.execute(
+                sql, {"sid": strategy_id, "sver": strategy_version}
+            ).fetchone()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("strategy_definitions_failed", extra={"err": str(exc)})
+        raise
+    if row is None:
+        raise RuntimeError(
+            f"strategy {strategy_id}@{strategy_version} not found "
+            f"in factors.strategy_definitions"
+        )
+    exit_rules = row[0]
+    if not isinstance(exit_rules, list):
+        raise RuntimeError(
+            f"strategy {strategy_id}@{strategy_version} exit_rules is not a list, "
+            f"got {type(exit_rules).__name__}"
+        )
+    return exit_rules
+
+
 # ----------------------------------------------------------------------
 # upsert
 # ----------------------------------------------------------------------
@@ -259,7 +299,7 @@ def compute_labels(
     date_range: str,
     new_listing_min_days: int | None = None,
     fwd_horizon_days: int | None = None,
-    max_hold_days: int | None = None,
+    exit_rules: list[dict] | None = None,
     label_winsorize: tuple[float, float] | None = None,
     job_id: UUID | None = None,
     progress_callback: ProgressCallback | None = None,
@@ -267,14 +307,17 @@ def compute_labels(
     """计算并 upsert 标签；返回写入的行数。
 
     参数：
-        scheme:                "strategy-aware" / "fwd_5d_ret" / "fwd_ret_h{N}"
+        scheme:                "strategy-aware" / "strategy-aware__{id}_{ver}" /
+                               "fwd_5d_ret" / "fwd_ret_h{N}"
         date_range:            "YYYYMMDD:YYYYMMDD"
         new_listing_min_days:  新股门槛交易日阈值。None → 走默认 60；0 表示不过滤。
                                非法值由 _validate_min_days 抛 ValueError。
         fwd_horizon_days:      仅 fwd_5d_ret 生效（spec 02）。None → 走 fallback 默认
                                FWD_HORIZON_DAYS(5)；其它 scheme 忽略。
-        max_hold_days:         仅 strategy-aware 生效（spec 02）。None → 走
-                               exit_rules.MAX_HOLD_DAYS(20)；其它 scheme 忽略。
+        exit_rules:            仅 strategy-aware 系生效（spec 03 §3.2）。出场规则配置
+                               （list[dict]，见 strategy.exit_rules.build_exit_rules）。
+                               None → 走 default_rules()（止损-8%/跌破MA5/最大持仓20日），
+                               与 default_exit@v1 逐行等价；其它 scheme 忽略。
         label_winsorize:       spec 02 §「只截一次」：标签截尾**统一在 features.builder
                                执行**（features 层 winsorize_label_value），本函数
                                不在标签阶段再截一次（避免双重 winsorize）。此入参仅
@@ -294,14 +337,20 @@ def compute_labels(
         if job_id is not None:
             update_progress(job_id, progress, stage=stage)
 
-    # 新路径：fwd_ret_h{N}（分类后移改造，spec 2026-06-05）
-    # 旧路径：'strategy-aware' / 'fwd_5d_ret'（向后兼容）
+    # strategy-aware 系：'strategy-aware'（legacy）/ 'strategy-aware__{id}_{ver}'（多策略）
+    # fwd 系：'fwd_5d_ret'（legacy）/ 'fwd_ret_h{N}'（分类后移改造，spec 2026-06-05）
     # dir3_band / dir3_tercile 路径已移除（历史数据在 DB，不靠重跑老代码路径）
     fwd_ret_hn_match = _FWD_RET_HN_RE.match(scheme)
-    if scheme not in (LABEL_SCHEME, SCHEME_FWD_5D_RET) and fwd_ret_hn_match is None:
+    is_strategy_aware = _STRATEGY_AWARE_RE.match(scheme) is not None
+    if (
+        not is_strategy_aware
+        and scheme != SCHEME_FWD_5D_RET
+        and fwd_ret_hn_match is None
+    ):
         raise NotImplementedError(
             f"labels scheme={scheme!r} not implemented "
-            f"(supported: {LABEL_SCHEME!r}, {SCHEME_FWD_5D_RET!r}, fwd_ret_h{{N}})"
+            f"(supported: 'strategy-aware', 'strategy-aware__{{id}}_{{ver}}', "
+            f"{SCHEME_FWD_5D_RET!r}, fwd_ret_h{{N}})"
         )
     start, end = date_range.split(":")
     if len(start) != 8 or len(end) != 8:
@@ -334,7 +383,7 @@ def compute_labels(
         raise JobCancelled
     _progress(PROGRESS_LOAD, "labels:load")
 
-    if scheme == LABEL_SCHEME:
+    if is_strategy_aware:
         labels_df = compute_strategy_aware_labels(
             LabelInputs(
                 daily_quotes=quotes,
@@ -345,9 +394,13 @@ def compute_labels(
                 entries=entries,
                 end=end,
                 new_listing_min_days=new_listing_min_days,
-                # spec 02：仅 strategy-aware 生效；None → exit_rules.MAX_HOLD_DAYS(20)。
-                max_hold_days=max_hold_days,
+                # spec 03 §3.2：仅 strategy-aware 系生效；None → default_rules()
+                # （与 default_exit@v1 逐行等价）。
+                exit_rules=exit_rules,
             ),
+            # scheme 透传：写入 records.scheme（legacy 'strategy-aware' 或
+            # 多策略 'strategy-aware__{id}_{ver}'），与 factors.labels PK 对齐。
+            scheme=scheme,
             progress_callback=_progress if progress_callback is not None else None,
         )
         # compute_* 原始输出为空 → candidates 被过滤光 / 模拟全失败属真异常
@@ -411,18 +464,38 @@ def compute_labels(
 
 
 def runner_entrypoint(job: object) -> None:
-    """供 worker.dispatcher 调用。
+    """供 worker.dispatcher 调用（dispatcher 直跑路径，非 train_e2e 主路径）。
 
     job.params schema（01-pg-schema §4.1）：
         {"scheme": "strategy-aware", "date_range": "YYYYMMDD:YYYYMMDD"}
+        可选 {"strategy_id": "...", "strategy_version": "v1"}：含则按 codec 算
+        scheme + 从 factors.strategy_definitions 加载 exit_rules（spec 03 §3.4）；
+        否则裸 scheme（如 "strategy-aware"）走 default_exit（exit_rules=None）。
     """
+
+    # 延迟 import 避免循环依赖（dir3_scheme 不依赖本模块，但保持与其它入口一致）
+    from quant_pipeline.labels.dir3_scheme import base_scheme_codec
 
     params = getattr(job, "params", {}) or {}
     scheme = params.get("scheme")
     date_range = params.get("date_range")
+    strategy_id = params.get("strategy_id")
+    strategy_version = params.get("strategy_version")
+
+    # 含 strategy_id+version → 用 codec 算 scheme + 加载该策略的 exit_rules。
+    # 此分支不要求 params 里的 scheme（codec 算出权威 scheme，避免双源真理）。
+    exit_rules: list[dict] | None = None
+    if strategy_id and strategy_version:
+        scheme = base_scheme_codec(
+            "strategy_aware",
+            {"strategy_id": strategy_id, "strategy_version": strategy_version},
+        )
+        exit_rules = _load_strategy_definition(str(strategy_id), str(strategy_version))
+
     if not scheme or not date_range:
         raise ValueError(
-            f"labels job missing required params: scheme/date_range, got {params!r}"
+            f"labels job missing required params: scheme/date_range "
+            f"(or strategy_id/strategy_version), got {params!r}"
         )
     # new_listing_min_days 可选；None 时由 compute_labels 走默认 60。
     # 校验由下游 _validate_min_days 抛 ValueError，worker 顶层捕获标记 job=failed。
@@ -432,6 +505,7 @@ def runner_entrypoint(job: object) -> None:
         scheme=str(scheme),
         date_range=str(date_range),
         new_listing_min_days=new_listing_min_days,
+        exit_rules=exit_rules,
         job_id=job_id,
     )
 

@@ -3,10 +3,17 @@
 覆盖 spec 04 §item-10 空数据硬约束：
   - quotes 为空 → compute_labels 抛 RuntimeError
   - labels_df 为空 → compute_labels 抛 RuntimeError
+外加 spec 2026-06-06 量化策略管理：
+  - _load_strategy_definition 命中返回 exit_rules / 缺行 raise RuntimeError
+  - compute_labels scheme 放宽到 'strategy-aware__*' 走 strategy_aware 分支
+  - runner_entrypoint 含 strategy_id/version → 加载 exit_rules + codec 算 scheme
 通过 monkeypatch 替换 _load_* DB IO 函数，不接触真实 DB。
 """
 
 from __future__ import annotations
+
+from contextlib import contextmanager
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -16,8 +23,8 @@ from quant_pipeline.labels import runner as labels_runner
 
 def _empty_quotes() -> pd.DataFrame:
     return pd.DataFrame(
-        columns=["ts_code", "trade_date", "close", "low",
-                 "adj_factor", "close_adj", "low_adj"]
+        columns=["ts_code", "trade_date", "close", "low", "high",
+                 "adj_factor", "close_adj", "low_adj", "high_adj"]
     )
 
 
@@ -70,3 +77,207 @@ def test_compute_labels_raises_on_empty_labels(monkeypatch: pytest.MonkeyPatch) 
         labels_runner.compute_labels(
             scheme="strategy-aware", date_range="20240102:20240102"
         )
+
+
+# ----------------------------------------------------------------------
+# _load_strategy_definition：命中 / 缺行
+# ----------------------------------------------------------------------
+
+def _patch_session_scope_with_row(
+    monkeypatch: pytest.MonkeyPatch, *, row: Any
+) -> None:
+    """把 labels_runner.session_scope 替换成返回固定 fetchone() 结果的 fake。"""
+
+    class _FakeSession:
+        def execute(self, _sql: Any, _params: Any) -> _FakeSession:
+            return self
+
+        def fetchone(self) -> Any:
+            return row
+
+    @contextmanager
+    def _fake_scope() -> Any:
+        yield _FakeSession()
+
+    monkeypatch.setattr(labels_runner, "session_scope", _fake_scope)
+
+
+def test_load_strategy_definition_hit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """命中 → 返回 exit_rules（jsonb → list[dict]）。"""
+
+    exit_rules = [
+        {"type": "stop_loss", "params": {"pct": 0.08}},
+        {"type": "max_hold", "params": {"days": 20}},
+    ]
+    _patch_session_scope_with_row(monkeypatch, row=(exit_rules,))
+    out = labels_runner._load_strategy_definition("default_exit", "v1")
+    assert out == exit_rules
+
+
+def test_load_strategy_definition_missing_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """缺行（fetchone()=None）→ RuntimeError（fail-fast，禁静默吞错）。"""
+
+    _patch_session_scope_with_row(monkeypatch, row=None)
+    with pytest.raises(RuntimeError, match="not found"):
+        labels_runner._load_strategy_definition("ghost", "v9")
+
+
+def test_load_strategy_definition_non_list_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """exit_rules 列非 list（被改坏）→ RuntimeError。"""
+
+    _patch_session_scope_with_row(monkeypatch, row=({"not": "a list"},))
+    with pytest.raises(RuntimeError, match="not a list"):
+        labels_runner._load_strategy_definition("default_exit", "v1")
+
+
+# ----------------------------------------------------------------------
+# compute_labels：scheme 放宽 'strategy-aware__*' 走 strategy_aware 分支
+# ----------------------------------------------------------------------
+
+def _rising_quotes_for_runner() -> pd.DataFrame:
+    """单只票连涨 40 日（含 high/high_adj），让 strategy_aware 产出 max_hold 标签。"""
+
+    dates = pd.bdate_range("2024-01-02", periods=40).strftime("%Y%m%d").tolist()
+    rows = []
+    for i, d in enumerate(dates):
+        close = 10.0 + i * 0.5
+        rows.append(
+            {
+                "ts_code": "X", "trade_date": d,
+                "close": close, "low": close, "high": close,
+                "adj_factor": 1.0,
+                "close_adj": close, "low_adj": close, "high_adj": close,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def test_compute_labels_named_strategy_scheme_routes_strategy_aware(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """scheme='strategy-aware__tight_exit_v1' 走 strategy_aware 分支并写该 scheme。"""
+
+    quotes = _rising_quotes_for_runner()
+    _patch_loaders(monkeypatch, quotes=quotes)
+
+    captured: dict[str, Any] = {}
+
+    def _fake_upsert(rows: list[dict[str, Any]]) -> int:
+        captured["rows"] = rows
+        return len(rows)
+
+    monkeypatch.setattr(labels_runner, "_upsert_labels", _fake_upsert)
+
+    n = labels_runner.compute_labels(
+        scheme="strategy-aware__tight_exit_v1",
+        date_range=f"{quotes.iloc[0]['trade_date']}:{quotes.iloc[3]['trade_date']}",
+        exit_rules=[
+            {"type": "stop_loss", "params": {"pct": 0.05}},
+            {"type": "ma_break", "params": {"period": 5}},
+            {"type": "max_hold", "params": {"days": 10}},
+        ],
+    )
+    assert n > 0
+    assert all(
+        r["scheme"] == "strategy-aware__tight_exit_v1" for r in captured["rows"]
+    )
+
+
+def test_compute_labels_unknown_scheme_raises() -> None:
+    """非 strategy-aware 系 / 非 fwd 系 scheme → NotImplementedError。"""
+
+    with pytest.raises(NotImplementedError):
+        labels_runner.compute_labels(
+            scheme="dir3_tercile", date_range="20240102:20240131"
+        )
+
+
+# ----------------------------------------------------------------------
+# runner_entrypoint：strategy_id/version → codec scheme + 加载 exit_rules
+# ----------------------------------------------------------------------
+
+class _FakeJob:
+    def __init__(self, params: dict[str, Any]) -> None:
+        self.params = params
+        self.id = None
+
+
+def test_runner_entrypoint_loads_strategy_and_computes_scheme(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """含 strategy_id/version → 用 codec 算 scheme + 加载 exit_rules，透传 compute_labels。"""
+
+    loaded_exit_rules = [
+        {"type": "stop_loss", "params": {"pct": 0.05}},
+        {"type": "max_hold", "params": {"days": 10}},
+    ]
+    monkeypatch.setattr(
+        labels_runner, "_load_strategy_definition",
+        lambda sid, sver: loaded_exit_rules,
+    )
+
+    captured: dict[str, Any] = {}
+
+    def _fake_compute(**kwargs: Any) -> int:
+        captured.update(kwargs)
+        return 1
+
+    monkeypatch.setattr(labels_runner, "compute_labels", _fake_compute)
+
+    job = _FakeJob(
+        {
+            "date_range": "20240102:20240131",
+            "strategy_id": "tight_exit",
+            "strategy_version": "v1",
+        }
+    )
+    labels_runner.runner_entrypoint(job)
+
+    assert captured["scheme"] == "strategy-aware__tight_exit_v1"
+    assert captured["exit_rules"] == loaded_exit_rules
+
+
+def test_runner_entrypoint_default_exit_legacy_scheme(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """strategy_id=default_exit@v1 → codec 回 legacy 'strategy-aware'。"""
+
+    monkeypatch.setattr(
+        labels_runner, "_load_strategy_definition",
+        lambda sid, sver: [{"type": "max_hold", "params": {"days": 20}}],
+    )
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_labels",
+        lambda **kw: captured.update(kw) or 1,
+    )
+
+    job = _FakeJob(
+        {
+            "date_range": "20240102:20240131",
+            "strategy_id": "default_exit",
+            "strategy_version": "v1",
+        }
+    )
+    labels_runner.runner_entrypoint(job)
+    assert captured["scheme"] == "strategy-aware"
+
+
+def test_runner_entrypoint_bare_scheme_no_exit_rules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """裸 scheme（无 strategy_id）→ exit_rules=None（走 default_exit）。"""
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_labels",
+        lambda **kw: captured.update(kw) or 1,
+    )
+    job = _FakeJob({"scheme": "strategy-aware", "date_range": "20240102:20240131"})
+    labels_runner.runner_entrypoint(job)
+    assert captured["scheme"] == "strategy-aware"
+    assert captured["exit_rules"] is None

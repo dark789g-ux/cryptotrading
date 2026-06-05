@@ -24,7 +24,8 @@ def _valid(**ov: Any) -> dict[str, Any]:
     b: dict[str, Any] = {
         "factor_version": "v1",
         "base_type": "strategy_aware",
-        "base_params": {},
+        # strategy_aware 现要求引用命名策略（spec 03 §3.3），不再用 max_hold_days。
+        "base_params": {"strategy_id": "default_exit", "strategy_version": "v1"},
         "classify_mode": None,
         "classify_params": None,
         "new_listing_min_days": 60,
@@ -225,20 +226,38 @@ def test_fwd_ret_horizon_invalid_raises(v: int) -> None:
 
 
 # ---------------------------------------------------------------- base_params strategy_aware
-def test_strategy_aware_max_hold_days_accepted() -> None:
+def test_strategy_aware_default_exit_legacy_scheme() -> None:
+    """default_exit@v1 → base_scheme 回 legacy 'strategy-aware'（守历史数据）。"""
     p = tr._validate_params(
-        _valid(base_type="strategy_aware", base_params={"max_hold_days": 15})
+        _valid(base_params={"strategy_id": "default_exit", "strategy_version": "v1"})
     )
-    assert p.base_params == {"max_hold_days": 15}
-    assert p.base_scheme == "strategy-aware"  # max_hold_days 不进 scheme
+    assert p.base_params == {"strategy_id": "default_exit", "strategy_version": "v1"}
+    assert p.base_scheme == "strategy-aware"
 
 
-@pytest.mark.parametrize("v", [5, 40])
-def test_strategy_aware_max_hold_days_out_of_range_raises(v: int) -> None:
-    with pytest.raises(ValueError, match="max_hold_days"):
-        tr._validate_params(
-            _valid(base_type="strategy_aware", base_params={"max_hold_days": v})
-        )
+def test_strategy_aware_named_strategy_scheme() -> None:
+    """非 default 策略 → base_scheme = 'strategy-aware__{id}_{ver}'。"""
+    p = tr._validate_params(
+        _valid(base_params={"strategy_id": "tight_exit", "strategy_version": "v1"})
+    )
+    assert p.base_scheme == "strategy-aware__tight_exit_v1"
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {},  # 缺 strategy_id / strategy_version
+        {"strategy_id": "default_exit"},  # 缺 version
+        {"strategy_version": "v1"},  # 缺 id
+        {"strategy_id": "Bad-Id", "strategy_version": "v1"},  # 大写 + 连字符非法
+        {"strategy_id": "x" * 65, "strategy_version": "v1"},  # 超 64 长度
+        {"strategy_id": "ok", "strategy_version": "1"},  # version 缺 v 前缀
+        {"strategy_id": "ok", "strategy_version": "vx"},  # version 非数字
+    ],
+)
+def test_strategy_aware_invalid_strategy_ref_raises(params: dict) -> None:
+    with pytest.raises(ValueError, match="strategy_id|strategy_version"):
+        tr._validate_params(_valid(base_params=params))
 
 
 # ---------------------------------------------------------------- classify 校验

@@ -74,18 +74,25 @@ class TestValidateParamsLegal:
 
     def test_strategy_aware_valid(self) -> None:
         p = tr._validate_params(
-            _valid_params(base_type="strategy_aware", base_params={}, classify_mode=None)
+            _valid_params(
+                base_type="strategy_aware",
+                base_params={"strategy_id": "default_exit", "strategy_version": "v1"},
+                classify_mode=None,
+            )
         )
         assert p.base_type == "strategy_aware"
         assert p.base_scheme == "strategy-aware"
 
-    def test_strategy_aware_max_hold_days_not_in_scheme(self) -> None:
-        """max_hold_days 不进 base_scheme（scheme 固定为 'strategy-aware'）。"""
+    def test_strategy_aware_named_strategy_scheme(self) -> None:
+        """非 default 策略引用 → scheme = 'strategy-aware__{id}_{ver}'。"""
         p = tr._validate_params(
-            _valid_params(base_type="strategy_aware", base_params={"max_hold_days": 15})
+            _valid_params(
+                base_type="strategy_aware",
+                base_params={"strategy_id": "tight_exit", "strategy_version": "v2"},
+            )
         )
-        assert p.base_scheme == "strategy-aware"
-        assert p.base_params == {"max_hold_days": 15}
+        assert p.base_scheme == "strategy-aware__tight_exit_v2"
+        assert p.base_params == {"strategy_id": "tight_exit", "strategy_version": "v2"}
 
     def test_classify_mode_band_valid(self) -> None:
         p = tr._validate_params(
@@ -158,12 +165,19 @@ class TestValidateParamsIllegal:
         with pytest.raises(ValueError, match="horizon"):
             tr._validate_params(_valid_params(base_params={"horizon": 0}))
 
-    def test_strategy_aware_max_hold_days_out_of_range(self) -> None:
-        with pytest.raises(ValueError, match="max_hold_days"):
+    def test_strategy_aware_missing_strategy_ref(self) -> None:
+        """strategy_aware 缺 strategy_id/version → 报错（不再接受 max_hold_days）。"""
+        with pytest.raises(ValueError, match="strategy_id|strategy_version"):
+            tr._validate_params(
+                _valid_params(base_type="strategy_aware", base_params={})
+            )
+
+    def test_strategy_aware_invalid_strategy_id(self) -> None:
+        with pytest.raises(ValueError, match="strategy_id"):
             tr._validate_params(
                 _valid_params(
                     base_type="strategy_aware",
-                    base_params={"max_hold_days": 5},  # < 10
+                    base_params={"strategy_id": "BAD ID", "strategy_version": "v1"},
                 )
             )
 

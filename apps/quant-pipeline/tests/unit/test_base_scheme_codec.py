@@ -4,9 +4,10 @@
   - 决定性：相同 (base_type, base_params) → 相同串
   - legacy 别名：fwd_ret + {horizon:5} → 'fwd_5d_ret'（守哈希不漂移）
   - 新串：fwd_ret + {horizon:N≠5} → 'fwd_ret_h{N}'（含 h=1 次日）
-  - strategy_aware → 'strategy-aware'（max_hold_days 不进 scheme）
+  - strategy_aware + default_exit@v1 → 'strategy-aware'（legacy 别名，守历史数据）
+  - strategy_aware + 其它 id@ver → 'strategy-aware__{id}_{ver}'
   - 固定输入→固定哈希回归（守老 feature_set 不漂移）
-  - 非法入参 raise
+  - 非法入参 raise（含 strategy_aware 缺 strategy_id/version）
 """
 
 from __future__ import annotations
@@ -22,7 +23,6 @@ from quant_pipeline.labels.dir3_scheme import (
     base_scheme_codec,
 )
 
-
 # ─────────────────────── 决定性 ───────────────────────────────────────────────
 
 def test_same_inputs_same_scheme() -> None:
@@ -30,8 +30,9 @@ def test_same_inputs_same_scheme() -> None:
     assert base_scheme_codec("fwd_ret", {"horizon": 1}) == base_scheme_codec(
         "fwd_ret", {"horizon": 1}
     )
-    assert base_scheme_codec("strategy_aware", {}) == base_scheme_codec(
-        "strategy_aware", {}
+    sa = {"strategy_id": "default_exit", "strategy_version": "v1"}
+    assert base_scheme_codec("strategy_aware", sa) == base_scheme_codec(
+        "strategy_aware", sa
     )
 
 
@@ -63,20 +64,49 @@ def test_fwd_ret_h10_new_scheme() -> None:
 
 
 def test_strategy_aware_scheme() -> None:
-    """strategy_aware → 'strategy-aware'（max_hold_days 不进 scheme）。
-    已 grep strategy_aware.py:87 核实：LABEL_SCHEME = 'strategy-aware'。
+    """strategy_aware：default_exit@v1 → legacy 'strategy-aware'；其它 → 决定性新串。
+
+    scheme 由 (strategy_id, strategy_version) 决定（spec 02 §4），不再用 max_hold_days。
     """
-    assert base_scheme_codec("strategy_aware", {}) == "strategy-aware"
-    assert base_scheme_codec("strategy_aware", {"max_hold_days": 20}) == "strategy-aware"
-    assert base_scheme_codec("strategy_aware", {"max_hold_days": 10}) == "strategy-aware"
-    assert base_scheme_codec("strategy_aware", None) == _STRATEGY_AWARE_SCHEME
-
-
-def test_strategy_aware_none_params() -> None:
-    """strategy_aware base_params=None → 同 {}，max_hold_days 不进 scheme。"""
-    assert base_scheme_codec("strategy_aware", None) == base_scheme_codec(
-        "strategy_aware", {}
+    assert (
+        base_scheme_codec(
+            "strategy_aware",
+            {"strategy_id": "default_exit", "strategy_version": "v1"},
+        )
+        == "strategy-aware"
     )
+    assert (
+        base_scheme_codec(
+            "strategy_aware",
+            {"strategy_id": "default_exit", "strategy_version": "v1"},
+        )
+        == _STRATEGY_AWARE_SCHEME
+    )
+    assert (
+        base_scheme_codec(
+            "strategy_aware",
+            {"strategy_id": "tight_exit", "strategy_version": "v1"},
+        )
+        == "strategy-aware__tight_exit_v1"
+    )
+    # 同 id 不同 version → 不同 scheme（版本不可变，区分历史标签）
+    assert (
+        base_scheme_codec(
+            "strategy_aware",
+            {"strategy_id": "tight_exit", "strategy_version": "v2"},
+        )
+        == "strategy-aware__tight_exit_v2"
+    )
+
+
+@pytest.mark.parametrize(
+    "params",
+    [None, {}, {"strategy_id": "x"}, {"strategy_version": "v1"}],
+)
+def test_strategy_aware_missing_ref_raises(params: dict | None) -> None:
+    """strategy_aware 缺 strategy_id/version（含 None / {}）→ raise ValueError。"""
+    with pytest.raises(ValueError, match="strategy_id|strategy_version"):
+        base_scheme_codec("strategy_aware", params)
 
 
 # ─────────────────────── 固定哈希回归（守老 feature_set 不漂移）───────────────
@@ -116,8 +146,10 @@ def test_legacy_fwd5d_ret_hash_unchanged() -> None:
 
 
 def test_strategy_aware_hash_unchanged() -> None:
-    """strategy_aware → 'strategy-aware' → feature_set_id 哈希不变。"""
-    codec_scheme = base_scheme_codec("strategy_aware", {})
+    """strategy_aware + default_exit@v1 → 'strategy-aware' → feature_set_id 哈希不变。"""
+    codec_scheme = base_scheme_codec(
+        "strategy_aware", {"strategy_id": "default_exit", "strategy_version": "v1"}
+    )
     assert codec_scheme == "strategy-aware"
     assert _sha12(_build_feature_set_id_payload(codec_scheme)) == _sha12(
         _build_feature_set_id_payload("strategy-aware")
