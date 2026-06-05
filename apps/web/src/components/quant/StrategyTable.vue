@@ -3,7 +3,7 @@
     :columns="columns"
     :data="items"
     :loading="loading"
-    :row-key="(row: LabelDefinition) => `${row.label_id}:${row.label_version}`"
+    :row-key="(row: StrategyDefinition) => `${row.strategy_id}:${row.strategy_version}`"
     size="small"
     :bordered="false"
     :pagination="false"
@@ -17,33 +17,34 @@ import {
   useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import { quantApi, type LabelDefinition } from '@/api/modules/quant'
+import { quantApi } from '@/api/modules/quant'
+import type { ExitRuleDef, StrategyDefinition } from '@cryptotrading/shared-types'
 
 const props = defineProps<{
-  items: LabelDefinition[]
+  items: StrategyDefinition[]
   loading?: boolean
 }>()
 
 const emit = defineEmits<{
-  updated: [item: LabelDefinition]
-  edit: [item: LabelDefinition]
+  updated: [item: StrategyDefinition]
+  edit: [item: StrategyDefinition]
 }>()
 
 const message = useMessage()
 
 const togglingKeys = ref<Set<string>>(new Set())
 
-function keyOf(row: LabelDefinition): string {
-  return `${row.label_id}:${row.label_version}`
+function keyOf(row: StrategyDefinition): string {
+  return `${row.strategy_id}:${row.strategy_version}`
 }
 
-async function performToggle(row: LabelDefinition) {
+async function performToggle(row: StrategyDefinition) {
   const key = keyOf(row)
   if (togglingKeys.value.has(key)) return
   const desiredEnabled = !row.enabled
   togglingKeys.value.add(key)
   try {
-    const res = await quantApi.updateLabel(row.label_id, row.label_version, {
+    const res = await quantApi.updateStrategy(row.strategy_id, row.strategy_version, {
       enabled: desiredEnabled,
     })
     message.success(desiredEnabled ? `已启用 ${res.item.name}` : `已禁用 ${res.item.name}`)
@@ -55,40 +56,15 @@ async function performToggle(row: LabelDefinition) {
   }
 }
 
-/** 基础层摘要：fwd_ret h1 / strategy_aware */
-function baseTypeSummary(row: LabelDefinition): string {
-  if (row.base_type === 'fwd_ret') {
-    const h = row.base_params?.horizon ?? '?'
-    return `fwd_ret h${h}`
-  }
-  if (row.base_type === 'strategy_aware') {
-    const id = row.base_params?.strategy_id
-    const ver = row.base_params?.strategy_version
-    return typeof id === 'string' && typeof ver === 'string'
-      ? `strategy_aware ${id}@${ver}`
-      : 'strategy_aware'
-  }
-  return row.base_type
+/** 单条规则摘要：max_hold·days20 / stop_loss·pct0.08 */
+function ruleSummary(r: ExitRuleDef): string {
+  const entries = Object.entries(r.params)
+  if (entries.length === 0) return r.type
+  const [name, val] = entries[0]
+  return `${r.type}·${name}${val}`
 }
 
-/** 分类层摘要：band 0.5% / tercile / custom / — */
-function classifySummary(row: LabelDefinition): string {
-  const m = row.classify_mode
-  if (!m) return '—（连续）'
-  if (m === 'band') {
-    const eps = row.classify_params?.eps
-    return typeof eps === 'number' ? `band ${(eps * 100).toFixed(2)}%` : 'band'
-  }
-  if (m === 'tercile') return 'tercile'
-  if (m === 'custom') {
-    const lo = row.classify_params?.lo_pct ?? '?'
-    const hi = row.classify_params?.hi_pct ?? '?'
-    return `custom p${lo}-p${hi}`
-  }
-  return m
-}
-
-const columns = computed<DataTableColumns<LabelDefinition>>(() => [
+const columns = computed<DataTableColumns<StrategyDefinition>>(() => [
   {
     title: '启用',
     key: 'enabled',
@@ -108,7 +84,7 @@ const columns = computed<DataTableColumns<LabelDefinition>>(() => [
               value: row.enabled,
               loading: togglingKeys.value.has(key),
               size: 'small',
-              'data-testid': `label-switch-${row.label_id}`,
+              'data-testid': `strategy-switch-${row.strategy_id}`,
               'onUpdate:value': () => { /* no-op，popconfirm 才触发 */ },
             }),
           default: () =>
@@ -125,35 +101,36 @@ const columns = computed<DataTableColumns<LabelDefinition>>(() => [
   },
   {
     title: 'ID / 版本',
-    key: 'label_id',
-    minWidth: 140,
+    key: 'strategy_id',
+    minWidth: 160,
     render(row) {
-      return h('span', { class: 'mono' }, `${row.label_id} (${row.label_version})`)
+      return h('span', { class: 'mono' }, `${row.strategy_id} (${row.strategy_version})`)
     },
   },
   {
-    title: '基础层',
-    key: 'base_type',
-    width: 160,
+    title: '出场规则（按顺序）',
+    key: 'exit_rules',
+    minWidth: 300,
     render(row) {
+      const rules = row.exit_rules ?? []
+      if (rules.length === 0) {
+        return h(NTag, { size: 'small', type: 'warning', bordered: false }, { default: () => '（无规则）' })
+      }
       return h(
-        NTag,
-        { size: 'small', type: 'info', bordered: false },
-        { default: () => baseTypeSummary(row) },
-      )
-    },
-  },
-  {
-    title: '分类层',
-    key: 'classify_mode',
-    width: 160,
-    render(row) {
-      const cls = classifySummary(row)
-      const type = row.classify_mode ? 'success' : 'default'
-      return h(
-        NTag,
-        { size: 'small', type, bordered: false },
-        { default: () => cls },
+        'div',
+        { class: 'rule-tags' },
+        rules.map((r, i) =>
+          h(
+            NTag,
+            {
+              size: 'small',
+              type: r.type === 'max_hold' ? 'success' : 'info',
+              bordered: false,
+              style: 'margin: 1px 4px 1px 0;',
+            },
+            { default: () => `${i + 1}. ${ruleSummary(r)}` },
+          ),
+        ),
       )
     },
   },
@@ -174,7 +151,7 @@ const columns = computed<DataTableColumns<LabelDefinition>>(() => [
           size: 'tiny',
           type: 'primary',
           ghost: true,
-          'data-testid': `label-edit-btn-${row.label_id}`,
+          'data-testid': `strategy-edit-btn-${row.strategy_id}`,
           onClick: () => emit('edit', row),
         },
         { default: () => '编辑' },
@@ -191,5 +168,9 @@ void props
 :deep(.mono) {
   font-family: 'Menlo', 'Consolas', monospace;
   font-size: 12px;
+}
+.rule-tags {
+  display: flex;
+  flex-wrap: wrap;
 }
 </style>

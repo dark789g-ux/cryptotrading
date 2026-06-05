@@ -88,6 +88,7 @@ const activeKey = computed(() => {
   if (name === 'quant-scores') return 'quant-scores'
   if (name === 'quant-factors') return 'quant-factors'
   if (name === 'quant-labels') return 'quant-labels'
+  if (name === 'quant-strategies') return 'quant-strategies'
   if (name?.startsWith('quant')) return 'quant-overview'
   return name
 })
@@ -116,6 +117,7 @@ const menuOptions = computed(() => [
             { label: '作业队列', key: 'quant-jobs' },
             { label: '因子清单', key: 'quant-factors' },
             { label: '标签库', key: 'quant-labels' },
+            { label: '策略管理', key: 'quant-strategies' },
           ],
         },
       ]
@@ -137,6 +139,7 @@ const QUANT_CHILD_KEYS = [
   'quant-run-detail',
   'quant-factors',
   'quant-labels',
+  'quant-strategies',
 ]
 
 const expandedKeys = ref<string[]>([])

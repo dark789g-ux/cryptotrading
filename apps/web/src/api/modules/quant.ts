@@ -19,8 +19,15 @@
  *   GET /api/quant/quality/:date             当日数据质量报告
  *   GET /api/quant/quality/recent            最近 N 日数据质量报告
  */
+import type {
+  ExitRuleDef,
+  ExitRuleTypeMeta,
+  StrategyDefinition,
+} from '@cryptotrading/shared-types'
 import { API_BASE, patch, post, request } from '../client'
 import { appendQueryParam } from '../query'
+
+export type { ExitRuleDef, ExitRuleType, ExitRuleParamMeta, ExitRuleTypeMeta, StrategyDefinition } from '@cryptotrading/shared-types'
 
 // ---------- 后端原始响应类型（与 J 服务端字段名 1:1） ----------
 
@@ -283,6 +290,32 @@ export interface LabelBaseTypesResponse {
 export interface LabelRef {
   label_id: string
   label_version: string
+}
+
+// ---------- 出场策略（quant-strategy-management，2026-06-06 spec） ----------
+
+/** `GET /quant/strategies` 查询参数（仅 enabled 过滤，与后端 parseListQuery 对齐） */
+export interface ListStrategiesQuery {
+  enabled?: boolean
+}
+
+/** `POST /quant/strategies` 请求体（snake_case，与后端 CreateStrategyDto 1:1） */
+export interface CreateStrategyBody {
+  strategy_id: string
+  strategy_version: string
+  name: string
+  exit_rules: ExitRuleDef[]
+  description?: string | null
+  enabled?: boolean
+  display_order?: number
+}
+
+/** `PATCH /quant/strategies/:id/:version` 请求体（仅展示元数据；语义字段不可改） */
+export interface UpdateStrategyPatch {
+  name?: string
+  description?: string | null
+  enabled?: boolean
+  display_order?: number
 }
 
 // ---------- 因子清单（factor-registry-frontend，2026-05-23 spec） ----------
@@ -633,6 +666,58 @@ export const quantApi = {
   /** 获取 base_type / classify_mode 合法枚举列表（供下拉使用）。后端 `GET /quant/labels/base-types` */
   listLabelBaseTypes(): Promise<LabelBaseTypesResponse> {
     return request<LabelBaseTypesResponse>(`${API_BASE}/quant/labels/base-types`)
+  },
+
+  // ============ 出场策略（quant-strategy-management，2026-06-06 spec） ============
+
+  /**
+   * 列出策略定义。后端 `GET /quant/strategies`，支持 enabled 过滤。
+   * 排序由后端给定（display_order ASC, strategy_id ASC, strategy_version ASC）。
+   */
+  listStrategies(query: ListStrategiesQuery = {}): Promise<{ items: StrategyDefinition[] }> {
+    const qs = new URLSearchParams()
+    if (typeof query.enabled === 'boolean') {
+      qs.set('enabled', query.enabled ? 'true' : 'false')
+    }
+    const s = qs.toString()
+    return request<{ items: StrategyDefinition[] }>(
+      `${API_BASE}/quant/strategies${s ? `?${s}` : ''}`,
+    )
+  },
+
+  /** 单条策略详情。后端 `GET /quant/strategies/:id/:version` */
+  getStrategy(id: string, version: string): Promise<{ item: StrategyDefinition }> {
+    return request<{ item: StrategyDefinition }>(
+      `${API_BASE}/quant/strategies/${encodeURIComponent(id)}/${encodeURIComponent(version)}`,
+    )
+  },
+
+  /** 新建策略定义（含新建版本）。后端 `POST /quant/strategies` */
+  createStrategy(body: CreateStrategyBody): Promise<{ item: StrategyDefinition }> {
+    return post<{ item: StrategyDefinition }>(`${API_BASE}/quant/strategies`, body)
+  },
+
+  /**
+   * 改展示元数据（name/description/enabled/display_order）。
+   * 后端 `PATCH /quant/strategies/:id/:version`；语义字段（exit_rules 等）改了会 422。
+   */
+  updateStrategy(
+    id: string,
+    version: string,
+    body: UpdateStrategyPatch,
+  ): Promise<{ item: StrategyDefinition }> {
+    return patch<{ item: StrategyDefinition }>(
+      `${API_BASE}/quant/strategies/${encodeURIComponent(id)}/${encodeURIComponent(version)}`,
+      body,
+    )
+  },
+
+  /**
+   * 出场规则 type 枚举 + 各 type params 元信息（范围/类型/默认值）。
+   * 后端 `GET /quant/strategies/exit-rule-types` 是范围单一真相源，前端不硬编码范围。
+   */
+  listExitRuleTypes(): Promise<{ items: ExitRuleTypeMeta[] }> {
+    return request<{ items: ExitRuleTypeMeta[] }>(`${API_BASE}/quant/strategies/exit-rule-types`)
   },
 
   /**

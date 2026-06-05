@@ -132,6 +132,13 @@ const routes: any[] = [
     component: () => import('../views/quant/QuantLabelsView.vue'),
     meta: { title: '量化标签库', requireAdmin: true },
   },
+  {
+    // quant-strategy-management spec：策略管理（admin-only，继承 /quant/* 守卫）
+    path: '/quant/strategies',
+    name: 'quant-strategies',
+    component: () => import('../views/quant/QuantStrategiesView.vue'),
+    meta: { title: '量化策略管理', requireAdmin: true },
+  },
 ]
 
 const router = createRouter({
