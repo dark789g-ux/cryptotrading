@@ -134,8 +134,8 @@ def upgrade() -> None:
         "(label_id, label_version, name, base_type, base_params, "
         " classify_mode, classify_params, description, display_order) "
         "VALUES "
-        "(:label_id, :label_version, :name, :base_type, :base_params::jsonb, "
-        " :classify_mode, :classify_params::jsonb, :description, :display_order)"
+        "(:label_id, :label_version, :name, :base_type, CAST(:base_params AS jsonb), "
+        " :classify_mode, CAST(:classify_params AS jsonb), :description, :display_order)"
     )
     conn = op.get_bind()
     from sqlalchemy import text
