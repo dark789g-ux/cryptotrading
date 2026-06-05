@@ -78,8 +78,36 @@ class TrainResult:
 # ----------------------------------------------------------------------
 
 
-def _load_feature_matrix(feature_set_id: str) -> pd.DataFrame:
-    """从 factors.feature_matrix 拉某个 feature_set 的全量样本。
+def _parse_date_range(date_range: str) -> tuple[str, str]:
+    """解析 date_range 字符串（格式 'YYYYMMDD:YYYYMMDD'）为 (start, end) 元组。
+
+    Raises:
+        ValueError: 格式非法或 start > end。
+    """
+    parts = date_range.split(":")
+    if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+        raise ValueError(
+            f"date_range 格式必须是 'YYYYMMDD:YYYYMMDD'，got {date_range!r}"
+        )
+    start, end = parts[0].strip(), parts[1].strip()
+    if len(start) != 8 or len(end) != 8 or not start.isdigit() or not end.isdigit():
+        raise ValueError(
+            f"date_range 的 start/end 必须是 8 位数字（YYYYMMDD），got {date_range!r}"
+        )
+    if start > end:
+        raise ValueError(
+            f"date_range start({start}) > end({end})，范围非法"
+        )
+    return start, end
+
+
+def _load_feature_matrix(feature_set_id: str, date_range: str | None = None) -> pd.DataFrame:
+    """从 factors.feature_matrix 拉某个 feature_set 的样本。
+
+    Args:
+        feature_set_id: factors.feature_matrix 的分组键。
+        date_range: 时段过滤，格式 'YYYYMMDD:YYYYMMDD'（含两端）。
+            必传（None 仅兼容旧打桩测试，生产通路由 runner_entrypoint 强制校验）。
 
     性能备注（#6）：此函数在多条训练通路（lambdarank / lstm / lgb-mc / tuning /
     ab_compare）中各自被调用，单次 e2e 可能重复全量查库。
@@ -92,19 +120,36 @@ def _load_feature_matrix(feature_set_id: str) -> pd.DataFrame:
     调用方如需避免重复查库，应自行在外层复用已加载的 DataFrame，再按需传入各训练函数。
     """
 
-    sql = text(
-        """
-        SELECT trade_date, ts_code, features, label
-        FROM factors.feature_matrix
-        WHERE feature_set_id = :fs
-        ORDER BY trade_date, ts_code
-        """
-    )
+    if date_range is not None:
+        start, end = _parse_date_range(date_range)
+        sql = text(
+            """
+            SELECT trade_date, ts_code, features, label
+            FROM factors.feature_matrix
+            WHERE feature_set_id = :fs
+              AND trade_date BETWEEN :start AND :end
+            ORDER BY trade_date, ts_code
+            """
+        )
+        params: dict[str, Any] = {"fs": feature_set_id, "start": start, "end": end}
+    else:
+        sql = text(
+            """
+            SELECT trade_date, ts_code, features, label
+            FROM factors.feature_matrix
+            WHERE feature_set_id = :fs
+            ORDER BY trade_date, ts_code
+            """
+        )
+        params = {"fs": feature_set_id}
+
     with session_scope() as session:
-        rows = session.execute(sql, {"fs": feature_set_id}).mappings().all()
+        rows = session.execute(sql, params).mappings().all()
     if not rows:
         raise ValueError(
-            f"feature_matrix 中找不到 feature_set_id={feature_set_id!r} 的样本"
+            f"feature_matrix 中找不到 feature_set_id={feature_set_id!r}"
+            + (f" date_range={date_range!r}" if date_range else "")
+            + " 的样本"
         )
     df = pd.DataFrame(
         [
@@ -250,6 +295,7 @@ def train_model(
     extra_hyperparams: dict[str, Any] | None = None,
     classify_mode: str | None = None,
     classify_params: dict[str, Any] | None = None,
+    date_range: str | None = None,
 ) -> TrainResult:
     """完整训练通路。
 
@@ -339,6 +385,7 @@ def train_model(
                 today_yyyymmdd=today_yyyymmdd,
                 insert_model_run=_insert_model_run,
                 write_artifact=_write_artifact,
+                date_range=date_range,
             ),
         )
     if model == "lgb-multiclass":
@@ -362,6 +409,7 @@ def train_model(
                 today_yyyymmdd=today_yyyymmdd,
                 insert_model_run=_insert_model_run,
                 write_artifact=_write_artifact,
+                date_range=date_range,
             ),
         )
     if model not in ("lgb-lambdarank",):
@@ -372,7 +420,7 @@ def train_model(
     _progress(0, "train:start")
 
     # ---- 1. 数据加载 ----
-    df = _load_feature_matrix(feature_set_id)
+    df = _load_feature_matrix(feature_set_id, date_range=date_range)
     df = df.sort_values(["trade_date", "ts_code"]).reset_index(drop=True)
 
     latest_trade_date = _latest_trade_date_from_features(df)
@@ -463,6 +511,7 @@ def runner_entrypoint(job: Any) -> None:
     params schema（01-pg-schema §4.1）：
         {
             "feature_set_id": "fs_v1",
+            "date_range": "20250101:20251231",  # required（YYYYMMDD:YYYYMMDD）
             "model": "lgb-lambdarank",          # optional, default lgb-lambdarank
             "walk_forward": true,               # optional, default true (M3)
             "seed": 42,                         # optional, default 42
@@ -476,6 +525,11 @@ def runner_entrypoint(job: Any) -> None:
     if not isinstance(feature_set_id, str) or not feature_set_id:
         raise ValueError(
             f"train job.params.feature_set_id 必须是非空字符串，got {feature_set_id!r}"
+        )
+    date_range = params.get("date_range")
+    if not isinstance(date_range, str) or not date_range:
+        raise ValueError(
+            f"train job.params.date_range 必须是非空字符串（格式 YYYYMMDD:YYYYMMDD），got {date_range!r}"
         )
     model = str(params.get("model", "lgb-lambdarank"))
     walk_forward = bool(params.get("walk_forward", True))
@@ -492,6 +546,7 @@ def runner_entrypoint(job: Any) -> None:
         hyperparams=params.get("hyperparams"),
         walk_forward_params=params.get("walk_forward_params"),
         with_shap=with_shap,
+        date_range=date_range,
     )
 
 

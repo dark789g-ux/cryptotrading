@@ -127,6 +127,7 @@ def train_seed_average(
     walk_forward: bool = True,
     train_fn: Any = None,
     today_yyyymmdd: str | None = None,
+    date_range: str | None = None,
 ) -> dict[str, Any]:
     """5 个 seed 各跑一次训练 → 父 model_run 聚合。
 
@@ -137,6 +138,7 @@ def train_seed_average(
         walk_forward: 透传给 train_model
         train_fn: 测试期注入 mock；生产模式默认 quant_pipeline.training.runner.train_model
         today_yyyymmdd: 测试可注入；默认今天 UTC
+        date_range: 时段过滤，格式 'YYYYMMDD:YYYYMMDD'（含两端），透传给 train_model。
 
     Returns:
         {
@@ -193,6 +195,7 @@ def train_seed_average(
                 seed=seed,
                 job_id=child_job_id,
                 with_shap=False,
+                date_range=date_range,
             )
         except Exception as exc:
             if child_job_id is not None:
@@ -400,6 +403,7 @@ def runner_entrypoint(job: Any) -> None:
     params schema（01-pg-schema §4.1）：
         {
             "feature_set_id": "fs_v1",
+            "date_range": "20250101:20251231",  # required（YYYYMMDD:YYYYMMDD）
             "seeds": [42, 123, 456, 789, 1024]   # 可选，默认 5 个
         }
     """
@@ -409,6 +413,11 @@ def runner_entrypoint(job: Any) -> None:
     if not isinstance(feature_set_id, str) or not feature_set_id:
         raise ValueError(
             f"seed_avg job.params.feature_set_id 必须是非空字符串，got {feature_set_id!r}"
+        )
+    date_range = params.get("date_range")
+    if not isinstance(date_range, str) or not date_range:
+        raise ValueError(
+            f"seed_avg job.params.date_range 必须是非空字符串（格式 YYYYMMDD:YYYYMMDD），got {date_range!r}"
         )
     seeds_raw = params.get("seeds")
     if seeds_raw is None:
@@ -428,6 +437,7 @@ def runner_entrypoint(job: Any) -> None:
         feature_set_id=feature_set_id,
         seeds=seeds_list,
         parent_job_id=getattr(job, "id", None),
+        date_range=date_range,
     )
 
 

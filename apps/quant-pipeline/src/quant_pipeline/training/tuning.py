@@ -320,6 +320,7 @@ def tune(
     load_feature_matrix: Any = None,
     today_yyyymmdd: str | None = None,
     write_model_run: bool = True,
+    date_range: str | None = None,
 ) -> dict[str, Any]:
     """Optuna 调参主入口。
 
@@ -379,9 +380,9 @@ def tune(
     if load_feature_matrix is None:
         from quant_pipeline.training.runner import _load_feature_matrix
 
-        df = _load_feature_matrix(feature_set_id)
+        df = _load_feature_matrix(feature_set_id, date_range=date_range)
     else:
-        df = load_feature_matrix(feature_set_id)
+        df = load_feature_matrix(feature_set_id, date_range=date_range)
     df = df.sort_values(["trade_date", "ts_code"]).reset_index(drop=True)
 
     # 评审 04-#9：特征展平 + walk-forward 切分只算一次，传给每个 trial 复用，
@@ -700,6 +701,7 @@ def runner_entrypoint(job: Any) -> None:
     params schema（01-pg-schema §4.1）：
         {
             "feature_set_id": "fs_v1",
+            "date_range": "20250101:20251231",  # required（YYYYMMDD:YYYYMMDD）
             "n_trials": 50,
             "space": "default"               # 可选，默认 'default'
         }
@@ -710,6 +712,11 @@ def runner_entrypoint(job: Any) -> None:
     if not isinstance(feature_set_id, str) or not feature_set_id:
         raise ValueError(
             f"optuna job.params.feature_set_id 必须是非空字符串，got {feature_set_id!r}"
+        )
+    date_range = params.get("date_range")
+    if not isinstance(date_range, str) or not date_range:
+        raise ValueError(
+            f"optuna job.params.date_range 必须是非空字符串（格式 YYYYMMDD:YYYYMMDD），got {date_range!r}"
         )
     n_trials = params.get("n_trials")
     if not isinstance(n_trials, int) or n_trials < 1:
@@ -723,6 +730,7 @@ def runner_entrypoint(job: Any) -> None:
         n_trials=n_trials,
         space=space,
         parent_job_id=getattr(job, "id", None),
+        date_range=date_range,
     )
 
 

@@ -79,7 +79,7 @@ def test_tune_completes_n_trials_with_inmemory_storage(monkeypatch: pytest.Monke
         feature_set_id="fs_v1",
         n_trials=2,
         space="default",
-        load_feature_matrix=lambda fs: df,
+        load_feature_matrix=lambda fs, date_range=None: df,
         storage_url="sqlite:///:memory:",
         study_name="t_unit_inmem",
         n_folds=6,
@@ -110,7 +110,7 @@ def test_tune_resumes_existing_study_load_if_exists(
     out1 = tuning.tune(
         feature_set_id="fs_v1",
         n_trials=2,
-        load_feature_matrix=lambda fs: df,
+        load_feature_matrix=lambda fs, date_range=None: df,
         storage_url=storage,
         study_name="t_resume",
         n_folds=6,
@@ -126,7 +126,7 @@ def test_tune_resumes_existing_study_load_if_exists(
     out2 = tuning.tune(
         feature_set_id="fs_v1",
         n_trials=3,  # 总目标 3
-        load_feature_matrix=lambda fs: df,
+        load_feature_matrix=lambda fs, date_range=None: df,
         storage_url=storage,
         study_name="t_resume",
         n_folds=6,
@@ -145,7 +145,7 @@ def test_tune_rejects_invalid_n_trials() -> None:
         tuning.tune(
             feature_set_id="fs_v1",
             n_trials=0,
-            load_feature_matrix=lambda fs: pd.DataFrame(),
+            load_feature_matrix=lambda fs, date_range=None: pd.DataFrame(),
             write_model_run=False,
         )
 
@@ -156,7 +156,7 @@ def test_tune_rejects_unknown_space() -> None:
             feature_set_id="fs_v1",
             n_trials=1,
             space="not_a_space",
-            load_feature_matrix=lambda fs: pd.DataFrame(),
+            load_feature_matrix=lambda fs, date_range=None: pd.DataFrame(),
             write_model_run=False,
         )
 
@@ -171,7 +171,7 @@ def test_tune_default_path_annotates_in_tuning_bias(monkeypatch: pytest.MonkeyPa
     out = tuning.tune(
         feature_set_id="fs_v1",
         n_trials=2,
-        load_feature_matrix=lambda fs: df,
+        load_feature_matrix=lambda fs, date_range=None: df,
         storage_url="sqlite:///:memory:",
         study_name="t_bias_annot",
         num_boost_round=20,
@@ -214,7 +214,7 @@ def test_tune_holdout_split_zero_overlap_and_embargo(monkeypatch: pytest.MonkeyP
     out = tuning.tune(
         feature_set_id="fs_v1",
         n_trials=2,
-        load_feature_matrix=lambda fs: df,
+        load_feature_matrix=lambda fs, date_range=None: df,
         storage_url="sqlite:///:memory:",
         study_name="t_holdout",
         num_boost_round=20,
@@ -255,7 +255,7 @@ def test_tune_holdout_too_small_falls_back(monkeypatch: pytest.MonkeyPatch) -> N
     out = tuning.tune(
         feature_set_id="fs_v1",
         n_trials=2,
-        load_feature_matrix=lambda fs: df,
+        load_feature_matrix=lambda fs, date_range=None: df,
         storage_url="sqlite:///:memory:",
         study_name="t_holdout_fallback",
         num_boost_round=20,
@@ -289,9 +289,18 @@ def test_runner_entrypoint_validates_params() -> None:
     with pytest.raises(ValueError, match="feature_set_id"):
         tuning.runner_entrypoint(_MockJob())
 
+    # 缺 date_range
+    class _MockJobNoDr:
+        id = None
+        params = {"feature_set_id": "fs", "n_trials": 10}
+
+    with pytest.raises(ValueError, match="date_range"):
+        tuning.runner_entrypoint(_MockJobNoDr())
+
+    # n_trials 非正（date_range 已给）
     class _MockJob2:
         id = None
-        params = {"feature_set_id": "fs", "n_trials": 0}
+        params = {"feature_set_id": "fs", "date_range": "20250101:20251231", "n_trials": 0}
 
     with pytest.raises(ValueError, match="n_trials"):
         tuning.runner_entrypoint(_MockJob2())

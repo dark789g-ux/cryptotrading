@@ -86,16 +86,23 @@ _UP_IDX = CLASS_ORDER.index("up")
 _DOWN_IDX = CLASS_ORDER.index("down")
 
 
-def _build_wide_df(feature_set_id: str) -> tuple[pd.DataFrame, list[str]]:
+def _build_wide_df(
+    feature_set_id: str,
+    date_range: str | None = None,
+) -> tuple[pd.DataFrame, list[str]]:
     """加载 feature_matrix → 展平 features:dict → 宽表 [trade_date, ts_code, *cols, label]。
 
     feature_cols 顺序由 flatten_features 升序固定（与训练/推理一致，存 meta）。
+
+    Args:
+        feature_set_id: factors.feature_matrix 的分组键。
+        date_range: 时段过滤，格式 'YYYYMMDD:YYYYMMDD'（含两端）。
     """
 
     from quant_pipeline.training.group_utils import flatten_features
     from quant_pipeline.training.runner import _load_feature_matrix
 
-    df = _load_feature_matrix(feature_set_id)
+    df = _load_feature_matrix(feature_set_id, date_range=date_range)
     if df.empty:
         raise ValueError(
             f"feature_set_id={feature_set_id!r} 无样本，无法训练 lgb-multiclass"
@@ -260,6 +267,7 @@ def train_lgb_multiclass_model(
     today_yyyymmdd: str | None,
     insert_model_run: Any,
     write_artifact: Any,  # noqa: ARG001 - lgb 自落 model.txt，与 lstm 同（见 docstring）
+    date_range: str | None = None,
 ) -> Any:
     """lgb-multiclass 三分类 Purged Walk-Forward 训练入口（runner 分派目标）。
 
@@ -279,7 +287,7 @@ def train_lgb_multiclass_model(
     _progress(progress_callback, 0, "train:lgb_mc_start")
 
     # ---- 0%：加载 feature_matrix + 展平 ----
-    wide_df, feature_cols = _build_wide_df(feature_set_id)
+    wide_df, feature_cols = _build_wide_df(feature_set_id, date_range=date_range)
     if not feature_cols:
         raise ValueError(f"feature_set_id={feature_set_id!r} 无可训练特征列")
 

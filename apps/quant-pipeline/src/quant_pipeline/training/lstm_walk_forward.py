@@ -86,17 +86,24 @@ def compute_embargo_eff(walk_forward_params: dict[str, Any], lookback: int) -> i
     return max(requested, lookback + _LABEL_HORIZON, _MIN_EMBARGO_DAYS)
 
 
-def _build_wide_df(feature_set_id: str) -> tuple[pd.DataFrame, list[str]]:
+def _build_wide_df(
+    feature_set_id: str,
+    date_range: str | None = None,
+) -> tuple[pd.DataFrame, list[str]]:
     """加载 feature_matrix → 展平 features:dict → 拼成 build_sequences 所需宽表。
 
     返回 (wide_df[trade_date, ts_code, *feature_cols, label], feature_cols)。
     feature_cols 顺序由 flatten_features 升序固定（与训练 / 推理一致，存 meta）。
+
+    Args:
+        feature_set_id: factors.feature_matrix 的分组键。
+        date_range: 时段过滤，格式 'YYYYMMDD:YYYYMMDD'（含两端）。
     """
 
     # 延迟 import 避免与 runner 互相引用（runner 在 lstm 分派时才 import 本模块）
     from quant_pipeline.training.runner import _load_feature_matrix
 
-    df = _load_feature_matrix(feature_set_id)
+    df = _load_feature_matrix(feature_set_id, date_range=date_range)
     if df.empty:
         raise ValueError(f"feature_set_id={feature_set_id!r} 无样本，无法训练 LSTM")
 
@@ -360,6 +367,7 @@ def train_lstm_model(
     today_yyyymmdd: str | None,
     insert_model_run: Any,
     write_artifact: Any,  # noqa: ARG001 - 见模块 docstring：lgb 专用，LSTM 自落 model.pt
+    date_range: str | None = None,
 ) -> Any:
     """LSTM 三分类 Purged Walk-Forward 训练入口（runner model=='lstm' 分派目标）。
 
@@ -388,7 +396,7 @@ def train_lstm_model(
     _progress(progress_callback, 0, "train:lstm_start")
 
     # ---- 0%：加载 feature_matrix + 展平为宽表 ----
-    wide_df, feature_cols = _build_wide_df(feature_set_id)
+    wide_df, feature_cols = _build_wide_df(feature_set_id, date_range=date_range)
     if not feature_cols:
         raise ValueError(f"feature_set_id={feature_set_id!r} 无可训练特征列")
     latest_trade_date = str(wide_df["trade_date"].astype(str).max())

@@ -109,7 +109,7 @@ def test_tune_runs_two_trials_returns_best(monkeypatch: pytest.MonkeyPatch, tmp_
         feature_set_id="fs_test",
         n_trials=2,
         space="default",
-        load_feature_matrix=lambda fs: df,
+        load_feature_matrix=lambda fs, date_range=None: df,
         storage_url=storage,
         study_name="optuna_fs_test_20260517",
         write_model_run=False,  # 避免触碰 ml.model_runs
@@ -142,7 +142,7 @@ def test_tune_resume_via_load_if_exists(monkeypatch: pytest.MonkeyPatch, tmp_pat
     common = dict(
         feature_set_id="fs_resume",
         space="default",
-        load_feature_matrix=lambda fs: df,
+        load_feature_matrix=lambda fs, date_range=None: df,
         storage_url=storage,
         study_name="optuna_fs_resume_20260517",
         write_model_run=False,
@@ -191,10 +191,14 @@ def test_runner_entrypoint_rejects_bad_params() -> None:
     with pytest.raises(ValueError, match="feature_set_id"):
         runner_entrypoint(_Job({"n_trials": 10}))
 
-    # n_trials 非正
-    with pytest.raises(ValueError, match="n_trials"):
-        runner_entrypoint(_Job({"feature_set_id": "fs", "n_trials": 0}))
+    # 缺 date_range
+    with pytest.raises(ValueError, match="date_range"):
+        runner_entrypoint(_Job({"feature_set_id": "fs", "n_trials": 10}))
 
-    # n_trials 类型错
+    # n_trials 非正（date_range 已给）
     with pytest.raises(ValueError, match="n_trials"):
-        runner_entrypoint(_Job({"feature_set_id": "fs", "n_trials": "abc"}))
+        runner_entrypoint(_Job({"feature_set_id": "fs", "date_range": "20250101:20251231", "n_trials": 0}))
+
+    # n_trials 类型错（date_range 已给）
+    with pytest.raises(ValueError, match="n_trials"):
+        runner_entrypoint(_Job({"feature_set_id": "fs", "date_range": "20250101:20251231", "n_trials": "abc"}))
