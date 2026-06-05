@@ -347,6 +347,15 @@ def test_predict_one_day_loads_meta_and_scores(
             }
         ),
     )
+    # b7f1f44 给 predict_one_day 增加了 _load_all_ts_codes（查 raw.daily_quote 全量 ts_code
+    # 做特征缺失补齐 + 覆盖缺口告警，评审 05-#4），本测试 fd33de96 出生时尚无此调用、未同步
+    # patch → session=None 时真 session.execute 直接炸。这里 patch 成与特征截面相同的 5 只票，
+    # 使 missing 为空、不补 NaN 行，测试保持聚焦在 booster.predict + rank_in_day。
+    monkeypatch.setattr(
+        runner_mod,
+        "_load_all_ts_codes",
+        lambda session, td: [f"S{i}" for i in range(5)],
+    )
 
     df = runner_mod.predict_one_day("x", "20260517", session=None)  # type: ignore[arg-type]
     assert list(df.columns) >= ["ts_code", "score", "rank_in_day"]
