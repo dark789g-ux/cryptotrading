@@ -36,6 +36,7 @@ describe('LabelsService', () => {
     update: jest.Mock;
   };
   let svc: LabelsService;
+  let strategies: { findRaw: jest.Mock };
   let qb: {
     andWhere: jest.Mock;
     orderBy: jest.Mock;
@@ -57,7 +58,11 @@ describe('LabelsService', () => {
       save: jest.fn(async (entity) => entity),
       update: jest.fn(async () => undefined),
     };
-    svc = new LabelsService(repo as any);
+    // QuantStrategiesService mock：strategy_aware 标签建/展开时校验引用策略
+    strategies = {
+      findRaw: jest.fn(),
+    };
+    svc = new LabelsService(repo as any, strategies as any);
   });
 
   // ────────── list ──────────
@@ -150,6 +155,52 @@ describe('LabelsService', () => {
     it('(label_id, label_version) 已存在 → BadRequestException（冲突）', async () => {
       repo.findOne.mockResolvedValue(makeRow()); // 已存在
       await expect(svc.create(dto)).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── create：strategy_aware 引用校验（spec 04 §6.2）──
+  describe('create：strategy_aware 引用出场策略校验', () => {
+    const stratDto = {
+      labelId: 'strat_label',
+      labelVersion: 'v1',
+      name: '固定策略收益',
+      baseType: 'strategy_aware',
+      baseParams: { strategy_id: 'default_exit', strategy_version: 'v1' },
+      classifyMode: null,
+      classifyParams: {},
+      description: null,
+      enabled: true,
+      displayOrder: 0,
+    };
+
+    it('引用策略存在且 enabled=true → 成功创建', async () => {
+      repo.findOne.mockResolvedValue(null); // label 不存在 → 可创建
+      strategies.findRaw.mockResolvedValue({ enabled: true });
+      repo.save.mockResolvedValue(makeRow({ baseType: 'strategy_aware' }));
+
+      const out = await svc.create(stratDto as any);
+      expect(strategies.findRaw).toHaveBeenCalledWith('default_exit', 'v1');
+      expect(out.label_id).toBeDefined();
+    });
+
+    it('引用策略不存在 → 422（UnprocessableEntity）', async () => {
+      const { UnprocessableEntityException } = require('@nestjs/common');
+      repo.findOne.mockResolvedValue(null);
+      strategies.findRaw.mockResolvedValue(null);
+      await expect(svc.create(stratDto as any)).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('引用策略 enabled=false → 422', async () => {
+      const { UnprocessableEntityException } = require('@nestjs/common');
+      repo.findOne.mockResolvedValue(null);
+      strategies.findRaw.mockResolvedValue({ enabled: false });
+      await expect(svc.create(stratDto as any)).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
       expect(repo.save).not.toHaveBeenCalled();
     });
   });
@@ -367,55 +418,45 @@ describe('validateCreateLabel：组合校验', () => {
     });
   });
 
-  describe('base_type=strategy_aware', () => {
-    it('max_hold_days ∈ [10,30] → 通过', () => {
+  describe('base_type=strategy_aware（引用出场策略定义）', () => {
+    it('合法 {strategy_id, strategy_version} → 通过（形状校验，引用完整性在 service）', () => {
       expect(() =>
         validateCreateLabel({
           ...base,
           base_type: 'strategy_aware',
-          base_params: { max_hold_days: 20 },
+          base_params: { strategy_id: 'default_exit', strategy_version: 'v1' },
         }),
       ).not.toThrow();
     });
 
-    it('max_hold_days=9 → 400（边界下）', () => {
+    it('strategy_id 缺失 → 400', () => {
       expect(() =>
         validateCreateLabel({
           ...base,
           base_type: 'strategy_aware',
-          base_params: { max_hold_days: 9 },
+          base_params: { strategy_version: 'v1' },
         }),
       ).toThrow(BadRequestException);
     });
 
-    it('max_hold_days=31 → 400（边界上）', () => {
+    it('strategy_id 含大写（不匹配 /^[a-z0-9_]+$/）→ 400', () => {
       expect(() =>
         validateCreateLabel({
           ...base,
           base_type: 'strategy_aware',
-          base_params: { max_hold_days: 31 },
+          base_params: { strategy_id: 'Default_Exit', strategy_version: 'v1' },
         }),
       ).toThrow(BadRequestException);
     });
 
-    it('max_hold_days=10 → 通过（边界）', () => {
+    it('strategy_version 格式非法（不匹配 /^v\\d+$/）→ 400', () => {
       expect(() =>
         validateCreateLabel({
           ...base,
           base_type: 'strategy_aware',
-          base_params: { max_hold_days: 10 },
+          base_params: { strategy_id: 'default_exit', strategy_version: '1' },
         }),
-      ).not.toThrow();
-    });
-
-    it('max_hold_days=30 → 通过（边界）', () => {
-      expect(() =>
-        validateCreateLabel({
-          ...base,
-          base_type: 'strategy_aware',
-          base_params: { max_hold_days: 30 },
-        }),
-      ).not.toThrow();
+      ).toThrow(BadRequestException);
     });
   });
 

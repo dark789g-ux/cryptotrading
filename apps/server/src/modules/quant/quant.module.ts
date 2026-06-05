@@ -22,6 +22,7 @@ import { SseTokenGuard } from './guards/sse-token.guard';
 import { PgListenService } from './realtime/pg-listen.service';
 import { FactorsModule } from './factors/factors.module';
 import { LabelsModule } from './labels/labels.module';
+import { QuantStrategiesModule } from './strategies/strategies.module';
 
 /**
  * `apps/server/src/modules/quant/`：量化模型训练相关 HTTP 表面。
@@ -70,6 +71,8 @@ import { LabelsModule } from './labels/labels.module';
     FactorsModule,
     // 标签定义 CRUD + expandForTraining（spec 2026-06-05-quant-label-management-design）
     LabelsModule,
+    // 出场策略定义 CRUD（spec 2026-06-06-quant-strategy-management-design）
+    QuantStrategiesModule,
   ],
   controllers: [
     QuantJobsController,

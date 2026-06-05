@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LabelDefinitionEntity } from '../../../entities/ml/label-definition.entity';
+import { QuantStrategiesModule } from '../strategies/strategies.module';
 import { LabelsController } from './labels.controller';
 import { LabelsService } from './labels.service';
 
@@ -13,7 +14,11 @@ import { LabelsService } from './labels.service';
  * `LabelsService` 导出供 `QuantJobsService` 调用 `expandForTraining()`。
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([LabelDefinitionEntity])],
+  imports: [
+    TypeOrmModule.forFeature([LabelDefinitionEntity]),
+    // strategy_aware 标签建/展开时校验引用的出场策略存在且 enabled（spec 04 §6.2）
+    QuantStrategiesModule,
+  ],
   controllers: [LabelsController],
   providers: [LabelsService],
   exports: [LabelsService],

@@ -76,6 +76,7 @@ import { MlScoreDailyEntity } from './entities/ml/ml-score-daily.entity';
 import { MlQualityReportEntity } from './entities/ml/ml-quality-report.entity';
 import { FactorDefinitionEntity } from './entities/ml/factor-definition.entity';
 import { LabelDefinitionEntity } from './entities/ml/label-definition.entity';
+import { StrategyDefinitionEntity } from './entities/ml/strategy-definition.entity';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -153,6 +154,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           FactorDefinitionEntity,
           // factors.label_definitions（标签定义 CRUD，新 spec 2026-06-05-quant-label-management-design）
           LabelDefinitionEntity,
+          // factors.strategy_definitions（出场策略定义 CRUD，新 spec 2026-06-06-quant-strategy-management-design）
+          StrategyDefinitionEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],

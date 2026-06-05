@@ -14,7 +14,9 @@ import { BadRequestException } from '@nestjs/common';
  *
  * 组合校验（spec 03-backend.md）：
  *   fwd_ret      → base_params.horizon ≥ 1 整数
- *   strategy_aware → base_params.max_hold_days ∈ [10, 30] 整数
+ *   strategy_aware → base_params.{strategy_id, strategy_version}（引用出场策略定义；
+ *                    存在且 enabled=true 的引用完整性校验在 labels.service.create，
+ *                    spec 2026-06-06-quant-strategy-management-design 04 §6）
  *   band         → classify_params.eps > 0
  *   tercile      → 无额外参数（classify_params 忽略）
  *   custom       → classify_params.thresholds 为数字数组（不为空）
@@ -80,10 +82,19 @@ function validateBaseParams(
       );
     }
   } else if (baseType === 'strategy_aware') {
-    const maxHoldDays = baseParams.max_hold_days;
-    if (!isInt(maxHoldDays) || maxHoldDays < 10 || maxHoldDays > 30) {
+    // 引用出场策略定义（factors.strategy_definitions），形状校验在此；
+    // 引用完整性（策略存在且 enabled=true）在 labels.service.create 二次校验
+    // （需查 DB，DTO 层做不到，spec 04 §6.2）。
+    const strategyId = baseParams.strategy_id;
+    const strategyVersion = baseParams.strategy_version;
+    if (typeof strategyId !== 'string' || !/^[a-z0-9_]{1,64}$/.test(strategyId)) {
       throw new BadRequestException(
-        'base_type=strategy_aware 时 base_params.max_hold_days 必须为 10..30 之间的整数',
+        'base_type=strategy_aware 时 base_params.strategy_id 必须匹配 /^[a-z0-9_]{1,64}$/',
+      );
+    }
+    if (typeof strategyVersion !== 'string' || !/^v\d+$/.test(strategyVersion)) {
+      throw new BadRequestException(
+        'base_type=strategy_aware 时 base_params.strategy_version 必须匹配 /^v\\d+$/（如 v1）',
       );
     }
   }

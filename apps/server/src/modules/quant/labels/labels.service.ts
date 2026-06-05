@@ -1,7 +1,14 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LabelDefinitionEntity } from '../../../entities/ml/label-definition.entity';
+import { QuantStrategiesService } from '../strategies/strategies.service';
 import { LABEL_BASE_TYPES, LABEL_CLASSIFY_MODES } from './dto/create-label.dto';
 import type { ValidatedCreateLabel } from './dto/create-label.dto';
 import type { ValidatedUpdateLabel } from './dto/update-label.dto';
@@ -81,7 +88,31 @@ export class LabelsService {
   constructor(
     @InjectRepository(LabelDefinitionEntity)
     private readonly repo: Repository<LabelDefinitionEntity>,
+    // 校验 strategy_aware 标签引用的出场策略存在且 enabled（spec 04 §6.2）
+    private readonly strategies: QuantStrategiesService,
   ) {}
+
+  /**
+   * 校验 strategy_aware 标签 base_params 引用的出场策略存在且 enabled=true。
+   *
+   * base_params 形状（strategy_id / strategy_version 格式）已由 validateCreateLabel 保证；
+   * 此处做引用完整性（需查 DB）：不存在 / enabled=false → 422（fail-fast，禁静默）。
+   */
+  private async assertStrategyRefEnabled(baseParams: Record<string, unknown>): Promise<void> {
+    const strategyId = String(baseParams.strategy_id);
+    const strategyVersion = String(baseParams.strategy_version);
+    const strat = await this.strategies.findRaw(strategyId, strategyVersion);
+    if (!strat) {
+      throw new UnprocessableEntityException(
+        `strategy_aware 标签引用的出场策略 ${strategyId}@${strategyVersion} 不存在`,
+      );
+    }
+    if (!strat.enabled) {
+      throw new UnprocessableEntityException(
+        `strategy_aware 标签引用的出场策略 ${strategyId}@${strategyVersion} 已停用（enabled=false）`,
+      );
+    }
+  }
 
   /**
    * 列出标签定义（可选按 enabled / base_type 过滤）。
@@ -126,6 +157,11 @@ export class LabelsService {
       throw new BadRequestException(
         `label ${dto.labelId}@${dto.labelVersion} 已存在。若要新建版本请递增 label_version。`,
       );
+    }
+
+    // strategy_aware 标签：校验引用的出场策略存在且 enabled（spec 04 §6.2）
+    if (dto.baseType === 'strategy_aware') {
+      await this.assertStrategyRefEnabled(dto.baseParams);
     }
 
     const entity = this.repo.create({
@@ -206,6 +242,12 @@ export class LabelsService {
         `labelRef 指向的 label ${labelId}@${labelVersion} 已停用（enabled=false），` +
           '请改用已启用的标签或先启用该标签',
       );
+    }
+
+    // strategy_aware 标签：建 job 时再校验引用的策略仍 enabled（防标签建好后策略被禁用，
+    // spec 04 §6.2）。base_params 原样回传 {strategy_id, strategy_version}，Python 侧解析 exit_rules。
+    if (row.baseType === 'strategy_aware') {
+      await this.assertStrategyRefEnabled(row.baseParams);
     }
 
     return {
