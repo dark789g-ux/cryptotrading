@@ -7,17 +7,20 @@ import { MlScoreDailyEntity } from '../../entities/ml/ml-score-daily.entity';
 import { MlQualityReportEntity } from '../../entities/ml/ml-quality-report.entity';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
 import { UserEntity } from '../../users/entities/user.entity';
+import { FeatureSetEntity } from '../../entities/ml/feature-set.entity';
 import { QuantJobsService } from './services/quant-jobs.service';
 import { SseTokenService } from './services/sse-token.service';
 import { QuantScoresService } from './services/quant-scores.service';
 import { QuantRunsService } from './services/quant-runs.service';
 import { QuantQualityService } from './services/quant-quality.service';
+import { QuantFeatureSetsService } from './feature-sets/quant-feature-sets.service';
 import { QuantJobsController } from './controllers/quant-jobs.controller';
 import { QuantJobsSseController } from './controllers/quant-jobs-sse.controller';
 import { QuantScoresController } from './controllers/quant-scores.controller';
 import { QuantPublicScoresController } from './controllers/quant-public-scores.controller';
 import { QuantRunsController } from './controllers/quant-runs.controller';
 import { QuantQualityController } from './controllers/quant-quality.controller';
+import { QuantFeatureSetsController } from './feature-sets/quant-feature-sets.controller';
 import { SseTokenGuard } from './guards/sse-token.guard';
 import { PgListenService } from './realtime/pg-listen.service';
 import { FactorsModule } from './factors/factors.module';
@@ -66,6 +69,8 @@ import { QuantStrategiesModule } from './strategies/strategies.module';
       AShareSymbolEntity,
       // SSE 流接口二次校验当前 user.role（refactor 2026-05-23 由 env 白名单改为 DB role）
       UserEntity,
+      // factors.feature_sets（已物化特征集列表 API，spec 2026-06-06-labels-features-incremental-prepare-design）
+      FeatureSetEntity,
     ]),
     // 因子元数据 admin 管理 API（spec 2026-05-23-factor-registry-frontend-design）
     FactorsModule,
@@ -81,6 +86,8 @@ import { QuantStrategiesModule } from './strategies/strategies.module';
     QuantPublicScoresController,
     QuantRunsController,
     QuantQualityController,
+    // 已物化 feature_set 列表（spec 2026-06-06-labels-features-incremental-prepare-design）
+    QuantFeatureSetsController,
   ],
   providers: [
     QuantJobsService,
@@ -91,6 +98,8 @@ import { QuantStrategiesModule } from './strategies/strategies.module';
     QuantQualityService,
     // M4 Part M：PG LISTEN/NOTIFY 桥接（长生命周期独立连接，不复用 TypeORM 池）
     PgListenService,
+    // 已物化 feature_set 列表（spec 2026-06-06-labels-features-incremental-prepare-design）
+    QuantFeatureSetsService,
   ],
   exports: [
     QuantJobsService,
@@ -100,6 +109,8 @@ import { QuantStrategiesModule } from './strategies/strategies.module';
     QuantRunsService,
     QuantQualityService,
     PgListenService,
+    // 供 S7 任务（QuantJobsService 建 train job 校验）使用
+    QuantFeatureSetsService,
   ],
 })
 export class QuantModule {}

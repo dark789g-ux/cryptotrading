@@ -77,6 +77,7 @@ import { MlQualityReportEntity } from './entities/ml/ml-quality-report.entity';
 import { FactorDefinitionEntity } from './entities/ml/factor-definition.entity';
 import { LabelDefinitionEntity } from './entities/ml/label-definition.entity';
 import { StrategyDefinitionEntity } from './entities/ml/strategy-definition.entity';
+import { FeatureSetEntity } from './entities/ml/feature-set.entity';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -156,6 +157,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           LabelDefinitionEntity,
           // factors.strategy_definitions（出场策略定义 CRUD，新 spec 2026-06-06-quant-strategy-management-design）
           StrategyDefinitionEntity,
+          // factors.feature_sets（已物化特征集列表 API，新 spec 2026-06-06-labels-features-incremental-prepare-design）
+          FeatureSetEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],
