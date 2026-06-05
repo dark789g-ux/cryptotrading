@@ -27,30 +27,49 @@
 
 ```text
 compute_labels(scheme, date_range, ..., force_recompute=False):
+  ma_win   = strategy_aware exit 规则里 ma_break 的 period (fwd_ret / 无 ma_break → None)
+  head_pad = (ma_win - 1) 交易日 if ma_win else 0       # MA 滚动窗口需要的头部
   if force_recompute:
       subranges = [(start, end)]           # 退回现有"整段重算覆盖"行为
   else:
       subranges = gap_subranges(labels, scheme, [start,end])
   skipped = trading_days − ∪subranges      # 已物化、跳过的
   for (g0, g1) in subranges:
-      end_padded = trade_cal 中 g1 之后第 30 个交易日   # 沿用 _compute_end_padded
-      quotes = _load_daily_quotes(g0, end_padded)        # 头部从 g0, 不前扩
-      rows   = compute_*_labels(quotes, end=g1, ...)     # 算到 g1
-      _upsert_labels(rows ∩ [g0,g1])                     # 只写 [g0,g1], padding 区不写
+      g0_load    = max(start, g0 之前第 head_pad 个交易日)  # 头部 padding, 不早于 start
+      end_padded = g1 之后第 30 个交易日                     # 尾部 padding(_compute_end_padded)
+      quotes  = _load_daily_quotes(g0_load, end_padded)
+      entries = quotes ∩ [g0,g1]                            # 入场信号仍只取缺口内
+      rows    = compute_*_labels(quotes, entries, end=g1, ...)
+      _upsert_labels(rows ∩ [g0,g1])                        # 头尾 padding 区都不写
   log: skipped_dates=len(skipped), computed_subranges=subranges  # 禁止静默截断
   return 写入行数
 ```
 
-### 「只需尾部 padding、无头部 padding」的论证（源码坐实，非假设）
+### padding 判定：尾部=持有窗口，头部=MA 窗口（源码坐实，非假设）
 
-缺口子区间 `[g0,g1]` 从 `g0` 起加载行情即可，**起点不用往前扩**，因为 labels 计算对"`g0` 之前的历史"无依赖：
+> ⚠️ 修订记录：早期草稿误判 labels "无头部 padding"，依据是误读 `simulate_exit` 为"先切 buy_date 再算 MA"。真实顺序相反（见下），strategy_aware scheme **必须头部 padding**，否则缺口边界 `exit_reason/hold_days/value` 与整段算不一致 → 违反约束 1。由 spec self-review 独立审阅抓出、亲读源码裁决。
 
-- **entries**：`entries = quotes.loc[(trade_date>=start)&(<=end), [ts_code,trade_date]]`（`labels/runner.py:328-331`）——纯行切片，无 rolling/shift/跨日。
-- **buy_date**：`buy_date = next_day(signal_date)`（`strategy_aware.py:379`），只需窗口内交易日历顺序。
-- **simulate_exit 的 MA5**：`sub = prices[prices["trade_date"] >= str(buy_date)]`（`exit_rules.py:321`）**先切到入场日**，`out["ma5"] = out["close"].rolling(5, min_periods=5).mean()`（`exit_rules.py:238`）在切片后才算。即 MA5 本就只用 `buy_date` 及之后价格、`buy_date` 后前 4 日 MA5=NaN 是**既定语义**，整段算与缺口算对同一 `buy_date` 逐值一致。
-- **fwd_ret**：`g["close_adj"].shift(-horizon)`（`fallback.py:113-144`），纯未来。
+**尾部 padding（fwd_ret 与 strategy_aware 两类 scheme 都要）**：
+`end_padded` = `g1` 后第 30 交易日 > `MAX_HOLD_DAYS(20)` + T+1 + 余量（`_compute_end_padded`），让 `g1` 附近入场日能看到未来价格判出场/算收益（约束 2）。
 
-→ 头部依赖不存在。**尾部** padding 仍必须（`end_padded` = `g1` 后第 30 交易日 > `MAX_HOLD_DAYS(20)` + T+1 + 余量），让 `g1` 附近入场日能看到未来价格判出场/算收益（约束 2）。
+**头部 padding（仅 strategy_aware scheme 要）**：
+`strategy/exit_rules.py:317-321` 真实顺序是 **先对整个 prices_df 算滚动 MA（`_ensure_ma(prices, ma_window)`，`:401` 总是从起点重算，`:407`），再切 `sub = prices[trade_date >= buy_date]`（`:321`）**。故 MA(t) 在"prices_df 起点后 `ma_window−1` 个交易日内"为 NaN，`MABreakRule` 在 MA=NaN 时不触发出场（`:121`）。
+
+→ 整段算（prices_df 从 `date_range.start` 加载）的语义是 **MA(t) 非 NaN ⟺ t ≥ start + (ma_window−1) 交易日**。增量要逐行复现，缺口加载起点必须：
+
+```text
+g0_load = max(date_range.start, g0 − (ma_window−1) 交易日)
+```
+
+- `ma_window` = 该 scheme `exit_rules` 里 `ma_break` 的 `period`（可配 [2,250]，`exit_rules.py:43-47,383-391`）；无 `ma_break` 规则则 MA 全 NaN、`head_pad=0`。
+- **不早于 `start`**：否则 `g0=start` 时增量 MA 比整段更准、反而不一致（整段算在 start 附近本就 NaN）。
+- 头部 padding 区 `[g0_load, g0−1]` 只供算 MA，不产生 entries、不写库。
+- 其余出场规则（StopLoss/MaxHold/TakeProfit/TrailingStop）基于 entry_price / 持仓期峰值，**无头部 lookback**（`exit_rules.py:9-13` 规则清单）。
+
+**fwd_ret scheme 无头部依赖**：不经 simulate_exit，`fwd_ret = groupby+shift(-horizon)`（`fallback.py:113-144`）纯未来 → `head_pad=0`。
+**entries / buy_date 无头部依赖**：`entries`=quotes 切片（`labels/runner.py:328-331`）、`buy_date=next_day(signal_date)`（`strategy_aware.py:379`），都无跨日。
+
+> 实施核实点：从 job 的 strategy_aware 配置（`base_params.exit_rules`）取 `ma_break.period` 作 `ma_window`；确认 `build_exit_rules` 返回的 `ma_window` 即该值（`exit_rules.py:383-391`）。
 
 ### PIT（约束 3）
 `_load_listing_info`（`labels/runner.py:186-212`）按 `a_share_symbols` 的 `list_date/delist_date` 过滤，逐缺口子区间照常调用，不绕过。
@@ -102,4 +121,4 @@ build_feature_matrix(factor_version V, label_scheme S, date_range, ..., force_re
 - 不取"至少一行非空"这类最弱约束做"整段完整"判断——本设计是**逐 trade_date** 判定缺口，不是"整段有任意一行就算整段完整"。
 
 ## 与现有行为的等价性（约束 1 验证锚点）
-对任意 `trade_date t` 的 label/feature 行，其值只依赖 `[t, t+窗口]`（labels）或当日截面（features），与"加载区间的起点"无关。故缺口子区间 `[g0,g1]+尾部padding` 覆盖了 `[g0,g1]` 每行所需窗口 → 增量结果 == 整段重算结果。验证方法见 [06-testing-verification.md](./06-testing-verification.md#正确性逐行比对约束-1)。
+对任意 `trade_date t`：features 值只依赖当日截面（与加载起点无关）；labels 值依赖 `[t−(ma_window−1), t+尾部窗口]`（MA 回看 + 未来持有/收益）。缺口加载 `[g0_load, end_padded]`（`g0_load` 含头部 MA padding、且不早于 `start` 以复现整段算在 start 附近的 NaN 边界）覆盖了 `[g0,g1]` 每行所需窗口 → 增量结果 == 整段重算结果。验证方法见 [06-testing-verification.md](./06-testing-verification.md#正确性逐行比对约束-1)。

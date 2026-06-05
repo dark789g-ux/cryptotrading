@@ -40,11 +40,23 @@ ORDER BY trade_date, ts_code
 
 > 为何必须加：解耦后 `feature_matrix[fs]` 会累积很宽（备料多次扩范围），不按 date_range 过滤就训了全部累积料，决策 3/6 的"时段约束"形同虚设。
 
-## 训练类 run_type 统一改造
+## run_type 参数契约理顺
 
-`train` / `optuna` / `seed_avg` 三个训练类 run_type 都从"已备 fs + date_range"消费，统一加 date_range 过滤与 `⊆R_F` 校验。
+现状已查清：`train`/`optuna`/`seed_avg` 三个训练类 runner **全部直接吃 `feature_set_id`**（`training/runner.py:460`、`seed_averaging.py:408`、`search_spaces.py:62`），**不吃 labelRef/scheme**。但当前 `create-job.dto` 的 `TRAIN_RUN_TYPES`（`:23`）却强制它们必填 labelRef（`:152-155`）——现状混乱，解耦时一并理顺。
 
-> **待实施核实**（[index 开放项](./index.md#待实施时核实的开放项)）：`optuna`/`seed_avg` 当前 params 与加载方式是否与 `train` 同构、是否都经 `_load_feature_matrix`。核实后确保三者一起改、不漏。`train` runner 已确认直接读 `feature_set_id`（`training/runner.py:460-495`）。
+新的 run_type → 参数契约：
+
+| run_type | 必填 | 额外校验 |
+|----------|------|----------|
+| `labels` | labelRef(→scheme) + date_range + 备料参数 (+force?) | — |
+| `features` | labelRef(→scheme) + factor_version + date_range + 备料参数 (+force?) | 缺口 ⊆ labels |
+| `prepare` | labelRef(→scheme) + factor_version + date_range + 备料参数 (+force?) | — |
+| `train`/`optuna`/`seed_avg` | **feature_set_id** + date_range + 模型参数 | date_range ⊆ R_F 且无空洞 |
+
+`create-job.dto` 调整：
+- "需 labelRef 的集合"= `{labels, features, prepare}`；**把 train/optuna/seed_avg 移出**（它们不再要 labelRef）。
+- 新增"需 feature_set_id 的集合"= `{train, optuna, seed_avg}`：校验 feature_set_id 非空 + date_range 必填 + `⊆R_F`（见下「建 train 类 job 校验」）。
+- 三个训练类 runner 统一加 date_range 过滤（都经 `_load_feature_matrix`），见「训练加载加 date_range 过滤」。
 
 ## 废弃 train_e2e
 

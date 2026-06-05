@@ -7,13 +7,16 @@
 真 DB 集成测试，放 `apps/quant-pipeline/tests/integration/`（已有真 PG 集成测试惯例）：
 
 ```text
-场景 A｜增量 vs 整段(labels):
+场景 A｜增量 vs 整段(labels, ★必须含 strategy_aware ma_break scheme★):
   清空某 test scheme
   ① prepare A:B           → labels 快照1
-  ② prepare A:C (C>B)     → labels 快照2  (增量: 只算 B+1..C)
+  ② prepare A:C (C>B)     → labels 快照2  (增量: 缺口 B+1..C, g0=B+1 在中段)
   ③ 另一 scheme 一次性 prepare A:C (全量) → 基准
   断言: 快照2 与基准在 [A,C] 逐行逐值一致
         比 value / exit_reason / hold_days / 行集合(trade_date×ts_code)
+  ★头部 padding 回归: g0=B+1 前面有已物化 A:B, 整段算此处 MA 非 NaN;
+    漏头部 padding 时, g0 后 ma_window−1 日的 ma5_break 出场会缺 → 本场景必抓
+    (须用含 ma_break 的 scheme; 纯 fwd_ret scheme 测不到这条)
 
 场景 B｜feature_matrix: 同上, 比 features(jsonb) / label
 
@@ -37,8 +40,13 @@ gap_subranges / coverage 纯函数(无需 DB):
   - coverage: 连续→1段 / 含空洞→多段 / 单日 / 空
 labels 增量:
   - force=True → subranges=[(start,end)] 整段
-  - 每缺口 end_padded = g1 后第30交易日 (mock trade_cal 验证)
-  - 只写 [g0,g1], padding 区行不进 upsert
+  - 头部 padding: g0_load = max(start, g0−(ma_window−1)交易日)
+      · g0 在历史中段 → 前扩 ma_window−1 个交易日
+      · g0=start → clamp 到 start (不早于 start)
+      · ma_break period 取不同值(5/20) → head_pad 随之变
+      · fwd_ret scheme(无 ma_break) → head_pad=0
+  - 尾部 padding: end_padded = g1 后第30交易日 (mock trade_cal)
+  - 只写 [g0,g1], 头尾 padding 区行不进 upsert
 features 增量:
   - 零 padding(加载区间==缺口)
   - 缺口⊆labels 校验: labels 缺的天 → warn(features_missing_labels) + 跳过, 不进 upsert

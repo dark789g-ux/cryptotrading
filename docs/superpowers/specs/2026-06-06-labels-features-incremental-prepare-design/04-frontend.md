@@ -10,11 +10,13 @@
 │  factor_version V  [下拉 listFactorVersions, 可手输]│
 │  目标区间 [start,end]  [n-date-picker daterange]    │
 │      ↑ 备料就是要扩范围, 此处不做 disable           │
-│  ── 备料参数 ──────────────────────────────────────│
+│  ── 备料参数(features 阶段) ───────────────────────│
 │  new_listing_min_days [number, 默认提示 60]         │
 │  中性化 cols / robust_z / factor_clip_sigma         │
-│  label_winsorize / max_hold_days(strategy_aware)    │
+│  label_winsorize                                    │
 │  [ ] force_recompute  (默认关)                      │
+│  注: labels 侧配置(exit_rules/max_hold/ma_break     │
+│      period) 在命名标签内, 此处不重填                │
 │              [取消]            [开始备料]            │
 └─────────────────────────────────────────────────────┘
 → POST job run_type=prepare, params={label_ref, factor_version,
@@ -23,7 +25,7 @@
 → SSE 进度复用 ml.jobs(先 POST sse-token 再 query 建连)
 ```
 
-备料参数即原 `TrainE2EFields` 里属于 labels/features 的那部分字段，整体迁到此 modal。
+备料参数 = 原 `TrainE2EFields` 里 **features 阶段**字段。labels 侧配置（`base_type`/`base_params`，含 `exit_rules` 的 `ma_break.period` 与 `max_hold`）已封装在命名标签 `label_definitions` 内，由 server `expandForTraining` 展开 → 也是 [02 头部 padding](./02-incremental-algorithm.md#padding-判定尾部持有窗口头部ma-窗口源码坐实非假设) 的 `ma_window` 来源。备料 modal 不重填，避免与命名标签不一致。
 
 ## 训练 modal（改造 QuantTrainTriggerModal，删端到端表单）
 

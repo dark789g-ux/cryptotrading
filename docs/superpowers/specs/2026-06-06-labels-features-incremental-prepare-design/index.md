@@ -27,7 +27,7 @@
 | 5 | train_e2e 旧一条龙 | **废弃**，强制先 prepare 再 train |
 | 6 | 空洞处理 | `R_F` 非连续时，前端 disable 空洞日期 + 后端兜底校验空洞报错（时序模型断档有害） |
 | 7 | feature_sets 标识 | feature_sets **加列** `label_id/label_version`，训练列表显示命名标签名（非物化登记表，不违背决策 2） |
-| 8 | 缺口 padding | labels 缺口**只尾部 padding**（`end_padded`=子区间末日后第 30 交易日），无头部 padding；features 缺口**零 padding** |
+| 8 | 缺口 padding | labels 缺口**头部 MA padding**（`g0_load=max(start, g0−(ma_window−1)交易日)`，仅 strategy_aware，`ma_window`=ma_break period）**+ 尾部 padding**（末日后第 30 交易日）；features 缺口**零 padding** |
 
 ## 子文档清单与阅读顺序
 
@@ -41,7 +41,7 @@
 6. [06-testing-verification.md](./06-testing-verification.md) — 单测/集成/真机/回归，正确性逐行比对（约束 1 头号）
 
 ## 跨文档引用约定
-- 文档间引用统一用相对路径 + 锚点，例：`[缺口算法](./02-incremental-algorithm.md#labels-增量缺口算法)`。
+- 文档间引用统一用相对路径 + 锚点（锚点遵循 GitHub 中文标题 slug：转小写、空格转 `-`、删标点、保留中文），例：`[缺口算法](./02-incremental-algorithm.md#labels-增量缺口算法)`。若所用渲染器不支持中文锚点，按链接文字指示的小节标题定位。
 - 源码引用用 `path:line`（行号为 2026-06-06 时点，实施时以实际为准）。
 
 ## 关键已核实事实（带证据，禁止据二手转述进硬断言）
@@ -56,11 +56,18 @@
 | 因子表名 | `factors.daily_factors`（复数 s） | `features/runner.py:71,95` |
 | 训练加载无 date_range 过滤 | `WHERE feature_set_id=:fs ORDER BY trade_date, ts_code` | `training/runner.py:97-100` |
 | train runner 直接吃 feature_set_id | params 读 `feature_set_id`，不推算 | `training/runner.py:460-495` |
-| labels 无头部依赖 | `sub=prices[trade_date>=buy_date]` 后才算 MA5 rolling | `exit_rules.py:321,238` |
+| labels **有**头部依赖(MA) | `_ensure_ma` 先对整窗口算 rolling MA 再切 buy_date → 缺口需头部 padding `ma_window−1` 交易日 | `strategy/exit_rules.py:317-321,401,383-391` |
 | features 无跨日依赖 | 中性化/z-score 全 `groupby(['trade_date'...])` 截面 | `builder.py:228,298,334,414` |
+| 训练类 runner 吃 feature_set_id | train/optuna/seed_avg 均直接读 `feature_set_id`，不读 labelRef | `training/runner.py:460`、`seed_averaging.py:408`、`search_spaces.py:62` |
 | 单测基线 | 773 collected（prompt 称 772） | `pytest --collect-only` |
 | migration 机制 | alembic（`src/quant_pipeline/db/migrations/versions/*.py`），**非** server 的 sql+ps1 | `alembic.ini` |
 
-## 待实施时核实的开放项
-- `optuna`/`seed_avg` 训练类 run_type 当前的 params 与加载方式（与 `train` 是否同构、是否都吃 `feature_set_id`）——三个训练类要一起加 date_range 过滤与 `⊆R_F` 校验，不能漏。详见 [03](./03-backend-decoupling.md#训练类-run_type-统一改造)。
-- `train`/`optuna`/`seed_avg` 在 DTO 层要求 `labelRef`、但 `train` runner 实际读 `feature_set_id`，二者当前如何衔接（前端/server 怎么把 fs 填进 params）。
+## run_type 参数契约（已查清，原为开放项）
+三个训练类 runner 全部直接吃 `feature_set_id`、**不吃 labelRef**；但当前 `create-job.dto` 的 `TRAIN_RUN_TYPES`（`:23`）把它们归入"labelRef 必填"集合——属现状混乱，解耦时一并理顺（详见 [03 run_type 参数契约理顺](./03-backend-decoupling.md#run_type-参数契约理顺)）。最终三类契约：
+- `labels`：labelRef(→scheme) + date_range + 备料参数 + force
+- `features` / `prepare`：labelRef(→scheme) + factor_version + date_range + 备料参数 + force
+- `train` / `optuna` / `seed_avg`：feature_set_id + date_range + 模型参数（**不要 labelRef**）
+
+## 待实施时核实
+- 从 strategy_aware `base_params.exit_rules` 取 `ma_break.period` 作头部 padding 的 `ma_window`（[02 padding 判定](./02-incremental-algorithm.md#padding-判定尾部持有窗口头部ma-窗口源码坐实非假设)）；确认 `build_exit_rules` 返回的 `ma_window` 即该值。
+- 因子表名 `factors.daily_factors`、各 runner 行号以实施时实际为准（行号系 2026-06-06 时点）。
