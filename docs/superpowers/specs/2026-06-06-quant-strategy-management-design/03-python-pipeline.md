@@ -9,7 +9,7 @@
 
 ### 1.1 ExitState 扩展（加 high / peak）
 
-现状 `ExitState` 只有 close+low+ma5（`exit_rules.py:53-71`），take_profit 需盘中最高价、
+现状 `ExitState` 只有 current_price/low_price/ma5（`exit_rules.py:53-71`），take_profit 需盘中最高价、
 trailing_stop 需持仓期峰值。新增两字段：
 
 ```text
@@ -137,7 +137,7 @@ def _load_strategy_definition(strategy_id: str, strategy_version: str) -> list[d
   records 的 `scheme` 用传入的 `scheme`（替换写死的 `LABEL_SCHEME`，`:505`）。
 
 ### 3.3 train_e2e（主路径，train_e2e_runner.py）
-- `_validate_base_type_and_params`（`:341-355`）：strategy_aware 分支改为校验
+- `_validate_base_type_and_params`（`:341-355`，由顶层 `_validate_params` 调用的子校验器）：strategy_aware 分支改为校验
   `base_params={strategy_id: str(`[a-z0-9_]{1,64}`), strategy_version: str(`v\d+`)}`，
   删 `max_hold_days∈[10,30]` 校验（`_MAX_HOLD_DAYS_RANGE` 移除）。
 - `base_scheme = base_scheme_codec(base_type, base_params)` 不变（codec 已改）。

@@ -96,4 +96,4 @@ base_type=strategy_aware 时:
 - 前端类型检查 `pnpm --filter @cryptotrading/web type-check`。
 - ⚠ [[project_active_mv_indicator]] 教训：`vue-tsc` 查不出某些 SFC 编译错 →
   关键交互（ExitRulesEditor 增删、策略选择器联动 base_params）须真机点测（见
-  [06](./06-testing-and-tasks.md#端到端验证)）。
+  [06](./06-testing-and-tasks.md#4-端到端验证验收)）。

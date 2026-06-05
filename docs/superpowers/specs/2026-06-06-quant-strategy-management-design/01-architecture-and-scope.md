@@ -90,6 +90,6 @@
   → scheme 决定性 → `factors.labels` 行可复现。
 - **default 零漂移**：`default_exit@v1` 的规则 = 现写死规则，scheme 回 legacy 别名
   `"strategy-aware"`，**历史 `factors.labels` 行无需重算**（回归校验见
-  [`./06-testing-and-tasks.md#回归校验`](./06-testing-and-tasks.md#回归校验)）。
+  [`./06-testing-and-tasks.md#回归校验最关键`](./06-testing-and-tasks.md#回归校验最关键)）。
 - **不串味**：不同策略 → 不同 scheme → `factors.labels` PK `(trade_date, ts_code, scheme)`
   天然隔离（出处 `runner.py:241`）。

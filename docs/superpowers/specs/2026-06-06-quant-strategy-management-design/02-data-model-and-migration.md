@@ -51,7 +51,7 @@
 
 † **exit_reason 字面量保持 `"ma5_break"` 不变**（即便 period≠5）：`exit_rules.py:42-46` 注明
   reason 字符串被回测引擎读取、禁改名。period 仅改 MA 窗口，reason 仍标识「MA 跌破」规则族。
-  这是刻意的兼容取舍，已在 [03](./03-python-pipeline.md#ma_break-泛化) 标注。
+  这是刻意的兼容取舍，已在 [03](./03-python-pipeline.md#14-ma_break-泛化) 标注。
 
 ### 2.1 stop_loss 的符号约定
 
@@ -143,4 +143,4 @@ WHERE label_id = 'strategy_aware_default' AND label_version = 'v1'
   `"strategy-aware"`，旧数据原样有效、PK 不变。
 - 新建的非 default 策略 → 新 scheme → 首次跑 label job 才产数（增量，不影响存量）。
 - 标签种子改写后，前端「固定策略收益」标签训练入口走的 base_params 变成策略引用，
-  Python `_validate_params` 相应改造（见 [03](./03-python-pipeline.md#接线)）。
+  Python `_validate_params` 相应改造（见 [03](./03-python-pipeline.md#3-接线runner--train_e2e--策略加载)）。
