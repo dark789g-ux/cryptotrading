@@ -5,8 +5,8 @@
 upsert」三职，runner 仅保留「调度」。
 
 PIT 安全（doc/03）：
-- 复权基准：见 `load_window_data` 的 close_adj 注释（窗口内 max(adj_factor)，
-  仅供比值 / 收益率类因子）。
+- 复权：纯后复权 close_adj = close × adj_factor（唯一真理源 _common.apply_hfq），
+  绝对水平 PIT 安全；详见 `load_window_data`。
 - 行业归属：raw.index_member.in_date / out_date 按交易日筛选（PIT 安全）。
 """
 
@@ -23,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from quant_pipeline.db.engine import session_scope
+from quant_pipeline.labels._common import apply_hfq
 
 logger = logging.getLogger(__name__)
 
@@ -188,18 +189,11 @@ def load_window_data(start: str, end: str, need_industry: bool) -> RawData:
 
     panel = _load_raw_panel(start, end)
     if not panel.empty:
-        # 后复权：close_adj = close * adj_factor / max(adj_factor in window per ts_code)
-        #
-        # ⚠ 注意（review §5）：基准是「窗口内 max(adj_factor)」，**随 date_range 变化**。
-        # 两次不同 date_range 的 run 对同一 (ts_code, trade_date) 会算出**不同的
-        # close_adj 绝对值**——因此 close_adj **只可用于比值 / 收益率 / 差分类因子**
-        # （基准在分子分母约掉，结果与窗口无关），**不可作绝对价格使用**。
-        # 这不构成前视偏差：窗口内 max 不含 T+1 的复权事件，T 日因子值 PIT 安全；
-        # doc/03 §3.2 推荐的「全历史 latest adj_factor 基准」会得到稳定绝对值，
-        # 但本 runner 全部因子均为比值口径，窗口 max 已足够。
-        af = panel["adj_factor"]
-        max_af = af.groupby(level="ts_code").transform("max")
-        panel["close_adj"] = panel["close"] * af / max_af
+        # 纯后复权：close_adj = close × adj_factor（唯一真理源 labels/_common.apply_hfq）。
+        # 不除任何窗口基准 → 绝对水平 PIT 安全、可跨 run 比较；只依赖各交易日当日已知的
+        # adj_factor，不含 T+1 复权事件。panel 的 ts_code 在 MultiIndex level，apply_hfq
+        # 逐行计算、不 groupby，因此通用。
+        panel = apply_hfq(panel)
     else:
         panel = pd.DataFrame(
             columns=["close", "vol", "amount", "adj_factor", "turnover_rate", "close_adj"]

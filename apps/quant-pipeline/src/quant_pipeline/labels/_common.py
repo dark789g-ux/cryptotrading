@@ -43,19 +43,19 @@ _LABEL_COLUMNS: list[str] = [
 def apply_hfq(df: pd.DataFrame) -> pd.DataFrame:
     """注入后复权列 close_adj / low_adj。
 
-    后复权基准 = 窗口内该 ts_code 的 max(adj_factor)，与 factors/runner.py 一致。
+    纯后复权：close_adj = close × adj_factor、low_adj = low × adj_factor（逐行）。
+    只依赖各交易日当日已知的 adj_factor、不除任何窗口基准 → 绝对水平 PIT 安全。
+    因逐行计算、不再 groupby ts_code，本函数对「ts_code 在 column」（labels 长表）
+    与「ts_code 在 MultiIndex level」（factors panel）两种 df 通用，是 factors 与
+    labels 各处复用的后复权唯一真理源。
     adj_factor 为 NULL 的行 → close_adj/low_adj 为 NaN；统计并 warn。
-
-    收益率对复权基准不敏感（基准在 exit/entry 比值中约掉），但全 pipeline 统一用
-    「窗口 max」基准，与 factors 模块口径一致。
     """
 
     out = df.copy()
     af = pd.to_numeric(out["adj_factor"], errors="coerce")
-    max_af = af.groupby(out["ts_code"]).transform("max")
-    out["close_adj"] = out["close"] * af / max_af
+    out["close_adj"] = out["close"] * af
     if "low" in out.columns:
-        out["low_adj"] = out["low"] * af / max_af
+        out["low_adj"] = out["low"] * af
     na_cnt = int(af.isna().sum())
     if na_cnt > 0:
         logger.warning(

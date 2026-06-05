@@ -4,7 +4,7 @@ DB 用桩 session（_FakeSession），不连线上。覆盖：
   · 真实次日后复权收益正确 join（r = close_adj(t+1)/close_adj(t)−1）
   · 取不到 t+1 的样本（停牌 / 末日）不进 dict + 双路径 warn
   · DB 0 行 → 空 dict + warn（路径①）
-  · 后复权基准为窗口内 max(adj_factor)，与 _common.apply_hfq 一致
+  · 纯后复权 close_adj = close × adj_factor，与 _common.apply_hfq 一致
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ class _FakeSession:
         return _FakeResult(rows)
 
 
-# adj_factor 恒定 → close_adj = close（窗口 max 基准约掉），r 直接由 close 比值算。
+# adj_factor 恒为 1.0 → close_adj = close（纯后复权 close×1.0），r 直接由 close 比值算。
 _QUOTES = [
     # (ts_code, trade_date, close, adj_factor)
     ("000001.SZ", "20260105", 10.0, 1.0),
@@ -111,8 +111,8 @@ def test_empty_pairs_short_circuit() -> None:
     assert load_forward_returns([], session=_session()) == {}
 
 
-def test_hfq_basis_uses_window_max_adj_factor() -> None:
-    """后复权用窗口 max(adj_factor)；r 对基准不敏感（基准在比值中约掉）。"""
+def test_hfq_basis_pure_backward_adjust() -> None:
+    """纯后复权 close_adj = close × adj_factor；r 对基准不敏感（基准在比值中约掉）。"""
 
     quotes = [
         ("600000.SH", "20260105", 10.0, 1.5),
@@ -120,10 +120,10 @@ def test_hfq_basis_uses_window_max_adj_factor() -> None:
     ]
     sess = _FakeSession(quotes=quotes, cal_dates=_CAL)
     out = load_forward_returns([("600000.SH", "20260105")], session=sess)
-    # close_adj(t)   = 10 * 1.5 / 3.0 = 5.0
-    # close_adj(t+1) = 12 * 3.0 / 3.0 = 12.0
-    # r = 12.0 / 5.0 − 1 = 1.4
-    assert out[("600000.SH", "20260105")] == pytest.approx(12.0 / 5.0 - 1.0)
+    # close_adj(t)   = 10 * 1.5 = 15.0
+    # close_adj(t+1) = 12 * 3.0 = 36.0
+    # r = 36.0 / 15.0 − 1 = 1.4
+    assert out[("600000.SH", "20260105")] == pytest.approx(36.0 / 15.0 - 1.0)
 
 
 def test_missing_quote_for_t_excluded() -> None:

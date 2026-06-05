@@ -27,6 +27,7 @@ from sqlalchemy import text
 
 from quant_pipeline.db.engine import session_scope
 from quant_pipeline.factors.data_access import _load_raw_panel
+from quant_pipeline.labels._common import apply_hfq
 
 logger = logging.getLogger(__name__)
 
@@ -160,13 +161,10 @@ def load_window_increment(
     if sub.empty:
         return sub
 
-    # close_adj 计算：扩窗后的 panel 不再走 load_window_data 的 max(adj_factor) 路径，
-    # 需要在切片上独立重算（基准是切片内 max，PIT 安全）。
+    # close_adj 计算：纯后复权 close × adj_factor（唯一真理源 _common.apply_hfq，逐行、
+    # 不 groupby，对 MultiIndex 切片通用）。apply_hfq 内部已 copy，无需本地再 copy。
     if "adj_factor" in sub.columns and "close" in sub.columns:
-        sub = sub.copy()
-        af = sub["adj_factor"]
-        max_af = af.groupby(level="ts_code").transform("max")
-        sub["close_adj"] = sub["close"] * af / max_af
+        sub = apply_hfq(sub)
 
     if factor.category in ("industry", "mixed") and not base_industry_pit.empty:
         try:

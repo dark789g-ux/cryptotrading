@@ -40,6 +40,8 @@ close_adj = close × adj_factor / max(adj_factor in window per ts_code)
 
 **持久化/哈希**：`close_adj` 是内存中间量，不写入任何 DB 列；`features/builder.py::build_feature_set_id` 的哈希 payload 不含 close_adj 基准。已落库特征**不需重算**，`feature_set_id` 不漂移，可复现性不破。
 
+**浮点末位（实现时发现，修正上表「完全不变」的精确含义）**：上表是**数学等价**；但 `close_adj` 从 `×af/max_af` 改为 `×af` 改变了浮点计算路径，12 个用 close_adj 的因子输出在**末位 ULP** 变化——实测相对差异 `< 1.5e-14`（机器 epsilon 量级，对训练/排序/分类零影响）。`tests/unit/factors/test_factor_compute_unchanged.py` 用 sha256 **逐 bit** 锁定因子输出，故这 12 个黄金 hash 须重新 freeze（见 §7）；4 个量 / 排序因子（不碰 close_adj 或对末位不敏感）hash 不变。
+
 ## 3. 改动设计
 
 ### 3.1 `apply_hfq` 成为唯一实现（去 groupby）
@@ -137,12 +139,15 @@ def downgrade():                 # _SQL 模板与 upgrade 共用，仅 :d 参数
 - **改期望值**：`test_labels_common.py:70-73`，`10.0*1.0/2.0`→`10.0*1.0`、`11.0*2.0/2.0`→`11.0*2.0`、`9.8*1.0/2.0`→`9.8*1.0`、`10.8*2.0/2.0`→`10.8*2.0`。
 - **应加一条（推荐，不可省略）**：新增 `test_apply_hfq_pure_hfq`，逐行断言 `close_adj[i] == close[i] × adj_factor[i]`（不含 `max_af`），显式锁定纯后复权语义、防止未来悄悄回退到窗口 max。
 - **零变化回归**：跑 `test_factors_price.py`（全因子数值不变）、`test_forward_returns.py`、`test_labels_*`、`test_factors_runner*` 全绿。
+- **更新黄金 hash**：`test_factor_compute_unchanged.py::_EXPECTED` 的 12 个用 close_adj 的因子 hash 重新 freeze（浮点末位变化，已实测数学等价 `< 1.5e-14`）；4 个量 / 排序因子 hash 不变。
+- **已知无关失败**：`test_inference_score_writer.py::test_predict_one_day_loads_meta_and_scores` 在改动前 baseline 即失败（`inference/runner.py:141` session=None），与本次改动无关、不在范围。
 - 命令：`pnpm --filter ...` 不适用；在 `apps/quant-pipeline` 下用其既有 pytest 入口（uv run pytest）。
 
 ## 8. 验收标准 / 不变量
 
 - [ ] `apply_hfq` 不再含 `groupby`/`max_af`，4 处全部改为调用它。
-- [ ] 全量 pytest 绿；`test_factors_price.py` 数值与改前一致（零变化回归）。
+- [ ] 全量 pytest 绿（除 pre-existing 的 inference 失败）；因子数值与改前数学一致（零变化回归）。
+- [ ] `test_factor_compute_unchanged` 12 个 hash 已据浮点末位重新 freeze 并通过。
 - [ ] `feature_set_id` 哈希不变（抽查一个已落库 feature_set 的 id 不漂移）。
 - [ ] 新增 `test_apply_hfq_pure_hfq` 锁定逐行纯后复权语义并通过。
 - [ ] `fwd_5d_ret` description 在源码与 DB 两处均为「后复权」；web 标签库页显示正确。

@@ -55,7 +55,7 @@ def test_empty_labels_frame_columns() -> None:
 # ----------------------------------------------------------------------
 
 def test_apply_hfq_injects_close_adj_low_adj() -> None:
-    """后复权基准 = 窗口内该 ts_code 的 max(adj_factor)。"""
+    """纯后复权：close_adj = close × adj_factor、low_adj = low × adj_factor（逐行）。"""
 
     df = pd.DataFrame(
         [
@@ -66,11 +66,33 @@ def test_apply_hfq_injects_close_adj_low_adj() -> None:
         ]
     )
     out = apply_hfq(df)
-    # max_af = 2.0
-    assert out.iloc[0]["close_adj"] == pytest.approx(10.0 * 1.0 / 2.0)
-    assert out.iloc[1]["close_adj"] == pytest.approx(11.0 * 2.0 / 2.0)
-    assert out.iloc[0]["low_adj"] == pytest.approx(9.8 * 1.0 / 2.0)
-    assert out.iloc[1]["low_adj"] == pytest.approx(10.8 * 2.0 / 2.0)
+    # 纯后复权，不再除窗口 max(adj_factor)
+    assert out.iloc[0]["close_adj"] == pytest.approx(10.0 * 1.0)
+    assert out.iloc[1]["close_adj"] == pytest.approx(11.0 * 2.0)
+    assert out.iloc[0]["low_adj"] == pytest.approx(9.8 * 1.0)
+    assert out.iloc[1]["low_adj"] == pytest.approx(10.8 * 2.0)
+
+
+def test_apply_hfq_pure_hfq() -> None:
+    """纯后复权防回退闸门：close_adj = close × adj_factor 逐行，不除窗口 max、不按 ts_code groupby。
+
+    若回退到旧「/ max(adj_factor per ts_code)」口径，第 2/3 行断言会失败。
+    """
+
+    df = pd.DataFrame(
+        [
+            {"ts_code": "000001.SZ", "trade_date": "20240102",
+             "close": 10.0, "adj_factor": 1.0},
+            {"ts_code": "000001.SZ", "trade_date": "20240103",
+             "close": 11.0, "adj_factor": 2.0},
+            {"ts_code": "600000.SH", "trade_date": "20240102",
+             "close": 20.0, "adj_factor": 3.0},
+        ]
+    )
+    out = apply_hfq(df)
+    assert out.iloc[0]["close_adj"] == pytest.approx(10.0 * 1.0)
+    assert out.iloc[1]["close_adj"] == pytest.approx(11.0 * 2.0)  # 旧口径会是 11*2/2 = 11
+    assert out.iloc[2]["close_adj"] == pytest.approx(20.0 * 3.0)  # 旧口径会是 20*3/3 = 20
 
 
 def test_apply_hfq_nan_adj_factor_yields_nan_and_warns(caplog) -> None:

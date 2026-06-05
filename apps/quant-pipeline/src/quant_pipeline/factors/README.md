@@ -95,17 +95,16 @@
 
 ## 四、后复权价处理（doc/03 §3.2 复权陷阱）
 
-runner 在 `load_window_data` 中按窗口口径反推后复权价：
+runner 在 `load_window_data` 中调用 `labels/_common.apply_hfq` 注入纯后复权价：
 
 ```python
-af = panel["adj_factor"]
-max_af = af.groupby(level="ts_code").transform("max")
-panel["close_adj"] = panel["close"] * af / max_af
+panel["close_adj"] = panel["close"] * panel["adj_factor"]   # 纯后复权，唯一真理源
 ```
 
-因子全部用 `close_adj` 计算，**不用** `raw.daily_quote.close`（未复权）。
-单测在 conftest 第 30 日故意构造一次 1.1 倍分红跳变，验证 `momentum_20d`
-使用 `close_adj` 后值连续；如换成 `close` 则在跨越分红日的窗口出现 > 5% 的偏差。
+不除任何窗口基准 → 绝对水平 PIT 安全、可跨 run 比较。因子全部用 `close_adj`
+计算，**不用** `raw.daily_quote.close`（未复权）。单测在 conftest 第 30 日故意
+构造一次 1.1 倍分红跳变，验证 `momentum_20d` 使用 `close_adj` 后值连续；如换成
+`close` 则在跨越分红日的窗口出现 > 5% 的偏差。
 
 ## 五、行业归属（doc/07 §7.4 + doc/03 三幽灵 Bug 之一）
 

@@ -72,7 +72,7 @@ _SEED_ROWS: list[tuple[Any, ...]] = [
         {"horizon": 5},            # base_params  (FWD_HORIZON_DAYS=5 核对通过)
         None,                      # classify_mode  NULL = 连续/回归
         {},                        # classify_params
-        "未来 5 日前复权收益率（连续值，适合 LambdaRank/回归模型）",  # description
+        "未来 5 日后复权收益率（连续值，适合 LambdaRank/回归模型）",  # description
         20,                        # display_order
     ),
     (

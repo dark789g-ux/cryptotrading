@@ -10,9 +10,8 @@
 5. 每日完成后调用 worker.progress.update_progress（如果 job_id 存在）
 
 PIT 安全（doc/03）：
-- 复权：用 raw.adj_factor 反推（close_adj = close * adj_factor / latest_adj_in_window）；
-  本因子 runner 用"窗口最后一天的 adj_factor"作为基准（doc/03 §3.2 "用后复权价为基准，
-  但每日的复权因子按 PIT 独立存储；T 日的因子只用 T 日及之前的复权因子"）
+- 复权：纯后复权 close_adj = close * adj_factor（唯一真理源 labels/_common.apply_hfq）；
+  只用 T 日及之前的复权因子、不除任何窗口基准 → 绝对水平 PIT 安全（doc/03 §3.2）
 - 行业归属：raw.index_member.in_date / out_date 按 T 日筛选（PIT 安全）
 - 窗口禁止越过 T+1
 

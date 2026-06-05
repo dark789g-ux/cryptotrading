@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from quant_pipeline.labels._common import apply_hfq
+
 
 @pytest.fixture(autouse=True)
 def _ensure_factors_loaded() -> None:
@@ -106,10 +108,9 @@ def small_panel() -> pd.DataFrame:
         # 成交额（万元为常见单位；这里用 1e7..1e9 量级，便于 Amihud 数值稳定）
         amounts = rng.uniform(1e7, 1e9, size=len(dates))
         turnovers = rng.uniform(0.5, 5.0, size=len(dates))
-        # 故意在第 30 日制造分红事件：close 跳水 10%，但 adj_factor 同步上调
-        # 让 close_adj 仍然连续
-        # 后复权基准：取窗口内 max(adj_factor)=1.1，所以前 30 日的 close_adj = close*1.0/1.1
-        # 第 30 日及之后 close_adj = close*1.1/1.1 = close
+        # 故意在第 30 日制造分红事件：close 跳水 10%，但 adj_factor 同步上调，
+        # 让 close_adj（纯后复权 close × adj_factor）仍然连续：
+        # 前 30 日 close_adj = close*1.0，第 30 日及之后 close_adj = close*1.1。
         adj_factors = np.where(
             np.arange(len(dates)) < 30, 1.0, 1.1
         )
@@ -129,10 +130,8 @@ def small_panel() -> pd.DataFrame:
                 }
             )
     df = pd.DataFrame(records).set_index(["trade_date", "ts_code"]).sort_index()
-    # close_adj = close * adj_factor / max(adj_factor)（窗口口径，runner 同款）
-    af = df["adj_factor"]
-    max_af = af.groupby(level="ts_code").transform("max")
-    df["close_adj"] = df["close"] * af / max_af
+    # 纯后复权 close_adj = close × adj_factor（与 _common.apply_hfq 同口径）
+    df = apply_hfq(df)
     return df
 
 
