@@ -53,7 +53,7 @@ compute_labels(scheme, date_range, ..., force_recompute=False):
 `end_padded` = `g1` 后第 30 交易日 > `MAX_HOLD_DAYS(20)` + T+1 + 余量（`_compute_end_padded`），让 `g1` 附近入场日能看到未来价格判出场/算收益（约束 2）。
 
 **头部 padding（仅 strategy_aware scheme 要）**：
-`strategy/exit_rules.py:317-321` 真实顺序是 **先对整个 prices_df 算滚动 MA（`_ensure_ma(prices, ma_window)`，`:401` 总是从起点重算，`:407`），再切 `sub = prices[trade_date >= buy_date]`（`:321`）**。故 MA(t) 在"prices_df 起点后 `ma_window−1` 个交易日内"为 NaN，`MABreakRule` 在 MA=NaN 时不触发出场（`:121`）。
+`strategy/exit_rules.py` 的 `simulate_exit`（`:459`，带可配 `ma_window` 参数，默认 `MA_WINDOW=5`、由 `build_exit_rules` 回传）真实顺序是 **先对整个 prices_df 算滚动 MA（`_ensure_ma(prices, ma_window)`，`:501`；`_ensure_ma` 定义 `:401-415`，`rolling(window, min_periods=window)`，总是从起点重算），再切 `sub = prices[trade_date >= buy_date]`（`:504`）**。故 MA(t) 在"prices_df 起点后 `ma_window−1` 个交易日内"为 NaN，`MABreakRule` 在 MA=NaN 时不触发出场（`:121`）。
 
 → 整段算（prices_df 从 `date_range.start` 加载）的语义是 **MA(t) 非 NaN ⟺ t ≥ start + (ma_window−1) 交易日**。增量要逐行复现，缺口加载起点必须：
 

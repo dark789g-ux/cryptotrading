@@ -56,7 +56,7 @@
 | 因子表名 | `factors.daily_factors`（复数 s） | `features/runner.py:71,95` |
 | 训练加载无 date_range 过滤 | `WHERE feature_set_id=:fs ORDER BY trade_date, ts_code` | `training/runner.py:97-100` |
 | train runner 直接吃 feature_set_id | params 读 `feature_set_id`，不推算 | `training/runner.py:460-495` |
-| labels **有**头部依赖(MA) | `_ensure_ma` 先对整窗口算 rolling MA 再切 buy_date → 缺口需头部 padding `ma_window−1` 交易日 | `strategy/exit_rules.py:317-321,401,383-391` |
+| labels **有**头部依赖(MA) | `simulate_exit` 先对整窗口算 rolling MA 再切 buy_date → 缺口需头部 padding `ma_window−1` 交易日 | `strategy/exit_rules.py:459,501,504`；`_ensure_ma :401-415`；`build_exit_rules 回传 ma_window :383-391` |
 | features 无跨日依赖 | 中性化/z-score 全 `groupby(['trade_date'...])` 截面 | `builder.py:228,298,334,414` |
 | 训练类 runner 吃 feature_set_id | train/optuna/seed_avg 均直接读 `feature_set_id`，不读 labelRef | `training/runner.py:460`、`seed_averaging.py:408`、`search_spaces.py:62` |
 | 单测基线 | 773 collected（prompt 称 772） | `pytest --collect-only` |
