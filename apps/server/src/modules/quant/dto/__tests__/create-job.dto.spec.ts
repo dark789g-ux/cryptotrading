@@ -70,6 +70,86 @@ describe('validateCreateJob (train_e2e 扩展)', () => {
   });
 });
 
+describe('validateCreateJob — labels run_type fail-fast 校验', () => {
+  // ---- 通过路径 ----
+  it('labels + label_ref → 通过，labelRef 被正确解析', () => {
+    const out = validateCreateJob({
+      run_type: 'labels',
+      label_ref: { label_id: 'ret5d', label_version: 'v2' },
+    });
+    expect(out.runType).toBe('labels');
+    expect(out.labelRef).toEqual({ labelId: 'ret5d', labelVersion: 'v2' });
+  });
+
+  it('labels + params.scheme → 通过', () => {
+    const out = validateCreateJob({
+      run_type: 'labels',
+      params: { scheme: 'dir3' },
+    });
+    expect(out.runType).toBe('labels');
+    expect(out.labelRef).toBeUndefined();
+    expect(out.params.scheme).toBe('dir3');
+  });
+
+  it('labels + params.strategy_id & params.strategy_version → 通过', () => {
+    const out = validateCreateJob({
+      run_type: 'labels',
+      params: { strategy_id: 'strat-001', strategy_version: 'v3' },
+    });
+    expect(out.runType).toBe('labels');
+    expect(out.labelRef).toBeUndefined();
+    expect(out.params.strategy_id).toBe('strat-001');
+    expect(out.params.strategy_version).toBe('v3');
+  });
+
+  // ---- 拒绝路径 ----
+  it('labels 三者全缺 → BadRequestException', () => {
+    expect(() =>
+      validateCreateJob({
+        run_type: 'labels',
+        params: {},
+      }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('labels 只有 params.strategy_id 缺 strategy_version → BadRequestException', () => {
+    expect(() =>
+      validateCreateJob({
+        run_type: 'labels',
+        params: { strategy_id: 'strat-001' },
+      }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('labels 只有 params.strategy_version 缺 strategy_id → BadRequestException', () => {
+    expect(() =>
+      validateCreateJob({
+        run_type: 'labels',
+        params: { strategy_version: 'v3' },
+      }),
+    ).toThrow(BadRequestException);
+  });
+
+  // ---- 回归：其它 run_type 行为不变 ----
+  it('回归：train 缺 label_ref → 仍 400', () => {
+    expect(() =>
+      validateCreateJob({
+        run_type: 'train',
+        params: { factor_version: 'v1' },
+      }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('回归：factors 不带 label_ref/scheme → 不受新校验影响，通过', () => {
+    const out = validateCreateJob({
+      run_type: 'factors',
+      params: { factor_version: 'v1' },
+    });
+    expect(out.runType).toBe('factors');
+    expect(out.labelRef).toBeUndefined();
+  });
+});
+
 describe('MlJobEntity.resultPayload(D-13)', () => {
   it('实体字段可读写,类型为对象;默认值由 DB 端 default 提供(NestJS 侧无强 schema)', () => {
     const job = new MlJobEntity();

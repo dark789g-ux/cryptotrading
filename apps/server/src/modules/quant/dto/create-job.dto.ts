@@ -15,7 +15,8 @@ import type { MlJobRunType } from '../../../entities/ml/ml-job.entity';
  *   内部字段不在 NestJS 侧校验，由 Python worker 按 §4.1 schema 校验（避免双重 schema 维护）
  * - priority / max_attempts 若传须为正整数（priority 范围 0..1000；max_attempts 至少 1）
  * - parent_job_id / created_by 透传（created_by 通常由 controller 覆盖为当前 user.id）
- * - labelRef：训练类 run_type（TRAIN_RUN_TYPES）必填；其余 run_type 不涉及标签
+ * - labelRef：任意 run_type 传了 label_ref 都会被解析并携带；训练类（TRAIN_RUN_TYPES）缺失时 400；
+ *   labels run_type 还要求 params.scheme / label_ref / (params.strategy_id + params.strategy_version) 三者至少其一
  *   由 QuantJobsService.create() 调 LabelsService.expandForTraining() 展开写入 params
  */
 
@@ -60,7 +61,7 @@ export interface ValidatedCreateJob {
   parentJobId?: string;
   /** controller 通常会用当前 user.id 覆盖；body 中显式传入仅供 cron / 内部脚本使用 */
   createdBy?: string;
-  /** 训练类 run_type 时由 controller/service 展开填入 params；非训练类不存在 */
+  /** 任意 run_type 传了 label_ref 都会携带；训练类（TRAIN_RUN_TYPES）缺失则 400 */
   labelRef?: { labelId: string; labelVersion: string };
 }
 
@@ -129,7 +130,7 @@ export function validateCreateJob(input: unknown): ValidatedCreateJob {
     createdBy = body.created_by;
   }
 
-  // labelRef：训练类 run_type 必填，非训练类不接受
+  // labelRef：任意 run_type 传了 label_ref 都接受解析；训练类（TRAIN_RUN_TYPES）缺失时 fail-fast 400
   let labelRef: { labelId: string; labelVersion: string } | undefined;
   const isTrainType = TRAIN_RUN_TYPES.has(runType as MlJobRunType);
   if (body.label_ref !== undefined && body.label_ref !== null) {
@@ -154,6 +155,27 @@ export function validateCreateJob(input: unknown): ValidatedCreateJob {
       `run_type=${runType as string} 为训练类任务，labelRef 必填。` +
         '请在请求体中提供 label_ref: { label_id, label_version }。',
     );
+  }
+
+  // labels 专属 fail-fast：scheme / label_ref / (strategy_id + strategy_version) 三者至少其一
+  if (runType === 'labels') {
+    const hasScheme =
+      typeof params.scheme === 'string' && params.scheme.length > 0;
+    const hasLabelRef = labelRef !== undefined;
+    const hasStrategyRef =
+      typeof params.strategy_id === 'string' &&
+      params.strategy_id.length > 0 &&
+      typeof params.strategy_version === 'string' &&
+      params.strategy_version.length > 0;
+
+    if (!hasScheme && !hasLabelRef && !hasStrategyRef) {
+      throw new BadRequestException(
+        'run_type=labels 任务必须提供以下三者之一：' +
+          '(1) params.scheme（方案名字符串）；' +
+          '(2) label_ref: { label_id, label_version }；' +
+          '(3) params.strategy_id + params.strategy_version（两者均需非空）。',
+      );
+    }
   }
 
   return {
