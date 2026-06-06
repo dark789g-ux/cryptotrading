@@ -139,6 +139,7 @@ export type JobRunType =
   | 'factors'
   | 'labels'
   | 'features'
+  | 'prepare'
   | 'train'
   | 'infer'
   | 'optuna'
@@ -290,6 +291,35 @@ export interface LabelBaseTypesResponse {
 export interface LabelRef {
   label_id: string
   label_version: string
+}
+
+// ---------- Feature Set（close_adj 纯后复权改造，2026-06-06 spec） ----------
+
+/**
+ * 单个连续覆盖区间段（闭区间，trade_date 格式 YYYYMMDD）。
+ * 对齐后端 CoverageSegment 接口。
+ */
+export interface CoverageSegment {
+  start: string  // YYYYMMDD
+  end: string    // YYYYMMDD
+}
+
+/**
+ * 已物化 feature_set 列表项，对齐后端 FeatureSetItem（snake_case）。
+ * `GET /api/quant/feature-sets?materialized=true` 返回的 items[] 元素。
+ */
+export interface FeatureSet {
+  feature_set_id: string
+  factor_version: string
+  scheme: string
+  /** 新股上市后最少交易日数过滤阈值 */
+  new_listing_min_days: number
+  /** 命名标签人类可读名；label_id=NULL 时后端回退为 scheme */
+  label_name: string
+  /** 标签版本（整数字符串）；label_id=NULL 时为 null */
+  label_version: string | null
+  /** feature_matrix 里该 fs 的连续覆盖区间段列表，按 start ASC */
+  coverage: CoverageSegment[]
 }
 
 // ---------- 出场策略（quant-strategy-management，2026-06-06 spec） ----------
@@ -516,6 +546,24 @@ export const quantApi = {
    */
   listFactorVersions(): Promise<{ versions: string[] }> {
     return request<{ versions: string[] }>(`${API_BASE}/quant/factor-versions`)
+  },
+
+  /**
+   * 查询已物化的 feature_set 列表（feature_matrix 里有行的 fs）。
+   * 后端 `GET /quant/feature-sets?materialized=true`，附 label_name + coverage 区间段。
+   *
+   * @param params.materialized 传 true 时只返回有 feature_matrix 数据的 fs（当前后端唯一支持的模式）
+   */
+  async listFeatureSets(params: { materialized?: boolean } = {}): Promise<FeatureSet[]> {
+    const qs = new URLSearchParams()
+    if (params.materialized !== undefined) {
+      qs.set('materialized', params.materialized ? 'true' : 'false')
+    }
+    const s = qs.toString()
+    const res = await request<{ items: FeatureSet[] }>(
+      `${API_BASE}/quant/feature-sets${s ? `?${s}` : ''}`,
+    )
+    return res.items ?? []
   },
 
   /** 列表查询（按 status / run_type 过滤 + 分页）。M2: `GET /quant/jobs` */
