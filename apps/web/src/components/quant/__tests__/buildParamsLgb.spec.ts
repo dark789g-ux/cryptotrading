@@ -1,18 +1,16 @@
 /**
  * train-modal/buildParams：lgb 超参 + 特征/标签参数 + 枚举映射单测。
  *
- * 2026-06-05 quant-label-management spec 更新：
- *  - label_scheme 字段已废弃，改为 labelKey（label_id:label_version）
- *  - fwd_horizon_days / max_hold_days 已进标签定义，不再从 FeatureLabelModel 打包
- *  - buildJobPayload E2E 路径输出 labelRef（由 parseLabelRef 从 labelKey 解析）
+ * 2026-06-06 close_adj 纯后复权改造：
+ *  - 删 train_e2e / E2E 模式；buildJobPayload 第二参数 modeIsE2E 已移除
+ *  - TrainTriggerFormShape 改为 shared.{feature_set_id, date_range} + train/optuna/seed_avg
+ *  - parseLabelRef / isWinsorizePaired / applyFeatureLabelParams 仅属 E2E 路径，随 E2E 一并移除
  */
 import { describe, it, expect } from 'vitest'
 import {
   buildJobPayload,
   isLgbModel,
   mapNeutralizeCols,
-  isWinsorizePaired,
-  parseLabelRef,
   type TrainTriggerFormShape,
 } from '../train-modal/buildParams'
 
@@ -28,28 +26,15 @@ const EMPTY_LGB = {
   lambda_l2: null,
 }
 
-const EMPTY_FL = {
-  neutralize_cols: null,
-  robust_z: null,
-  factor_clip_sigma: null,
-  label_winsorize_lo: null,
-  label_winsorize_hi: null,
-}
-
 function freshForm(): TrainTriggerFormShape {
   return {
     run_type: 'train',
-    train: { feature_set_id: '', model: 'lgb-lambdarank', walk_forward: true, seed: null },
-    e2e: {
-      factor_version: 'v1',
-      labelKey: 'my_label:v1',
-      new_listing_min_days: 60,
+    shared: {
+      feature_set_id: 'fs-v1-20260517',
       date_range: [new Date(2026, 4, 9).getTime(), new Date(2026, 4, 11).getTime()],
-      model: 'lgb-lambdarank',
-      walk_forward: true,
-      seed: 42,
     },
-    optuna: { feature_set_id: '', n_trials: 50, space: 'lgb-4knobs' },
+    train: { model: 'lgb-lambdarank', walk_forward: true, seed: null },
+    optuna: { n_trials: 50, space: 'lgb-4knobs' },
     seed_avg: { model_version_base: '', seedsText: '42' },
   }
 }
@@ -72,193 +57,97 @@ describe('mapNeutralizeCols', () => {
   })
 })
 
-describe('parseLabelRef', () => {
-  it('正常 key → { label_id, label_version }', () => {
-    expect(parseLabelRef('my_label:v1')).toEqual({ label_id: 'my_label', label_version: 'v1' })
-  })
-  it('null → undefined', () => {
-    expect(parseLabelRef(null)).toBeUndefined()
-  })
-  it('无冒号 → undefined', () => {
-    expect(parseLabelRef('nocolon')).toBeUndefined()
-  })
-  it('多冒号取第一个', () => {
-    expect(parseLabelRef('a:b:c')).toEqual({ label_id: 'a', label_version: 'b:c' })
-  })
-})
-
-describe('isWinsorizePaired', () => {
-  it('两者皆填 → true', () => {
-    const e = { ...freshForm().e2e, featureLabel: { ...EMPTY_FL, label_winsorize_lo: -0.5, label_winsorize_hi: 0.5 } }
-    expect(isWinsorizePaired(e)).toBe(true)
-  })
-  it('两者皆空 → true', () => {
-    const e = { ...freshForm().e2e, featureLabel: { ...EMPTY_FL } }
-    expect(isWinsorizePaired(e)).toBe(true)
-  })
-  it('无 featureLabel → true', () => {
-    expect(isWinsorizePaired(freshForm().e2e)).toBe(true)
-  })
-  it('只填 lo → false', () => {
-    const e = { ...freshForm().e2e, featureLabel: { ...EMPTY_FL, label_winsorize_lo: -0.5 } }
-    expect(isWinsorizePaired(e)).toBe(false)
-  })
-  it('只填 hi → false', () => {
-    const e = { ...freshForm().e2e, featureLabel: { ...EMPTY_FL, label_winsorize_hi: 0.5 } }
-    expect(isWinsorizePaired(e)).toBe(false)
-  })
-})
-
-describe('buildJobPayload E2E labelRef 输出', () => {
-  it('labelKey 存在 → payload.labelRef 解析正确', () => {
-    const f = freshForm()
-    f.e2e.labelKey = 'fwd_ret_h1:v1'
-    const out = buildJobPayload(f, true)
-    expect(out.labelRef).toEqual({ label_id: 'fwd_ret_h1', label_version: 'v1' })
-  })
-
-  it('labelKey=null → payload.labelRef=undefined', () => {
-    const f = freshForm()
-    f.e2e.labelKey = null
-    const out = buildJobPayload(f, true)
-    expect(out.labelRef).toBeUndefined()
-  })
-
-  it('params 不再含 label_scheme', () => {
-    const f = freshForm()
-    const out = buildJobPayload(f, true)
-    expect('label_scheme' in out.params).toBe(false)
-  })
-
-  it('params 不含 dir3_band_eps', () => {
-    const f = freshForm()
-    const out = buildJobPayload(f, true)
-    expect('dir3_band_eps' in out.params).toBe(false)
-  })
-})
-
-describe('buildJobPayload E2E lgb 超参', () => {
+describe('buildJobPayload train lgb 超参', () => {
   it('lgb-lambdarank + 部分超参 → hyperparams 仅含已填项', () => {
     const f = freshForm()
-    f.e2e.model = 'lgb-lambdarank'
-    f.e2e.lgb = { ...EMPTY_LGB, num_leaves: 64, learning_rate: 0.05 }
-    const out = buildJobPayload(f, true)
-    expect(out.run_type).toBe('train_e2e')
+    f.train.model = 'lgb-lambdarank'
+    f.train.lgb = { ...EMPTY_LGB, num_leaves: 64, learning_rate: 0.05 }
+    const out = buildJobPayload(f)
+    expect(out.run_type).toBe('train')
     expect(out.params.hyperparams).toEqual({ num_leaves: 64, learning_rate: 0.05 })
   })
 
   it('lgb-multiclass + lgb 全留空 → 不输出 hyperparams', () => {
     const f = freshForm()
-    f.e2e.model = 'lgb-multiclass'
-    f.e2e.lgb = { ...EMPTY_LGB }
-    const out = buildJobPayload(f, true)
+    f.train.model = 'lgb-multiclass'
+    f.train.lgb = { ...EMPTY_LGB }
+    const out = buildJobPayload(f)
     expect('hyperparams' in out.params).toBe(false)
   })
 
   it('lgb lambda_l1=0 → 0 保留进 hyperparams', () => {
     const f = freshForm()
-    f.e2e.model = 'lgb-lambdarank'
-    f.e2e.lgb = { ...EMPTY_LGB, lambda_l1: 0, num_leaves: 31 }
-    const out = buildJobPayload(f, true)
+    f.train.model = 'lgb-lambdarank'
+    f.train.lgb = { ...EMPTY_LGB, lambda_l1: 0, num_leaves: 31 }
+    const out = buildJobPayload(f)
     expect(out.params.hyperparams).toEqual({ lambda_l1: 0, num_leaves: 31 })
   })
 
   it('非 lgb 模型即使带 lgb 字段也不输出 hyperparams', () => {
     const f = freshForm()
-    f.e2e.model = 'linear'
-    f.e2e.lgb = { ...EMPTY_LGB, num_leaves: 99 }
-    const out = buildJobPayload(f, true)
+    f.train.model = 'linear'
+    f.train.lgb = { ...EMPTY_LGB, num_leaves: 99 }
+    const out = buildJobPayload(f)
     expect('hyperparams' in out.params).toBe(false)
-  })
-})
-
-describe('buildJobPayload E2E 特征/标签参数', () => {
-  it('neutralize_cols=industry → 映射数组', () => {
-    const f = freshForm()
-    f.e2e.featureLabel = { ...EMPTY_FL, neutralize_cols: 'industry' }
-    const out = buildJobPayload(f, true)
-    expect(out.params.neutralize_cols).toEqual(['industry_l1'])
-  })
-
-  it('neutralize_cols=none → 空数组', () => {
-    const f = freshForm()
-    f.e2e.featureLabel = { ...EMPTY_FL, neutralize_cols: 'none' }
-    const out = buildJobPayload(f, true)
-    expect(out.params.neutralize_cols).toEqual([])
-  })
-
-  it('robust_z=false → 保留打包（非默认占位）', () => {
-    const f = freshForm()
-    f.e2e.featureLabel = { ...EMPTY_FL, robust_z: false }
-    const out = buildJobPayload(f, true)
-    expect(out.params.robust_z).toBe(false)
-  })
-
-  it('robust_z=null → 不打包', () => {
-    const f = freshForm()
-    f.e2e.featureLabel = { ...EMPTY_FL }
-    const out = buildJobPayload(f, true)
-    expect('robust_z' in out.params).toBe(false)
-  })
-
-  it('winsorize 成对 → params.label_winsorize=[lo,hi]', () => {
-    const f = freshForm()
-    f.e2e.featureLabel = { ...EMPTY_FL, label_winsorize_lo: -0.5, label_winsorize_hi: 0.5 }
-    const out = buildJobPayload(f, true)
-    expect(out.params.label_winsorize).toEqual([-0.5, 0.5])
-  })
-
-  it('winsorize 只填一个 → 不打包 label_winsorize', () => {
-    const f = freshForm()
-    f.e2e.featureLabel = { ...EMPTY_FL, label_winsorize_lo: -0.5 }
-    const out = buildJobPayload(f, true)
-    expect('label_winsorize' in out.params).toBe(false)
-  })
-
-  it('factor_clip_sigma 打包', () => {
-    const f = freshForm()
-    f.e2e.featureLabel = { ...EMPTY_FL, factor_clip_sigma: 3.0 }
-    const out = buildJobPayload(f, true)
-    expect(out.params.factor_clip_sigma).toBe(3.0)
-  })
-
-  it('fwd_horizon_days / max_hold_days 不再从前端参数打包（已进标签定义）', () => {
-    // 这两个字段已从 FeatureLabelModel 中移除，buildParams 不应输出
-    const f = freshForm()
-    const out = buildJobPayload(f, true)
-    expect('fwd_horizon_days' in out.params).toBe(false)
-    expect('max_hold_days' in out.params).toBe(false)
-  })
-})
-
-describe('buildJobPayload 普通 train lgb 超参', () => {
-  it('普通 train + lgb 超参 → p.hyperparams（不打特征参数）', () => {
-    const f = freshForm()
-    f.train.feature_set_id = 'fs-1'
-    f.train.model = 'lgb-multiclass'
-    f.train.lgb = { ...EMPTY_LGB, num_leaves: 31 }
-    const out = buildJobPayload(f, false)
-    expect(out.run_type).toBe('train')
-    expect(out.params.hyperparams).toEqual({ num_leaves: 31 })
-    expect('neutralize_cols' in out.params).toBe(false)
-    expect('label_winsorize' in out.params).toBe(false)
   })
 
   it('普通 train early_stopping_rounds 留 null（UI disabled）→ hyperparams 不含它', () => {
     const f = freshForm()
-    f.train.feature_set_id = 'fs-1'
     f.train.model = 'lgb-lambdarank'
     f.train.lgb = { ...EMPTY_LGB, num_leaves: 63, early_stopping_rounds: null }
-    const out = buildJobPayload(f, false)
+    const out = buildJobPayload(f)
     expect(out.params.hyperparams).toEqual({ num_leaves: 63 })
     expect('early_stopping_rounds' in (out.params.hyperparams as object)).toBe(false)
   })
+})
 
-  it('普通 train + 非 lgb 模型 → 不输出 hyperparams', () => {
+describe('buildJobPayload train params', () => {
+  it('feature_set_id + date_range 进 params', () => {
+    const out = buildJobPayload(freshForm())
+    expect(out.params.feature_set_id).toBe('fs-v1-20260517')
+    expect(out.params.date_range).toBe('20260509:20260511')
+  })
+
+  it('seed 有值时打包', () => {
     const f = freshForm()
-    f.train.feature_set_id = 'fs-1'
-    f.train.model = 'linear'
-    const out = buildJobPayload(f, false)
-    expect('hyperparams' in out.params).toBe(false)
+    f.train.seed = 7
+    const out = buildJobPayload(f)
+    expect(out.params.seed).toBe(7)
+  })
+
+  it('seed=null 时不打包', () => {
+    const out = buildJobPayload(freshForm())
+    expect('seed' in out.params).toBe(false)
+  })
+
+  it('不输出 train_e2e run_type', () => {
+    const out = buildJobPayload(freshForm())
+    expect(out.run_type).not.toBe('train_e2e')
+  })
+})
+
+describe('buildJobPayload optuna', () => {
+  it('optuna params 包含 feature_set_id + date_range + n_trials + space', () => {
+    const f = freshForm()
+    f.run_type = 'optuna'
+    const out = buildJobPayload(f)
+    expect(out.params.feature_set_id).toBe('fs-v1-20260517')
+    expect(out.params.date_range).toBe('20260509:20260511')
+    expect(out.params.n_trials).toBe(50)
+    expect(out.params.space).toBe('lgb-4knobs')
+  })
+})
+
+describe('buildJobPayload seed_avg', () => {
+  it('seed_avg params 包含 feature_set_id + date_range + model_version_base + seeds', () => {
+    const f = freshForm()
+    f.run_type = 'seed_avg'
+    f.seed_avg.model_version_base = 'lgb-v1-20260620'
+    f.seed_avg.seedsText = '42,43,44'
+    const out = buildJobPayload(f)
+    expect(out.params.feature_set_id).toBe('fs-v1-20260517')
+    expect(out.params.date_range).toBe('20260509:20260511')
+    expect(out.params.model_version_base).toBe('lgb-v1-20260620')
+    expect(out.params.seeds).toEqual([42, 43, 44])
   })
 })

@@ -15,47 +15,48 @@
         />
       </n-form-item>
 
-      <!-- run_type='train'：mode 切换（D-8 默认端到端） -->
+      <!-- 三类训练共享：已备 feature_set + date_range -->
+      <n-form-item label="已备 feature_set" required>
+        <FeatureSetSelect
+          :feature-set-id="form.shared.feature_set_id || null"
+          @update:feature-set-id="onFeatureSetIdChange"
+          @update:feature-set="onFeatureSetChange"
+        />
+      </n-form-item>
+
+      <n-form-item label="训练日期范围" required>
+        <n-date-picker
+          v-model:value="form.shared.date_range"
+          type="daterange"
+          clearable
+          :disabled="!selectedFeatureSet"
+          :is-date-disabled="isDateDisabledFn"
+          placeholder="选择日期范围"
+          style="width: 100%"
+        />
+      </n-form-item>
+
+      <!-- run_type='train' 独有参数 -->
       <template v-if="form.run_type === 'train'">
-        <n-form-item label="模式">
-          <n-switch v-model:value="modeIsE2E" data-testid="mode-switch">
-            <template #checked>端到端</template>
-            <template #unchecked>使用现有 feature_set</template>
-          </n-switch>
+        <n-form-item label="模型">
+          <n-select v-model:value="form.train.model" :options="trainModelOptions" />
         </n-form-item>
-
-        <!-- 端到端字段块（D-19 子组件） -->
-        <TrainE2EFields v-if="modeIsE2E" v-model="form.e2e" />
-
-        <!-- 老 existing feature_set 模式（保留） -->
-        <template v-else>
-          <n-form-item label="feature_set_id" required>
-            <n-input v-model:value="form.train.feature_set_id" placeholder="如：fs-v1-20260517" />
-          </n-form-item>
-          <n-form-item label="模型">
-            <n-select v-model:value="form.train.model" :options="trainModelOptions" />
-          </n-form-item>
-          <!-- lgb 系模型超参（普通 train：walk_forward 受 single_fold 限制，early_stopping disabled） -->
-          <LgbHyperFields
-            v-if="isLgbModel(form.train.model)"
-            :model-value="trainLgbModel"
-            :disable-early-stopping="true"
-            @update:model-value="onTrainLgbUpdate"
-          />
-          <n-form-item label="Walk-Forward">
-            <n-switch v-model:value="form.train.walk_forward" />
-          </n-form-item>
-          <n-form-item label="随机种子（可选）">
-            <n-input-number v-model:value="form.train.seed" :min="0" clearable />
-          </n-form-item>
-        </template>
+        <LgbHyperFields
+          v-if="isLgbModel(form.train.model)"
+          :model-value="trainLgbModel"
+          :disable-early-stopping="true"
+          @update:model-value="onTrainLgbUpdate"
+        />
+        <n-form-item label="Walk-Forward">
+          <n-switch v-model:value="form.train.walk_forward" />
+        </n-form-item>
+        <n-form-item label="随机种子（可选）">
+          <n-input-number v-model:value="form.train.seed" :min="0" clearable />
+        </n-form-item>
       </template>
 
-      <!-- run_type='optuna'（D-9 不动） -->
+      <!-- run_type='optuna' 独有参数 -->
       <template v-else-if="form.run_type === 'optuna'">
-        <n-form-item label="feature_set_id" required>
-          <n-input v-model:value="form.optuna.feature_set_id" />
-        </n-form-item>
         <n-form-item label="trial 数">
           <n-input-number v-model:value="form.optuna.n_trials" :min="1" :max="500" />
         </n-form-item>
@@ -64,15 +65,19 @@
         </n-form-item>
       </template>
 
-      <!-- run_type='seed_avg'（D-9 不动） -->
+      <!-- run_type='seed_avg' 独有参数 -->
       <template v-else-if="form.run_type === 'seed_avg'">
         <n-form-item label="基础 model_version" required>
-          <n-input v-model:value="form.seed_avg.model_version_base"
-            placeholder="如：lgb-lambdarank-v1-20260620" />
+          <n-input
+            v-model:value="form.seed_avg.model_version_base"
+            placeholder="如：lgb-lambdarank-v1-20260620"
+          />
         </n-form-item>
         <n-form-item label="种子列表">
-          <n-input v-model:value="form.seed_avg.seedsText"
-            placeholder="逗号分隔，例：42,43,44,45,46" />
+          <n-input
+            v-model:value="form.seed_avg.seedsText"
+            placeholder="逗号分隔，例：42,43,44,45,46"
+          />
         </n-form-item>
       </template>
 
@@ -102,18 +107,22 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  NAlert, NButton, NForm, NFormItem, NInput, NInputNumber, NSelect, NSwitch,
-  useMessage,
+  NAlert, NButton, NDatePicker, NForm, NFormItem, NInput, NInputNumber,
+  NSelect, NSwitch, useMessage,
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import AppModal from '@/components/common/AppModal.vue'
-import TrainE2EFields from '@/components/quant/train-modal/TrainE2EFields.vue'
-import type { E2EFormModel } from '@/components/quant/train-modal/TrainE2EFields.vue'
 import LgbHyperFields from '@/components/quant/train-modal/LgbHyperFields.vue'
 import type { LgbHyperModel } from '@/components/quant/train-modal/LgbHyperFields.vue'
-import { buildJobPayload, isLgbModel, isWinsorizePaired } from '@/components/quant/train-modal/buildParams'
+import FeatureSetSelect from '@/components/quant/train-modal/FeatureSetSelect.vue'
+import {
+  buildJobPayload,
+  isLgbModel,
+  isDateDisabled,
+  parseSeedsText,
+} from '@/components/quant/train-modal/buildParams'
 import type { TrainModelKind } from '@/components/quant/train-modal/buildParams'
-import { quantApi, type JobRunType } from '@/api/modules/quant'
+import { quantApi, type JobRunType, type FeatureSet } from '@/api/modules/quant'
 
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{
@@ -163,24 +172,18 @@ const EMPTY_LGB: LgbHyperModel = {
 const form = reactive({
   run_type: 'train' as JobRunType,
   priority: 100,
-  train: {
+  /** 三类训练共享：feature_set_id + date_range */
+  shared: {
     feature_set_id: '',
+    date_range: null as [number, number] | null,
+  },
+  train: {
     model: 'lgb-lambdarank' as TrainModelKind,
     walk_forward: true,
     seed: null as number | null,
     lgb: undefined as LgbHyperModel | undefined,
   },
-  e2e: {
-    factor_version: '',
-    labelKey: null,
-    new_listing_min_days: null,
-    date_range: null,
-    model: 'lgb-lambdarank',
-    walk_forward: true,
-    seed: null,
-  } as E2EFormModel,
   optuna: {
-    feature_set_id: '',
     n_trials: 50,
     space: 'lgb-4knobs',
   },
@@ -190,8 +193,8 @@ const form = reactive({
   },
 })
 
-/** D-8：默认端到端 */
-const modeIsE2E = ref(true)
+/** 当前选中的 FeatureSet 对象（含 coverage），用于 is-date-disabled */
+const selectedFeatureSet = ref<FeatureSet | null>(null)
 const submitting = ref(false)
 const errorText = ref('')
 
@@ -200,39 +203,48 @@ function onRunTypeChange(v: JobRunType) {
   errorText.value = ''
 }
 
+function onFeatureSetIdChange(id: string | null) {
+  form.shared.feature_set_id = id ?? ''
+  // 切换 fs 时重置已选 date_range（spec 要求）
+  form.shared.date_range = null
+}
+
+function onFeatureSetChange(fs: FeatureSet | null) {
+  selectedFeatureSet.value = fs
+  // 确保切换时同步重置（id change 事件先于 featureSet 事件，双保险）
+  form.shared.date_range = null
+}
+
+/**
+ * is-date-disabled 回调（传给 n-date-picker）。
+ * spec 要求：选中 fs 后，不落在任一 coverage 段内的日期全禁用（区间外 + 空洞）。
+ * fs 未选时整体禁用由 :disabled="!selectedFeatureSet" 控制，此回调可返 false 兜底。
+ */
+function isDateDisabledFn(ts: number): boolean {
+  if (!selectedFeatureSet.value) return true
+  return isDateDisabled(ts, selectedFeatureSet.value.coverage)
+}
+
 const canSubmit = computed(() => {
-  if (form.run_type === 'train' && modeIsE2E.value) {
-    const e = form.e2e
-    return e.factor_version.trim().length > 0
-      && !!e.labelKey
-      && Array.isArray(e.date_range)
-      && typeof e.date_range[0] === 'number'
-      && typeof e.date_range[1] === 'number'
-      && !!e.model
-      // label_winsorize 区间必须成对（只填一个 → 阻断提交，FeatureLabelFields 已内联报错）
-      && isWinsorizePaired(e)
-  }
+  const hasFs = form.shared.feature_set_id.trim().length > 0
+  const hasDr = Array.isArray(form.shared.date_range)
+    && typeof form.shared.date_range[0] === 'number'
+    && typeof form.shared.date_range[1] === 'number'
+
+  if (!hasFs || !hasDr) return false
+
   switch (form.run_type) {
     case 'train':
-      return form.train.feature_set_id.trim().length > 0
+      return true
     case 'optuna':
-      return form.optuna.feature_set_id.trim().length > 0 && form.optuna.n_trials > 0
+      return form.optuna.n_trials > 0
     case 'seed_avg':
       return form.seed_avg.model_version_base.trim().length > 0
-        && parseLocalSeeds(form.seed_avg.seedsText).length > 0
+        && parseSeedsText(form.seed_avg.seedsText).length > 0
     default:
       return false
   }
 })
-
-function parseLocalSeeds(text: string): number[] {
-  return text
-    .split(/[,，\s]+/)
-    .map(x => x.trim())
-    .filter(x => x.length > 0)
-    .map(x => Number(x))
-    .filter(n => Number.isFinite(n) && Number.isInteger(n))
-}
 
 /** 普通 train 的 lgb 超参（reactive form.train.lgb 与子组件 v-model 桥接） */
 const trainLgbModel = computed<LgbHyperModel>(() => form.train.lgb ?? EMPTY_LGB)
@@ -241,7 +253,7 @@ function onTrainLgbUpdate(value: LgbHyperModel) {
 }
 
 function buildParams() {
-  return buildJobPayload(form, modeIsE2E.value)
+  return buildJobPayload(form)
 }
 
 async function onSubmit() {
@@ -254,14 +266,8 @@ async function onSubmit() {
       run_type: payload.run_type,
       params: payload.params,
       priority: form.priority,
-      label_ref: payload.labelRef,
     })
-    if (form.run_type === 'train' && modeIsE2E.value) {
-      // D-20：长任务排队提示
-      msg.success('作业已入队。端到端训练预计 20-40 分钟，期间其他 pending 作业会排队。')
-    } else {
-      msg.success(`已提交，job_id=${job.id.slice(0, 8)}…`)
-    }
+    msg.success(`已提交，job_id=${job.id.slice(0, 8)}…`)
     emit('submitted', job.id)
     emit('update:show', false)
     router.push({ name: 'quant-jobs', query: { highlight: job.id } })
@@ -284,6 +290,6 @@ watch(
   },
 )
 
-// 暴露给单测：直接拿到内部 reactive form / mode / canSubmit / buildParams / onSubmit
-defineExpose({ form, modeIsE2E, canSubmit, buildParams, onSubmit })
+// 暴露给单测：直接拿到内部 reactive form / selectedFeatureSet / canSubmit / buildParams / onSubmit
+defineExpose({ form, selectedFeatureSet, canSubmit, buildParams, onSubmit, isDateDisabledFn })
 </script>

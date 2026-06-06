@@ -12,7 +12,6 @@ import { mount } from '@vue/test-utils'
 import { NSelect } from 'naive-ui'
 import BaseTypeFields from '../label-modal/BaseTypeFields.vue'
 import ClassifyFields from '../label-modal/ClassifyFields.vue'
-import { parseLabelRef } from '../train-modal/buildParams'
 
 // BaseTypeFields 在 strategy_aware 下会拉 enabled 策略列表，单测里 mock 掉避免真实 fetch
 vi.mock('@/api/modules/quant', () => ({
@@ -109,21 +108,4 @@ describe('ClassifyFields 动态字段切换', () => {
   })
 })
 
-// ---- parseLabelRef（已在 buildParamsLgb.spec 测，这里再做一轮覆盖以便 spec 索引） ----
-
-describe('parseLabelRef', () => {
-  it('正常 key → labelRef', () => {
-    expect(parseLabelRef('fwd_ret_h1:v1')).toEqual({
-      label_id: 'fwd_ret_h1',
-      label_version: 'v1',
-    })
-  })
-
-  it('null → undefined', () => {
-    expect(parseLabelRef(null)).toBeUndefined()
-  })
-
-  it('无冒号 → undefined', () => {
-    expect(parseLabelRef('nocolon')).toBeUndefined()
-  })
-})
+// parseLabelRef 已随 E2E 路径一同从 buildParams 删除（2026-06-06 close_adj 改造）

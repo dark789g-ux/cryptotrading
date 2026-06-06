@@ -1,17 +1,18 @@
 /**
  * QuantTrainTriggerModal + train-modal/buildParams 单测。
  *
- * 2026-06-05 quant-label-management spec 更新：
- *  - label_scheme 字段废弃，改为 labelKey（label_id:label_version）
- *  - canSubmit 检查 labelKey 而非 label_scheme
- *  - buildParams 输出 labelRef 而非 label_scheme 在 params 里
+ * 2026-06-06 close_adj 纯后复权改造：
+ *  - 删 train_e2e / E2E 模式；训练 modal 改为消费已备 feature_set
+ *  - 三类（train/optuna/seed_avg）共享 feature_set_id + date_range
+ *  - buildParams 新签名：buildJobPayload(form)（无第二参数）
  *
  * 覆盖：
- *  (1) run_type='train' 默认显示 TrainE2EFields
- *  (2) mode switch 切到"使用现有 feature_set"后 TrainE2EFields 隐藏
- *  (3) factor_version 空时提交按钮 disabled
- *  (4) buildParams 输出 run_type='train_e2e' + labelRef
- *  (5) formatDateRange 用本地午夜：new Date(2026, 4, 9) → '20260509'（不漂前/后）
+ *  (1) 默认显示"已备 feature_set"下拉 + date_range（无 E2E 开关）
+ *  (2) fs 未选时 canSubmit=false
+ *  (3) 选 fs + date_range 后 canSubmit=true（train）
+ *  (4) buildParams 输出 run_type='train' + feature_set_id + date_range
+ *  (5) optuna / seed_avg 也携带 feature_set_id + date_range
+ *  (6) formatDateRange 用本地午夜：new Date(2026, 4, 9) → '20260509'（不漂前/后）
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { defineComponent, h, nextTick } from 'vue'
@@ -19,14 +20,13 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { NConfigProvider, NMessageProvider } from 'naive-ui'
 
 import QuantTrainTriggerModal from '../QuantTrainTriggerModal.vue'
-import TrainE2EFields from '../train-modal/TrainE2EFields.vue'
 import {
   buildJobPayload,
   formatDateRange,
   type TrainTriggerFormShape,
 } from '../train-modal/buildParams'
 
-// vue-router stub：useRouter() 在 SFC 内调用，必须 mock
+// vue-router stub
 vi.mock('vue-router', () => ({
   useRouter: () => ({
     push: vi.fn(),
@@ -44,13 +44,21 @@ vi.mock('@/api/modules/quant', async () => {
     ...actual,
     quantApi: {
       createJob: vi.fn().mockResolvedValue({ id: 'job-abc-12345678' }),
-      listFactorVersions: vi.fn().mockResolvedValue({ versions: ['v1'] }),
-      listLabels: vi.fn().mockResolvedValue({ items: [] }),
+      listFeatureSets: vi.fn().mockResolvedValue([
+        {
+          feature_set_id: 'fs-v1-20260517',
+          factor_version: 'v1',
+          scheme: 'default',
+          new_listing_min_days: 60,
+          label_name: '次日涨跌 h1',
+          label_version: '1',
+          coverage: [{ start: '20230101', end: '20241231' }],
+        },
+      ]),
     },
   }
 })
 
-// 用 NMessageProvider 包裹，确保 useMessage 不抛
 function mountModal() {
   const Wrapper = defineComponent({
     components: { NConfigProvider, NMessageProvider, QuantTrainTriggerModal },
@@ -72,10 +80,11 @@ function getModalVm(wrapper: ReturnType<typeof mountModal>) {
   expect(inner.exists()).toBe(true)
   return inner.vm as unknown as {
     form: TrainTriggerFormShape & { priority: number; run_type: string }
-    modeIsE2E: boolean
+    selectedFeatureSet: import('@/api/modules/quant').FeatureSet | null
     canSubmit: boolean
-    buildParams: () => { run_type: string; params: Record<string, unknown>; labelRef?: { label_id: string; label_version: string } }
+    buildParams: () => { run_type: string; params: Record<string, unknown> }
     onSubmit: () => Promise<void>
+    isDateDisabledFn: (ts: number) => boolean
   }
 }
 
@@ -84,107 +93,102 @@ describe('QuantTrainTriggerModal', () => {
     vi.clearAllMocks()
   })
 
-  it("run_type='train' 默认显示 TrainE2EFields（D-8 默认端到端）", async () => {
+  it('(1) 无 E2E 开关，改为 feature_set 下拉模式', async () => {
     const wrapper = mountModal()
     await nextTick()
     await flushPromises()
 
-    const e2e = wrapper.findComponent(TrainE2EFields)
-    expect(e2e.exists()).toBe(true)
+    // 不应存在"mode-switch"（E2E 开关已删）
+    const modeSwitch = wrapper.find('[data-testid="mode-switch"]')
+    expect(modeSwitch.exists()).toBe(false)
   })
 
-  it('mode switch 切到"使用现有 feature_set"后 TrainE2EFields 隐藏', async () => {
+  it('(2) fs 未选时 canSubmit=false', async () => {
+    const wrapper = mountModal()
+    await nextTick()
+    const vm = getModalVm(wrapper)
+    expect(vm.canSubmit).toBe(false)
+  })
+
+  it('(3) 选 fs + date_range 后 canSubmit=true（train）', async () => {
     const wrapper = mountModal()
     await nextTick()
     const vm = getModalVm(wrapper)
 
-    expect(wrapper.findComponent(TrainE2EFields).exists()).toBe(true)
-    ;(vm as unknown as { modeIsE2E: boolean }).modeIsE2E = false
-    await nextTick()
-    expect(wrapper.findComponent(TrainE2EFields).exists()).toBe(false)
-  })
-
-  it('factor_version 空时提交按钮 disabled', async () => {
-    const wrapper = mountModal()
-    await nextTick()
-    const vm = getModalVm(wrapper)
-
-    // 端到端模式默认：factor_version='' → canSubmit=false
-    expect(vm.canSubmit).toBe(false)
-
-    // 灌齐其他必填字段，仅留 factor_version 空（labelKey 也填）
-    vm.form.e2e.labelKey = 'my_label:v1'
-    vm.form.e2e.date_range = [new Date(2026, 4, 1).getTime(), new Date(2026, 4, 31).getTime()]
-    vm.form.e2e.model = 'lgb-lambdarank'
-    await nextTick()
-    expect(vm.canSubmit).toBe(false)
-
-    // 补齐 factor_version → canSubmit=true
-    vm.form.e2e.factor_version = 'v1'
+    vm.form.shared.feature_set_id = 'fs-v1-20260517'
+    vm.form.shared.date_range = [new Date(2023, 0, 1).getTime(), new Date(2024, 11, 31).getTime()]
     await nextTick()
     expect(vm.canSubmit).toBe(true)
   })
 
-  it("buildParams 输出 run_type='train_e2e' + labelRef（不含 label_scheme）", async () => {
+  it("(4) buildParams 输出 run_type='train' + feature_set_id + date_range", async () => {
     const wrapper = mountModal()
     await nextTick()
     const vm = getModalVm(wrapper)
 
-    vm.form.e2e.factor_version = 'v1'
-    vm.form.e2e.labelKey = 'fwd_ret_h1:v1'
-    vm.form.e2e.new_listing_min_days = 30
-    vm.form.e2e.date_range = [new Date(2026, 4, 9).getTime(), new Date(2026, 4, 11).getTime()]
-    vm.form.e2e.model = 'lgb-lambdarank'
-    vm.form.e2e.walk_forward = true
-    vm.form.e2e.seed = 7
+    vm.form.run_type = 'train'
+    vm.form.shared.feature_set_id = 'fs-v1-20260517'
+    vm.form.shared.date_range = [new Date(2026, 4, 9).getTime(), new Date(2026, 4, 11).getTime()]
+    vm.form.train.model = 'lgb-lambdarank'
+    vm.form.train.walk_forward = true
     await nextTick()
 
     const payload = vm.buildParams()
-    expect(payload.run_type).toBe('train_e2e')
+    expect(payload.run_type).toBe('train')
     expect(payload.params).toMatchObject({
-      factor_version: 'v1',
-      new_listing_min_days: 30,
+      feature_set_id: 'fs-v1-20260517',
       date_range: '20260509:20260511',
       model: 'lgb-lambdarank',
       walk_forward: true,
-      seed: 7,
     })
-    // labelRef 在顶层，不在 params 里
-    expect(payload.labelRef).toEqual({ label_id: 'fwd_ret_h1', label_version: 'v1' })
-    expect('label_scheme' in payload.params).toBe(false)
+    // 新流程无 labelRef / label_ref
+    expect('labelRef' in payload).toBe(false)
   })
 
-  it("buildParams 在 min_days / seed 为 null 时回填后端默认 60 / 42", async () => {
+  it('(5a) optuna 携带 feature_set_id + date_range', async () => {
     const wrapper = mountModal()
     await nextTick()
     const vm = getModalVm(wrapper)
 
-    vm.form.e2e.factor_version = 'v2'
-    vm.form.e2e.labelKey = 'tercile_label:v1'
-    vm.form.e2e.new_listing_min_days = null
-    vm.form.e2e.date_range = [new Date(2026, 0, 1).getTime(), new Date(2026, 0, 10).getTime()]
-    vm.form.e2e.model = 'gbdt'
-    vm.form.e2e.walk_forward = false
-    vm.form.e2e.seed = null
+    vm.form.run_type = 'optuna'
+    vm.form.shared.feature_set_id = 'fs-v2-20260101'
+    vm.form.shared.date_range = [new Date(2026, 0, 1).getTime(), new Date(2026, 5, 30).getTime()]
     await nextTick()
 
     const payload = vm.buildParams()
-    expect(payload.run_type).toBe('train_e2e')
-    expect(payload.params.new_listing_min_days).toBe(60)
-    expect(payload.params.seed).toBe(42)
-    expect(payload.params.date_range).toBe('20260101:20260110')
+    expect(payload.run_type).toBe('optuna')
+    expect(payload.params.feature_set_id).toBe('fs-v2-20260101')
+    expect(payload.params.date_range).toBe('20260101:20260630')
   })
 
-  it('onSubmit 把 labelRef 映射为 wire 键 label_ref 传给 createJob（端到端契约防回归）', async () => {
+  it('(5b) seed_avg 携带 feature_set_id + date_range', async () => {
+    const wrapper = mountModal()
+    await nextTick()
+    const vm = getModalVm(wrapper)
+
+    vm.form.run_type = 'seed_avg'
+    vm.form.shared.feature_set_id = 'fs-v1-20260517'
+    vm.form.shared.date_range = [new Date(2026, 3, 1).getTime(), new Date(2026, 5, 30).getTime()]
+    vm.form.seed_avg.model_version_base = 'lgb-lambdarank-v1-20260620'
+    await nextTick()
+
+    const payload = vm.buildParams()
+    expect(payload.run_type).toBe('seed_avg')
+    expect(payload.params.feature_set_id).toBe('fs-v1-20260517')
+    expect(payload.params.date_range).toBe('20260401:20260630')
+    expect(payload.params.model_version_base).toBe('lgb-lambdarank-v1-20260620')
+  })
+
+  it('onSubmit 使用 feature_set_id 不再传 label_ref', async () => {
     const wrapper = mountModal()
     await nextTick()
     await flushPromises()
     const vm = getModalVm(wrapper)
 
-    vm.form.e2e.factor_version = 'v1'
-    vm.form.e2e.labelKey = 'next_day_band05:v1'
-    vm.form.e2e.date_range = [new Date(2026, 4, 1).getTime(), new Date(2026, 4, 31).getTime()]
-    vm.form.e2e.model = 'lgb-lambdarank'
+    vm.form.run_type = 'train'
+    vm.form.shared.feature_set_id = 'fs-v1-20260517'
+    vm.form.shared.date_range = [new Date(2026, 4, 1).getTime(), new Date(2026, 4, 31).getTime()]
+    vm.form.train.model = 'lgb-lambdarank'
     await nextTick()
     expect(vm.canSubmit).toBe(true)
 
@@ -195,10 +199,10 @@ describe('QuantTrainTriggerModal', () => {
     const createJobMock = quantApi.createJob as unknown as ReturnType<typeof vi.fn>
     expect(createJobMock).toHaveBeenCalledTimes(1)
     const body = createJobMock.mock.calls[0][0] as Record<string, unknown>
-    // wire 键必须是 snake_case label_ref（与后端 DTO body.label_ref 对齐），
-    // 不能回归成 camelCase labelRef —— 这是 C-1 漏网的根因，本断言守住它。
-    expect(body.label_ref).toEqual({ label_id: 'next_day_band05', label_version: 'v1' })
-    expect('labelRef' in body).toBe(false)
+    expect(body.run_type).toBe('train')
+    // 新流程不再传 label_ref
+    expect('label_ref' in body).toBe(false)
+    expect((body.params as Record<string, unknown>).feature_set_id).toBe('fs-v1-20260517')
   })
 })
 
@@ -225,44 +229,50 @@ describe('buildJobPayload (工具模块直测)', () => {
   function freshForm(): TrainTriggerFormShape {
     return {
       run_type: 'train',
-      train: { feature_set_id: '', model: 'lgb-lambdarank', walk_forward: true, seed: null },
-      e2e: {
-        factor_version: 'v1',
-        labelKey: 'strategy_label:v1',
-        new_listing_min_days: 60,
+      shared: {
+        feature_set_id: 'fs-v1-20260517',
         date_range: [new Date(2026, 4, 9).getTime(), new Date(2026, 4, 11).getTime()],
-        model: 'lgb-lambdarank',
-        walk_forward: true,
-        seed: 42,
       },
-      optuna: { feature_set_id: '', n_trials: 50, space: 'lgb-4knobs' },
+      train: { model: 'lgb-lambdarank', walk_forward: true, seed: null },
+      optuna: { n_trials: 50, space: 'lgb-4knobs' },
       seed_avg: { model_version_base: '', seedsText: '42,43,44,45,46' },
     }
   }
 
-  it("e2e 模式 → run_type='train_e2e' + labelRef", () => {
-    const out = buildJobPayload(freshForm(), true)
-    expect(out.run_type).toBe('train_e2e')
-    expect(out.params.factor_version).toBe('v1')
-    expect(out.params.new_listing_min_days).toBe(60)
+  it("train → run_type='train' + feature_set_id + date_range", () => {
+    const out = buildJobPayload(freshForm())
+    expect(out.run_type).toBe('train')
+    expect(out.params.feature_set_id).toBe('fs-v1-20260517')
     expect(out.params.date_range).toBe('20260509:20260511')
     expect(out.params.model).toBe('lgb-lambdarank')
     expect(out.params.walk_forward).toBe(true)
-    expect(out.params.seed).toBe(42)
-    expect(out.labelRef).toEqual({ label_id: 'strategy_label', label_version: 'v1' })
-    // label_scheme 不在 params
-    expect('label_scheme' in out.params).toBe(false)
   })
 
-  it("e2e 模式关闭 → 走老 train 路径，不输出 train_e2e", () => {
+  it("optuna → run_type='optuna' + feature_set_id + date_range", () => {
     const f = freshForm()
-    f.train.feature_set_id = 'fs-v1-20260517'
-    const out = buildJobPayload(f, false)
-    expect(out.run_type).toBe('train')
-    expect(out.params).toEqual({
-      feature_set_id: 'fs-v1-20260517',
-      model: 'lgb-lambdarank',
-      walk_forward: true,
-    })
+    f.run_type = 'optuna'
+    const out = buildJobPayload(f)
+    expect(out.run_type).toBe('optuna')
+    expect(out.params.feature_set_id).toBe('fs-v1-20260517')
+    expect(out.params.date_range).toBe('20260509:20260511')
+    expect(out.params.n_trials).toBe(50)
+    expect(out.params.space).toBe('lgb-4knobs')
+  })
+
+  it("seed_avg → run_type='seed_avg' + feature_set_id + date_range", () => {
+    const f = freshForm()
+    f.run_type = 'seed_avg'
+    f.seed_avg.model_version_base = 'lgb-v1-20260620'
+    const out = buildJobPayload(f)
+    expect(out.run_type).toBe('seed_avg')
+    expect(out.params.feature_set_id).toBe('fs-v1-20260517')
+    expect(out.params.date_range).toBe('20260509:20260511')
+    expect(out.params.model_version_base).toBe('lgb-v1-20260620')
+    expect(Array.isArray(out.params.seeds)).toBe(true)
+  })
+
+  it('无 train_e2e run_type 输出', () => {
+    const out = buildJobPayload(freshForm())
+    expect(out.run_type).not.toBe('train_e2e')
   })
 })

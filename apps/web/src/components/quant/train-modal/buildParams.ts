@@ -5,12 +5,13 @@
  * formatDateRange 必须用 getFullYear/getMonth/getDate，禁 getUTC*——曾把
  * `20260509` 漂成 `20260508` 导致整次同步看似完成实则一行未写。
  *
- * 2026-06-05 quant-label-management spec：
- * - label_scheme 下拉已废弃；E2E 改用 labelRef:{label_id, label_version}
- * - applyFeatureLabelParams 移除 fwd_horizon_days / max_hold_days（已进标签定义）
+ * 2026-06-06 close_adj 纯后复权改造 spec：
+ * - 删 train_e2e / E2E 模式；训练 modal 只保留 train/optuna/seed_avg
+ * - 三类训练均改为消费已备 feature_set，params = { feature_set_id, date_range, ... }
+ * - isDateDisabled：按 coverage 段禁用不在任一段内的日期（区间外 + 空洞）
  */
-import type { JobRunType, LabelRef } from '@/api/modules/quant'
-import type { E2EFormModel } from './TrainE2EFields.vue'
+import type { JobRunType } from '@/api/modules/quant'
+import type { CoverageSegment } from '@/api/modules/quant'
 import type { LgbHyperModel } from './LgbHyperFields.vue'
 import type { NeutralizeCols } from './FeatureLabelFields.vue'
 
@@ -23,16 +24,19 @@ export type TrainModelKind =
 
 export interface TrainTriggerFormShape {
   run_type: JobRunType
-  train: {
+  /** 三类训练（train/optuna/seed_avg）共享字段 */
+  shared: {
     feature_set_id: string
+    date_range: [number, number] | null
+  }
+  train: {
     model: TrainModelKind
     walk_forward: boolean
     seed: number | null
     /** 仅 model ∈ {lgb-lambdarank, lgb-multiclass} 时有意义 */
     lgb?: LgbHyperModel
   }
-  e2e: E2EFormModel
-  optuna: { feature_set_id: string; n_trials: number; space: string }
+  optuna: { n_trials: number; space: string }
   seed_avg: { model_version_base: string; seedsText: string }
 }
 
@@ -58,8 +62,6 @@ export function mapNeutralizeCols(v: NeutralizeCols): string[] {
 
 /**
  * 过滤对象中 null / undefined 的项，**保留 0 与 false**（业务有效值）。
- * 用于 LSTM 超参：用户留空（null）的字段不进 payload → 后端补 DEFAULT_LSTM_HYPERPARAMS，
- * 避免前端双源默认值。
  */
 export function pickDefined<T extends Record<string, unknown>>(
   obj: T,
@@ -77,10 +79,15 @@ export function pickDefined<T extends Record<string, unknown>>(
 export interface BuiltJobPayload {
   run_type: JobRunType
   params: Record<string, unknown>
-  /** 训练类任务必填，后端展开为明文 base_type/classify_mode 等参数 */
-  labelRef?: LabelRef
 }
 
+/**
+ * 把 n-date-picker daterange 的 [startMs, endMs]（本地午夜 ms）转为后端期望的
+ * "YYYYMMDD:YYYYMMDD" 字符串。
+ *
+ * CLAUDE.md 硬约束：用 getFullYear/getMonth/getDate（本地 TZ），禁 getUTC*。
+ * 曾把 `20260509` 漂成 `20260508`（CST 用户 UTC 差 8h）。
+ */
 export function formatDateRange(range: [number, number]): string {
   const fmt = (ms: number) => {
     const d = new Date(ms)
@@ -103,93 +110,40 @@ export function parseSeedsText(text: string): number[] {
 }
 
 /**
- * E2E label_winsorize_lo / hi 是否成对（同填或同空）。只填一个返回 false（前端阻断提交）。
+ * is-date-disabled 核心逻辑（纯函数，便于单测）。
+ *
+ * ts 是 n-date-picker 传入的时间戳（本地午夜 ms）。
+ * 把它转成 YYYYMMDD 字符串后，检查是否落在 coverage 的任一段内（含端点）。
+ * 不落在任何段内（区间外 + 空洞）返回 true（禁用）。
+ *
+ * coverage 段的 start/end 是 YYYYMMDD 字符串，直接字符串比较（字典序 == 时间序）。
  */
-export function isWinsorizePaired(e: E2EFormModel): boolean {
-  const fl = e.featureLabel
-  if (!fl) return true
-  const loSet = fl.label_winsorize_lo != null
-  const hiSet = fl.label_winsorize_hi != null
-  return loSet === hiSet
-}
-
-/**
- * 把 E2E 特征/标签参数打包进 params（仅非 null 项；neutralize 枚举映射；winsorize 成对打包）。
- * fwd_horizon_days / max_hold_days 已进标签定义，不再从前端参数打包。
- */
-function applyFeatureLabelParams(
-  params: Record<string, unknown>,
-  e: E2EFormModel,
-): void {
-  const fl = e.featureLabel
-  if (!fl) return
-  if (fl.neutralize_cols != null) {
-    params.neutralize_cols = mapNeutralizeCols(fl.neutralize_cols)
-  }
-  if (fl.robust_z != null) {
-    params.robust_z = fl.robust_z
-  }
-  if (fl.factor_clip_sigma != null) {
-    params.factor_clip_sigma = fl.factor_clip_sigma
-  }
-  // 区间成对：二者均非 null 才打包（只填一个由 isWinsorizePaired 在提交前阻断）
-  if (fl.label_winsorize_lo != null && fl.label_winsorize_hi != null) {
-    params.label_winsorize = [fl.label_winsorize_lo, fl.label_winsorize_hi]
-  }
-}
-
-/**
- * 从 E2E 表单的 labelKey（"label_id:label_version"）解析出 LabelRef。
- * labelKey 为 null 时返回 undefined（调用方应在提交前校验）。
- */
-export function parseLabelRef(labelKey: string | null): LabelRef | undefined {
-  if (!labelKey) return undefined
-  const idx = labelKey.indexOf(':')
-  if (idx < 0) return undefined
-  return {
-    label_id: labelKey.slice(0, idx),
-    label_version: labelKey.slice(idx + 1),
-  }
+export function isDateDisabled(ts: number, coverage: CoverageSegment[]): boolean {
+  if (coverage.length === 0) return true
+  const d = new Date(ts)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const dateStr = `${y}${m}${day}`
+  return !coverage.some(seg => dateStr >= seg.start && dateStr <= seg.end)
 }
 
 export function buildJobPayload(
   form: TrainTriggerFormShape,
-  modeIsE2E: boolean,
 ): BuiltJobPayload {
-  if (form.run_type === 'train' && modeIsE2E) {
-    const e = form.e2e
-    const params: Record<string, unknown> = {
-      factor_version: e.factor_version.trim(),
-      new_listing_min_days: e.new_listing_min_days ?? 60,
-      date_range: formatDateRange(e.date_range as [number, number]),
-      model: e.model,
-      walk_forward: e.walk_forward,
-      seed: e.seed ?? 42,
-    }
-    // 模型超参（仅打包用户显式填写的项 → 后端补默认，避免双源默认值）
-    if (e.model === 'lstm' && e.lstm) {
-      const hp = pickDefined(e.lstm as unknown as Record<string, unknown>)
-      if (Object.keys(hp).length > 0) params.hyperparams = hp
-    } else if (isLgbModel(e.model) && e.lgb) {
-      const hp = pickDefined(e.lgb as unknown as Record<string, unknown>)
-      if (Object.keys(hp).length > 0) params.hyperparams = hp
-    }
-    // 特征/标签参数（E2E 专属；普通 train 不打包，特征矩阵已由 feature_set_id 固定）
-    applyFeatureLabelParams(params, e)
-    // labelRef：由 parseLabelRef 从 labelKey 解析，作为顶层字段传给 createJob
-    const labelRef = parseLabelRef(e.labelKey ?? null)
-    return { run_type: 'train_e2e', params, labelRef }
-  }
+  const { feature_set_id, date_range } = form.shared
+  const dateRangeStr = date_range ? formatDateRange(date_range) : ''
+
   if (form.run_type === 'train') {
     const p: Record<string, unknown> = {
-      feature_set_id: form.train.feature_set_id.trim(),
+      feature_set_id: feature_set_id.trim(),
+      date_range: dateRangeStr,
       model: form.train.model,
       walk_forward: form.train.walk_forward,
     }
     if (form.train.seed !== null && form.train.seed !== undefined) {
       p.seed = form.train.seed
     }
-    // 普通 train 的 lgb 超参（early_stopping_rounds UI 已 disabled，pickDefined 自然不含它）
     if (isLgbModel(form.train.model) && form.train.lgb) {
       const hp = pickDefined(form.train.lgb as unknown as Record<string, unknown>)
       if (Object.keys(hp).length > 0) p.hyperparams = hp
@@ -200,7 +154,8 @@ export function buildJobPayload(
     return {
       run_type: 'optuna',
       params: {
-        feature_set_id: form.optuna.feature_set_id.trim(),
+        feature_set_id: feature_set_id.trim(),
+        date_range: dateRangeStr,
         n_trials: form.optuna.n_trials,
         space: form.optuna.space.trim(),
       },
@@ -210,6 +165,8 @@ export function buildJobPayload(
     return {
       run_type: 'seed_avg',
       params: {
+        feature_set_id: feature_set_id.trim(),
+        date_range: dateRangeStr,
         model_version_base: form.seed_avg.model_version_base.trim(),
         seeds: parseSeedsText(form.seed_avg.seedsText),
       },
