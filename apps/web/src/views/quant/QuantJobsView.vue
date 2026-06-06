@@ -27,6 +27,12 @@
           @update:value="reload"
         />
         <n-button type="primary" size="small" @click="showTrigger = true">触发训练</n-button>
+        <n-button size="small" @click="showPrepare = true">备料</n-button>
+        <n-button
+          v-if="auth.isAdmin.value"
+          size="small"
+          @click="showTargetedUpdate = true"
+        >定向更新</n-button>
         <n-button size="small" :disabled="loading" @click="reload">刷新</n-button>
       </div>
     </div>
@@ -55,6 +61,16 @@
       v-model:show="showTrigger"
       @submitted="onSubmitted"
     />
+
+    <QuantTargetedUpdateModal
+      v-model:show="showTargetedUpdate"
+      @submitted="onSubmitted"
+    />
+
+    <PrepareModal
+      v-model:show="showPrepare"
+      @submitted="onSubmitted"
+    />
   </div>
 </template>
 
@@ -67,10 +83,13 @@ import {
 import type { DataTableColumns, PaginationProps, SelectOption } from 'naive-ui'
 import ProgressLine from '@/components/quant/ProgressLine.vue'
 import QuantTrainTriggerModal from '@/components/quant/QuantTrainTriggerModal.vue'
+import QuantTargetedUpdateModal from '@/components/quant/targeted-update/QuantTargetedUpdateModal.vue'
+import PrepareModal from '@/components/quant/PrepareModal.vue'
 import JobWarningsPanel from '@/components/quant/JobWarningsPanel.vue'
 import {
   quantApi, type JobRow, type JobRunType, type JobStatus, type WarningItem,
 } from '@/api/modules/quant'
+import { useAuth } from '@/composables/hooks/useAuth'
 
 const route = useRoute()
 const router = useRouter()
@@ -86,7 +105,10 @@ const errorText = ref('')
 
 const statusFilter = ref<JobStatus[]>([])
 const runTypeFilter = ref<JobRunType[]>([])
+const auth = useAuth()
 const showTrigger = ref(false)
+const showPrepare = ref(false)
+const showTargetedUpdate = ref(false)
 const highlightId = ref<string>('')
 
 let pollTimer: number | null = null
