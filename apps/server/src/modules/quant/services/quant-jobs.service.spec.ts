@@ -9,6 +9,7 @@ import {
 } from './quant-jobs.service';
 import { SseTokenService } from './sse-token.service';
 import { LabelsService } from '../labels/labels.service';
+import { QuantFeatureSetsService } from '../feature-sets/quant-feature-sets.service';
 import { MlJobEntity } from '../../../entities/ml/ml-job.entity';
 import type { ValidatedCreateJob } from '../dto/create-job.dto';
 import type { ValidatedJobQuery } from '../dto/job-query.dto';
@@ -69,6 +70,11 @@ describe('QuantJobsService', () => {
       }),
     };
 
+    // feature_set_id='fs-1' → 覆盖整年；optuna/seed_avg dto 传的 params 无 feature_set_id 所以走 non-FEATURE_SET branch
+    const featureSetsServiceMock = {
+      coverage: jest.fn().mockResolvedValue([{ start: '20260101', end: '20261231' }]),
+    };
+
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         QuantJobsService,
@@ -76,6 +82,7 @@ describe('QuantJobsService', () => {
         { provide: getRepositoryToken(MlJobEntity), useValue: repo },
         { provide: ConfigService, useValue: config },
         { provide: LabelsService, useValue: labelsServiceMock },
+        { provide: QuantFeatureSetsService, useValue: featureSetsServiceMock },
       ],
     }).compile();
 
@@ -90,7 +97,8 @@ describe('QuantJobsService', () => {
     it('insert pending job with given params/priority/maxAttempts，createdBy 来自调用方', async () => {
       const dto: ValidatedCreateJob = {
         runType: 'train',
-        params: { feature_set_id: 'fs-1', model: 'lgb-lambdarank' },
+        // feature_set_id + date_range 必填（FEATURE_SET_RUN_TYPES 校验）；coverage mock 返回全年段
+        params: { feature_set_id: 'fs-1', date_range: '20260101:20260630', model: 'lgb-lambdarank' },
         priority: 50,
         maxAttempts: 3,
       };
@@ -98,7 +106,7 @@ describe('QuantJobsService', () => {
       expect(repo.create).toHaveBeenCalledWith(
         expect.objectContaining({
           runType: 'train',
-          params: { feature_set_id: 'fs-1', model: 'lgb-lambdarank' },
+          params: { feature_set_id: 'fs-1', date_range: '20260101:20260630', model: 'lgb-lambdarank' },
           priority: 50,
           maxAttempts: 3,
           status: 'pending',
@@ -116,7 +124,8 @@ describe('QuantJobsService', () => {
     it('dto.parentJobId / dto.createdBy 在 controller 未提供 createdBy 时也能透传', async () => {
       const dto: ValidatedCreateJob = {
         runType: 'optuna',
-        params: {},
+        // feature_set_id + date_range 必填（FEATURE_SET_RUN_TYPES 校验）
+        params: { feature_set_id: 'fs-1', date_range: '20260101:20260630' },
         priority: 100,
         maxAttempts: 1,
         parentJobId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',

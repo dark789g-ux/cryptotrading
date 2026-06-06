@@ -40,11 +40,11 @@ export type MlJobRunType =
   | 'factors'
   | 'labels'
   | 'features'
+  | 'prepare'
   | 'train'
   | 'infer'
   | 'optuna'
-  | 'seed_avg'
-  | 'train_e2e';
+  | 'seed_avg';
 
 @Entity({ schema: 'ml', name: 'jobs' })
 @Index(['status', 'priority', 'createdAt'])
@@ -111,7 +111,7 @@ export class MlJobEntity {
   finishedAt: Date | null;
 
   /**
-   * train_e2e 等流水线 run_type 完成后回写的结果摘要(D-13)。
+   * prepare 等流水线 run_type 完成后回写的结果摘要(D-13)。
    *
    * 典型字段:
    * - `feature_set_id`：worker labels→features 阶段派生出的 feature_set 主键

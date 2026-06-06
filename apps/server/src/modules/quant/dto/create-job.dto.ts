@@ -9,20 +9,28 @@ import type { MlJobRunType } from '../../../entities/ml/ml-job.entity';
  * - 校验放到独立 `validate*` 函数，由 controller 显式调用
  * 这样避免本 PR 新增一个全仓库都未用过的顶层依赖；规则严格度与 class-validator 等价。
  *
- * 校验规则：
+ * 校验规则（spec 03-backend-decoupling.md run_type 参数契约）：
  * - run_type 必须 ∈ ALLOWED_RUN_TYPES
  * - params 必须为对象（不能是数组 / null / 标量），不传则默认 `{}`
  *   内部字段不在 NestJS 侧校验，由 Python worker 按 §4.1 schema 校验（避免双重 schema 维护）
  * - priority / max_attempts 若传须为正整数（priority 范围 0..1000；max_attempts 至少 1）
  * - parent_job_id / created_by 透传（created_by 通常由 controller 覆盖为当前 user.id）
- * - labelRef：任意 run_type 传了 label_ref 都会被解析并携带；训练类（TRAIN_RUN_TYPES）缺失时 400；
- *   labels run_type 还要求 params.scheme / label_ref / (params.strategy_id + params.strategy_version) 三者至少其一
- *   由 QuantJobsService.create() 调 LabelsService.expandForTraining() 展开写入 params
+ *
+ * labelRef 与 feature_set_id 的契约分组：
+ *   - LABEL_REF_RUN_TYPES  {labels, features, prepare}：需 labelRef（后端展开 scheme）
+ *   - FEATURE_SET_RUN_TYPES {train, optuna, seed_avg}：需 feature_set_id + date_range（不要 labelRef）
+ *     由 QuantJobsService.create() 进一步校验 date_range ⊆ R_F 且无空洞
  */
 
-/** 需要 labelRef 的训练类 run_type（spec 03-backend.md） */
-export const TRAIN_RUN_TYPES: ReadonlySet<MlJobRunType> = new Set<MlJobRunType>([
-  'train_e2e',
+/** 需要 labelRef 展开的 run_type（spec 03-backend-decoupling.md §run_type 参数契约） */
+export const LABEL_REF_RUN_TYPES: ReadonlySet<MlJobRunType> = new Set<MlJobRunType>([
+  'labels',
+  'features',
+  'prepare',
+]);
+
+/** 需要 feature_set_id + date_range 的训练类 run_type（spec 03-backend-decoupling.md §run_type 参数契约） */
+export const FEATURE_SET_RUN_TYPES: ReadonlySet<MlJobRunType> = new Set<MlJobRunType>([
   'train',
   'optuna',
   'seed_avg',
@@ -35,7 +43,7 @@ export class CreateJobDto {
   max_attempts?: number;
   parent_job_id?: string;
   created_by?: string;
-  /** 训练类 run_type 必填；后端展开写入 params */
+  /** labels/features/prepare run_type 必填；后端展开写入 params */
   label_ref?: { label_id: string; label_version: string };
 }
 
@@ -46,11 +54,11 @@ export const ALLOWED_RUN_TYPES: readonly MlJobRunType[] = [
   'factors',
   'labels',
   'features',
+  'prepare',
   'train',
   'infer',
   'optuna',
   'seed_avg',
-  'train_e2e',
 ] as const;
 
 export interface ValidatedCreateJob {
@@ -61,11 +69,14 @@ export interface ValidatedCreateJob {
   parentJobId?: string;
   /** controller 通常会用当前 user.id 覆盖；body 中显式传入仅供 cron / 内部脚本使用 */
   createdBy?: string;
-  /** 任意 run_type 传了 label_ref 都会携带；训练类（TRAIN_RUN_TYPES）缺失则 400 */
+  /** labels/features/prepare run_type 携带；训练类（FEATURE_SET_RUN_TYPES）不携带 */
   labelRef?: { labelId: string; labelVersion: string };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** YYYYMMDD:YYYYMMDD 格式校验 */
+const DATE_RANGE_RE = /^\d{8}:\d{8}$/;
 
 export function validateCreateJob(input: unknown): ValidatedCreateJob {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -130,9 +141,12 @@ export function validateCreateJob(input: unknown): ValidatedCreateJob {
     createdBy = body.created_by;
   }
 
-  // labelRef：任意 run_type 传了 label_ref 都接受解析；训练类（TRAIN_RUN_TYPES）缺失时 fail-fast 400
+  const rt = runType as MlJobRunType;
+  const isLabelRefType = LABEL_REF_RUN_TYPES.has(rt);
+  const isFeatureSetType = FEATURE_SET_RUN_TYPES.has(rt);
+
+  // ---- labelRef 校验（labels/features/prepare）----
   let labelRef: { labelId: string; labelVersion: string } | undefined;
-  const isTrainType = TRAIN_RUN_TYPES.has(runType as MlJobRunType);
   if (body.label_ref !== undefined && body.label_ref !== null) {
     if (typeof body.label_ref !== 'object' || Array.isArray(body.label_ref)) {
       throw new BadRequestException('label_ref 必须为对象 { label_id, label_version }');
@@ -149,16 +163,38 @@ export function validateCreateJob(input: unknown): ValidatedCreateJob {
       throw new BadRequestException('label_ref.label_version 必须为 1..16 字符的字符串');
     }
     labelRef = { labelId: lr.label_id, labelVersion: lr.label_version };
-  } else if (isTrainType) {
-    // 训练类 run_type 未传 labelRef → fail-fast
+  } else if (isLabelRefType) {
+    // labels/features/prepare 缺 labelRef → fail-fast 400
     throw new BadRequestException(
-      `run_type=${runType as string} 为训练类任务，labelRef 必填。` +
-        '请在请求体中提供 label_ref: { label_id, label_version }。',
+      `run_type=${rt} 需要 labelRef，请在请求体中提供 label_ref: { label_id, label_version }。`,
     );
   }
 
-  // labels 专属 fail-fast：scheme / label_ref / (strategy_id + strategy_version) 三者至少其一
-  if (runType === 'labels') {
+  // ---- feature_set_id + date_range 校验（train/optuna/seed_avg，浅层，service 层做 ⊆R_F 深度校验）----
+  if (isFeatureSetType) {
+    const fsId = params.feature_set_id;
+    if (typeof fsId !== 'string' || fsId.length === 0) {
+      throw new BadRequestException(
+        `run_type=${rt} 需要 params.feature_set_id（非空字符串）。`,
+      );
+    }
+    const dateRange = params.date_range;
+    if (typeof dateRange !== 'string' || !DATE_RANGE_RE.test(dateRange)) {
+      throw new BadRequestException(
+        `run_type=${rt} 需要 params.date_range，格式 YYYYMMDD:YYYYMMDD（实际 ${JSON.stringify(dateRange)}）。`,
+      );
+    }
+    // 确保 start <= end
+    const [start, end] = dateRange.split(':');
+    if (start > end) {
+      throw new BadRequestException(
+        `params.date_range 起始日期 ${start} 不得晚于结束日期 ${end}。`,
+      );
+    }
+  }
+
+  // ---- labels 专属 fail-fast：scheme / label_ref / (strategy_id + strategy_version) 三者至少其一 ----
+  if (rt === 'labels') {
     const hasScheme =
       typeof params.scheme === 'string' && params.scheme.length > 0;
     const hasLabelRef = labelRef !== undefined;
@@ -179,7 +215,7 @@ export function validateCreateJob(input: unknown): ValidatedCreateJob {
   }
 
   return {
-    runType: runType as MlJobRunType,
+    runType: rt,
     params,
     priority,
     maxAttempts,

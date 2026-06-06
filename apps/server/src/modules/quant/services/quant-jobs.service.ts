@@ -1,12 +1,14 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MlJobEntity } from '../../../entities/ml/ml-job.entity';
 import type { ValidatedCreateJob } from '../dto/create-job.dto';
+import { FEATURE_SET_RUN_TYPES, LABEL_REF_RUN_TYPES } from '../dto/create-job.dto';
 import type { ValidatedJobQuery } from '../dto/job-query.dto';
 import type { SseTokenResponse } from '../dto/sse-token.dto';
 import { SseTokenService } from './sse-token.service';
 import { LabelsService } from '../labels/labels.service';
+import { QuantFeatureSetsService } from '../feature-sets/quant-feature-sets.service';
 
 /**
  * 列表接口的 job 摘要形态：在 entity 字段之上额外暴露 `warnings_count`，
@@ -64,6 +66,7 @@ export class QuantJobsService {
     private readonly jobsRepo: Repository<MlJobEntity>,
     private readonly sseTokens: SseTokenService,
     private readonly labels: LabelsService,
+    private readonly featureSets: QuantFeatureSetsService,
   ) {}
 
   /**
@@ -72,23 +75,30 @@ export class QuantJobsService {
    * params 走 jsonb 列；CLAUDE.md 禁止裸 `'[]'::jsonb`，但本字段 TypeORM 会把对象序列化为 jsonb，
    * 默认值 `'{}'::jsonb` 已在 entity 处声明。
    *
-   * 训练类 run_type 展开 labelRef（spec 03-backend.md §expandForTraining）：
-   *   - 调 LabelsService.expandForTraining(id, version)
+   * run_type 参数契约（spec 03-backend-decoupling.md）：
+   *
+   * labels / features / prepare（LABEL_REF_RUN_TYPES）：
+   *   - 调 LabelsService.expandForTraining(id, version) 展开 labelRef
    *   - 把 base_type/base_params/classify_mode/classify_params 明文 + label_id/label_version 透传
    *     写进 ml.jobs.params
    *   - label 不存在 / enabled=false → fail-fast 抛 400（禁止静默回退默认）
+   *
+   * train / optuna / seed_avg（FEATURE_SET_RUN_TYPES）：
+   *   - 不展开 labelRef；直接吃 params.feature_set_id + params.date_range
+   *   - 校验 date_range ⊆ R_F 且无空洞（coverage() 查 feature_matrix），否则 400 带提示
    */
   async create(dto: ValidatedCreateJob, createdBy: string | null): Promise<MlJobEntity> {
     // body 中显式传入的 created_by 仅供 cron / 内部脚本使用；controller 调用时 createdBy
     // 已用当前 user.id 覆盖。这里以参数优先于 dto.createdBy。
     const finalCreatedBy = createdBy ?? dto.createdBy ?? null;
 
-    // 展开 labelRef（训练类 run_type 时 dto.labelRef 已由 validateCreateJob 保证非空）
     let finalParams = { ...dto.params };
-    if (dto.labelRef) {
+
+    if (LABEL_REF_RUN_TYPES.has(dto.runType)) {
+      // labels/features/prepare：展开 labelRef（dto.labelRef 已由 validateCreateJob 保证非空）
       const expanded = await this.labels.expandForTraining(
-        dto.labelRef.labelId,
-        dto.labelRef.labelVersion,
+        dto.labelRef!.labelId,
+        dto.labelRef!.labelVersion,
       );
       // 展开字段放在 dto.params **之后**覆盖，防止前端误传同名字段绕过后端展开。
       // 语义：expandForTraining 的权威结果不可被请求体中的 params 静默覆盖。
@@ -101,6 +111,39 @@ export class QuantJobsService {
         label_id: expanded.label_id,
         label_version: expanded.label_version,
       };
+    } else if (FEATURE_SET_RUN_TYPES.has(dto.runType)) {
+      // train/optuna/seed_avg：校验 date_range ⊆ R_F 且无空洞
+      // feature_set_id 与 date_range 格式已由 validateCreateJob 保证非空/合法
+      const featureSetId = dto.params.feature_set_id as string;
+      const dateRange = dto.params.date_range as string;
+      const [start, end] = dateRange.split(':');
+
+      const segments = await this.featureSets.coverage(featureSetId);
+
+      if (segments.length === 0) {
+        throw new BadRequestException(
+          `feature_set_id=${featureSetId} 尚无已备料数据（feature_matrix 为空），请先运行 prepare 备料。`,
+        );
+      }
+
+      // 找出与 [start, end] 有交集的连续段
+      const containingSegment = segments.find(
+        (seg) => seg.start <= start && seg.end >= end,
+      );
+
+      if (!containingSegment) {
+        // 找出哪些覆盖段与 [start,end] 有重叠，让用户了解现有料的分布
+        const overlapping = segments.filter(
+          (seg) => seg.end >= start && seg.start <= end,
+        );
+        const missingHint =
+          overlapping.length > 0
+            ? `现有覆盖段：${overlapping.map((s) => `[${s.start},${s.end}]`).join(', ')}，请先 prepare 补料补全 [${start},${end}] 范围。`
+            : `现有覆盖段：${segments.map((s) => `[${s.start},${s.end}]`).join(', ')}。date_range [${start},${end}] 与已备料无交集，请先 prepare 备料。`;
+        throw new BadRequestException(
+          `date_range [${start},${end}] 超出 feature_set_id=${featureSetId} 的已备料覆盖区间或落入空洞。${missingHint}`,
+        );
+      }
     }
 
     const entity = this.jobsRepo.create({
