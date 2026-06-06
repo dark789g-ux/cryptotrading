@@ -37,7 +37,7 @@ def test_train_seed_average_runs_five_seeds_and_writes_parent(
 
     call_seeds: list[int] = []
 
-    def _fake_train(*, feature_set_id, model, walk_forward, seed, job_id, with_shap=True):
+    def _fake_train(*, feature_set_id, model, walk_forward, seed, job_id, with_shap=True, **_kw):
         call_seeds.append(seed)
         assert with_shap is False, "子 seed 训练必须 with_shap=False（评审 04-#11）"
         return _FakeResult(
@@ -98,7 +98,7 @@ def test_train_seed_average_propagates_child_failure(
 
     call_seeds: list[int] = []
 
-    def _flaky_train(*, feature_set_id, model, walk_forward, seed, job_id, with_shap=True):
+    def _flaky_train(*, feature_set_id, model, walk_forward, seed, job_id, with_shap=True, **_kw):
         call_seeds.append(seed)
         if seed == 456:
             raise RuntimeError("training failed")
@@ -145,7 +145,8 @@ def test_runner_entrypoint_validates_params() -> None:
 
     class _BadJob2:
         id = None
-        params = {"feature_set_id": "fs", "seeds": "not-a-list"}
+        # date_range 已通过，验证 seeds 格式
+        params = {"feature_set_id": "fs", "date_range": "20250101:20251231", "seeds": "not-a-list"}
 
     with pytest.raises(ValueError, match="seeds"):
         seed_averaging.runner_entrypoint(_BadJob2())

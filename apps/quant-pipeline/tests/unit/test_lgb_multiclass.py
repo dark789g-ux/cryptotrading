@@ -209,7 +209,7 @@ def test_train_lgb_multiclass_end_to_end(
     import quant_pipeline.utils.paths as paths
 
     fm = _synthetic_feature_matrix()
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid: fm.copy())
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid, **_: fm.copy())
     monkeypatch.setattr(wf, "gate_check", lambda *a, **k: None)
     rng = np.random.default_rng(1)
     monkeypatch.setattr(
@@ -278,7 +278,7 @@ def test_early_stop_valid_is_inner_split_not_test_fold(
     from quant_pipeline.training.walk_forward import PurgedWalkForwardSplit
 
     fm = _synthetic_feature_matrix()
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid: fm.copy())
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid, **_: fm.copy())
     monkeypatch.setattr(wf, "gate_check", lambda *a, **k: None)
     monkeypatch.setattr(wf, "load_forward_returns", lambda pairs, **k: {p: 0.0 for p in pairs})
 
@@ -346,7 +346,7 @@ def test_train_lgb_multiclass_guardrail_continuous_labels_no_classify_mode(
     fm = _synthetic_feature_matrix()
     rng = np.random.default_rng(2)
     fm["label"] = rng.normal(size=len(fm)) * 0.02  # 连续收益标签（无 classify_mode 离散）
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid: fm.copy())
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid, **_: fm.copy())
     monkeypatch.setattr(wf, "gate_check", lambda *a, **k: None)
 
     with pytest.raises(ValueError, match="dir3"):
@@ -406,7 +406,7 @@ def test_lgb_multiclass_classify_mode_end_to_end(
     import quant_pipeline.training.runner as runner_mod
 
     fm = _synthetic_continuous_feature_matrix()
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid: fm.copy())
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid, **_: fm.copy())
     monkeypatch.setattr(wf, "gate_check", lambda *a, **k: None)
     rng = np.random.default_rng(7)
     monkeypatch.setattr(
@@ -510,7 +510,7 @@ def test_final_booster_used_hp_no_early_stopping(
     import quant_pipeline.training.runner as runner_mod
 
     fm = _synthetic_feature_matrix()
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid: fm.copy())
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fsid, **_: fm.copy())
     monkeypatch.setattr(wf, "gate_check", lambda *a, **k: None)
     monkeypatch.setattr(wf, "load_forward_returns", lambda pairs, **k: {p: 0.0 for p in pairs})
 

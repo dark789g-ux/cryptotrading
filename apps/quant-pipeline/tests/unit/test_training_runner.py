@@ -58,7 +58,7 @@ def _patch_progress(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_train_model_quality_blocked_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """quality gate 失败 → 抛 QualityGateBlocked + 不会写 ml.model_runs / 不落盘。"""
 
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs: _mock_feature_matrix())
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs, **_: _mock_feature_matrix())
 
     def _fake_gate(trade_date: str, *, mode: str, strict: bool, job_id: Any) -> None:
         raise QualityGateBlocked(rule="row_count_drift", detail={"date": trade_date})
@@ -90,7 +90,7 @@ def test_train_model_quality_blocked_path(monkeypatch: pytest.MonkeyPatch) -> No
 def test_train_model_quality_passed_full_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """quality 通过 → 训练完成 → 写 ml.model_runs，artifact 调用 once。"""
 
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs: _mock_feature_matrix())
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs, **_: _mock_feature_matrix())
     monkeypatch.setattr(
         runner_mod,
         "gate_check",
@@ -138,7 +138,7 @@ def test_train_model_quality_passed_full_path(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_train_model_rejects_unknown_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs: _mock_feature_matrix())
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs, **_: _mock_feature_matrix())
     with pytest.raises(ValueError, match="lgb-lambdarank"):
         runner_mod.train_model("fs_v1", model="xgboost")
 
@@ -151,7 +151,7 @@ def test_train_model_insert_failure_rolls_back_artifact(
     monkeypatch.setenv("ARTIFACT_DIR", str(tmp_path))
     # 重置 artifact_root 的 lru_cache（这里它没缓存，直接读 env，OK）
 
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs: _mock_feature_matrix())
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs, **_: _mock_feature_matrix())
     monkeypatch.setattr(
         runner_mod,
         "gate_check",
@@ -207,7 +207,7 @@ def test_train_model_runner_entrypoint_validates_params() -> None:
 def test_lstm_with_classify_mode_none_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """误配护栏：lstm + classify_mode=None → raise ValueError（连续标签不支持三分类）。"""
 
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs: _mock_feature_matrix())
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs, **_: _mock_feature_matrix())
 
     with pytest.raises(ValueError, match="误配护栏|classify_mode"):
         runner_mod.train_model("fs_v1", model="lstm", classify_mode=None)
@@ -216,7 +216,7 @@ def test_lstm_with_classify_mode_none_raises(monkeypatch: pytest.MonkeyPatch) ->
 def test_lgb_multiclass_with_classify_mode_none_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """误配护栏：lgb-multiclass + classify_mode=None → raise ValueError。"""
 
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs: _mock_feature_matrix())
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs, **_: _mock_feature_matrix())
 
     with pytest.raises(ValueError, match="误配护栏|classify_mode"):
         runner_mod.train_model("fs_v1", model="lgb-multiclass", classify_mode=None)
@@ -225,7 +225,7 @@ def test_lgb_multiclass_with_classify_mode_none_raises(monkeypatch: pytest.Monke
 def test_lgb_lambdarank_with_non_null_classify_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """误配护栏：lgb-lambdarank + classify_mode='band' → raise ValueError（排序模型用连续值）。"""
 
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs: _mock_feature_matrix())
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs, **_: _mock_feature_matrix())
 
     with pytest.raises(ValueError, match="误配护栏|classify_mode"):
         runner_mod.train_model(

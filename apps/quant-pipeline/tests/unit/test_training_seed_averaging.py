@@ -170,10 +170,14 @@ def test_runner_entrypoint_validates_params() -> None:
 
     with pytest.raises(ValueError, match="feature_set_id"):
         runner_entrypoint(_Job({}))
+    # date_range 必填：缺失时 raise
+    with pytest.raises(ValueError, match="date_range"):
+        runner_entrypoint(_Job({"feature_set_id": "fs"}))
+    # date_range 已给，验证 seeds 格式
     with pytest.raises(ValueError, match="seeds"):
-        runner_entrypoint(_Job({"feature_set_id": "fs", "seeds": []}))
+        runner_entrypoint(_Job({"feature_set_id": "fs", "date_range": "20250101:20251231", "seeds": []}))
     with pytest.raises(ValueError, match="seeds"):
-        runner_entrypoint(_Job({"feature_set_id": "fs", "seeds": ["bad"]}))
+        runner_entrypoint(_Job({"feature_set_id": "fs", "date_range": "20250101:20251231", "seeds": ["bad"]}))
 
 
 def test_finalize_success_exception_does_not_abort_subsequent_seeds(

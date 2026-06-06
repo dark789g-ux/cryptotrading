@@ -68,7 +68,7 @@ def test_training_filters_null_label_rows(monkeypatch: pytest.MonkeyPatch) -> No
     non_nan_count = int(df_with_nan["label"].notna().sum())
     assert non_nan_count >= 20, "测试夹具有效样本不足，请调 n_dates / n_codes"
 
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs: df_with_nan)
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs, **_: df_with_nan)
     monkeypatch.setattr(
         runner_mod,
         "gate_check",
@@ -135,7 +135,7 @@ def test_training_blocks_when_valid_samples_below_threshold(
     valid = int(df["label"].notna().sum())
     assert valid < 20, f"测试夹具构造错误：valid={valid}，应 < 20"
 
-    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs: df)
+    monkeypatch.setattr(runner_mod, "_load_feature_matrix", lambda fs, **_: df)
     monkeypatch.setattr(
         runner_mod,
         "gate_check",
