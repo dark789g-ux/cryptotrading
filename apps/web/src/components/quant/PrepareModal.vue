@@ -145,6 +145,7 @@ import {
 import type { SelectOption } from 'naive-ui'
 import AppModal from '@/components/common/AppModal.vue'
 import { quantApi, type LabelDefinition } from '@/api/modules/quant'
+import { mapNeutralizeCols } from './train-modal/buildParams'
 
 // ──────────────────────────────────────
 // props / emit
@@ -369,7 +370,10 @@ async function onSubmit() {
       force_recompute: form.force_recompute,
     }
     if (form.new_listing_min_days != null) params.new_listing_min_days = form.new_listing_min_days
-    if (form.neutralize_cols != null) params.neutralize_cols = form.neutralize_cols
+    // neutralize_cols 前端三档枚举 → 后端语义数组（[] / ['industry_l1'] / ['industry_l1','mv']）
+    if (form.neutralize_cols != null) {
+      params.neutralize_cols = mapNeutralizeCols(form.neutralize_cols)
+    }
     if (form.robust_z != null) params.robust_z = form.robust_z
     if (form.factor_clip_sigma != null) params.factor_clip_sigma = form.factor_clip_sigma
     if (form.label_winsorize_lo != null && form.label_winsorize_hi != null) {
