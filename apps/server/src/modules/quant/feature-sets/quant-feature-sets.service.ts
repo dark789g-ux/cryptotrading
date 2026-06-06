@@ -43,8 +43,10 @@ export interface FeatureSetItem {
  * 连续判定：设 d[i] 在 tradingCalendar 中的位置为 p[i]，若 p[i+1] - p[i] === 1
  * 则视为连续（相邻位置，中间无遗漏交易日）；否则断段。
  *
- * tradingCalendar 为空时退化为"永不断段"（全部合并为一段），
- * 实际调用方保证查 trade_cal 范围覆盖 tradeDates 最小/最大值之间。
+ * tradingCalendar 为空时所有日期在 calendarIndex 里都查不到位置（prevIdx/curIdx
+ * 均 undefined）→ isConsecutive 恒 false → 退化为"每日各自断段"（每个 trade_date
+ * 单独成段，保守口径）。实际调用方保证查 trade_cal 范围覆盖 tradeDates 最小/最大值
+ * 之间，故正常路径不会落到此退化分支。
  *
  * 空 tradeDates → []；单元素 → [{start:d, end:d}]。
  */
