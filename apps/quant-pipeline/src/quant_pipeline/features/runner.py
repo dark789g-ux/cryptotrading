@@ -39,6 +39,11 @@ from quant_pipeline.labels.strategy_aware import (
 from quant_pipeline.labels.strategy_aware import (
     WINSORIZE_LO as _LABEL_WINSORIZE_LO,
 )
+from quant_pipeline.labels_features_incremental import (
+    gap_subranges,
+    query_materialized_dates,
+    query_trading_days,
+)
 from quant_pipeline.worker.progress import (
     JobCancelled,
     ProgressCallback,
@@ -320,6 +325,7 @@ def build_feature_matrix(
     robust_z: bool | None = None,
     factor_clip_sigma: float | None = None,
     label_winsorize: tuple[float, float] | None = None,
+    force_recompute: bool = False,
     job_id: UUID | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> str:
@@ -421,38 +427,62 @@ def build_feature_matrix(
             },
         )
 
-    daily_factors = _load_daily_factors(factor_version, start, end)
-    labels = _load_labels(label_scheme, start, end)
-    industry_map = _load_industry_map(start, end)
-    mv_map = _load_mv_map(start, end)
+    # -----------------------------------------------------------------------
+    # 增量缺口：确定要算的子区间（force=True → 整段；False → 差集缺口）
+    # -----------------------------------------------------------------------
+    if force_recompute:
+        subranges: list[tuple[str, str]] = [(start, end)]
+        trading_days: list[str] = []  # force 路径不需要
+    else:
+        with session_scope() as _inc_session:
+            trading_days = query_trading_days(_inc_session, start, end)
+            fm_materialized = query_materialized_dates(
+                _inc_session,
+                "factors.feature_matrix",
+                "feature_set_id",
+                fsid,
+                start,
+                end,
+            )
+            labels_materialized = query_materialized_dates(
+                _inc_session,
+                "factors.labels",
+                "scheme",
+                label_scheme,
+                start,
+                end,
+            )
+        subranges = gap_subranges(fm_materialized, trading_days)
+        labels_covered_set = labels_materialized  # set[str]
 
-    # review §17：industry_map / mv_map 为空会让中性化静默退化（仅 builder 内部
-    # warn 一次）。在 runner 层把「中性化输入缺失」作为独立 warn 透出到 job 日志，
-    # 便于排查「job 成功但特征未中性化」。
-    if industry_map.empty:
-        logger.warning(
-            "feature_matrix_industry_map_empty",
-            extra={"date_range": date_range, "effect": "中性化退化为全市场 z-score"},
-        )
-    if mv_map.empty:
-        logger.warning(
-            "feature_matrix_mv_map_empty",
-            extra={"date_range": date_range, "effect": "跳过市值中性化"},
-        )
+    skipped_days_count = len(trading_days) - sum(
+        # trading_days 只在 force=False 时有意义；force=True 时 trading_days=[]
+        1
+        for g0, g1 in subranges
+        for d in trading_days
+        if g0 <= d <= g1
+    ) if not force_recompute else 0
 
-    if daily_factors.empty or labels.empty:
-        logger.warning(
-            "feature_matrix_inputs_empty",
+    if not force_recompute:
+        logger.info(
+            "feature_matrix_incremental_gaps",
             extra={
                 "feature_set_id": fsid,
-                "factor_version": factor_version,
-                "label_scheme": label_scheme,
-                "factors_rows": len(daily_factors),
-                "labels_rows": len(labels),
+                "total_trading_days": len(trading_days),
+                "skipped": skipped_days_count,
+                "gap_subranges": subranges,
             },
         )
-        # 即便数据为空，也要写一行 feature_sets 元数据以确保 fsid 可被后续 train
-        # 阶段引用（保持端到端 job 的 result_payload.feature_set_id 不悬空）。
+
+    if not subranges:
+        logger.info(
+            "feature_matrix_skipped_all",
+            extra={
+                "feature_set_id": fsid,
+                "skipped": skipped_days_count,
+                "reason": "all trading days already materialized",
+            },
+        )
         _upsert_feature_set(
             feature_set_id=fsid,
             factor_version=factor_version,
@@ -460,33 +490,183 @@ def build_feature_matrix(
             factor_ids=list(factor_ids),
             new_listing_min_days=new_listing_min_days,
         )
-        _progress(100, "features:empty")
+        _progress(100, "features:done")
         return fsid
 
     _progress(30, "features:compute")
 
-    bundle = build_feature_matrix_from_frames(
-        daily_factors=daily_factors,
-        labels=labels,
-        industry_map=industry_map,
-        mv_map=mv_map if not mv_map.empty else None,
-        factor_version=factor_version,
-        label_scheme=label_scheme,
-        new_listing_min_days=new_listing_min_days,
-        factor_ids=factor_ids,
-        # spec 02 §特征参数透传：eff_* 已在上方按 None→默认归一，行为不变。
-        neutralize_cols=eff_neutralize_cols,
-        robust_z=eff_robust_z,
-        factor_clip_sigma=eff_factor_clip_sigma,
-        label_winsorize=eff_label_winsorize,
-    )
-    # builder 自算的 ID 是**基础层** ID（不含覆盖层），应与预查得到的 base_fsid 一致
-    # （reused=False 时）；不一致即三处排序约定破裂——warn 便于 surface 排查。
-    # 注意：与 base_fsid 比，而非含覆盖层的 fsid。
-    if bundle.feature_set_id != base_fsid:
-        logger.warning(
-            "feature_set_id_mismatch_using_resolved",
-            extra={"resolved": base_fsid, "builder": bundle.feature_set_id},
+    # -----------------------------------------------------------------------
+    # 每个缺口子区间独立算（零 padding：features 无跨日依赖）
+    # -----------------------------------------------------------------------
+    total_written = 0
+    for gap_idx, (g0, g1) in enumerate(subranges):
+        # ★ ⊆labels 覆盖校验：缺口内哪些天 labels 未覆盖
+        if not force_recompute:
+            gap_days_in_range = [d for d in trading_days if g0 <= d <= g1]
+            missing_label_days = [d for d in gap_days_in_range if d not in labels_covered_set]
+            if missing_label_days:
+                logger.warning(
+                    f"features_missing_labels: scheme={label_scheme!r}，"
+                    f"缺口 ({g0},{g1}) 内 labels 未覆盖的天={missing_label_days}，跳过这些天",
+                    extra={
+                        "apiName": "features_missing_labels",
+                        "scheme": label_scheme,
+                        "gap": (g0, g1),
+                        "dates": missing_label_days,
+                    },
+                )
+                # 仅算 labels 已覆盖的连续子段
+                covered_days_in_gap = [d for d in gap_days_in_range if d in labels_covered_set]
+                if not covered_days_in_gap:
+                    # 全部未覆盖，跳过整个缺口
+                    continue
+                # 按 labels 覆盖天切出连续子段（零 padding 不变）
+                covered_subranges = gap_subranges(
+                    set(missing_label_days),  # missing 作为"已物化"跳过集合
+                    gap_days_in_range,
+                )
+                for cg0, cg1 in covered_subranges:
+                    daily_factors = _load_daily_factors(factor_version, cg0, cg1)
+                    labels_df = _load_labels(label_scheme, cg0, cg1)
+                    industry_map = _load_industry_map(cg0, cg1)
+                    mv_map = _load_mv_map(cg0, cg1)
+                    if industry_map.empty:
+                        logger.warning(
+                            "feature_matrix_industry_map_empty",
+                            extra={"date_range": f"{cg0}:{cg1}", "effect": "中性化退化为全市场 z-score"},
+                        )
+                    if mv_map.empty:
+                        logger.warning(
+                            "feature_matrix_mv_map_empty",
+                            extra={"date_range": f"{cg0}:{cg1}", "effect": "跳过市值中性化"},
+                        )
+                    if daily_factors.empty or labels_df.empty:
+                        logger.warning(
+                            "feature_matrix_inputs_empty",
+                            extra={
+                                "feature_set_id": fsid,
+                                "factor_version": factor_version,
+                                "label_scheme": label_scheme,
+                                "factors_rows": len(daily_factors),
+                                "labels_rows": len(labels_df),
+                                "gap": (cg0, cg1),
+                            },
+                        )
+                        continue
+                    bundle = build_feature_matrix_from_frames(
+                        daily_factors=daily_factors,
+                        labels=labels_df,
+                        industry_map=industry_map,
+                        mv_map=mv_map if not mv_map.empty else None,
+                        factor_version=factor_version,
+                        label_scheme=label_scheme,
+                        new_listing_min_days=new_listing_min_days,
+                        factor_ids=factor_ids,
+                        neutralize_cols=eff_neutralize_cols,
+                        robust_z=eff_robust_z,
+                        factor_clip_sigma=eff_factor_clip_sigma,
+                        label_winsorize=eff_label_winsorize,
+                    )
+                    if bundle.feature_set_id != base_fsid:
+                        logger.warning(
+                            "feature_set_id_mismatch_using_resolved",
+                            extra={"resolved": base_fsid, "builder": bundle.feature_set_id},
+                        )
+                    n = _upsert_feature_matrix(
+                        feature_set_id=fsid,
+                        matrix=bundle.matrix,
+                        factor_ids=bundle.factor_ids,
+                    )
+                    total_written += n
+                    logger.info(
+                        "feature_matrix_written",
+                        extra={
+                            "feature_set_id": fsid,
+                            "rows": n,
+                            "factor_count": len(bundle.factor_ids),
+                            "gap": (cg0, cg1),
+                        },
+                    )
+                continue  # 已处理含缺失天的缺口，进入下一个 gap
+
+        # 正常路径：整个缺口 labels 均已覆盖（或 force_recompute=True）
+        # 零 padding：加载区间 == 缺口子区间
+        daily_factors = _load_daily_factors(factor_version, g0, g1)
+        labels_df = _load_labels(label_scheme, g0, g1)
+        industry_map = _load_industry_map(g0, g1)
+        mv_map = _load_mv_map(g0, g1)
+
+        # review §17：industry_map / mv_map 为空会让中性化静默退化
+        if industry_map.empty:
+            logger.warning(
+                "feature_matrix_industry_map_empty",
+                extra={"date_range": f"{g0}:{g1}", "effect": "中性化退化为全市场 z-score"},
+            )
+        if mv_map.empty:
+            logger.warning(
+                "feature_matrix_mv_map_empty",
+                extra={"date_range": f"{g0}:{g1}", "effect": "跳过市值中性化"},
+            )
+
+        if daily_factors.empty or labels_df.empty:
+            logger.warning(
+                "feature_matrix_inputs_empty",
+                extra={
+                    "feature_set_id": fsid,
+                    "factor_version": factor_version,
+                    "label_scheme": label_scheme,
+                    "factors_rows": len(daily_factors),
+                    "labels_rows": len(labels_df),
+                    "gap": (g0, g1),
+                },
+            )
+            _upsert_feature_set(
+                feature_set_id=fsid,
+                factor_version=factor_version,
+                scheme=label_scheme,
+                factor_ids=list(factor_ids),
+                new_listing_min_days=new_listing_min_days,
+            )
+            continue
+
+        bundle = build_feature_matrix_from_frames(
+            daily_factors=daily_factors,
+            labels=labels_df,
+            industry_map=industry_map,
+            mv_map=mv_map if not mv_map.empty else None,
+            factor_version=factor_version,
+            label_scheme=label_scheme,
+            new_listing_min_days=new_listing_min_days,
+            factor_ids=factor_ids,
+            # spec 02 §特征参数透传：eff_* 已在上方按 None→默认归一，行为不变。
+            neutralize_cols=eff_neutralize_cols,
+            robust_z=eff_robust_z,
+            factor_clip_sigma=eff_factor_clip_sigma,
+            label_winsorize=eff_label_winsorize,
+        )
+        # builder 自算的 ID 是**基础层** ID（不含覆盖层），应与预查得到的 base_fsid 一致
+        # （reused=False 时）；不一致即三处排序约定破裂——warn 便于 surface 排查。
+        if bundle.feature_set_id != base_fsid:
+            logger.warning(
+                "feature_set_id_mismatch_using_resolved",
+                extra={"resolved": base_fsid, "builder": bundle.feature_set_id},
+            )
+
+        n = _upsert_feature_matrix(
+            feature_set_id=fsid,
+            matrix=bundle.matrix,
+            factor_ids=bundle.factor_ids,
+        )
+        total_written += n
+        logger.info(
+            "feature_matrix_written",
+            extra={
+                "feature_set_id": fsid,
+                "rows": n,
+                "factor_count": len(bundle.factor_ids),
+                "gap": (g0, g1),
+                "reused_feature_set_id": reused,
+            },
         )
 
     _progress(70, "features:upsert")
@@ -498,18 +678,13 @@ def build_feature_matrix(
         factor_ids=list(factor_ids),
         new_listing_min_days=new_listing_min_days,
     )
-    n = _upsert_feature_matrix(
-        feature_set_id=fsid,
-        matrix=bundle.matrix,
-        factor_ids=bundle.factor_ids,
-    )
+
     logger.info(
-        "feature_matrix_written",
+        "feature_matrix_computed",
         extra={
             "feature_set_id": fsid,
-            "rows": n,
-            "factor_count": len(bundle.factor_ids),
-            "reused_feature_set_id": reused,
+            "total_rows_written": total_written,
+            "gap_subranges": subranges,
         },
     )
 
@@ -701,11 +876,13 @@ def runner_entrypoint(job: object) -> None:
             f"={new_listing_min_days!r}"
         )
     job_id = getattr(job, "id", None)
+    force_recompute = bool(params.get("force_recompute", False))
     build_feature_matrix(
         factor_version=str(factor_version),
         label_scheme=str(label_scheme),
         date_range=str(date_range),
         new_listing_min_days=int(new_listing_min_days),
+        force_recompute=force_recompute,
         job_id=job_id,
     )
 
