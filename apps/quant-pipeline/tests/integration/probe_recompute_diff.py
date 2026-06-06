@@ -24,12 +24,15 @@ from tests.integration._recompute_helpers import (
     diff_labels,
     dump_labels,
     monthly_drive,
+    sse_trading_day_before,
 )
 
 # ──────────────────────────────────────────────────────────────
 # 默认配置
 # ──────────────────────────────────────────────────────────────
 
+# 全局原点：生产数据连续计算起点，用于 Q1 头部缓冲对齐口径
+GLOBAL_ORIGIN = "20230103"
 # 生产 scheme 名
 PROD_SCHEMES = ["strategy-aware", "fwd_ret_h1"]
 
@@ -127,10 +130,14 @@ def run_q1(
             print(f"\n  窗口 {w_start}:{w_end}", flush=True)
             t0 = time.time()
 
-            # 新口径：monthly_drive（force=False，增量缺口）
-            print(f"    monthly_drive {w_start}:{w_end} → {recheck!r} ...", flush=True)
+            # 头部缓冲10个交易日：使非原点窗口 MA 口径与生产一致，消除月初 NaN 伪差异。
+            # W1(Ws=GLOBAL_ORIGIN) 被 max() clamp 回原点，行为不变。
+            head_start = max(GLOBAL_ORIGIN, sse_trading_day_before(w_start, 10))
+
+            # 新口径：monthly_drive full_start=head_start（头部缓冲），dump diff 仍限 [w_start,w_end]
+            print(f"    monthly_drive head={head_start} end={w_end} → {recheck!r} ...", flush=True)
             driven = monthly_drive(
-                full_start=w_start,
+                full_start=head_start,
                 end=w_end,
                 chunk_fn=lambda dr, s=recheck: compute_labels(
                     scheme=s, date_range=dr, force_recompute=False
@@ -141,7 +148,7 @@ def run_q1(
             )
             print(f"    driven={len(driven)} chunks, {time.time()-t0:.0f}s", flush=True)
 
-            # dump 两路
+            # dump diff 仍以窗口本体 [w_start, w_end]，头部缓冲行不参与 diff
             old_df = dump_labels(prod_scheme, w_start, w_end)
             new_df = dump_labels(recheck, w_start, w_end)
             print(

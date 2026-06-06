@@ -30,6 +30,33 @@ from quant_pipeline.labels.runner import compute_labels  # noqa: F401（re-expor
 # 内部纯函数（可单测，不依赖 DB）
 # ──────────────────────────────────────────────────────────────
 
+def _trading_day_before_from_caldates(cal_dates: list[str], date: str, n: int) -> str:
+    """升序交易日列表中，返回 ≤ date 的那天往前数第 n 个交易日（含自身，n=0 返回自身/最近≤date）。
+
+    参数：
+        cal_dates: 升序排列的 YYYYMMDD 交易日字符串列表（由调用方保证升序）。
+        date:      参考日期 YYYYMMDD（可以是非交易日）。
+        n:         往前数的步数；0 表示 ≤date 的最近交易日本身。
+    返回：
+        目标交易日字符串 YYYYMMDD。不足 n 步时返回最早可得交易日（即 cal_dates[0]）。
+
+    纯函数，不访问 DB，可直接单测。
+    """
+    if not cal_dates:
+        raise ValueError("cal_dates 不能为空")
+    # 找所有 ≤ date 的交易日（升序）
+    eligible = [d for d in cal_dates if d <= date]
+    if not eligible:
+        # 所有交易日都在 date 之后，返回最早一天
+        return cal_dates[0]
+    # eligible 末尾是 ≤date 的最近交易日，往前数 n 步
+    # index 从末尾往前跳 n 步；不足则取 eligible[0]
+    idx = len(eligible) - 1 - n
+    if idx < 0:
+        return eligible[0]
+    return eligible[idx]
+
+
 def _month_ends_from_caldates(cal_dates: list[str]) -> list[str]:
     """按月分组取每月最后一个交易日。
 
@@ -79,6 +106,35 @@ def sse_month_ends(start: str, end: str) -> list[str]:
         ).fetchall()
     cal_dates = [str(r[0]) for r in rows]
     return _month_ends_from_caldates(cal_dates)
+
+
+def sse_trading_day_before(date: str, n: int) -> str:
+    """查 raw.trade_cal，返回 date（含）往前第 n 个 SSE 交易日（n=0 返回自身/最近≤date）。
+
+    不足 n 步时返回最早可得交易日。
+    由 _trading_day_before_from_caldates 实现，可单独单测纯函数部分。
+
+    参数：
+        date: 参考日期 YYYYMMDD（可以是非交易日）。
+        n:    往前数的步数。
+    返回：
+        目标交易日字符串 YYYYMMDD。
+    """
+    # 拉取从数据最早到 date 的全部 SSE 交易日（升序）
+    with session_scope() as s:
+        rows = s.execute(
+            text(
+                """
+                SELECT cal_date FROM raw.trade_cal
+                WHERE exchange = 'SSE' AND is_open = 1
+                  AND cal_date <= :d
+                ORDER BY cal_date
+                """
+            ),
+            {"d": date},
+        ).fetchall()
+    cal_dates = [str(r[0]) for r in rows]
+    return _trading_day_before_from_caldates(cal_dates, date, n)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -322,7 +378,9 @@ class PeakRSS:
 
 
 __all__ = [
+    "_trading_day_before_from_caldates",
     "_month_ends_from_caldates",
+    "sse_trading_day_before",
     "sse_month_ends",
     "monthly_drive",
     "dump_labels",

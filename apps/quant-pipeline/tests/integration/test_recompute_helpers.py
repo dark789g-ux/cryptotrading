@@ -14,8 +14,68 @@ import pytest
 
 from tests.integration._recompute_helpers import (
     _month_ends_from_caldates,
+    _trading_day_before_from_caldates,
     diff_labels,
 )
+
+
+# ──────────────────────────────────────────────
+# _trading_day_before_from_caldates
+# ──────────────────────────────────────────────
+
+class TestTradingDayBeforeFromCaldates:
+    _CAL = [
+        "20230103", "20230104", "20230105",
+        "20230106", "20230109", "20230110",
+        "20230111", "20230112", "20230113",
+        "20230116", "20230117",
+    ]
+
+    def test_n_normal(self) -> None:
+        """正常往前数 n 个：n=3，从 20230110 往前 3 步 → 20230105。
+        eligible ≤ 20230110: [20230103,20230104,20230105,20230106,20230109,20230110]
+        idx=len(6)-1-3=2 → 20230105
+        （20230110 -1→ 20230109 -2→ 20230106 -3→ 20230105）
+        """
+        result = _trading_day_before_from_caldates(self._CAL, "20230110", 3)
+        assert result == "20230105"
+
+    def test_n_zero_exact_trading_day(self) -> None:
+        """n=0，date 本身是交易日：返回自身。"""
+        result = _trading_day_before_from_caldates(self._CAL, "20230109", 0)
+        assert result == "20230109"
+
+    def test_n_zero_non_trading_day(self) -> None:
+        """n=0，date 是非交易日（周末 20230107）：返回最近 ≤date 的交易日 20230106。"""
+        result = _trading_day_before_from_caldates(self._CAL, "20230107", 0)
+        assert result == "20230106"
+
+    def test_date_non_trading_day_n_positive(self) -> None:
+        """date 落在非交易日（20230108，周日），n=2：先找最近 ≤date 的交易日 20230106，再往前 2 步 → 20230104。"""
+        result = _trading_day_before_from_caldates(self._CAL, "20230108", 2)
+        assert result == "20230104"
+
+    def test_insufficient_n_returns_first(self) -> None:
+        """不足 n 步：往前数超出列表范围，返回最早可得交易日。"""
+        result = _trading_day_before_from_caldates(self._CAL, "20230105", 20)
+        assert result == "20230103"
+
+    def test_n_exact_boundary(self) -> None:
+        """n 恰好等于 ≤date 的交易日数量减 1（触达 index=0）：返回最早日。"""
+        # eligible ≤ 20230106 → [20230103, 20230104, 20230105, 20230106]，len=4
+        # n=3 → idx=0 → 20230103
+        result = _trading_day_before_from_caldates(self._CAL, "20230106", 3)
+        assert result == "20230103"
+
+    def test_date_before_all_cal_dates(self) -> None:
+        """date 早于所有交易日：返回列表第一个交易日。"""
+        result = _trading_day_before_from_caldates(self._CAL, "20220101", 0)
+        assert result == "20230103"
+
+    def test_empty_raises(self) -> None:
+        """空列表：抛出 ValueError。"""
+        with pytest.raises(ValueError, match="不能为空"):
+            _trading_day_before_from_caldates([], "20230103", 1)
 
 
 # ──────────────────────────────────────────────
