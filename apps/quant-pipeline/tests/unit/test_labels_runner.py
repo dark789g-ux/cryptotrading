@@ -281,3 +281,128 @@ def test_runner_entrypoint_bare_scheme_no_exit_rules(
     labels_runner.runner_entrypoint(job)
     assert captured["scheme"] == "strategy-aware"
     assert captured["exit_rules"] is None
+
+
+# ----------------------------------------------------------------------
+# runner_entrypoint：base_type/base_params 路径（expandForTraining 注入）
+# ----------------------------------------------------------------------
+
+def test_runner_entrypoint_base_type_fwd_ret_horizon5(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """base_type='fwd_ret', base_params={'horizon':5} → scheme='fwd_5d_ret', exit_rules=None。"""
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_labels",
+        lambda **kw: captured.update(kw) or 1,
+    )
+    job = _FakeJob(
+        {
+            "date_range": "20240102:20240131",
+            "base_type": "fwd_ret",
+            "base_params": {"horizon": 5},
+        }
+    )
+    labels_runner.runner_entrypoint(job)
+    assert captured["scheme"] == "fwd_5d_ret"
+    assert captured["exit_rules"] is None
+
+
+def test_runner_entrypoint_base_type_fwd_ret_horizon1(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """base_type='fwd_ret', base_params={'horizon':1} → scheme='fwd_ret_h1', exit_rules=None。"""
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_labels",
+        lambda **kw: captured.update(kw) or 1,
+    )
+    job = _FakeJob(
+        {
+            "date_range": "20240102:20240131",
+            "base_type": "fwd_ret",
+            "base_params": {"horizon": 1},
+        }
+    )
+    labels_runner.runner_entrypoint(job)
+    assert captured["scheme"] == "fwd_ret_h1"
+    assert captured["exit_rules"] is None
+
+
+def test_runner_entrypoint_base_type_strategy_aware(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """base_type='strategy_aware', base_params 含 strategy_id/version →
+    scheme='strategy-aware'（legacy 别名），_load_strategy_definition 被调用，exit_rules 透传。
+    """
+
+    loaded_exit_rules = [{"type": "stop_loss", "params": {"pct": 0.08}}]
+    load_calls: list[tuple[str, str]] = []
+
+    def _fake_load(sid: str, sver: str) -> list[dict]:
+        load_calls.append((sid, sver))
+        return loaded_exit_rules
+
+    monkeypatch.setattr(labels_runner, "_load_strategy_definition", _fake_load)
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_labels",
+        lambda **kw: captured.update(kw) or 1,
+    )
+
+    job = _FakeJob(
+        {
+            "date_range": "20240102:20240131",
+            "base_type": "strategy_aware",
+            "base_params": {
+                "strategy_id": "default_exit",
+                "strategy_version": "v1",
+            },
+        }
+    )
+    labels_runner.runner_entrypoint(job)
+
+    assert captured["scheme"] == "strategy-aware"
+    assert captured["exit_rules"] == loaded_exit_rules
+    assert load_calls == [("default_exit", "v1")]
+
+
+def test_runner_entrypoint_explicit_scheme_takes_priority_over_base_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """显式 params.scheme 存在时，base_type 不参与解析（codec 不被调用）。"""
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_labels",
+        lambda **kw: captured.update(kw) or 1,
+    )
+    job = _FakeJob(
+        {
+            "scheme": "strategy-aware",
+            "date_range": "20240102:20240131",
+            "base_type": "fwd_ret",          # 有显式 scheme → base_type 应被忽略
+            "base_params": {"horizon": 5},
+        }
+    )
+    labels_runner.runner_entrypoint(job)
+    # 应使用显式 scheme，不被 base_type 覆盖
+    assert captured["scheme"] == "strategy-aware"
+    assert captured["exit_rules"] is None
+
+
+def test_runner_entrypoint_no_scheme_no_strategy_no_base_type_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """三者全缺（无 scheme/strategy/base_type）→ ValueError fail-fast。"""
+
+    monkeypatch.setattr(
+        labels_runner, "compute_labels",
+        lambda **kw: 1,
+    )
+    job = _FakeJob({"date_range": "20240102:20240131"})
+    with pytest.raises(ValueError, match="missing required params"):
+        labels_runner.runner_entrypoint(job)

@@ -44,6 +44,12 @@ from quant_pipeline.labels.strategy_aware import (
     LabelInputs,
     compute_strategy_aware_labels,
 )
+from quant_pipeline.labels_features_incremental import (
+    gap_subranges,
+    query_materialized_dates,
+    query_trading_days,
+)
+from quant_pipeline.strategy.exit_rules import MA_WINDOW
 from quant_pipeline.worker.progress import (
     JobCancelled,
     ProgressCallback,
@@ -185,6 +191,72 @@ def _compute_end_padded(end: str, *, n_trade_days: int = 30) -> str:
         if not dates:
             return end
     return dates[-1]
+
+
+def _compute_g0_load(g0: str, head_pad: int, start: str) -> str:
+    """缺口子区间头部 padding：取 g0 之前第 head_pad 个交易日，且不早于 start。
+
+    仅 strategy_aware scheme（含 ma_break）需要头部 padding：simulate_exit 先对整个
+    加载窗口算滚动 MA（rolling(ma_window, min_periods=ma_window)）再切 buy_date，故
+    MA(t) 在加载窗口起点后 ma_window−1 个交易日内为 NaN。整段算从 start 加载 → MA(t)
+    非 NaN ⟺ t ≥ start+(ma_window−1)。增量要逐行复现这一 NaN 边界，缺口加载起点须
+    g0_load = max(start, g0 − head_pad 交易日)，其中 head_pad = ma_window−1。
+
+    - head_pad=0（fwd_ret / 无 ma_break）→ 直接返回 g0（不回看）。
+    - 不早于 start：clamp 到 start，否则 g0=start 时增量 MA 比整段算更准、反而不一致
+      （整段算在 start 附近本就 NaN）。spec 02 §「padding 判定」坐实。
+    - 交易日历来源 raw.trade_cal（is_open=1），与 _compute_end_padded 同源。
+    """
+
+    if head_pad <= 0:
+        return g0
+    # cal_date / trade_date 均为 Tushare YYYYMMDD 定宽字符串，字典序即时序。
+    # 取 g0 之前 head_pad 个交易日（降序取第 head_pad 个）。
+    sql = text(
+        """
+        SELECT cal_date FROM raw.trade_cal
+        WHERE is_open = 1 AND cal_date < :g0
+        ORDER BY cal_date DESC
+        LIMIT :limit
+        """
+    )
+    try:
+        with session_scope() as session:
+            rows = session.execute(sql, {"g0": g0, "limit": head_pad}).fetchall()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("trade_cal_failed", extra={"err": str(exc)})
+        raise
+    dates = [str(r[0]) for r in rows]
+    # rows 降序，最后一个即"g0 之前第 head_pad 个交易日"；不足 head_pad 个则取最早可得。
+    candidate = dates[-1] if dates else g0
+    # clamp 到 start：不早于 date_range.start（复现整段算在 start 附近的 NaN 边界）。
+    return max(candidate, start)
+
+
+def _resolve_ma_window(
+    *, is_strategy_aware: bool, exit_rules: list[dict] | None
+) -> int | None:
+    """解析头部 padding 所需的 ma_window（= strategy_aware exit 规则里 ma_break 的 period）。
+
+    与 strategy_aware.compute_strategy_aware_labels（:456-461）的 ma_window 解析逐行对齐：
+      - 非 strategy_aware（fwd_ret 系）→ None（不经 simulate_exit，无 MA，head_pad=0）。
+      - strategy_aware 且 exit_rules is None → MA_WINDOW(5)（default_rules() 默认窗口）。
+      - strategy_aware 且 exit_rules 为 list → 取唯一 ma_break 的 period；无 ma_break → None
+        （build_exit_rules :383-391 同语义：ma 列恒 NaN，head_pad=0）。
+
+    注：这里**只读取** period，不调 build_exit_rules（避免对 max_hold 等做无关校验；真正的
+    规则构造与校验仍由下游 compute_strategy_aware_labels 内的 build_exit_rules 完成）。
+    """
+
+    if not is_strategy_aware:
+        return None
+    if exit_rules is None:
+        return MA_WINDOW
+    for item in exit_rules:
+        if isinstance(item, dict) and item.get("type") == "ma_break":
+            params = item.get("params") or {}
+            return int(params["period"])
+    return None
 
 
 def _load_listing_info() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -471,6 +543,15 @@ def runner_entrypoint(job: object) -> None:
         可选 {"strategy_id": "...", "strategy_version": "v1"}：含则按 codec 算
         scheme + 从 factors.strategy_definitions 加载 exit_rules（spec 03 §3.4）；
         否则裸 scheme（如 "strategy-aware"）走 default_exit（exit_rules=None）。
+
+    scheme 解析优先级（三选一，互斥）：
+        1. 显式 params.scheme（最高优先，直接使用）
+        2. top-level params.strategy_id + strategy_version（legacy 直传路径）
+        3. params.base_type + params.base_params（expandForTraining 注入路径）：
+           - base_type='strategy_aware' → 从 base_params 提 strategy_id/version，
+             复用分支 2 的语义（codec + _load_strategy_definition）
+           - 其它 base_type（如 'fwd_ret'）→ base_scheme_codec(base_type, base_params)
+        三者全缺 → ValueError fail-fast。
     """
 
     # 延迟 import 避免循环依赖（dir3_scheme 不依赖本模块，但保持与其它入口一致）
@@ -492,10 +573,31 @@ def runner_entrypoint(job: object) -> None:
         )
         exit_rules = _load_strategy_definition(str(strategy_id), str(strategy_version))
 
+    elif not scheme:
+        # 第三优先：expandForTraining 注入的 base_type/base_params 路径。
+        # 仅当显式 scheme 与 top-level strategy_id/version 均不存在时触发。
+        base_type = params.get("base_type")
+        if base_type:
+            base_params: dict = params.get("base_params") or {}
+            if base_type == "strategy_aware":
+                # 从 base_params 提取 strategy_id/version，复用分支 2 语义。
+                strategy_id = base_params.get("strategy_id")
+                strategy_version = base_params.get("strategy_version")
+                scheme = base_scheme_codec(
+                    "strategy_aware",
+                    {"strategy_id": strategy_id, "strategy_version": strategy_version},
+                )
+                exit_rules = _load_strategy_definition(
+                    str(strategy_id), str(strategy_version)
+                )
+            else:
+                # fwd_ret 等其它类型：codec 算 scheme，无需 exit_rules。
+                scheme = base_scheme_codec(base_type, base_params)
+
     if not scheme or not date_range:
         raise ValueError(
             f"labels job missing required params: scheme/date_range "
-            f"(or strategy_id/strategy_version), got {params!r}"
+            f"(or strategy_id/strategy_version, or base_type/base_params), got {params!r}"
         )
     # new_listing_min_days 可选；None 时由 compute_labels 走默认 60。
     # 校验由下游 _validate_min_days 抛 ValueError，worker 顶层捕获标记 job=failed。
