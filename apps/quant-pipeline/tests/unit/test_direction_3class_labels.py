@@ -16,7 +16,8 @@
 
 from __future__ import annotations
 
-import logging
+from contextlib import contextmanager
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -29,8 +30,8 @@ from quant_pipeline.labels.direction_3class import (
     SCHEME_DIR3_TERCILE,
 )
 from quant_pipeline.labels.fallback import (
-    FallbackInputs,
     SCHEME_FWD_5D_RET,
+    FallbackInputs,
     compute_fwd_5d_ret,
 )
 
@@ -150,9 +151,22 @@ def test_fwd_ret_h5_scheme_is_fwd_5d_ret() -> None:
 
 # ─────────────────────── runner 新路径 ────────────────────────────────────────
 
+@contextmanager
+def _noop_session_scope() -> Any:
+    """labels_runner.session_scope 的内存替身（不接触真实 DB）。"""
+
+    yield None
+
+
 def _patch_loaders(monkeypatch: pytest.MonkeyPatch, quotes: pd.DataFrame) -> None:
-    """桩掉所有 DB IO，只留 compute_fwd_5d_ret 逻辑。"""
+    """桩掉所有 DB IO，只留 compute_fwd_5d_ret 逻辑。
+
+    增量缺口循环（spec 02）默认会查 materialized / trading_days / trade_cal；这里把
+    已物化置空、trading_days=[start,end] → gap_subranges 必回单一子区间 (start,end)，
+    等价整段重算（与本文件 fwd_ret_h1 一致性断言所依赖的"整段"语义对齐）。
+    """
     monkeypatch.setattr(labels_runner, "_compute_end_padded", lambda end: end)
+    monkeypatch.setattr(labels_runner, "_compute_g0_load", lambda g0, hp, start: g0)
     monkeypatch.setattr(labels_runner, "_load_daily_quotes", lambda s, e: quotes)
     monkeypatch.setattr(
         labels_runner, "_load_stk_limit",
@@ -168,6 +182,15 @@ def _patch_loaders(monkeypatch: pytest.MonkeyPatch, quotes: pd.DataFrame) -> Non
             pd.DataFrame(columns=["ts_code", "list_date"]),
             pd.DataFrame(columns=["ts_code", "delist_date"]),
         ),
+    )
+    monkeypatch.setattr(labels_runner, "session_scope", _noop_session_scope)
+    monkeypatch.setattr(
+        labels_runner, "query_materialized_dates",
+        lambda s, table, col, val, start, end: set(),
+    )
+    monkeypatch.setattr(
+        labels_runner, "query_trading_days",
+        lambda s, start, end: [start, end],
     )
 
 

@@ -373,6 +373,7 @@ def compute_labels(
     fwd_horizon_days: int | None = None,
     exit_rules: list[dict] | None = None,
     label_winsorize: tuple[float, float] | None = None,
+    force_recompute: bool = False,
     job_id: UUID | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> int:
@@ -395,6 +396,10 @@ def compute_labels(
                                不在标签阶段再截一次（避免双重 winsorize）。此入参仅
                                为与 train_e2e._step_labels 调用签名对齐而保留，labels
                                阶段不消费；实际值由 _step_features 透传给 builder。
+        force_recompute:       spec 02 §force_recompute。True → 跳过"查已物化 / 算缺口"，
+                               对整段 [start, end] 重算并覆盖写（= 改造前整段行为，等价
+                               基线）。False（默认）→ 实时查 factors.labels 已物化的
+                               trade_date，仅对缺口连续子区间增量重算（gap_subranges）。
         job_id:                可选，传入则在每日完成后写 progress
         progress_callback:     可选，CLI 终端进度条回调 (progress, stage) -> None
     """
@@ -428,111 +433,166 @@ def compute_labels(
     if len(start) != 8 or len(end) != 8:
         raise ValueError(f"date_range must be 'YYYYMMDD:YYYYMMDD', got {date_range!r}")
 
-    # 拉数据：报价需要往后多取 max_hold + 缓冲，让 simulate_exit 能完整模拟尾部入场。
-    # end_padded 按交易日历取 end 之后第 30 个交易日（spec 03 §item-5）。
-    end_padded = _compute_end_padded(end)
+    # 头部 padding 解析（spec 02 §「padding 判定」）：仅 strategy_aware（含 ma_break）
+    # 需头部回看 ma_window−1 个交易日复现整段算的 MA NaN 边界；fwd_ret / 无 ma_break →
+    # ma_window=None → head_pad=0（缺口加载起点 g0_load=g0，不回看）。
+    ma_window = _resolve_ma_window(
+        is_strategy_aware=is_strategy_aware, exit_rules=exit_rules
+    )
+    head_pad = (ma_window - 1) if ma_window else 0
 
-    quotes = _load_daily_quotes(start, end_padded)
-    stk_limit = _load_stk_limit(start, end)
-    suspend = _load_suspend(start, end_padded)
-    listing, delist = _load_listing_info()
+    # 算子区间（spec 02 §labels 增量缺口算法）：
+    #   force_recompute=True → 整段重算覆盖（= 改造前整段行为，等价基线）；
+    #   否则实时查 factors.labels 已物化 trade_date，对缺口连续子区间增量重算。
+    if force_recompute:
+        subranges: list[tuple[str, str]] = [(start, end)]
+        trading_days: list[str] = []
+        skipped_dates: list[str] = []
+    else:
+        with session_scope() as _s:
+            materialized = query_materialized_dates(
+                _s, "factors.labels", "scheme", scheme, start, end
+            )
+            trading_days = query_trading_days(_s, start, end)
+        subranges = gap_subranges(materialized, trading_days)
+        # 已物化、本次跳过的交易日（仅 log 用，禁止静默截断）。
+        gap_set = {
+            d for (g0, g1) in subranges for d in trading_days if g0 <= d <= g1
+        }
+        skipped_dates = [d for d in trading_days if d not in gap_set]
 
-    if quotes.empty:
-        # 窗口内一行 daily_quote 都没有 → 确凿数据缺口（CLAUDE.md 硬约束）
-        raise RuntimeError(
-            f"labels: no daily_quote rows in window "
-            f"date_range={date_range!r} scheme={scheme!r} end_padded={end_padded!r}"
-        )
+    logger.info(
+        "labels_incremental_plan",
+        extra={
+            "date_range": date_range,
+            "scheme": scheme,
+            "force_recompute": force_recompute,
+            "skipped_dates": len(skipped_dates),
+            "computed_subranges": subranges,
+        },
+    )
 
-    # 目标入场日范围内的 entries（信号日 T；trade_date 为 YYYYMMDD 定宽字符串，
-    # 字典序即时序，可直接做字符串比较）
-    entries = quotes.loc[
-        (quotes["trade_date"] >= start) & (quotes["trade_date"] <= end),
-        ["ts_code", "trade_date"],
-    ].copy()
+    if not subranges:
+        # 全区间已物化（缺口为空）→ 无需重算，按已物化处理（不 raise）。
+        _progress(PROGRESS_DONE, "labels:done")
+        return 0
 
     if job_id is not None and check_cancel_requested(job_id):
         raise JobCancelled
     _progress(PROGRESS_LOAD, "labels:load")
 
-    if is_strategy_aware:
-        labels_df = compute_strategy_aware_labels(
-            LabelInputs(
-                daily_quotes=quotes,
-                stk_limit=stk_limit if not stk_limit.empty else None,
-                suspend_d=suspend if not suspend.empty else None,
-                delist=delist if not delist.empty else None,
-                listing=listing if not listing.empty else None,
-                entries=entries,
-                end=end,
-                new_listing_min_days=new_listing_min_days,
-                # spec 03 §3.2：仅 strategy-aware 系生效；None → default_rules()
-                # （与 default_exit@v1 逐行等价）。
-                exit_rules=exit_rules,
-            ),
-            # scheme 透传：写入 records.scheme（legacy 'strategy-aware' 或
-            # 多策略 'strategy-aware__{id}_{ver}'），与 factors.labels PK 对齐。
-            scheme=scheme,
-            progress_callback=_progress if progress_callback is not None else None,
-        )
-        # compute_* 原始输出为空 → candidates 被过滤光 / 模拟全失败属真异常
-        if labels_df.empty:
+    # listing/delist 全区间共用，逐缺口循环外加载一次（与缺口子区间无关）。
+    listing, delist = _load_listing_info()
+
+    total_written = 0
+    for g0, g1 in subranges:
+        # 头部 padding（仅 strategy_aware head_pad>0）：g0_load = max(start, g0−head_pad 交易日)；
+        # 尾部 padding：end_padded = g1 之后第 30 交易日（_compute_end_padded）。
+        g0_load = _compute_g0_load(g0, head_pad, start)
+        end_padded = _compute_end_padded(g1)
+
+        quotes = _load_daily_quotes(g0_load, end_padded)
+        stk_limit = _load_stk_limit(g0_load, g1)
+        suspend = _load_suspend(g0_load, end_padded)
+
+        if quotes.empty:
+            # 该缺口子区间内一行 daily_quote 都没有 → 确凿数据缺口（CLAUDE.md 硬约束）
             raise RuntimeError(
-                f"labels: compute_strategy_aware_labels produced 0 rows "
-                f"date_range={date_range!r} scheme={scheme!r}"
+                f"labels: no daily_quote rows in window "
+                f"date_range={date_range!r} scheme={scheme!r} "
+                f"subrange={(g0, g1)!r} end_padded={end_padded!r}"
             )
-    else:
-        # fwd_5d_ret（legacy）或 fwd_ret_h{N}（新路径）。
-        # 新路径：从 scheme 串解析 horizon（例 fwd_ret_h1 → horizon=1）。
-        # 旧路径：fwd_5d_ret → horizon 由 fwd_horizon_days 参数或默认值(5) 决定。
-        if fwd_ret_hn_match is not None:
-            resolved_horizon: int | None = int(fwd_ret_hn_match.group(1))
+
+        # 该缺口内的 entries（信号日 T；只取 [g0,g1]，头/尾 padding 区不产生信号）。
+        # trade_date 为 YYYYMMDD 定宽字符串，字典序即时序，可直接做字符串比较。
+        entries = quotes.loc[
+            (quotes["trade_date"] >= g0) & (quotes["trade_date"] <= g1),
+            ["ts_code", "trade_date"],
+        ].copy()
+
+        if is_strategy_aware:
+            labels_df = compute_strategy_aware_labels(
+                LabelInputs(
+                    daily_quotes=quotes,
+                    stk_limit=stk_limit if not stk_limit.empty else None,
+                    suspend_d=suspend if not suspend.empty else None,
+                    delist=delist if not delist.empty else None,
+                    listing=listing if not listing.empty else None,
+                    entries=entries,
+                    end=g1,
+                    new_listing_min_days=new_listing_min_days,
+                    # spec 03 §3.2：仅 strategy-aware 系生效；None → default_rules()
+                    # （与 default_exit@v1 逐行等价）。
+                    exit_rules=exit_rules,
+                ),
+                # scheme 透传：写入 records.scheme（legacy 'strategy-aware' 或
+                # 多策略 'strategy-aware__{id}_{ver}'），与 factors.labels PK 对齐。
+                scheme=scheme,
+                progress_callback=_progress if progress_callback is not None else None,
+            )
+            # compute_* 原始输出为空 → candidates 被过滤光 / 模拟全失败属真异常
+            if labels_df.empty:
+                raise RuntimeError(
+                    f"labels: compute_strategy_aware_labels produced 0 rows "
+                    f"date_range={date_range!r} scheme={scheme!r} subrange={(g0, g1)!r}"
+                )
+            # entries 已限 [g0,g1]，输出 trade_date=signal_date ⊆ [g0,g1]；按 spec
+            # 「_upsert_labels(rows ∩ [g0,g1])」再夹一次（头/尾 padding 区都不写）。
+            labels_df = labels_df.loc[
+                (labels_df["trade_date"] >= g0) & (labels_df["trade_date"] <= g1)
+            ].reset_index(drop=True)
         else:
-            # fwd_5d_ret：fwd_horizon_days 参数或 None（下游走 FWD_HORIZON_DAYS=5）
-            resolved_horizon = fwd_horizon_days
+            # fwd_5d_ret（legacy）或 fwd_ret_h{N}（新路径）。
+            # 新路径：从 scheme 串解析 horizon（例 fwd_ret_h1 → horizon=1）。
+            # 旧路径：fwd_5d_ret → horizon 由 fwd_horizon_days 参数或默认值(5) 决定。
+            if fwd_ret_hn_match is not None:
+                resolved_horizon: int | None = int(fwd_ret_hn_match.group(1))
+            else:
+                # fwd_5d_ret：fwd_horizon_days 参数或 None（下游走 FWD_HORIZON_DAYS=5）
+                resolved_horizon = fwd_horizon_days
 
-        # fwd_ret / fwd_5d_ret（doc/04 §4.1）。listing 透传以支持新股过滤（D-1 缺口补齐）。
-        labels_df = compute_fwd_5d_ret(
-            FallbackInputs(
-                daily_quotes=quotes,
-                suspended_set=derive_suspended_set(suspend if not suspend.empty else None),
-                delist_map=derive_delist_map(delist if not delist.empty else None),
-                listing=listing if not listing.empty else None,
-                new_listing_min_days=new_listing_min_days,
-            ),
-            fwd_horizon_days=resolved_horizon,
-        )
-        # compute_* 原始输出（区间过滤前）为空 → 真异常
-        if labels_df.empty:
-            raise RuntimeError(
-                f"labels: compute_fwd_5d_ret produced 0 rows "
-                f"date_range={date_range!r} scheme={scheme!r}"
+            # fwd_ret / fwd_5d_ret（doc/04 §4.1）。listing 透传以支持新股过滤（D-1 缺口补齐）。
+            labels_df = compute_fwd_5d_ret(
+                FallbackInputs(
+                    daily_quotes=quotes,
+                    suspended_set=derive_suspended_set(
+                        suspend if not suspend.empty else None
+                    ),
+                    delist_map=derive_delist_map(delist if not delist.empty else None),
+                    listing=listing if not listing.empty else None,
+                    new_listing_min_days=new_listing_min_days,
+                ),
+                fwd_horizon_days=resolved_horizon,
             )
-        # 区间过滤（trade_date 为 YYYYMMDD 定宽字符串，字典序即时序）。
-        # compute_fwd_5d_ret 用 end_padded 的 quotes，每票末 horizon 行被 shift 丢弃属正常；
-        # 区间过滤之后合法地为空 → 仅 warning + return 0，不 raise。
-        labels_df = labels_df.loc[
-            (labels_df["trade_date"] >= start) & (labels_df["trade_date"] <= end)
-        ].reset_index(drop=True)
+            # compute_* 原始输出（区间过滤前）为空 → 真异常
+            if labels_df.empty:
+                raise RuntimeError(
+                    f"labels: compute_fwd_5d_ret produced 0 rows "
+                    f"date_range={date_range!r} scheme={scheme!r} subrange={(g0, g1)!r}"
+                )
+            # 区间过滤到缺口 [g0,g1]（头部 padding 区不写；尾部 horizon 行被 shift 丢弃属正常）。
+            # 过滤后合法地为空 → 仅 warning + 跳过本子区间，不 raise。
+            labels_df = labels_df.loc[
+                (labels_df["trade_date"] >= g0) & (labels_df["trade_date"] <= g1)
+            ].reset_index(drop=True)
+
+        if labels_df.empty:
+            logger.warning(
+                "labels_empty_after_range_filter",
+                extra={"date_range": date_range, "scheme": scheme,
+                       "subrange": (g0, g1)},
+            )
+            continue
+
+        total_written += _upsert_labels(labels_df.to_dict("records"))
+
     _progress(PROGRESS_COMPUTE_DONE, "labels:compute")
-
-    if labels_df.empty:
-        logger.warning(
-            "labels_empty_after_range_filter",
-            extra={"date_range": date_range, "scheme": scheme},
-        )
-        _progress(PROGRESS_DONE, "labels:done")
-        return 0
-
-    rows = labels_df.to_dict("records")
-    n = _upsert_labels(rows)
-
     _progress(PROGRESS_DONE, "labels:done")
     logger.info(
         "labels_written",
-        extra={"date_range": date_range, "scheme": scheme, "rows": n},
+        extra={"date_range": date_range, "scheme": scheme, "rows": total_written},
     )
-    return n
+    return total_written
 
 
 def runner_entrypoint(job: object) -> None:
@@ -602,12 +662,16 @@ def runner_entrypoint(job: object) -> None:
     # new_listing_min_days 可选；None 时由 compute_labels 走默认 60。
     # 校验由下游 _validate_min_days 抛 ValueError，worker 顶层捕获标记 job=failed。
     new_listing_min_days = params.get("new_listing_min_days")
+    # force_recompute 可选（spec 02 §force_recompute）：默认 False 走增量缺口；
+    # True 整段重算覆盖（= 改造前整段行为）。
+    force_recompute = bool(params.get("force_recompute", False))
     job_id = getattr(job, "id", None)
     compute_labels(
         scheme=str(scheme),
         date_range=str(date_range),
         new_listing_min_days=new_listing_min_days,
         exit_rules=exit_rules,
+        force_recompute=force_recompute,
         job_id=job_id,
     )
 

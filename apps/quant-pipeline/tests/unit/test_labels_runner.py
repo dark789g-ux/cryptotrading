@@ -19,6 +19,7 @@ import pandas as pd
 import pytest
 
 from quant_pipeline.labels import runner as labels_runner
+from quant_pipeline.strategy.exit_rules import MA_WINDOW
 
 
 def _empty_quotes() -> pd.DataFrame:
@@ -33,7 +34,16 @@ def _patch_loaders(
     *,
     quotes: pd.DataFrame,
 ) -> None:
+    """把全部 DB IO（_load_* / 缺口查询 / trade_cal）替成内存 fake。
+
+    增量缺口循环（spec 02）默认会 query_materialized_dates / query_trading_days /
+    _compute_g0_load（trade_cal）。为让现有"整段"测试逐行复现改造前行为，这里把
+    已物化集合置空、trading_days 置 [start, end] 两端点 → gap_subranges 必回单一
+    子区间 (start, end)，等价整段重算；_compute_g0_load 退化为返回 g0（不回看）。
+    """
+
     monkeypatch.setattr(labels_runner, "_compute_end_padded", lambda end: end)
+    monkeypatch.setattr(labels_runner, "_compute_g0_load", lambda g0, hp, start: g0)
     monkeypatch.setattr(labels_runner, "_load_daily_quotes", lambda s, e: quotes)
     monkeypatch.setattr(
         labels_runner, "_load_stk_limit",
@@ -50,6 +60,23 @@ def _patch_loaders(
             pd.DataFrame(columns=["ts_code", "delist_date"]),
         ),
     )
+    # 增量缺口查询：已物化置空 + trading_days=[start,end] → 单一子区间 (start,end)。
+    monkeypatch.setattr(labels_runner, "session_scope", _noop_session_scope)
+    monkeypatch.setattr(
+        labels_runner, "query_materialized_dates",
+        lambda s, table, col, val, start, end: set(),
+    )
+    monkeypatch.setattr(
+        labels_runner, "query_trading_days",
+        lambda s, start, end: [start, end],
+    )
+
+
+@contextmanager
+def _noop_session_scope() -> Any:
+    """labels_runner.session_scope 的内存替身（不接触真实 DB）。"""
+
+    yield None
 
 
 def test_compute_labels_raises_on_empty_quotes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -194,6 +221,443 @@ def test_compute_labels_unknown_scheme_raises() -> None:
         labels_runner.compute_labels(
             scheme="dir3_tercile", date_range="20240102:20240131"
         )
+
+
+# ----------------------------------------------------------------------
+# helper：_resolve_ma_window（头部 padding 所需 ma_window 解析）
+# ----------------------------------------------------------------------
+
+def test_resolve_ma_window_non_strategy_aware_none() -> None:
+    """非 strategy_aware（fwd_ret 系）→ None（无 MA，head_pad=0）。"""
+
+    assert labels_runner._resolve_ma_window(
+        is_strategy_aware=False, exit_rules=None
+    ) is None
+    assert labels_runner._resolve_ma_window(
+        is_strategy_aware=False,
+        exit_rules=[{"type": "ma_break", "params": {"period": 10}}],
+    ) is None
+
+
+def test_resolve_ma_window_strategy_aware_default() -> None:
+    """strategy_aware 且 exit_rules=None → 默认 MA_WINDOW(5)。"""
+
+    assert labels_runner._resolve_ma_window(
+        is_strategy_aware=True, exit_rules=None
+    ) == MA_WINDOW
+
+
+def test_resolve_ma_window_strategy_aware_ma_break_period() -> None:
+    """strategy_aware 且含 ma_break → 取该规则 period。"""
+
+    rules = [
+        {"type": "stop_loss", "params": {"pct": 0.05}},
+        {"type": "ma_break", "params": {"period": 12}},
+        {"type": "max_hold", "params": {"days": 10}},
+    ]
+    assert labels_runner._resolve_ma_window(
+        is_strategy_aware=True, exit_rules=rules
+    ) == 12
+
+
+def test_resolve_ma_window_strategy_aware_no_ma_break_none() -> None:
+    """strategy_aware 但 exit_rules 无 ma_break → None（MA 全 NaN，head_pad=0）。"""
+
+    rules = [
+        {"type": "stop_loss", "params": {"pct": 0.05}},
+        {"type": "max_hold", "params": {"days": 10}},
+    ]
+    assert labels_runner._resolve_ma_window(
+        is_strategy_aware=True, exit_rules=rules
+    ) is None
+
+
+# ----------------------------------------------------------------------
+# helper：_compute_g0_load（缺口子区间头部 padding）
+# ----------------------------------------------------------------------
+
+def _patch_trade_cal_desc(
+    monkeypatch: pytest.MonkeyPatch, *, dates_desc: list[str]
+) -> None:
+    """把 session_scope().execute().fetchall() 替成返回固定降序 cal_date 行。
+
+    _compute_g0_load 用 `cal_date < g0 ORDER BY cal_date DESC LIMIT head_pad`，
+    取 rows[-1] 作"g0 之前第 head_pad 个交易日"。dates_desc 模拟这批降序行。
+    """
+
+    class _FakeSession:
+        def execute(self, _sql: Any, _params: Any) -> _FakeSession:
+            return self
+
+        def fetchall(self) -> list[tuple[str]]:
+            return [(d,) for d in dates_desc]
+
+    @contextmanager
+    def _fake_scope() -> Any:
+        yield _FakeSession()
+
+    monkeypatch.setattr(labels_runner, "session_scope", _fake_scope)
+
+
+def test_compute_g0_load_head_pad_zero_returns_g0() -> None:
+    """head_pad<=0（fwd_ret / 无 ma_break）→ 直接返回 g0，不查 trade_cal。"""
+
+    assert labels_runner._compute_g0_load("20240110", 0, "20240101") == "20240110"
+
+
+def test_compute_g0_load_clamps_to_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    """回看落到 start 之前 → clamp 到 start。"""
+
+    # g0 之前第 4 个交易日（rows[-1]）是 20231228（< start=20240101）→ clamp 到 start。
+    _patch_trade_cal_desc(
+        monkeypatch,
+        dates_desc=["20240102", "20240101", "20231229", "20231228"],
+    )
+    out = labels_runner._compute_g0_load("20240108", 4, "20240101")
+    assert out == "20240101"
+
+
+def test_compute_g0_load_returns_padded_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """回看落在 start 之后 → 返回 g0 之前第 head_pad 个交易日（rows[-1]）。"""
+
+    _patch_trade_cal_desc(
+        monkeypatch,
+        dates_desc=["20240109", "20240108", "20240105", "20240104"],
+    )
+    out = labels_runner._compute_g0_load("20240110", 4, "20240101")
+    assert out == "20240104"
+
+
+# ----------------------------------------------------------------------
+# compute_labels：增量缺口循环（force / gap / padding / 只写缺口 / log）
+# ----------------------------------------------------------------------
+
+def _shift_back(day: str, n: int) -> str:
+    """把 YYYYMMDD 往前挪 n 个自然日（仅供测试模拟头部 padding 落点，非交易日历）。"""
+
+    ts = pd.Timestamp(day) - pd.Timedelta(days=n)
+    return ts.strftime("%Y%m%d")
+
+
+def _fwd_quotes_over(dates: list[str]) -> pd.DataFrame:
+    """单票，覆盖给定交易日；供 fwd_5d_ret 增量测试用。"""
+
+    rows = []
+    for i, d in enumerate(dates):
+        close = 10.0 + i
+        rows.append(
+            {"ts_code": "X", "trade_date": d, "close": close, "low": close,
+             "high": close, "adj_factor": 1.0,
+             "close_adj": close, "low_adj": close, "high_adj": close}
+        )
+    return pd.DataFrame(rows)
+
+
+def _patch_incremental_loaders(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    quotes: pd.DataFrame,
+    materialized: set[str],
+    trading_days: list[str],
+    calls: dict[str, Any],
+) -> None:
+    """增量场景 fake：可控 materialized / trading_days，记录关键入参。
+
+    calls 会被填入：
+      - 'daily_quotes_starts'：每次 _load_daily_quotes 收到的 start 参数
+      - 'upserted'：每次 _upsert_labels 收到的 rows（list[dict]）
+      - 'compute_g0_load_calls'：_compute_g0_load 收到的 (g0, head_pad, start)
+    """
+
+    calls.setdefault("daily_quotes_starts", [])
+    calls.setdefault("upserted", [])
+    calls.setdefault("compute_g0_load_calls", [])
+
+    monkeypatch.setattr(labels_runner, "session_scope", _noop_session_scope)
+    monkeypatch.setattr(
+        labels_runner, "query_materialized_dates",
+        lambda s, table, col, val, start, end: set(materialized),
+    )
+    monkeypatch.setattr(
+        labels_runner, "query_trading_days",
+        lambda s, start, end: list(trading_days),
+    )
+    # end_padded 取子区间末日（不实际查 trade_cal）。
+    monkeypatch.setattr(labels_runner, "_compute_end_padded", lambda end: end)
+
+    def _fake_g0_load(g0: str, head_pad: int, start: str) -> str:
+        calls["compute_g0_load_calls"].append((g0, head_pad, start))
+        if head_pad <= 0:
+            return g0
+        # 模拟头部 padding：回看 head_pad 个自然日并 clamp 到 start（保证 <= g0）。
+        return max(start, _shift_back(g0, head_pad))
+
+    monkeypatch.setattr(labels_runner, "_compute_g0_load", _fake_g0_load)
+
+    def _fake_load_quotes(start: str, end: str) -> pd.DataFrame:
+        calls["daily_quotes_starts"].append(start)
+        return quotes
+
+    monkeypatch.setattr(labels_runner, "_load_daily_quotes", _fake_load_quotes)
+    monkeypatch.setattr(
+        labels_runner, "_load_stk_limit",
+        lambda s, e: pd.DataFrame(columns=["ts_code", "trade_date", "up_limit", "down_limit"]),
+    )
+    monkeypatch.setattr(
+        labels_runner, "_load_suspend",
+        lambda s, e: pd.DataFrame(columns=["ts_code", "trade_date"]),
+    )
+    monkeypatch.setattr(
+        labels_runner, "_load_listing_info",
+        lambda: (
+            pd.DataFrame(columns=["ts_code", "list_date"]),
+            pd.DataFrame(columns=["ts_code", "delist_date"]),
+        ),
+    )
+
+    def _fake_upsert(rows: list[dict[str, Any]]) -> int:
+        calls["upserted"].append(rows)
+        return len(rows)
+
+    monkeypatch.setattr(labels_runner, "_upsert_labels", _fake_upsert)
+
+
+def test_compute_labels_force_recompute_skips_materialized_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """force_recompute=True → 不查 materialized，直接整段 [start,end] 单子区间。"""
+
+    dates = pd.bdate_range("2024-01-02", periods=20).strftime("%Y%m%d").tolist()
+    quotes = _fwd_quotes_over(dates)
+    calls: dict[str, Any] = {}
+    _patch_incremental_loaders(
+        monkeypatch, quotes=quotes, materialized=set(),
+        trading_days=dates, calls=calls,
+    )
+
+    def _boom(*_a: Any, **_k: Any) -> set[str]:
+        raise AssertionError("query_materialized_dates 不应在 force 路径被调用")
+
+    monkeypatch.setattr(labels_runner, "query_materialized_dates", _boom)
+
+    n = labels_runner.compute_labels(
+        scheme="fwd_5d_ret",
+        date_range=f"{dates[0]}:{dates[-1]}",
+        force_recompute=True,
+        fwd_horizon_days=1,
+    )
+    assert n > 0
+    # 整段单子区间：_load_daily_quotes 只调一次，起点 == start（fwd head_pad=0）。
+    assert calls["daily_quotes_starts"] == [dates[0]]
+
+
+def test_compute_labels_force_recompute_strategy_aware_loads_from_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """force=True strategy_aware：单子区间 (start,end)，g0_load clamp 到 start（回归基线）。
+
+    改造前整段算 _load_daily_quotes(start, end_padded)；force 路径 g0=start、head_pad>0，
+    _compute_g0_load(start, head_pad, start) clamp 到 start → 加载起点逐字节等价。
+    """
+
+    quotes = _rising_quotes_for_runner()
+    dates = quotes["trade_date"].tolist()
+    calls: dict[str, Any] = {}
+
+    def _boom(*_a: Any, **_k: Any) -> set[str]:
+        raise AssertionError("force 路径不应查 materialized")
+
+    _patch_incremental_loaders(
+        monkeypatch, quotes=quotes, materialized=set(),
+        trading_days=dates, calls=calls,
+    )
+    monkeypatch.setattr(labels_runner, "query_materialized_dates", _boom)
+
+    n = labels_runner.compute_labels(
+        scheme="strategy-aware",
+        date_range=f"{dates[0]}:{dates[-1]}",
+        force_recompute=True,
+    )
+    assert n > 0
+    # 单子区间 → 只加载一次，起点 clamp 到 start。
+    assert calls["daily_quotes_starts"] == [dates[0]]
+    # head_pad = MA_WINDOW-1，g0==start → _compute_g0_load 仍被调（head_pad>0），clamp 到 start。
+    assert calls["compute_g0_load_calls"][0] == (dates[0], MA_WINDOW - 1, dates[0])
+
+
+def test_compute_labels_gap_in_middle_only_computes_gap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """中间缺口：已物化两端、缺中段 → 只算中段子区间，upsert 行 ∈ 缺口。"""
+
+    dates = pd.bdate_range("2024-01-02", periods=10).strftime("%Y%m%d").tolist()
+    quotes = _fwd_quotes_over(dates)
+    # 已物化前 3 + 后 3；中间 dates[3:7] 是缺口。
+    materialized = set(dates[:3]) | set(dates[7:])
+    gap = dates[3:7]
+    calls: dict[str, Any] = {}
+    _patch_incremental_loaders(
+        monkeypatch, quotes=quotes, materialized=materialized,
+        trading_days=dates, calls=calls,
+    )
+
+    labels_runner.compute_labels(
+        scheme="fwd_5d_ret",
+        date_range=f"{dates[0]}:{dates[-1]}",
+        fwd_horizon_days=1,
+    )
+    # 单缺口子区间 → _load_daily_quotes 调一次，起点 == 缺口首日（fwd head_pad=0）。
+    assert calls["daily_quotes_starts"] == [gap[0]]
+    # upsert 的所有行 trade_date ∈ [gap[0], gap[-1]]。
+    upserted_rows = [r for batch in calls["upserted"] for r in batch]
+    assert upserted_rows
+    assert all(gap[0] <= str(r["trade_date"]) <= gap[-1] for r in upserted_rows)
+
+
+def test_compute_labels_full_overlap_no_compute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """全部已物化（无缺口）→ 不算、不 upsert，返回 0。"""
+
+    dates = pd.bdate_range("2024-01-02", periods=6).strftime("%Y%m%d").tolist()
+    quotes = _fwd_quotes_over(dates)
+    calls: dict[str, Any] = {}
+    _patch_incremental_loaders(
+        monkeypatch, quotes=quotes, materialized=set(dates),
+        trading_days=dates, calls=calls,
+    )
+    n = labels_runner.compute_labels(
+        scheme="fwd_5d_ret",
+        date_range=f"{dates[0]}:{dates[-1]}",
+        fwd_horizon_days=1,
+    )
+    assert n == 0
+    assert calls["daily_quotes_starts"] == []  # 一次都没加载
+    assert calls["upserted"] == []
+
+
+def test_compute_labels_full_disjoint_computes_whole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """全不重叠（已物化集与区间无交集）→ 整段都是缺口，单子区间。"""
+
+    dates = pd.bdate_range("2024-01-02", periods=8).strftime("%Y%m%d").tolist()
+    quotes = _fwd_quotes_over(dates)
+    calls: dict[str, Any] = {}
+    # 已物化的是区间外的日子 → 区间内全是缺口。
+    _patch_incremental_loaders(
+        monkeypatch, quotes=quotes, materialized={"20230101", "20230102"},
+        trading_days=dates, calls=calls,
+    )
+    n = labels_runner.compute_labels(
+        scheme="fwd_5d_ret",
+        date_range=f"{dates[0]}:{dates[-1]}",
+        fwd_horizon_days=1,
+    )
+    assert n > 0
+    assert calls["daily_quotes_starts"] == [dates[0]]
+
+
+def test_compute_labels_head_padding_strategy_aware_midgap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """strategy_aware 缺口中段 → _load_daily_quotes 收到的起点 g0_load < g0。"""
+
+    quotes = _rising_quotes_for_runner()
+    dates = quotes["trade_date"].tolist()
+    # 已物化前 5 天 → 缺口从 dates[5] 起。
+    materialized = set(dates[:5])
+    calls: dict[str, Any] = {}
+    _patch_incremental_loaders(
+        monkeypatch, quotes=quotes, materialized=materialized,
+        trading_days=dates, calls=calls,
+    )
+    labels_runner.compute_labels(
+        scheme="strategy-aware",
+        date_range=f"{dates[0]}:{dates[-1]}",
+    )
+    g0 = dates[5]
+    # head_pad = MA_WINDOW-1 = 4 > 0 → _compute_g0_load 被调，起点严格早于 g0。
+    assert calls["compute_g0_load_calls"]
+    assert calls["compute_g0_load_calls"][0][0] == g0
+    assert calls["compute_g0_load_calls"][0][1] == MA_WINDOW - 1
+    loaded_start = calls["daily_quotes_starts"][0]
+    assert loaded_start < g0
+
+
+def test_compute_labels_head_padding_g0_equals_start_clamped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """strategy_aware g0==start（区间全缺口）→ g0_load clamp 到 start。"""
+
+    quotes = _rising_quotes_for_runner()
+    dates = quotes["trade_date"].tolist()
+    calls: dict[str, Any] = {}
+    _patch_incremental_loaders(
+        monkeypatch, quotes=quotes, materialized=set(),
+        trading_days=dates, calls=calls,
+    )
+    labels_runner.compute_labels(
+        scheme="strategy-aware",
+        date_range=f"{dates[0]}:{dates[-1]}",
+    )
+    # g0 == start == dates[0] → _fake_g0_load 的 max(start, ...) → clamp 到 start。
+    assert calls["daily_quotes_starts"][0] == dates[0]
+
+
+def test_compute_labels_fwd_no_head_padding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """fwd_ret 缺口中段 → head_pad=0，g0_load == g0（不回看）。"""
+
+    dates = pd.bdate_range("2024-01-02", periods=10).strftime("%Y%m%d").tolist()
+    quotes = _fwd_quotes_over(dates)
+    materialized = set(dates[:4])  # 缺口从 dates[4] 起
+    calls: dict[str, Any] = {}
+    _patch_incremental_loaders(
+        monkeypatch, quotes=quotes, materialized=materialized,
+        trading_days=dates, calls=calls,
+    )
+    labels_runner.compute_labels(
+        scheme="fwd_5d_ret",
+        date_range=f"{dates[0]}:{dates[-1]}",
+        fwd_horizon_days=1,
+    )
+    g0 = dates[4]
+    # fwd → head_pad=0 → _compute_g0_load(head_pad=0) 返回 g0；起点 == g0。
+    assert calls["compute_g0_load_calls"][0] == (g0, 0, dates[0])
+    assert calls["daily_quotes_starts"][0] == g0
+
+
+def test_compute_labels_logs_skipped_and_computed(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """缺口循环 log skipped_dates(数量) + computed_subranges(列表)，禁止静默截断。"""
+
+    import logging
+
+    dates = pd.bdate_range("2024-01-02", periods=10).strftime("%Y%m%d").tolist()
+    quotes = _fwd_quotes_over(dates)
+    materialized = set(dates[:3]) | set(dates[7:])  # 跳过 3+3=6 天，缺口 4 天
+    calls: dict[str, Any] = {}
+    _patch_incremental_loaders(
+        monkeypatch, quotes=quotes, materialized=materialized,
+        trading_days=dates, calls=calls,
+    )
+    with caplog.at_level(logging.INFO, logger=labels_runner.logger.name):
+        labels_runner.compute_labels(
+            scheme="fwd_5d_ret",
+            date_range=f"{dates[0]}:{dates[-1]}",
+            fwd_horizon_days=1,
+        )
+    plan = [r for r in caplog.records if r.msg == "labels_incremental_plan"]
+    assert plan, "应记录 labels_incremental_plan"
+    rec = plan[0]
+    assert rec.skipped_dates == 6
+    assert rec.computed_subranges == [(dates[3], dates[6])]
 
 
 # ----------------------------------------------------------------------
