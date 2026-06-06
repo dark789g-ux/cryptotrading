@@ -271,6 +271,10 @@ class LabelInputs:
     # None → default_rules()（止损-8% / 跌破MA5 / 最大持仓20日），与 default_exit@v1
     # 逐行等价，保证不传时行为完全不变。仅 strategy-aware 生效。
     exit_rules: list[dict] | None = None
+    # 全局交易日历（exchange='SSE', is_open=1，升序），供 filter_new_listing 做
+    # **窗口无关**的"上市后第N交易日"计数（约束 1，bug3 修复）。runner 注入全量
+    # 日历；None → 退回加载窗口的局部交易日（老调用方/单测，行为不变）。
+    trade_calendar: list[str] | None = None
 
 
 def _augment_quotes_for_exit(
@@ -426,10 +430,19 @@ def compute_strategy_aware_labels(
         else NEW_LISTING_MIN_DAYS
     )
     _validate_min_days(min_days)
+    # 窗口无关（约束 1，bug3）：new_listing 的"上市后第N交易日"必须按**全局**交易
+    # 日历算，不能用加载窗口的局部交易日 trade_dates_sorted——否则次新股 list_date
+    # 早于 chunk 起点（g0_load）时 list_idx=NaN、漏剔，增量与整段重算分歧。
+    # inputs.trade_calendar 由 runner 注入全局 SSE 日历；缺省退回局部日历（行为不变）。
+    new_listing_calendar = (
+        inputs.trade_calendar
+        if inputs.trade_calendar is not None
+        else trade_dates_sorted
+    )
     cand = filter_new_listing(
         cand,
         list_date_map=list_date_map,
-        trade_dates_sorted=trade_dates_sorted,
+        trade_dates_sorted=new_listing_calendar,
         min_days=min_days,
         entry_col="buy_date",
     )

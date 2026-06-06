@@ -588,3 +588,88 @@ def test_new_listing_min_days_constant_value() -> None:
     """常量值锁定为 60（防误改 → 影响默认语义）。"""
 
     assert NEW_LISTING_MIN_DAYS == 60
+
+
+# ----------------------------------------------------------------------
+# 窗口无关 new_listing（约束 1 / bug3）：上市后第N交易日须按全局日历计数
+# ----------------------------------------------------------------------
+
+def _rising_quotes_over(dates: list[str], ts: str = "000001.SZ") -> pd.DataFrame:
+    """单票连涨行情覆盖 dates，含 close_adj / low_adj / high_adj（adj_factor=1）。"""
+
+    rows = []
+    for i, d in enumerate(dates):
+        close = 10.0 * (1.01 ** i)
+        rows.append(
+            {
+                "ts_code": ts, "trade_date": d, "close": close,
+                "low": close * 0.999, "high": close * 1.001, "adj_factor": 1.0,
+                "close_adj": close, "low_adj": close * 0.999, "high_adj": close * 1.001,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def test_strategy_aware_new_listing_uses_global_calendar() -> None:
+    """约束 1 / bug3：次新股 list_date 早于加载窗口起点时，必须按**全局**交易日历
+    判定"上市后第N交易日"。
+
+    旧逻辑用加载窗口的局部交易日 → list_date 不在窗口 → list_idx=NaN → 漏剔（保留）；
+    传 trade_calendar(全局) → 按真实交易日数（31 < 60）正确剔除。两路径分歧即增量与
+    整段重算分歧的根因。
+    """
+
+    global_cal = pd.bdate_range("2024-01-02", periods=100).strftime("%Y%m%d").tolist()
+    list_date = global_cal[20]          # 上市日
+    win = global_cal[50:80]             # 加载窗口：**不含** list_date
+    quotes = _rising_quotes_over(win)
+    listing = pd.DataFrame([{"ts_code": "000001.SZ", "list_date": list_date}])
+    entries = pd.DataFrame([{"ts_code": "000001.SZ", "trade_date": win[0]}])
+    # buy_date = win[1] = global_cal[51]；上市后交易日数 = 51 − 20 = 31 < 60 → 应剔。
+
+    # 旧路径（无全局日历）：list_date 不在窗口 → 漏剔 → 保留 1 行
+    kept = compute_strategy_aware_labels(
+        LabelInputs(daily_quotes=quotes, listing=listing, entries=entries)
+    )
+    assert len(kept) == 1
+
+    # 新路径（全局日历）：按真实交易日数剔除 → 空
+    filtered = compute_strategy_aware_labels(
+        LabelInputs(
+            daily_quotes=quotes, listing=listing, entries=entries,
+            trade_calendar=global_cal,
+        )
+    )
+    assert filtered.empty
+
+
+def test_fwd_new_listing_uses_global_calendar() -> None:
+    """约束 1 / bug3（fwd_ret 路径同款）：次新股 list_date 早于加载窗口起点时，
+    必须按全局交易日历计数；旧逻辑用 quotes 自身派生的局部日历 → 漏剔。
+    """
+
+    global_cal = pd.bdate_range("2024-01-02", periods=100).strftime("%Y%m%d").tolist()
+    list_date = global_cal[20]
+    win = global_cal[50:80]             # 加载窗口不含 list_date
+    rows = []
+    for i, d in enumerate(win):
+        close = 10.0 * (1.01 ** i)
+        rows.append(
+            {"ts_code": "000001.SZ", "trade_date": d, "close": close,
+             "adj_factor": 1.0, "close_adj": close}
+        )
+    quotes = pd.DataFrame(rows)
+    listing = pd.DataFrame([{"ts_code": "000001.SZ", "list_date": list_date}])
+    # signal=win[i]=global_cal[50+i]；上市后交易日数 = 30+i，i∈[0,24] → 全 < 60。
+
+    # 旧路径（无全局日历）：list_date 不在窗口 → 漏剔 → 非空
+    kept = compute_fwd_5d_ret(FallbackInputs(daily_quotes=quotes, listing=listing))
+    assert not kept.empty
+
+    # 新路径（全局日历）：全部 < 60 交易日 → 全剔 → 空
+    filtered = compute_fwd_5d_ret(
+        FallbackInputs(
+            daily_quotes=quotes, listing=listing, trade_calendar=global_cal
+        )
+    )
+    assert filtered.empty

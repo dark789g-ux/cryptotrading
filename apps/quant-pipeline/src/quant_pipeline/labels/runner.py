@@ -293,6 +293,37 @@ def _load_listing_info() -> tuple[pd.DataFrame, pd.DataFrame]:
         raise
 
 
+def _load_trade_calendar() -> list[str]:
+    """加载全量 SSE 交易日历（exchange='SSE', is_open=1，升序）。
+
+    用于 new_listing 过滤的**窗口无关**计数（约束 1，bug3 修复）："上市后第 N 交易日"
+    必须按全局交易日历计，不能用加载窗口 [g0_load, end_padded] 的局部交易日——否则
+    次新股 list_date 早于缺口 chunk 起点时 list_idx=NaN、漏剔，增量与整段重算分歧。
+    全量加载（不设上界）覆盖任意 list_date（历史）与 buy_date（≤ end_padded ≤ 日历末），
+    且日历连续 → 索引差 = 真实交易日数。exchange='SSE'：A 股交易日历标准口径（与
+    _compute_end_padded / _compute_g0_load 同源，漏过滤会跨交易所重复计数）。
+    """
+
+    sql = text(
+        """
+        SELECT cal_date FROM raw.trade_cal
+        WHERE exchange = 'SSE' AND is_open = 1
+        ORDER BY cal_date
+        """
+    )
+    try:
+        with session_scope() as session:
+            rows = session.execute(sql).fetchall()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("trade_cal_failed", extra={"err": str(exc)})
+        raise
+    if not rows:
+        raise RuntimeError(
+            "raw.trade_cal returned 0 SSE open days — cannot compute new_listing filter"
+        )
+    return [str(r[0]) for r in rows]
+
+
 def _load_strategy_definition(strategy_id: str, strategy_version: str) -> list[dict]:
     """查 factors.strategy_definitions 取 exit_rules（jsonb → list[dict]）。
 
@@ -488,6 +519,10 @@ def compute_labels(
 
     # listing/delist 全区间共用，逐缺口循环外加载一次（与缺口子区间无关）。
     listing, delist = _load_listing_info()
+    # 全局 SSE 交易日历（窗口无关 new_listing 计数，约束 1 / bug3）：与加载窗口起点
+    # 无关，缺口循环外加载一次。strategy_aware / fwd 两路径都注入，使"上市后第N交易日"
+    # 计数对增量 chunk 与整段重算一致（详见 _load_trade_calendar / filter_new_listing）。
+    trade_calendar = _load_trade_calendar()
 
     total_written = 0
     for g0, g1 in subranges:
@@ -497,7 +532,12 @@ def compute_labels(
         end_padded = _compute_end_padded(g1)
 
         quotes = _load_daily_quotes(g0_load, end_padded)
-        stk_limit = _load_stk_limit(g0_load, g1)
+        # 窗口无关（约束 1，bug2）：stk_limit 须加载到 end_padded（与 quotes/suspend
+        # 同口径），而非 g1——涨停过滤看 buy_date(entry_col="buy_date")，signal=g1 的
+        # buy_date=next_day(g1)>g1，只到 g1 则查不到该日涨停、漏剔涨停入场，增量与整段
+        # 重算分歧。buy_date 最大为 next_day(g1)≤end_padded，多加载的日期对过滤无害
+        # （filter 只查 buy_date）。
+        stk_limit = _load_stk_limit(g0_load, end_padded)
         suspend = _load_suspend(g0_load, end_padded)
 
         if quotes.empty:
@@ -529,6 +569,8 @@ def compute_labels(
                     # spec 03 §3.2：仅 strategy-aware 系生效；None → default_rules()
                     # （与 default_exit@v1 逐行等价）。
                     exit_rules=exit_rules,
+                    # 全局日历：窗口无关 new_listing 计数（约束 1 / bug3）。
+                    trade_calendar=trade_calendar,
                 ),
                 # scheme 透传：写入 records.scheme（legacy 'strategy-aware' 或
                 # 多策略 'strategy-aware__{id}_{ver}'），与 factors.labels PK 对齐。
@@ -566,6 +608,8 @@ def compute_labels(
                     delist_map=derive_delist_map(delist if not delist.empty else None),
                     listing=listing if not listing.empty else None,
                     new_listing_min_days=new_listing_min_days,
+                    # 全局日历：窗口无关 new_listing 计数（约束 1 / bug3）。
+                    trade_calendar=trade_calendar,
                 ),
                 fwd_horizon_days=resolved_horizon,
             )

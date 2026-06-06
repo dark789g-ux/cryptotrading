@@ -69,6 +69,10 @@ class FallbackInputs:
     # new_listing_min_days 为 None 时走默认 NEW_LISTING_MIN_DAYS(60)，0 表示不过滤。
     listing: pd.DataFrame | None = None
     new_listing_min_days: int | None = None
+    # 全局交易日历（exchange='SSE', is_open=1，升序），供 filter_new_listing 做
+    # **窗口无关**的"上市后第N交易日"计数（约束 1，bug3 修复）。runner 注入全量
+    # 日历；None → 退回加载窗口的局部交易日（老调用方/单测，行为不变）。
+    trade_calendar: list[str] | None = None
 
 
 def compute_fwd_5d_ret(
@@ -181,14 +185,20 @@ def compute_fwd_5d_ret(
                         strict=False,
                     )
                 )
-                # 用 quotes 自身派生交易日历（已用 end_padded，覆盖出参 trade_date 全集）
-                trade_dates_sorted = sorted(
-                    quotes["trade_date"].astype(str).unique().tolist()
-                )
+                # 窗口无关（约束 1，bug3）：new_listing 的"上市后第N交易日"必须按
+                # **全局**交易日历算，不能用 quotes 自身派生的局部交易日——否则次新股
+                # list_date 早于加载窗口起点时 list_idx=NaN、漏剔，增量与整段重算分歧。
+                # inputs.trade_calendar 由 runner 注入全局 SSE 日历；缺省退回局部日历。
+                if inputs.trade_calendar is not None:
+                    new_listing_calendar = inputs.trade_calendar
+                else:
+                    new_listing_calendar = sorted(
+                        quotes["trade_date"].astype(str).unique().tolist()
+                    )
                 out = filter_new_listing(
                     out,
                     list_date_map=list_date_map,
-                    trade_dates_sorted=trade_dates_sorted,
+                    trade_dates_sorted=new_listing_calendar,
                     min_days=min_days,
                     entry_col="trade_date",
                 )

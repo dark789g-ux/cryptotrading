@@ -27,6 +27,7 @@ from quant_pipeline.strategy.exit_rules import (
     MaxHoldRule,
     TakeProfitRule,
     TrailingStopRule,
+    _ensure_ma,
     build_exit_rules,
     combine_rules,
     default_rules,
@@ -464,3 +465,37 @@ def test_build_exit_rules_default_equivalent_no_high_column() -> None:
     assert out_built.exit_date == out_default.exit_date
     assert out_built.exit_price == pytest.approx(out_default.exit_price)
     assert out_built.hold_days == out_default.hold_days
+
+
+# ----------------------------------------------------------------------
+# 窗口无关 MA（约束 1 / bug4）：MA(t) 须只依赖窗口内 w 个 close、与序列起点无关
+# ----------------------------------------------------------------------
+
+def test_ensure_ma_is_window_start_invariant_bit_stable() -> None:
+    """约束 1 / bug4：_ensure_ma 的 MA(t) 必须**逐位**(==, 非 approx)只依赖窗口内的
+    w 个 close、与序列起点无关——同一日期在「整段」与「尾段」两个加载窗口下 MA 相等。
+
+    旧 `rolling().mean()` 用滑动累加（running sum 加新减旧），MA(t) 的浮点末位依赖
+    rolling 序列起点到 t 的整条累加路径 → 增量 chunk(g0_load 起) 与整段重算(start 起)
+    在同一 (ts_code,t) 上可差 1 ULP、close≈ma 时翻转 ma_break。本测试用混入早期大值的
+    序列放大累加差异：尾段从大值之后起算（不含大值），整段含大值；新实现(逐窗独立求和)
+    两者重叠区逐位一致，旧实现(滑动累加)早期大值残差污染整段 running sum → 不一致。
+    """
+
+    dates = pd.bdate_range("2024-01-02", periods=80).strftime("%Y%m%d").tolist()
+    closes = [10.0 + ((i * 37) % 13) * 0.0123456789 for i in range(80)]
+    closes[0] = 1.0e8  # 早期大值：滑动累加的残差会污染其后整条 running sum
+    full = pd.DataFrame({"trade_date": dates, "close": closes})
+    tail = pd.DataFrame({"trade_date": dates[40:], "close": closes[40:]})
+
+    ma_full = _ensure_ma(full, 5).set_index("trade_date")["ma"]
+    ma_tail = _ensure_ma(tail, 5).set_index("trade_date")["ma"]
+
+    overlap = dates[44:]  # 尾段前 4 行因 min_periods 为 NaN，dates[44] 起非 NaN
+    mismatches = [
+        (d, ma_full[d], ma_tail[d]) for d in overlap if ma_full[d] != ma_tail[d]
+    ]
+    assert not mismatches, f"窗口起点导致 MA 不一致(违反约束 1): {mismatches[:3]}"
+
+    # NaN 边界：尾段前 ma_window-1 行必须为 NaN（等价 min_periods=window）。
+    assert ma_tail[dates[40:44]].isna().all()

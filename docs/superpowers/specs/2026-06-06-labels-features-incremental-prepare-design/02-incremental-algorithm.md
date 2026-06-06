@@ -53,7 +53,7 @@ compute_labels(scheme, date_range, ..., force_recompute=False):
 `end_padded` = `g1` 后第 30 交易日 > `MAX_HOLD_DAYS(20)` + T+1 + 余量（`_compute_end_padded`），让 `g1` 附近入场日能看到未来价格判出场/算收益（约束 2）。
 
 **头部 padding（仅 strategy_aware scheme 要）**：
-`strategy/exit_rules.py` 的 `simulate_exit`（`:459`，带可配 `ma_window` 参数，默认 `MA_WINDOW=5`、由 `build_exit_rules` 回传）真实顺序是 **先对整个 prices_df 算滚动 MA（`_ensure_ma(prices, ma_window)`，`:501`；`_ensure_ma` 定义 `:401-415`，`rolling(window, min_periods=window)`，总是从起点重算），再切 `sub = prices[trade_date >= buy_date]`（`:504`）**。故 MA(t) 在"prices_df 起点后 `ma_window−1` 个交易日内"为 NaN，`MABreakRule` 在 MA=NaN 时不触发出场（`:121`）。
+`strategy/exit_rules.py` 的 `simulate_exit`（`:459`，带可配 `ma_window` 参数，默认 `MA_WINDOW=5`、由 `build_exit_rules` 回传）真实顺序是 **先对整个 prices_df 算滚动 MA（`_ensure_ma(prices, ma_window)`，`:501`；`_ensure_ma` 逐窗独立求和 `Σ close[t−j]/w`，等价 `min_periods=window` 的 NaN 边界、但窗口无关 bit-stable，见下表 bug4），再切 `sub = prices[trade_date >= buy_date]`（`:504`）**。故 MA(t) 在"prices_df 起点后 `ma_window−1` 个交易日内"为 NaN，`MABreakRule` 在 MA=NaN 时不触发出场（`:121`）。
 
 → 整段算（prices_df 从 `date_range.start` 加载）的语义是 **MA(t) 非 NaN ⟺ t ≥ start + (ma_window−1) 交易日**。增量要逐行复现，缺口加载起点必须：
 
@@ -122,3 +122,17 @@ build_feature_matrix(factor_version V, label_scheme S, date_range, ..., force_re
 
 ## 与现有行为的等价性（约束 1 验证锚点）
 对任意 `trade_date t`：features 值只依赖当日截面（与加载起点无关）；labels 值依赖 `[t−(ma_window−1), t+尾部窗口]`（MA 回看 + 未来持有/收益）。缺口加载 `[g0_load, end_padded]`（`g0_load` 含头部 MA padding、且不早于 `start` 以复现整段算在 start 附近的 NaN 边界）覆盖了 `[g0,g1]` 每行所需窗口 → 增量结果 == 整段重算结果。验证方法见 [06-testing-verification.md](./06-testing-verification.md#正确性逐行比对约束-1)。
+
+### ⚠️ 补漏：「窗口依赖」是等价性的第二类前提（早期证明遗漏，实测纠正）
+> 上面的"加载窗口覆盖所需日期范围"只是**必要**条件，不充分。即便加载窗口覆盖了 `t` 所需的全部日期，只要某项计算的**结果依赖加载窗口的起点/长度本身**（而非仅依赖窗口内的值），增量 chunk（窗口 `[g0_load, end_padded]`）与整段重算（窗口 `[start, ...]`）就会分歧。真机逐行比对（`verify_incremental_correctness.py`）暴露了 4 处此类病，已全部窗口无关化修复：
+
+| # | 窗口依赖项 | 机制 | 修法（窗口无关化） |
+|---|-----------|------|------------------|
+| **1** | `_compute_end_padded` / `_compute_g0_load` 查 `raw.trade_cal` | 漏 `exchange='SSE'` → 每日历日多交易所行被 `LIMIT n` 截走一半 → 头/尾 padding 减半 | 查询补 `exchange='SSE'`（A 股交易日历标准口径）|
+| **2** | `_load_stk_limit(g0_load, g1)` 只到 `g1` | signal=`g1` 的 buy_date=next_day(`g1`)>`g1`；涨停过滤看 buy_date 当天 stk_limit，增量没加载到 → 漏剔涨停入场 | 改 `_load_stk_limit(g0_load, end_padded)`（与 quotes/suspend 同口径，覆盖所有 buy_date）|
+| **3** | `filter_new_listing` 用加载窗口的局部交易日算"上市后第N交易日" | 次新股 list_date 早于 chunk 起点 → 不在局部日历 → `list_idx=NaN` → 漏剔（整段从更早起则正确剔）| 改用**全局 SSE 交易日历**（`_load_trade_calendar`）计数，注入 `LabelInputs.trade_calendar` / `FallbackInputs.trade_calendar`，与加载窗口无关；strategy_aware 与 fwd 两路径同治 |
+| **4** | `_ensure_ma` 用 `rolling().mean()` | pandas rolling 均值滑动累加（running sum 加新减旧），MA(t) 浮点末位依赖序列**起点**到 t 的累加路径 → 同位置可差 1 ULP，close≈ma 时翻转 `MABreakRule` 严格 `close<ma` | 改逐窗独立求和 `Σ_{j=0}^{w-1} close[t−j] / w`（向量化 shift 错位相加，顺序固定、只依赖窗口内 w 个值、保留 `min_periods=window` 的 NaN 边界）|
+
+**窗口无关原则（沉淀为硬约束）**：任何"逐 signal_date 的计算"都不得依赖加载窗口 `[g0_load, end_padded]` 的起点/长度，只能依赖窗口内的**值**。已知三类窗口依赖陷阱：①滚动统计的浮点累加路径（MA/任何 rolling）②按"日历位置"计数的逻辑（new_listing 上市后第N交易日 → 必须全局日历）③外部数据加载范围不足（stk_limit 须覆盖到 buy_date 的最大值 end_padded）。
+
+> **生产标签语义变更提示**：bug3/bug4 修复使现有 `strategy-aware` 与 `fwd_ret` 历史标签更正确但与旧值不同（new_listing 更严格、close≈ma 边界点出场判定可能不同）。差异需 `force_recompute` 重算才纠正——属独立运维步骤，不在增量物化代码修复范围内。

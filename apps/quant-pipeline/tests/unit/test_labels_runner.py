@@ -60,6 +60,12 @@ def _patch_loaders(
             pd.DataFrame(columns=["ts_code", "delist_date"]),
         ),
     )
+    # 全局交易日历（窗口无关 new_listing 计数）：listing 为空时 filter_new_listing
+    # 短路、日历值不影响结果，返回 quotes 自身日期作占位。
+    monkeypatch.setattr(
+        labels_runner, "_load_trade_calendar",
+        lambda: sorted(quotes["trade_date"].astype(str).unique().tolist()),
+    )
     # 增量缺口查询：已物化置空 + trading_days=[start,end] → 单一子区间 (start,end)。
     monkeypatch.setattr(labels_runner, "session_scope", _noop_session_scope)
     monkeypatch.setattr(
@@ -374,6 +380,7 @@ def _patch_incremental_loaders(
     calls.setdefault("daily_quotes_starts", [])
     calls.setdefault("upserted", [])
     calls.setdefault("compute_g0_load_calls", [])
+    calls.setdefault("stk_limit_ends", [])
 
     monkeypatch.setattr(labels_runner, "session_scope", _noop_session_scope)
     monkeypatch.setattr(
@@ -401,10 +408,13 @@ def _patch_incremental_loaders(
         return quotes
 
     monkeypatch.setattr(labels_runner, "_load_daily_quotes", _fake_load_quotes)
-    monkeypatch.setattr(
-        labels_runner, "_load_stk_limit",
-        lambda s, e: pd.DataFrame(columns=["ts_code", "trade_date", "up_limit", "down_limit"]),
-    )
+
+    def _fake_load_stk_limit(start: str, end: str) -> pd.DataFrame:
+        # 记录 end 入参：bug2 要求 stk_limit 加载到 end_padded（与 quotes 同口径），非 g1。
+        calls["stk_limit_ends"].append(end)
+        return pd.DataFrame(columns=["ts_code", "trade_date", "up_limit", "down_limit"])
+
+    monkeypatch.setattr(labels_runner, "_load_stk_limit", _fake_load_stk_limit)
     monkeypatch.setattr(
         labels_runner, "_load_suspend",
         lambda s, e: pd.DataFrame(columns=["ts_code", "trade_date"]),
@@ -415,6 +425,11 @@ def _patch_incremental_loaders(
             pd.DataFrame(columns=["ts_code", "list_date"]),
             pd.DataFrame(columns=["ts_code", "delist_date"]),
         ),
+    )
+    # 全局交易日历（窗口无关 new_listing 计数）：listing 为空时 filter_new_listing
+    # 短路、日历值不影响结果，返回 trading_days 作占位。
+    monkeypatch.setattr(
+        labels_runner, "_load_trade_calendar", lambda: list(trading_days)
     )
 
     def _fake_upsert(rows: list[dict[str, Any]]) -> int:
@@ -658,6 +673,35 @@ def test_compute_labels_logs_skipped_and_computed(
     rec = plan[0]
     assert rec.skipped_dates == 6
     assert rec.computed_subranges == [(dates[3], dates[6])]
+
+
+def test_compute_labels_loads_stk_limit_to_end_padded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """约束 1 / bug2：stk_limit 必须加载到 end_padded（与 quotes/suspend 同口径），
+    而非缺口末日 g1。
+
+    signal=g1 的 buy_date=next_day(g1)>g1，涨停过滤看 buy_date；只加载到 g1 则查不到
+    该日涨停、漏剔涨停入场 → 增量与整段重算分歧。这里让 end_padded≠g1 以区分二者。
+    """
+
+    dates = pd.bdate_range("2024-01-02", periods=10).strftime("%Y%m%d").tolist()
+    quotes = _fwd_quotes_over(dates)
+    calls: dict[str, Any] = {}
+    _patch_incremental_loaders(
+        monkeypatch, quotes=quotes, materialized=set(),
+        trading_days=dates, calls=calls,
+    )
+    # 让 end_padded 明显晚于 g1(dates[-1])，以区分"加载到 end_padded" vs "加载到 g1"。
+    padded = "20240131"
+    monkeypatch.setattr(labels_runner, "_compute_end_padded", lambda end: padded)
+
+    labels_runner.compute_labels(
+        scheme="strategy-aware",
+        date_range=f"{dates[0]}:{dates[-1]}",
+    )
+    # 单子区间 → stk_limit 加载一次，end 必须是 end_padded(padded)，不是 g1(dates[-1])。
+    assert calls["stk_limit_ends"] == [padded]
 
 
 # ----------------------------------------------------------------------

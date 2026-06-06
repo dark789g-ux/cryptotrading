@@ -183,6 +183,12 @@ def _patch_loaders(monkeypatch: pytest.MonkeyPatch, quotes: pd.DataFrame) -> Non
             pd.DataFrame(columns=["ts_code", "delist_date"]),
         ),
     )
+    # 全局交易日历（窗口无关 new_listing 计数，bug3）：listing 为空时 filter 短路，
+    # 日历值不影响结果，返回 quotes 自身日期作占位。
+    monkeypatch.setattr(
+        labels_runner, "_load_trade_calendar",
+        lambda: sorted(quotes["trade_date"].astype(str).unique().tolist()),
+    )
     monkeypatch.setattr(labels_runner, "session_scope", _noop_session_scope)
     monkeypatch.setattr(
         labels_runner, "query_materialized_dates",

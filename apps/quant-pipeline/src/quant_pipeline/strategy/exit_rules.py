@@ -399,12 +399,21 @@ _REQUIRED_PRICE_COLS: Final[tuple[str, ...]] = ("trade_date", "close")
 
 
 def _ensure_ma(prices_df: pd.DataFrame, window: int | None) -> pd.DataFrame:
-    """按 trade_date 顺序滚动 window 日 close 均值，写入 'ma' 列。
+    """按 trade_date 顺序滚动 window 日 close 均值，写入 'ma' 列（窗口无关 / bit-stable）。
 
     window=None（exit_rules 无 ma_break）→ ma 列全 NaN（MABreakRule 不会被构造，
-    即便构造也因 NaN 不触发）。window=5 时与原 _ensure_ma5 的 ma5 列逐行等价。
+    即便构造也因 NaN 不触发）。
     注：调用方应传入"单一 ts_code、按日升序"的 prices_df。
     总是重算（不复用外部 ma 列），避免 window 与外部预填窗口不一致。
+
+    ⚠️ 窗口无关性（约束 1）：**不能**用 `rolling(window).mean()`——pandas rolling 均值
+    用滑动累加（running sum 加新值减旧值），MA(t) 的浮点末位依赖 rolling 序列的**起点**
+    到 t 的整条累加路径。增量 chunk 的加载窗口起点（g0_load）与整段重算的起点（start）
+    不同 → 同一 (ts_code, t) 的 MA(t) 可差 1 ULP，close≈ma 时翻转 MABreakRule 的严格
+    `close < ma` 比较 → exit_reason/hold_days/value 分歧、违反约束 1。
+    改用 shift 错位逐元素相加：MA(t) = (Σ_{j=0}^{w-1} close[t−j]) / w，求和顺序固定、
+    只依赖窗口内的 w 个 close 值、与序列起点无关 → 增量与整段逐位一致。
+    shift 在序列前 w−1 行产生 NaN，等价 `min_periods=window` 的 NaN 边界。
     """
 
     out = prices_df.copy()
@@ -412,7 +421,13 @@ def _ensure_ma(prices_df: pd.DataFrame, window: int | None) -> pd.DataFrame:
     if window is None:
         out["ma"] = np.nan
     else:
-        out["ma"] = out["close"].rolling(window, min_periods=window).mean()
+        # 逐窗独立求和（左结合、顺序固定）：acc = close + close.shift(1) + ... +
+        # close.shift(w-1)，逐元素即 close[t]+close[t-1]+...+close[t-(w-1)]。
+        close = out["close"]
+        acc = close.copy()
+        for j in range(1, window):
+            acc = acc + close.shift(j)
+        out["ma"] = acc / window
     return out
 
 
