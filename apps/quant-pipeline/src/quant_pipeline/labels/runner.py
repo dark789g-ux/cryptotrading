@@ -58,7 +58,10 @@ from quant_pipeline.worker.progress import (
 )
 
 # fwd_ret_h{N} 新串正则（分类后移改造，spec 2026-06-05）。
-_FWD_RET_HN_RE: re.Pattern[str] = re.compile(r"^fwd_ret_h(\d+)$")
+# 支持 fwd_ret_h{N}__{variant} 变体 scheme（与 strategy-aware 对称，
+# 用于把 fwd 算进临时 scheme 做重算/探查，如 fwd_ret_h1__recheck）。
+# horizon 仍从 group(1) 提取，group(2) 为可选后缀，不影响计算逻辑。
+_FWD_RET_HN_RE: re.Pattern[str] = re.compile(r"^fwd_ret_h(\d+)(__.+)?$")
 # strategy-aware 系串正则（spec 03 §2）：legacy 'strategy-aware' 与多策略
 # 'strategy-aware__{id}_{ver}' 都走 strategy_aware 分支。
 _STRATEGY_AWARE_RE: re.Pattern[str] = re.compile(r"^strategy-aware(__.+)?$")
