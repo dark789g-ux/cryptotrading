@@ -35,7 +35,7 @@
 
 ## 跨文档引用约定
 
-- 统一相对路径 + 锚点，例：`./04-recompute-and-cascade.md#阶段2labels-重算`。
+- 统一相对路径 + 锚点（GitHub slug：转小写、空格转 `-`、标点删、CJK 保留），例：`./04-recompute-and-cascade.md#阶段2-labels-重算`。
 - bug 编号（bug1-4）全局一致，定义见 [01#口径变更bug1-4](./01-context-and-state.md#口径变更bug1-4)。
 - 阶段编号（阶段0-5）全局一致，总览见 [02#总体流水线](./02-pipeline-and-gate.md#总体流水线)。
 

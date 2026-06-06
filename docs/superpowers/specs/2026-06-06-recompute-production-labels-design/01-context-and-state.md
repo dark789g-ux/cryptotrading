@@ -51,6 +51,8 @@ docker exec crypto-postgres psql -U cryptouser -d cryptodb -c "SELECT feature_se
 
 ## 代码契约（真源码核对，apps/quant-pipeline）
 
+> 下列文件路径均相对 `apps/quant-pipeline/src/quant_pipeline/`；行号指向相关定义/SQL 文本，执行时以函数名为准。
+
 - `compute_labels(*, scheme, date_range, new_listing_min_days=None, fwd_horizon_days=None, exit_rules=None, label_winsorize=None, force_recompute=False, job_id=None, progress_callback=None) -> int`（`labels/runner.py:404`）。`date_range` 格式严格 **`"YYYYMMDD:YYYYMMDD"`（冒号分隔）**。
 - `_upsert_labels` = `INSERT INTO factors.labels (...) ON CONFLICT (trade_date,ts_code,scheme) DO UPDATE SET value/exit_reason/hold_days`（`labels/runner.py:383`）—— **不删旧行**。`force_recompute=True` 仅跳过缺口检测、对整段重算，仍走同一条 upsert、不删行。
 - `g0_load = max(start, g0 - head_pad 个 SSE 交易日)`（`labels/runner.py:199`）。head_pad = `ma_window-1`：strategy-aware + ma_break 规则 → **4**（默认 MA_WINDOW=5）；无 ma_break 或 fwd_ret → **0**。

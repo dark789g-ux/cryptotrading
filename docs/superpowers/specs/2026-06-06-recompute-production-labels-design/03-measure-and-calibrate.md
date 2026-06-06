@@ -57,10 +57,11 @@ diff 方法**直接复用** `apps/quant-pipeline/tests/integration/verify_increm
 
 底层 `compute_labels` 增量==整段已被前序 verify 脚本证过（210001 行 PASS）。本步只自证**新写的月度推进驱动**没传错参数：
 
-- 在临时 scheme 上取一个 3 个月窗（如 `20230103:20230331`），跑两路：
-  1. 月度驱动：逐月 `force=False`、`date_range.start` 恒 `20230103`；
-  2. 基准：单次 `force=True, date_range="20230103:20230331"`（写另一个临时 scheme，如 `__recheck_full`）。
-- 逐行 diff 必须**完全一致**（value/exit_reason/hold_days + 行集合），一次性证伪 off-by-one / start 传错。
+- 取一个 3 个月窗（如 `20230103:20230331`），跑两路，**各用独立的全新临时 scheme**（不复用问题① 的 `__recheck`，否则重叠区间已物化会被 `force=False` 跳过、驱动跑空、自证失效）：
+  1. 月度驱动：写 `__recheck_drv`，逐月 `force=False`、`date_range.start` 恒 `20230103`；
+  2. 基准：写 `__recheck_full`，单次 `force=True, date_range="20230103:20230331"`。
+- 逐行 diff `__recheck_drv` vs `__recheck_full` 必须**完全一致**（value/exit_reason/hold_days + 行集合），一次性证伪 off-by-one / start 传错。
+- 执行先后随意（三个临时 scheme `__recheck` / `__recheck_drv` / `__recheck_full` 互不干扰），收尾统一清。
 
 ## 收尾与产出
 
