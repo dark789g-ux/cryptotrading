@@ -156,16 +156,19 @@ def _compute_end_padded(end: str, *, n_trade_days: int = 30) -> str:
     """按交易日历取 end 之后第 n_trade_days 个交易日作为 end_padded。
 
     缓冲需 > MAX_HOLD_DAYS(20) + T+1 入场偏移 + 余量，取 30 个交易日。
-    数据来源 raw.trade_cal（is_open=1），参考 factors/runner._query_trade_dates。
+    数据来源 raw.trade_cal（exchange='SSE', is_open=1），与 query_trading_days /
+    缺口检测同口径（trade_cal 每个日历日含多交易所行，**必须**按 exchange 过滤，
+    否则 LIMIT n 实际只回 ~n/交易所数 个不同日期、尾部 padding 减半）。
     若 raw.trade_cal 在 end 之后不足 n_trade_days 个交易日（数据本身到期）→
     取能取到的最后一日并 logger.warning。
     """
 
     # cal_date / trade_date 均为 Tushare YYYYMMDD 定宽字符串，字典序即时序。
+    # exchange='SSE'：A 股交易日历标准口径；漏此过滤会跨交易所重复计数（bug 教训）。
     sql = text(
         """
         SELECT cal_date FROM raw.trade_cal
-        WHERE is_open = 1 AND cal_date > :end
+        WHERE exchange = 'SSE' AND is_open = 1 AND cal_date > :end
         ORDER BY cal_date
         LIMIT :limit
         """
@@ -205,17 +208,19 @@ def _compute_g0_load(g0: str, head_pad: int, start: str) -> str:
     - head_pad=0（fwd_ret / 无 ma_break）→ 直接返回 g0（不回看）。
     - 不早于 start：clamp 到 start，否则 g0=start 时增量 MA 比整段算更准、反而不一致
       （整段算在 start 附近本就 NaN）。spec 02 §「padding 判定」坐实。
-    - 交易日历来源 raw.trade_cal（is_open=1），与 _compute_end_padded 同源。
+    - 交易日历来源 raw.trade_cal（exchange='SSE', is_open=1），与 _compute_end_padded
+      同源同口径（必须按 exchange 过滤，否则跨交易所重复计数、head_pad 减半）。
     """
 
     if head_pad <= 0:
         return g0
     # cal_date / trade_date 均为 Tushare YYYYMMDD 定宽字符串，字典序即时序。
     # 取 g0 之前 head_pad 个交易日（降序取第 head_pad 个）。
+    # exchange='SSE'：A 股交易日历标准口径；漏此过滤会跨交易所重复计数（bug 教训）。
     sql = text(
         """
         SELECT cal_date FROM raw.trade_cal
-        WHERE is_open = 1 AND cal_date < :g0
+        WHERE exchange = 'SSE' AND is_open = 1 AND cal_date < :g0
         ORDER BY cal_date DESC
         LIMIT :limit
         """
