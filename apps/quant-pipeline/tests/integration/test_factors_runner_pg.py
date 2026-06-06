@@ -115,6 +115,13 @@ def test_run_factors_smoke_2day_window(pg_session: Session) -> None:
     粗算：2 日 × 16 因子 × ~5300 股 ≈ 170K 行；门槛取 5000 × 5 = 25K（spec §7.1）。
     """
 
+    # 因子 meta cache 预热：run_factors 自身不预热（预热职责已上移到 CLI 入口
+    # ensure_loaded，见 cli.py factors_compute）；直接调 run_factors 的测试须自行
+    # 预热，否则实例化因子时抛 FactorMetaMissing。与 CLI 同源调用。
+    from quant_pipeline.factors.registry import ensure_loaded
+
+    ensure_loaded()
+
     out = run_factors(
         factor_version="v1",
         date_range="20240627:20240628",
