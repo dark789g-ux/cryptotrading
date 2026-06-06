@@ -73,17 +73,36 @@ logger = logging.getLogger(__name__)
 # 数据加载
 # ----------------------------------------------------------------------
 
-def _load_daily_quotes(start: str, end_padded: str) -> pd.DataFrame:
-    """加载 [start, end_padded] 区间的 daily_quote，并注入后复权列。
+def _load_daily_quotes(
+    start: str, end_padded: str, *, head_rows_per_code: int = 0
+) -> pd.DataFrame:
+    """加载 [start, end_padded] 主窗口 daily_quote，并注入后复权列。
 
     JOIN raw.adj_factor 取复权因子；经 _common.apply_hfq 注入 close_adj/low_adj/high_adj。
     返回列 [ts_code, trade_date, close, low, high, adj_factor,
             close_adj, low_adj, high_adj]。
     high 供 strategy-aware 的 take_profit / trailing_stop 规则用（spec 03 §4）。
     end_padded 含 max_hold 缓冲。
+
+    head_rows_per_code > 0（仅 strategy_aware 含 ma_break；bug5 修复）：除主窗口外，对
+    **每个在主窗口出现的 ts_code** 再补该股 trade_date < start 的最近 head_rows_per_code
+    个**在场行**（停牌日 raw.daily_quote 无行 → 自然不计入）。
+
+    为何需要（bug5）：simulate_exit 的 _ensure_ma 用**行位移** close.shift(j) 求 MA，
+    MA(t)=最近 ma_window 个**在场行** close 之和/w，只依赖在场行、与日历无关。但主窗口
+    下界 g0_load（_compute_g0_load）按**日历交易日**回看 ma_window-1 天 —— 停牌股在该日历
+    窗内在场行不足 ma_window-1 个 → MA shift 取不到足够前序在场行 → NaN/取行更少 →
+    MABreakRule 的严格 `close < ma` 翻转 → exit_reason/hold_days/value 增量与整段重算分歧
+    （违反约束 1）。补够每股 ma_window-1 个 start 前在场行，使 MA 真正窗口无关、逐位一致。
+
+    实现用 LATERAL + 索引 idx_a_share_daily_quotes_code_date(ts_code, trade_date DESC)，
+    每股仅索引下推读 head_rows_per_code 行（不同于 spec 建议的 ROW_NUMBER 全扫 start 前
+    全量 —— 后者在缺口靠后的月度 chunk 上会扫近一年数据；LATERAL+LIMIT 等价且高效）。
+    head 行 trade_date < start，与主窗口 [start, end] 不相交 → 拼接无重复；head 行 < g0 ≤
+    entries 起点，绝不进 entries/不写库，只参与 _ensure_ma（详见 compute_labels）。
     """
 
-    sql = text(
+    main_sql = text(
         """
         SELECT q.ts_code, q.trade_date, q.close, q.low, q.high, a.adj_factor
         FROM raw.daily_quote q
@@ -93,15 +112,51 @@ def _load_daily_quotes(start: str, end_padded: str) -> pd.DataFrame:
         ORDER BY q.ts_code, q.trade_date
         """
     )
+    # 每股 start 前最近 head_rows_per_code 个在场行（LATERAL top-N，走 code_date 索引）。
+    # codes = 主窗口出现过的 ts_code（含且仅含本次会算到的股）；h = 该股 trade_date < start
+    # 降序前 N 行；LEFT JOIN adj_factor 与主窗口同口径，复权因子缺则该行 close_adj=NaN。
+    head_sql = text(
+        """
+        SELECT codes.ts_code, h.trade_date, h.close, h.low, h.high, a.adj_factor
+        FROM (
+            SELECT DISTINCT ts_code FROM raw.daily_quote
+            WHERE trade_date >= :start AND trade_date <= :end
+        ) codes
+        CROSS JOIN LATERAL (
+            SELECT q2.trade_date, q2.close, q2.low, q2.high
+            FROM raw.daily_quote q2
+            WHERE q2.ts_code = codes.ts_code AND q2.trade_date < :start
+            ORDER BY q2.trade_date DESC
+            LIMIT :head_rows
+        ) h
+        LEFT JOIN raw.adj_factor a
+               ON a.ts_code = codes.ts_code AND a.trade_date = h.trade_date
+        """
+    )
+    cols = ["ts_code", "trade_date", "close", "low", "high", "adj_factor"]
     try:
         with session_scope() as session:
-            rows = session.execute(sql, {"start": start, "end": end_padded}).fetchall()
-        cols = ["ts_code", "trade_date", "close", "low", "high", "adj_factor"]
-        if not rows:
+            rows = session.execute(
+                main_sql, {"start": start, "end": end_padded}
+            ).fetchall()
+            head_rows: list = []
+            if head_rows_per_code > 0:
+                head_rows = session.execute(
+                    head_sql,
+                    {"start": start, "end": end_padded,
+                     "head_rows": head_rows_per_code},
+                ).fetchall()
+        all_rows = list(rows) + list(head_rows)
+        if not all_rows:
             return pd.DataFrame(columns=[*cols, "close_adj", "low_adj", "high_adj"])
-        df = pd.DataFrame(rows, columns=cols)
+        df = pd.DataFrame(all_rows, columns=cols)
         for c in ("close", "low", "high", "adj_factor"):
             df[c] = pd.to_numeric(df[c], errors="coerce")
+        if head_rows:
+            # 主窗口已 ORDER BY，head 行追加在后 → 拼接后重排，保持 (ts_code, trade_date)
+            # 升序契约（下游 strategy_aware groupby + _ensure_ma 各自再排，全局序非必需，
+            # 但保持与改造前一致更稳）。
+            df = df.sort_values(["ts_code", "trade_date"]).reset_index(drop=True)
         return apply_hfq(df)
     except Exception as exc:  # noqa: BLE001
         logger.error("daily_quote_failed", extra={"err": str(exc)})
@@ -534,7 +589,12 @@ def compute_labels(
         g0_load = _compute_g0_load(g0, head_pad, start)
         end_padded = _compute_end_padded(g1)
 
-        quotes = _load_daily_quotes(g0_load, end_padded)
+        # head_rows_per_code=head_pad（=ma_window-1）：bug5 修复。每股补够 g0_load 前
+        # ma_window-1 个在场行，使 simulate_exit 的 MA 窗口无关（停牌股缺行也对齐 FULL）。
+        # fwd 路径 head_pad=0 → 不补 head 行，行为与改造前逐字节一致。
+        quotes = _load_daily_quotes(
+            g0_load, end_padded, head_rows_per_code=head_pad
+        )
         # 窗口无关（约束 1，bug2）：stk_limit 须加载到 end_padded（与 quotes/suspend
         # 同口径），而非 g1——涨停过滤看 buy_date(entry_col="buy_date")，signal=g1 的
         # buy_date=next_day(g1)>g1，只到 g1 则查不到该日涨停、漏剔涨停入场，增量与整段
@@ -635,6 +695,12 @@ def compute_labels(
                        "subrange": (g0, g1)},
             )
             continue
+
+        # 持久化 scheme 恒为调用方请求的 scheme（PK 组件）。strategy_aware 已在 compute
+        # 内设为传入 scheme；fwd 路径(fallback.compute_fwd_5d_ret)内部用 base_scheme_codec
+        # 重建规范名当 scheme 列，会把变体(如 fwd_ret_h1__recheck)误写进规范/生产 scheme。
+        # 此处统一覆盖，确保对称、支持变体 scheme 重算/探查、杜绝误写生产。
+        labels_df["scheme"] = scheme
 
         total_written += _upsert_labels(labels_df.to_dict("records"))
 

@@ -167,7 +167,11 @@ def _patch_loaders(monkeypatch: pytest.MonkeyPatch, quotes: pd.DataFrame) -> Non
     """
     monkeypatch.setattr(labels_runner, "_compute_end_padded", lambda end: end)
     monkeypatch.setattr(labels_runner, "_compute_g0_load", lambda g0, hp, start: g0)
-    monkeypatch.setattr(labels_runner, "_load_daily_quotes", lambda s, e: quotes)
+    # bug5：_load_daily_quotes 新增 head_rows_per_code（keyword-only，默认 0）。
+    monkeypatch.setattr(
+        labels_runner, "_load_daily_quotes",
+        lambda s, e, head_rows_per_code=0: quotes,
+    )
     monkeypatch.setattr(
         labels_runner, "_load_stk_limit",
         lambda s, e: pd.DataFrame(columns=["ts_code", "trade_date", "up_limit", "down_limit"]),

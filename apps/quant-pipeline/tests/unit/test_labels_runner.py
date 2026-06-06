@@ -44,7 +44,11 @@ def _patch_loaders(
 
     monkeypatch.setattr(labels_runner, "_compute_end_padded", lambda end: end)
     monkeypatch.setattr(labels_runner, "_compute_g0_load", lambda g0, hp, start: g0)
-    monkeypatch.setattr(labels_runner, "_load_daily_quotes", lambda s, e: quotes)
+    # bug5：_load_daily_quotes 新增 head_rows_per_code（keyword-only，默认 0）。
+    monkeypatch.setattr(
+        labels_runner, "_load_daily_quotes",
+        lambda s, e, head_rows_per_code=0: quotes,
+    )
     monkeypatch.setattr(
         labels_runner, "_load_stk_limit",
         lambda s, e: pd.DataFrame(columns=["ts_code", "trade_date", "up_limit", "down_limit"]),
@@ -337,6 +341,110 @@ def test_compute_g0_load_returns_padded_date(
 
 
 # ----------------------------------------------------------------------
+# _load_daily_quotes：head_rows_per_code（bug5 —— 停牌股 MA 窗口依赖修复）
+# ----------------------------------------------------------------------
+
+def _patch_session_main_head(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    main_rows: list[tuple],
+    head_rows: list[tuple],
+    seen: dict[str, Any],
+) -> None:
+    """假 session：按 params 区分 _load_daily_quotes 的主窗口/head 两条查询。
+
+    主窗口 params 仅含 {start,end}；head 查询 params 含 'head_rows' 键。fetchall()
+    据最近一次 execute 的查询类型返回对应行。seen 记录是否查过 head（断言用）。
+    """
+
+    seen.setdefault("head_queried", False)
+    seen.setdefault("head_rows_param", None)
+
+    class _FakeSession:
+        def __init__(self) -> None:
+            self._is_head = False
+
+        def execute(self, _sql: Any, params: Any) -> "_FakeSession":
+            self._is_head = "head_rows" in params
+            if self._is_head:
+                seen["head_queried"] = True
+                seen["head_rows_param"] = params["head_rows"]
+            return self
+
+        def fetchall(self) -> list[tuple]:
+            return list(head_rows) if self._is_head else list(main_rows)
+
+    @contextmanager
+    def _fake_scope() -> Any:
+        yield _FakeSession()
+
+    monkeypatch.setattr(labels_runner, "session_scope", _fake_scope)
+
+
+def test_load_daily_quotes_head_rows_included(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """head_rows_per_code>0 → 查 head 查询并把 start 前在场行并入结果（含 close_adj）。
+
+    模拟停牌股 002499.SZ：主窗口 [20230223,20230331] 内首行才 20230327（停牌缺行），
+    head 查询补回 start 前最近 4 个在场行（20230202/0201/0131/0130）。
+    """
+
+    main_rows = [
+        ("002499.SZ", "20230327", 1.70, 1.68, 1.72, 2.575),
+        ("002499.SZ", "20230328", 1.72, 1.70, 1.74, 2.575),
+    ]
+    head_rows = [
+        ("002499.SZ", "20230202", 1.68, 1.66, 1.70, 2.575),
+        ("002499.SZ", "20230201", 1.76, 1.74, 1.78, 2.575),
+        ("002499.SZ", "20230131", 1.68, 1.66, 1.70, 2.575),
+        ("002499.SZ", "20230130", 1.60, 1.58, 1.62, 2.575),
+    ]
+    seen: dict[str, Any] = {}
+    _patch_session_main_head(
+        monkeypatch, main_rows=main_rows, head_rows=head_rows, seen=seen
+    )
+
+    df = labels_runner._load_daily_quotes(
+        "20230223", "20230331", head_rows_per_code=4
+    )
+
+    assert seen["head_queried"] is True
+    assert seen["head_rows_param"] == 4
+    dates = set(df["trade_date"].astype(str))
+    # 主窗口 2 行 + head 4 行全在
+    assert {"20230327", "20230328", "20230202", "20230201", "20230131", "20230130"} <= dates
+    assert len(df) == 6
+    # close_adj 逐行注入（close × adj_factor）
+    row = df.loc[df["trade_date"] == "20230202"].iloc[0]
+    assert abs(float(row["close_adj"]) - 1.68 * 2.575) < 1e-9
+    # 全局升序（拼接后重排契约）
+    assert list(df["trade_date"].astype(str)) == sorted(df["trade_date"].astype(str))
+
+
+def test_load_daily_quotes_no_head_query_when_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """head_rows_per_code=0（fwd 路径）→ 不发 head 查询，结果仅主窗口（行为不变）。"""
+
+    main_rows = [
+        ("X", "20240102", 10.0, 9.8, 10.2, 1.0),
+        ("X", "20240103", 10.5, 10.3, 10.7, 1.0),
+    ]
+    seen: dict[str, Any] = {}
+    _patch_session_main_head(
+        monkeypatch, main_rows=main_rows, head_rows=[("Y", "20231229", 1, 1, 1, 1)],
+        seen=seen,
+    )
+
+    df = labels_runner._load_daily_quotes("20240102", "20240103")
+
+    assert seen["head_queried"] is False
+    assert set(df["trade_date"].astype(str)) == {"20240102", "20240103"}
+    assert "Y" not in set(df["ts_code"].astype(str))
+
+
+# ----------------------------------------------------------------------
 # compute_labels：增量缺口循环（force / gap / padding / 只写缺口 / log）
 # ----------------------------------------------------------------------
 
@@ -378,6 +486,7 @@ def _patch_incremental_loaders(
     """
 
     calls.setdefault("daily_quotes_starts", [])
+    calls.setdefault("daily_quotes_head_rows", [])
     calls.setdefault("upserted", [])
     calls.setdefault("compute_g0_load_calls", [])
     calls.setdefault("stk_limit_ends", [])
@@ -403,8 +512,13 @@ def _patch_incremental_loaders(
 
     monkeypatch.setattr(labels_runner, "_compute_g0_load", _fake_g0_load)
 
-    def _fake_load_quotes(start: str, end: str) -> pd.DataFrame:
+    def _fake_load_quotes(
+        start: str, end: str, head_rows_per_code: int = 0
+    ) -> pd.DataFrame:
         calls["daily_quotes_starts"].append(start)
+        # bug5：记录 compute_labels 透传的 head_rows_per_code（strategy_aware=ma_window-1,
+        # fwd=0），供 wiring 断言。
+        calls["daily_quotes_head_rows"].append(head_rows_per_code)
         return quotes
 
     monkeypatch.setattr(labels_runner, "_load_daily_quotes", _fake_load_quotes)
@@ -644,6 +758,47 @@ def test_compute_labels_fwd_no_head_padding(
     # fwd → head_pad=0 → _compute_g0_load(head_pad=0) 返回 g0；起点 == g0。
     assert calls["compute_g0_load_calls"][0] == (g0, 0, dates[0])
     assert calls["daily_quotes_starts"][0] == g0
+
+
+def test_compute_labels_strategy_aware_passes_head_rows_per_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """bug5 wiring：strategy_aware → _load_daily_quotes 收到 head_rows_per_code=MA_WINDOW-1。"""
+
+    quotes = _rising_quotes_for_runner()
+    dates = quotes["trade_date"].tolist()
+    materialized = set(dates[:5])  # 缺口从 dates[5] 起，触发头部 padding
+    calls: dict[str, Any] = {}
+    _patch_incremental_loaders(
+        monkeypatch, quotes=quotes, materialized=materialized,
+        trading_days=dates, calls=calls,
+    )
+    labels_runner.compute_labels(
+        scheme="strategy-aware",
+        date_range=f"{dates[0]}:{dates[-1]}",
+    )
+    assert calls["daily_quotes_head_rows"] == [MA_WINDOW - 1]
+
+
+def test_compute_labels_fwd_passes_zero_head_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """bug5 wiring：fwd → head_pad=0 → _load_daily_quotes 收到 head_rows_per_code=0（不补 head 行）。"""
+
+    dates = pd.bdate_range("2024-01-02", periods=10).strftime("%Y%m%d").tolist()
+    quotes = _fwd_quotes_over(dates)
+    materialized = set(dates[:4])
+    calls: dict[str, Any] = {}
+    _patch_incremental_loaders(
+        monkeypatch, quotes=quotes, materialized=materialized,
+        trading_days=dates, calls=calls,
+    )
+    labels_runner.compute_labels(
+        scheme="fwd_5d_ret",
+        date_range=f"{dates[0]}:{dates[-1]}",
+        fwd_horizon_days=1,
+    )
+    assert calls["daily_quotes_head_rows"] == [0]
 
 
 def test_compute_labels_logs_skipped_and_computed(
