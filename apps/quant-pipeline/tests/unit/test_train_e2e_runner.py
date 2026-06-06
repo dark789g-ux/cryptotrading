@@ -1,10 +1,11 @@
 """train_e2e_runner 单测（spec 04 + 06 + 分类后移改造 spec 2026-06-05）。
 
-不连 DB：用 monkeypatch 把 compute_labels / build_feature_matrix / train_model
-全替换成 fake，验证编排顺序、错误包装、取消传播、进度回调范围。
+train_e2e_runner 现为 prepare_runner 的 re-export shim（spec 2026-06-06）。
+编排测试（labels→features 两步）已迁移到 test_prepare_runner.py；
+本文件保留 _validate_params 校验用例，通过 train_e2e_runner 命名空间引用
+（保持 `from quant_pipeline.worker import train_e2e_runner as tr` 不断）。
 
-分类后移改造后：_validate_params 走单路径（base_type/base_params/classify_mode/classify_params），
-移除旧 label_scheme 入参路径。
+_validate_params 现位于 prepare_runner，通过 tr.xxx 访问 re-export。
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from uuid import UUID
 import pytest
 
 from quant_pipeline.worker import train_e2e_runner as tr
+from quant_pipeline.worker.prepare_runner import run_prepare
 from quant_pipeline.worker.progress import JobCancelled
 
 _JOB_ID = UUID("11111111-2222-3333-4444-555555555555")
@@ -22,7 +24,7 @@ _JOB_ID = UUID("11111111-2222-3333-4444-555555555555")
 
 @pytest.fixture(autouse=True)
 def _stub_reload_from_db(monkeypatch: pytest.MonkeyPatch) -> None:
-    """run_train_e2e 入口会 `registry.reload_from_db()`（spec 02 §加载流程），
+    """run_prepare 入口会 `registry.reload_from_db()`（spec 02 §加载流程），
     单元测试不连 DB；conftest 已 seed `_meta_cache`，这里把 reload 替换成 noop
     防它把 seed 清空又拉空。"""
 
@@ -264,8 +266,13 @@ class TestValidateParamsIllegal:
 
 
 # ---------------------------------------------------------------------------
-# step 顺序调用 / 返回值
+# 编排测试（迁移到 run_prepare — train_e2e 已废弃）
 # ---------------------------------------------------------------------------
+#
+# train_e2e 废弃后，编排测试改为测 run_prepare（labels → features，两步）。
+# 详细编排 + 进度窗口 + force_recompute 测试见 test_prepare_runner.py；
+# 此处保留"通过 train_e2e_runner 命名空间仍可导 StepError/ValidatedParams"的
+# 验收性测试，以及关键 step 用例的冒烟快照。
 
 
 class _FakeBundle:
@@ -277,14 +284,12 @@ def _install_fake_substeps(
     monkeypatch: pytest.MonkeyPatch,
     *,
     feature_set_id: str = "fs_test123",
-    model_version: str = "lgb-lambdarank-v1-20240630-seed42",
     labels_side_effect: Exception | None = None,
     features_side_effect: Exception | None = None,
-    train_side_effect: Exception | None = None,
     record_calls: list[str] | None = None,
     progress_log: list[tuple[str, int]] | None = None,
 ) -> None:
-    """把三个子 runner 替换成可观测的 fake。
+    """把 labels / features 子 runner 替换成可观测的 fake（train 步骤已废弃）。
 
     progress_log: 若传入，则每个 fake 子 runner 会用 progress_callback(0/50/100)
     各调一次，方便断言父 callback 收到的进度值范围。
@@ -311,68 +316,54 @@ def _install_fake_substeps(
             raise features_side_effect
         return _FakeBundle(feature_set_id)
 
-    def _fake_train(*, progress_callback=None, **kwargs: Any):
-        if record_calls is not None:
-            record_calls.append("train")
-        if progress_log is not None and progress_callback is not None:
-            for pct in (0, 50, 100):
-                progress_callback(pct, f"train:{pct}")
-                progress_log.append((f"train:{pct}", pct))
-        if train_side_effect is not None:
-            raise train_side_effect
-        return {"model_version": model_version, "feature_set_id": feature_set_id}
-
-    # 关键：monkeypatch 模块属性，三个 _step_* 内部都是延迟 import
-    # 所以要 patch 源模块的函数
     import quant_pipeline.features.runner as features_mod
     import quant_pipeline.labels.runner as labels_mod
-    import quant_pipeline.training.runner as training_mod
 
     monkeypatch.setattr(labels_mod, "compute_labels", _fake_labels)
     monkeypatch.setattr(features_mod, "build_feature_matrix", _fake_features)
-    monkeypatch.setattr(training_mod, "train_model", _fake_train)
 
 
-def test_three_steps_called_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
-    """labels → features → train 顺序、且 result dict 含三个关键字段。"""
+def test_two_steps_called_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    """labels → features 顺序（train 已废弃），result dict 含关键字段。
+
+    通过 run_prepare（prepare runner 的顶层编排）验证。
+    """
 
     calls: list[str] = []
     _install_fake_substeps(monkeypatch, record_calls=calls)
 
-    # 取消查询：永不取消
-    monkeypatch.setattr(tr, "check_cancel_requested", lambda _job_id: False)
+    import quant_pipeline.worker.prepare_runner as _pr
+    monkeypatch.setattr(_pr, "check_cancel_requested", lambda _job_id: False)
 
     parent_log: list[tuple[int, str]] = []
-    result = tr.run_train_e2e(
+    result = run_prepare(
         _JOB_ID,
         _valid_params(),
         lambda p, m: parent_log.append((p, m)),
     )
 
-    assert calls == ["labels", "features", "train"]
+    assert calls == ["labels", "features"]
     assert result["feature_set_id"] == "fs_test123"
-    assert result["model_version"] == "lgb-lambdarank-v1-20240630-seed42"
-    assert result["last_completed_step"] == "train"
+    assert result["last_completed_step"] == "features"
 
 
-def test_cancel_on_second_step_skips_remaining(
+def test_cancel_on_second_step_skips_features(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """check_cancel_requested 第二次返回 True 时，features / train 都不应跑。"""
+    """check_cancel_requested 第二次返回 True 时，features 不应跑。"""
 
     calls: list[str] = []
     _install_fake_substeps(monkeypatch, record_calls=calls)
 
-    # 取消查询：第二次返回 True（第一次在 labels 前，已过）
-    cancel_seq = iter([False, True, False])
+    import quant_pipeline.worker.prepare_runner as _pr
+    cancel_seq = iter([False, True])
     monkeypatch.setattr(
-        tr, "check_cancel_requested", lambda _job_id: next(cancel_seq)
+        _pr, "check_cancel_requested", lambda _job_id: next(cancel_seq)
     )
 
     with pytest.raises(JobCancelled):
-        tr.run_train_e2e(_JOB_ID, _valid_params(), lambda p, m: None)
+        run_prepare(_JOB_ID, _valid_params(), lambda p, m: None)
 
-    # labels 跑了，features 在被 cancel 拦住时还未调
     assert calls == ["labels"]
 
 
@@ -383,10 +374,13 @@ def test_features_runtime_error_wrapped_as_step_error(
 
     boom = RuntimeError("factor_version 'nonexistent' has no factors")
     _install_fake_substeps(monkeypatch, features_side_effect=boom)
-    monkeypatch.setattr(tr, "check_cancel_requested", lambda _job_id: False)
 
+    import quant_pipeline.worker.prepare_runner as _pr
+    monkeypatch.setattr(_pr, "check_cancel_requested", lambda _job_id: False)
+
+    # StepError 通过 train_e2e_runner re-export 也可访问
     with pytest.raises(tr.StepError) as ei:
-        tr.run_train_e2e(_JOB_ID, _valid_params(), lambda p, m: None)
+        run_prepare(_JOB_ID, _valid_params(), lambda p, m: None)
 
     assert ei.value.step == "features"
     assert ei.value.original is boom
@@ -398,10 +392,12 @@ def test_labels_value_error_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
 
     boom = ValueError("compute_labels: 0 rows")
     _install_fake_substeps(monkeypatch, labels_side_effect=boom)
-    monkeypatch.setattr(tr, "check_cancel_requested", lambda _job_id: False)
+
+    import quant_pipeline.worker.prepare_runner as _pr
+    monkeypatch.setattr(_pr, "check_cancel_requested", lambda _job_id: False)
 
     with pytest.raises(tr.StepError) as ei:
-        tr.run_train_e2e(_JOB_ID, _valid_params(), lambda p, m: None)
+        run_prepare(_JOB_ID, _valid_params(), lambda p, m: None)
     assert ei.value.step == "labels"
 
 
@@ -409,77 +405,35 @@ def test_job_cancelled_not_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
     """子 runner 抛 JobCancelled 应原样穿透，不被 StepError 包装。"""
 
     _install_fake_substeps(monkeypatch, features_side_effect=JobCancelled())
-    monkeypatch.setattr(tr, "check_cancel_requested", lambda _job_id: False)
+
+    import quant_pipeline.worker.prepare_runner as _pr
+    monkeypatch.setattr(_pr, "check_cancel_requested", lambda _job_id: False)
 
     with pytest.raises(JobCancelled):
-        tr.run_train_e2e(_JOB_ID, _valid_params(), lambda p, m: None)
-
-
-def test_progress_callback_values_always_in_range(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """父 callback 收到的所有 pct 值都必须 ∈ [0,100]，且窗口边界严格落点。"""
-
-    progress_log: list[tuple[str, int]] = []
-    parent_log: list[tuple[int, str]] = []
-    _install_fake_substeps(monkeypatch, progress_log=progress_log)
-    monkeypatch.setattr(tr, "check_cancel_requested", lambda _job_id: False)
-
-    tr.run_train_e2e(
-        _JOB_ID,
-        _valid_params(),
-        lambda p, m: parent_log.append((p, m)),
-    )
-
-    pcts = [p for p, _ in parent_log]
-    assert all(0 <= p <= 100 for p in pcts), pcts
-
-    # 三个窗口的边界值：
-    #   labels:    [0, 30]   ⇒ pct 0/50/100 → 0/15/30
-    #   features:  [30, 60]  ⇒ 30/45/60
-    #   train:     [60, 100] ⇒ 60/80/100
-    # parent_log 元素是 (scaled_pct, msg)；按 msg key 反查 pct
-    pct_by_msg = {m: p for p, m in parent_log}
-    assert pct_by_msg["labels:0"] == 0
-    assert pct_by_msg["labels:50"] == 15
-    assert pct_by_msg["labels:100"] == 30
-    assert pct_by_msg["features:0"] == 30
-    assert pct_by_msg["features:50"] == 45
-    assert pct_by_msg["features:100"] == 60
-    assert pct_by_msg["train:0"] == 60
-    assert pct_by_msg["train:50"] == 80
-    assert pct_by_msg["train:100"] == 100
+        run_prepare(_JOB_ID, _valid_params(), lambda p, m: None)
 
 
 def test_features_returns_plain_string_compat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """兼容老签名：build_feature_matrix 直接返回 str 时也能取到 feature_set_id。
-
-    spec 04 表格规定返回 bundle；老仓库返回纯字符串。getattr 兜底应工作。
-    """
+    """兼容老签名：build_feature_matrix 直接返回 str 时也能取到 feature_set_id。"""
 
     import quant_pipeline.features.runner as features_mod
     import quant_pipeline.labels.runner as labels_mod
-    import quant_pipeline.training.runner as training_mod
+    import quant_pipeline.worker.prepare_runner as _pr
 
     monkeypatch.setattr(labels_mod, "compute_labels", lambda **kw: None)
     monkeypatch.setattr(
         features_mod, "build_feature_matrix", lambda **kw: "fs_legacy_str"
     )
-    monkeypatch.setattr(
-        training_mod,
-        "train_model",
-        lambda **kw: {"model_version": "v", "feature_set_id": kw["feature_set_id"]},
-    )
-    monkeypatch.setattr(tr, "check_cancel_requested", lambda _job_id: False)
+    monkeypatch.setattr(_pr, "check_cancel_requested", lambda _job_id: False)
 
-    result = tr.run_train_e2e(_JOB_ID, _valid_params(), lambda p, m: None)
+    result = run_prepare(_JOB_ID, _valid_params(), lambda p, m: None)
     assert result["feature_set_id"] == "fs_legacy_str"
 
 
 def test_step_error_is_public_class() -> None:
-    """StepError 必须可由 dispatcher 直接 import（无下划线前缀）。"""
+    """StepError 通过 train_e2e_runner re-export 仍可 import（向后兼容）。"""
 
     from quant_pipeline.worker.train_e2e_runner import StepError
 

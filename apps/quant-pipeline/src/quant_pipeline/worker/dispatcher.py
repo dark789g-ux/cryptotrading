@@ -25,7 +25,7 @@ from quant_pipeline.worker.progress import (
     heartbeat,
     update_progress,
 )
-from quant_pipeline.worker.train_e2e_runner import StepError, run_train_e2e
+from quant_pipeline.worker.prepare_runner import StepError, run_prepare
 
 logger = logging.getLogger(__name__)
 
@@ -271,9 +271,9 @@ def _runner_monitor(job: Job) -> None:
 
 
 def _make_progress_callback(job_id: UUID) -> Any:
-    """构造一个把进度回写 ml.jobs 的 callback，供 train_e2e_runner 使用。
+    """构造一个把进度回写 ml.jobs 的 callback，供 prepare_runner 使用。
 
-    train_e2e_runner 自己不直接调 `update_progress`：让父 callback 承担写库，
+    prepare_runner 自己不直接调 `update_progress`：让父 callback 承担写库，
     子 runner 透过 `make_scaled_callback` 缩放后再触达父 callback。
     """
 
@@ -283,24 +283,23 @@ def _make_progress_callback(job_id: UUID) -> Any:
     return _cb
 
 
-def _runner_train_e2e(job: Job) -> None:
-    """train_e2e runner（D-2）：单 job 顺序跑 labels → features → train。
+def _runner_prepare(job: Job) -> None:
+    """prepare runner（spec 2026-06-06 §03）：单 job 顺序跑 labels → features（备料）。
 
-    - StepError：写 `[step:<name>] <traceback>` 到 error_text 后 raise
-      （outer dispatcher 仍会调 `_finalize_job(... error_text=tb)` 覆盖，但 tb
-      文本里 `StepError.__str__` 也带 `[step:<name>]` 前缀，符合 D-18）。
+    不含训练步骤（train 由独立 run_type='train' job 负责）。
+    force_recompute 从 params 读取（默认 False=增量缺口算法）。
+
+    - StepError：写 `[step:<name>] <traceback>` 到 error_text 后 raise。
     - JobCancelled：直抛，outer dispatcher 写 status='cancelled'。
     - 其他 Exception（含 `_validate_params` 抛的 ValueError）：标 `[step:validate]`。
 
-    成功时写 `ml.jobs.result_payload`（D-13）。
+    成功时写 `ml.jobs.result_payload`（feature_set_id + last_completed_step）。
     """
 
     progress_cb = _make_progress_callback(job.id)
     try:
-        result = run_train_e2e(job.id, job.params or {}, progress_cb)
+        result = run_prepare(job.id, job.params or {}, progress_cb)
     except StepError as se:
-        # full_tb 拿到 original 异常的完整堆栈（包含触发点的代码上下文），
-        # 比仅打印 StepError 本身更利于排查
         full_tb = "".join(
             traceback.format_exception(
                 type(se.original), se.original, se.original.__traceback__
@@ -320,7 +319,7 @@ def _runner_train_e2e(job: Job) -> None:
 
 
 def _update_job_result(job_id: UUID, result: dict[str, Any]) -> None:
-    """把 train_e2e 的返回 dict 写到 ml.jobs.result_payload（D-13）。
+    """把 prepare/train_e2e 的返回 dict 写到 ml.jobs.result_payload（D-13）。
 
     仅在成功时调用；失败时保持 result_payload 为 NULL / 空，让上游 SSE
     bridge 不展示半成品。
@@ -366,6 +365,8 @@ _ROUTES = {
     # M2 Part F
     "labels": _runner_labels,
     "features": _runner_features,
+    # spec 2026-06-06 prepare（labels→features 增量串联备料；废弃 train_e2e）
+    "prepare": _runner_prepare,
     # M2 Part G
     "train": _runner_train,
     "infer": _runner_infer,
@@ -373,8 +374,6 @@ _ROUTES = {
     "optuna": _runner_optuna,
     "seed_avg": _runner_seed_avg,
     "monitor": _runner_monitor,
-    # spec 2026-05-23 train_e2e + 新股门槛
-    "train_e2e": _runner_train_e2e,
 }
 
 
