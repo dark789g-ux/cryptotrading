@@ -25,6 +25,9 @@ def build_groups(df: pd.DataFrame) -> np.ndarray:
 # 桶数锚定 5(gain ∈ {0,1,2,3,4}):`2^gain - 1` 上界 = 15,落在 LightGBM 默认
 # label_gain 表(0..30)内,稠密市场(数千票/天)不再撞 "Label N not less than 31"。
 # 训练侧与评估侧(ranking_metrics)必须共用本常量与 bounded_int_gain,避免口径分裂。
+# 经验值:2026-06-07 在 fs_60bc257fb173 全量重训实测 5/10/30 桶,lambdarank OOS
+# rank_ic(连续标签算、跨桶可比)随桶数单调变差:5→+0.046、10→−0.064、30→−0.091
+# (指数 gain 下高桶过度主导、放大极端收益噪声)。故 5 桶为最优,勿轻易调大。
 LABEL_GAIN_LEVELS = 5
 
 
