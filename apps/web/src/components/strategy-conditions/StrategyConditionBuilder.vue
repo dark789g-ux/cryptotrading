@@ -15,65 +15,21 @@
 
       <n-divider>条件列表</n-divider>
 
-      <div v-for="(condition, index) in form.conditions" :key="index" class="condition-row">
-        <n-space align="center">
-          <n-select
-            v-model:value="condition.field"
-            :options="fieldOptions"
-            placeholder="选择指标"
-            style="width: 180px"
-            @update:value="handleFieldChange(condition, $event)"
-          />
-          <n-select
-            v-model:value="condition.operator"
-            :options="getOperatorOptions(condition.field)"
-            placeholder="选择操作符"
-            style="width: 140px"
-          />
-          <n-radio-group
-            :value="condition.compareMode"
-            size="small"
-            @update:value="handleCompareModeChange(condition, $event)"
-          >
-            <n-radio-button value="field">指标</n-radio-button>
-            <n-radio-button value="value">数值</n-radio-button>
-          </n-radio-group>
-          <template v-if="condition.compareMode === 'field'">
-            <n-select
-              v-model:value="condition.compareField"
-              :options="getCompareFieldOptions(condition.field)"
-              placeholder="比较指标"
-              style="width: 180px"
-            />
-          </template>
-          <template v-else>
-            <n-input-number
-              v-model:value="condition.value"
-              placeholder="数值"
-              style="width: 120px"
-            />
-          </template>
-          <n-button type="error" text @click="removeCondition(index)">
-            <template #icon><n-icon><trash-icon /></n-icon></template>
-          </n-button>
-        </n-space>
-      </div>
-
-      <n-button dashed block @click="addCondition" class="add-btn">
-        <template #icon><n-icon><add-icon /></n-icon></template>
-        添加条件
-      </n-button>
+      <condition-rows
+        v-model:conditions="form.conditions"
+        :target-type="form.targetType"
+        default-operator="lt"
+        default-compare-mode="field"
+      />
     </n-form>
-
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
-import { NForm, NFormItem, NInput, NSelect, NInputNumber, NButton, NIcon, NSpace, NDivider, NRadioGroup, NRadioButton, useMessage } from 'naive-ui';
-import type { SelectOption } from 'naive-ui';
-import { Add as AddIcon, Trash as TrashIcon } from '@vicons/ionicons5';
+import { ref, watch } from 'vue';
+import { NForm, NFormItem, NInput, NRadioGroup, NRadioButton, NDivider, useMessage } from 'naive-ui';
 import type { StrategyConditionItem } from '../../api/modules/strategy/strategyConditions';
+import ConditionRows from './ConditionRows.vue';
 
 const message = useMessage()
 
@@ -110,157 +66,6 @@ watch(() => props.initialData, (data) => {
   }
 }, { immediate: true });
 
-interface FieldOption extends SelectOption {
-  /** 是否支持上穿/下穿（仅单表指标字段可用） */
-  supportsCross?: boolean;
-}
-
-/** 行业 AMV 字段：只能与行业 AMV 字段或常量比较（后端约束） */
-const INDUSTRY_FIELD_VALUES = new Set(['ind_amv_dif', 'ind_amv_dea', 'ind_amv_macd']);
-
-const aShareFields: FieldOption[] = [
-  { label: 'KDJ_J', value: 'kdj_j', supportsCross: true },
-  { label: 'KDJ_K', value: 'kdj_k', supportsCross: true },
-  { label: 'KDJ_D', value: 'kdj_d', supportsCross: true },
-  { label: 'MACD_DIF', value: 'macd_dif', supportsCross: true },
-  { label: 'MACD_DEA', value: 'macd_dea', supportsCross: true },
-  { label: 'MACD_HIST', value: 'macd_hist', supportsCross: true },
-  { label: 'BBI', value: 'bbi', supportsCross: true },
-  { label: 'MA5', value: 'ma5', supportsCross: true },
-  { label: 'MA30', value: 'ma30', supportsCross: true },
-  { label: 'MA60', value: 'ma60', supportsCross: true },
-  { label: 'MA120', value: 'ma120', supportsCross: true },
-  { label: 'MA240', value: 'ma240', supportsCross: true },
-  { label: 'ATR14', value: 'atr14', supportsCross: true },
-  { label: '盈亏比', value: 'profit_loss_ratio', supportsCross: true },
-  { label: '砖形图', value: 'brick', supportsCross: true },
-  { label: '砖形图变动', value: 'brick_delta', supportsCross: true },
-  { label: '砖形图信号', value: 'brick_xg' },
-  // 行情 / 估值字段（跨表，不支持上穿/下穿）
-  { label: '换手率', value: 'turnover_rate' },
-  { label: '量比', value: 'volume_ratio' },
-  { label: 'PE', value: 'pe' },
-  { label: 'PE_TTM', value: 'pe_ttm' },
-  { label: 'PB', value: 'pb' },
-  { label: '总市值', value: 'total_mv' },
-  { label: '流通市值', value: 'circ_mv' },
-  { label: '收盘价', value: 'close' },
-  { label: '开盘价', value: 'open' },
-  { label: '最高价', value: 'high' },
-  { label: '最低价', value: 'low' },
-  { label: '成交量', value: 'volume' },
-  { label: '成交额', value: 'amount' },
-  { label: '涨跌幅', value: 'pct_chg' },
-  // 个股 AMV-MACD（stock_amv_daily）
-  { label: 'AMV-MACD-DIF', value: 'amv_dif', supportsCross: false },
-  { label: 'AMV-MACD-DEA', value: 'amv_dea', supportsCross: false },
-  { label: 'AMV-MACD-MACD', value: 'amv_macd', supportsCross: false },
-  // 个股所在行业 AMV-MACD（industry_amv_daily，任一行业达标即命中）
-  { label: '行业AMV-MACD-DIF', value: 'ind_amv_dif', supportsCross: false },
-  { label: '行业AMV-MACD-DEA', value: 'ind_amv_dea', supportsCross: false },
-  { label: '行业AMV-MACD-MACD', value: 'ind_amv_macd', supportsCross: false },
-];
-
-const cryptoFields: FieldOption[] = [
-  { label: 'KDJ_J', value: 'kdj_j', supportsCross: true },
-  { label: 'KDJ_K', value: 'kdj_k', supportsCross: true },
-  { label: 'KDJ_D', value: 'kdj_d', supportsCross: true },
-  { label: 'MACD_DIF', value: 'macd_dif', supportsCross: true },
-  { label: 'MACD_DEA', value: 'macd_dea', supportsCross: true },
-  { label: 'MACD_HIST', value: 'macd_hist', supportsCross: true },
-  { label: 'BBI', value: 'bbi', supportsCross: true },
-  { label: 'MA5', value: 'ma5', supportsCross: true },
-  { label: 'MA30', value: 'ma30', supportsCross: true },
-  { label: 'MA60', value: 'ma60', supportsCross: true },
-  { label: 'MA120', value: 'ma120', supportsCross: true },
-  { label: 'MA240', value: 'ma240', supportsCross: true },
-  { label: 'ATR14', value: 'atr14', supportsCross: true },
-  { label: '盈亏比', value: 'profit_loss_ratio', supportsCross: true },
-  { label: '收盘价', value: 'close', supportsCross: true },
-  { label: '开盘价', value: 'open', supportsCross: true },
-  { label: '最高价', value: 'high', supportsCross: true },
-  { label: '最低价', value: 'low', supportsCross: true },
-  { label: '成交量', value: 'volume', supportsCross: true },
-  { label: '成交额', value: 'amount', supportsCross: true },
-];
-
-const fieldOptions = computed(() => {
-  return form.value.targetType === 'a-share' ? aShareFields : cryptoFields;
-});
-
-/**
- * 比较目标（字段引用模式）的可选字段：按左侧字段是否为行业 AMV 字段过滤。
- * 左侧是行业字段 → 只返回行业字段；左侧非行业字段 → 只返回非行业字段。
- * 从 UI 层杜绝"行业字段 vs 个股字段"这类后端会 warn+skip 静默失效的组合。
- * crypto 无行业字段，leftIsIndustry 恒 false，过滤后等于全部 crypto 字段（行为不变）。
- */
-function getCompareFieldOptions(fieldValue: string) {
-  const all = form.value.targetType === 'a-share' ? aShareFields : cryptoFields;
-  const leftIsIndustry = INDUSTRY_FIELD_VALUES.has(fieldValue);
-  return all.filter(f => INDUSTRY_FIELD_VALUES.has(f.value as string) === leftIsIndustry);
-}
-
-const BASE_OPERATOR_OPTIONS = [
-  { label: '大于', value: 'gt' },
-  { label: '大于等于', value: 'gte' },
-  { label: '小于', value: 'lt' },
-  { label: '小于等于', value: 'lte' },
-  { label: '等于', value: 'eq' },
-  { label: '不等于', value: 'neq' },
-  { label: '上穿', value: 'cross_above' },
-  { label: '下穿', value: 'cross_below' },
-];
-
-function getOperatorOptions(fieldValue: string) {
-  const fields = form.value.targetType === 'a-share' ? aShareFields : cryptoFields;
-  const fieldDef = fields.find(f => f.value === fieldValue);
-  const supportsCross = fieldDef?.supportsCross ?? false;
-  return BASE_OPERATOR_OPTIONS.map(opt => ({
-    ...opt,
-    disabled: !supportsCross && (opt.value === 'cross_above' || opt.value === 'cross_below'),
-  }));
-}
-
-function handleFieldChange(condition: StrategyConditionItem, newField: string) {
-  condition.field = newField;
-  if (
-    (condition.operator === 'cross_above' || condition.operator === 'cross_below') &&
-    !getOperatorOptions(newField).find(o => o.value === condition.operator && !o.disabled)
-  ) {
-    condition.operator = 'gt';
-  }
-  // 切换左侧字段后，若已选的比较字段不在新的可选范围内（行业/非行业类别变了），重置避免残留非法跨类比较目标
-  if (
-    condition.compareField &&
-    !getCompareFieldOptions(newField).some(o => o.value === condition.compareField)
-  ) {
-    condition.compareField = undefined;
-  }
-}
-
-function addCondition() {
-  form.value.conditions.push({
-    field: '',
-    operator: 'lt',
-    value: undefined,
-    compareField: undefined,
-    compareMode: 'field',
-  });
-}
-
-function handleCompareModeChange(condition: StrategyConditionItem, mode: 'field' | 'value') {
-  condition.compareMode = mode;
-  if (mode === 'field') {
-    condition.value = undefined;
-  } else {
-    condition.compareField = undefined;
-  }
-}
-
-function removeCondition(index: number) {
-  form.value.conditions.splice(index, 1);
-}
-
 function handleSave() {
   if (!form.value.name) {
     message.warning('请输入条件组名称');
@@ -281,16 +86,5 @@ defineExpose({
 <style scoped>
 .strategy-condition-builder {
   padding: 16px;
-}
-
-.condition-row {
-  margin-bottom: 12px;
-  padding: 12px;
-  background: var(--n-color);
-  border-radius: 4px;
-}
-
-.add-btn {
-  margin-top: 12px;
 }
 </style>
