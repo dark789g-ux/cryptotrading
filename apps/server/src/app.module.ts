@@ -48,6 +48,9 @@ import { UserInvitationEntity } from './users/entities/user-invitation.entity';
 import { StrategyConditionEntity } from './entities/strategy/strategy-condition.entity';
 import { StrategyConditionRunEntity } from './entities/strategy/strategy-condition-run.entity';
 import { StrategyConditionHitEntity } from './entities/strategy/strategy-condition-hit.entity';
+import { SignalTestEntity } from './entities/strategy/signal-test.entity';
+import { SignalTestRunEntity } from './entities/strategy/signal-test-run.entity';
+import { SignalTestTradeEntity } from './entities/strategy/signal-test-trade.entity';
 import { StrategyConditionsModule } from './strategy-conditions/strategy-conditions.module';
 import { MoneyFlowStockEntity } from './entities/money-flow/money-flow-stock.entity';
 import { MoneyFlowIndustryEntity } from './entities/money-flow/money-flow-industry.entity';
@@ -131,6 +134,9 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           StrategyConditionEntity,
           StrategyConditionRunEntity,
           StrategyConditionHitEntity,
+          SignalTestEntity,
+          SignalTestRunEntity,
+          SignalTestTradeEntity,
           MoneyFlowStockEntity,
           MoneyFlowIndustryEntity,
           MoneyFlowSectorEntity,
