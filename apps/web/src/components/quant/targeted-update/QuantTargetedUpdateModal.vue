@@ -86,7 +86,7 @@ import { quantApi } from '@/api/modules/quant'
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{
   'update:show': [value: boolean]
-  /** 提交成功后透传 jobId（可能是多个，传最后一个让父组件跳转） */
+  /** 提交成功后透传**首个** job 的 id（双 job 时传因子 job），父组件据此高亮列表 */
   submitted: [jobId: string]
 }>()
 
@@ -145,7 +145,11 @@ async function onSubmit() {
   errorText.value = ''
 
   const dr = formatDateRange(dateRange.value as [number, number])
-  let lastJobId: string | null = null
+  // 串行提交：因子在前、标签在后。记录已成功落库的 job，便于双 job 时如实汇报 + 失败补偿提示。
+  const submittedJobIds: string[] = []
+  // 因子 job 是否已成功落库（用于 S2：标签 job 失败时提示因子已提交，避免用户重复提交）
+  let factorJobId: string | null = null
+  const wantLabel = labelKey.value !== null
 
   try {
     // factors job：仅在 factor_ids 非空时发送（空数组后端当作全量，绝不发）
@@ -158,7 +162,8 @@ async function onSubmit() {
           factor_ids: factorIds.value,
         },
       })
-      lastJobId = factorJob.id
+      factorJobId = factorJob.id
+      submittedJobIds.push(factorJob.id)
     }
 
     // labels job：仅在选了标签时发送，不自己拼 scheme
@@ -173,17 +178,28 @@ async function onSubmit() {
           date_range: dr,
         },
       })
-      lastJobId = labelJob.id
+      submittedJobIds.push(labelJob.id)
     }
 
-    if (lastJobId) {
-      msg.success(`已提交定向更新，job_id=${lastJobId.slice(0, 8)}…`)
-      emit('submitted', lastJobId)
+    if (submittedJobIds.length > 0) {
+      // S1：双 job 时如实报"已提交 N 条"，并以首个 job（因子优先）落列表高亮，不再只聚焦最后一个
+      const firstJobId = submittedJobIds[0]
+      msg.success(
+        submittedJobIds.length === 1
+          ? `已提交定向更新，job_id=${firstJobId.slice(0, 8)}…`
+          : `已提交 ${submittedJobIds.length} 条定向更新任务（因子 + 标签）`,
+      )
+      emit('submitted', firstJobId)
       emit('update:show', false)
-      router.push({ name: 'quant-jobs', query: { highlight: lastJobId } })
+      router.push({ name: 'quant-jobs', query: { highlight: firstJobId } })
     }
   } catch (e) {
-    errorText.value = `提交失败：${(e as Error).message}`
+    // S2：串行无事务——标签 job 失败时因子 job 可能已落库，如实提示避免重复提交（daily_factors 幂等 upsert，重提仅重算）
+    const base = `提交失败：${(e as Error).message}`
+    errorText.value =
+      factorJobId !== null && wantLabel
+        ? `${base}。注意：因子任务已提交（job_id=${factorJobId.slice(0, 8)}…），仅标签任务失败，可单独重试标签。`
+        : base
   } finally {
     submitting.value = false
   }
@@ -209,6 +225,7 @@ defineExpose({
   labelKey,
   canSubmit,
   validationError,
+  errorText,
   onSubmit,
 })
 </script>
