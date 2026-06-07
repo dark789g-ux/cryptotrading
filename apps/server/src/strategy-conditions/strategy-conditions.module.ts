@@ -10,6 +10,11 @@ import { StrategyConditionsController } from './strategy-conditions.controller';
 import { StrategyConditionsService } from './strategy-conditions.service';
 import { StrategyConditionsRunner } from './strategy-conditions.runner';
 import { StrategyConditionsQueryBuilder } from './strategy-conditions.query-builder';
+import { SignalStatsController } from './signal-stats/signal-stats.controller';
+import { SignalStatsService } from './signal-stats/signal-stats.service';
+import { SignalStatsRunner } from './signal-stats/signal-stats.runner';
+import { SignalStatsEnumerator } from './signal-stats/signal-stats.enumerator';
+import { SignalStatsSimulator } from './signal-stats/signal-stats.simulator.db';
 
 @Module({
   imports: [TypeOrmModule.forFeature([
@@ -20,8 +25,16 @@ import { StrategyConditionsQueryBuilder } from './strategy-conditions.query-buil
     SignalTestRunEntity,
     SignalTestTradeEntity,
   ])],
-  controllers: [StrategyConditionsController],
-  providers: [StrategyConditionsQueryBuilder, StrategyConditionsRunner, StrategyConditionsService],
+  controllers: [StrategyConditionsController, SignalStatsController],
+  providers: [
+    StrategyConditionsQueryBuilder,
+    StrategyConditionsRunner,
+    StrategyConditionsService,
+    SignalStatsService,
+    SignalStatsRunner,
+    SignalStatsEnumerator,
+    SignalStatsSimulator,
+  ],
   exports: [StrategyConditionsService],
 })
 export class StrategyConditionsModule {}
