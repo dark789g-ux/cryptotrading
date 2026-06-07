@@ -78,3 +78,21 @@
 ## 注意事项
 - 接手第一步：`git -C C:\codes\cryptotrading log --oneline -10` + `git status --short` 确认 HEAD/工作区（分支并发在动）。
 - 本任务**纯排查 + 按需补缺口**，不碰定向更新（B 已收尾合规）。若排查下来其余入口都不需要预热（只 factors/features 这条），如实结论即可，不必为补而补。
+
+---
+
+## 本会话完成（2026-06-07，接手会话）
+
+**审计结论：全仓只有 `features` 一个新缺口，其余 5 入口如实无需预热**（4 个 Explore 子代理逐入口坐实 + 主代理亲查复核）：
+- **`_meta_cache` 读取者权威清单**：`list_active`(registry.py:217 直接读)、`list_factors`/`get_factor`(经 `_materialize`→`Factor.__init__` 间接读)、`Factor.__init__`(base.py)、`_validate_class_db_consistency`(:304)。**`get_factor_class`(:155) 不读 `_meta_cache`，是例外。**
+- **features = 真缺口（头号嫌疑命中）**：入口 `:852` 无预热 + 路径 `_load_factor_ids`→`list_active`(features/runner.py:89) 碰 `_meta_cache` + 能被独立触发（dispatcher `_ROUTES["features"]` 直达 entrypoint，绕过 prepare 的 `reload_from_db`；后端 `ALLOWED_RUN_TYPES` 含 features、可 API 触发需 label_ref+admin，无前端按钮）。`:84` "依赖 train_e2e_runner 已 reload" 注释因 train_e2e 已废弃成 shim+路由删除而**悬空**。
+- **train/infer/optuna/seed_avg/monitor 无缺口**：train/infer/seed_avg 经 `factor_code_fp` 护门只到 `get_factor_class`(不读 `_meta_cache`，安全)；optuna/monitor 完全不碰注册表。全消费已物化 feature_matrix。
+- **无 cron** 自动入队任何 run_type。
+
+**修复（commit `459ac45`，叠在 `a917f2d` 上）**：`features/runner.py::runner_entrypoint` 参数校验后加 `ensure_loaded()`（逐字照抄 b17316b 样板）+ 订正 `:84` 悬空注释 + 新建 `tests/unit/test_features_runner.py` 红→绿回归测试。**只动 2 文件**。
+
+**验证全绿**：① 回归测试锁 `order == ["ensure_loaded", "build_feature_matrix"]`；② 全量 `pytest tests/unit` **960 passed**（基线 959 +1）；③ **真机 e2e**：清 `__pycache__` → 全新 worker(`uv run quant worker run`) → 直插 `ml.jobs` 一个 features job(v1/strategy-aware/20260507:20260508/new_listing_min_days=60/force_recompute=true) → worker 日志 `factor_meta_loaded_from_db n=16`(预热真跑) → job `status=success`、无 `FactorMetaMissing`；feature_matrix 行数 5324/5308 未变。
+
+**顺带发现（未处理，正交）**：① `monitor` 在 `_ROUTES` 却不在后端 `ALLOWED_RUN_TYPES`，API 无法触发(不碰注册表，与预热无关)；② 前端 `quant.ts`/`QuantJobsView.vue` 下拉残留废弃 `train_e2e` 选项。
+
+**已完成，本文件移入 `prompts/archive/`。**
