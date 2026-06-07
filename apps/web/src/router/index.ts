@@ -64,6 +64,12 @@ const routes: any[] = [
     meta: { title: '策略条件' },
   },
   {
+    path: '/signal-stats',
+    name: 'signal-stats',
+    component: () => import('../views/strategy/SignalStatsView.vue'),
+    meta: { title: '信号前向统计' },
+  },
+  {
     path: '/money-flow',
     name: 'money-flow',
     component: () => import('../views/market/MoneyFlowView.vue'),
