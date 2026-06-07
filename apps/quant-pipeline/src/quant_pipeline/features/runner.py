@@ -19,6 +19,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from quant_pipeline.db.engine import session_scope
+from quant_pipeline.factors.registry import ensure_loaded
 from quant_pipeline.features.builder import (
     DEFAULT_NEUTRALIZE_COLS,
     DEFAULT_ROBUST_Z,
@@ -81,9 +82,10 @@ def _load_factor_ids(session: Any, factor_version: str) -> list[str]:
     rows = session.execute(sql, {"v": factor_version}).fetchall()
     in_db = {r[0] for r in rows}
 
-    # 启用集合：依赖调用方（train_e2e_runner）已在入口 `reload_from_db()`。
-    # 若 `_meta_cache` 为空，`list_active` 抛 `FactorMetaMissing`——这里**不**
-    # 用 try/except 兜底成 in_db 全集，避免静默吞错（CLAUDE.md）。
+    # 启用集合：worker 入口 `runner_entrypoint` 现已自调 `ensure_loaded()` 预热、
+    # prepare 路径自调 `reload_from_db()`，故走到这里时 `_meta_cache` 已就绪。
+    # 若仍为空，`list_active` 抛 `FactorMetaMissing`——这里**不**用 try/except
+    # 兜底成 in_db 全集，避免静默吞错（CLAUDE.md）。
     from quant_pipeline.factors.registry import list_active
 
     active = {f.factor_id for f in list_active(factor_version)}
@@ -882,6 +884,11 @@ def runner_entrypoint(job: object) -> None:
             f"new_listing_min_days must be int, got {type(new_listing_min_days).__name__}"
             f"={new_listing_min_days!r}"
         )
+    # 预热因子注册表（import 因子类 + 从 DB 填 _meta_cache），否则全新 worker 进程
+    # 跑 run_type=features 会在 _load_factor_ids → list_active / Factor.__init__ 抛
+    # FactorMetaMissing。features 过去把预热责任挂靠在已废弃的 train_e2e_runner 上；
+    # 独立跑 run_type=features 时会漏掉这一步（与 factors 入口 b17316b 同款 bug）。
+    ensure_loaded()
     job_id = getattr(job, "id", None)
     force_recompute = bool(params.get("force_recompute", False))
     build_feature_matrix(
