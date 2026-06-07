@@ -243,6 +243,37 @@ def test_runner_entrypoint_routes_to_run_factors(
     assert captured["factor_ids"] == ["momentum_20d"]
 
 
+def test_runner_entrypoint_preheats_registry_before_run_factors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """worker 的 factors 入口必须先 ``ensure_loaded()`` 预热注册表，再 ``run_factors``。
+
+    真机 e2e（2026-06-07）暴露：「定向更新」是 ``run_type=factors`` 的首个真实调用方，
+    全新 worker 进程未预热 ``_meta_cache`` → ``Factor.__init__`` 抛
+    ``factor meta missing in cache``（FactorMetaMissing）。CLI ``quant factors`` 入口
+    早已调 ``ensure_loaded()``，worker entrypoint 此前漏了这一步。
+    """
+
+    order: list[str] = []
+    monkeypatch.setattr(runner_mod, "ensure_loaded", lambda: order.append("ensure_loaded"))
+    monkeypatch.setattr(
+        runner_mod, "run_factors", lambda **kw: order.append("run_factors")
+    )
+
+    class _Job:
+        id = uuid4()
+        params = {
+            "version": "v1",
+            "date_range": "20240101:20240131",
+            "factor_ids": ["momentum_20d"],
+        }
+
+    runner_entrypoint(_Job())
+
+    # 必须先预热再算，且预热确实被调用一次
+    assert order == ["ensure_loaded", "run_factors"]
+
+
 def test_dispatcher_routes_factors_to_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

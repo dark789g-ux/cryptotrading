@@ -48,7 +48,7 @@ from quant_pipeline.factors.data_access import (  # noqa: F401
     shift_calendar_days,
     trade_cal_covers,
 )
-from quant_pipeline.factors.registry import list_factors
+from quant_pipeline.factors.registry import ensure_loaded, list_factors
 from quant_pipeline.factors.runner_window_guard import (
     _emit_job_warning,
     load_window_increment,
@@ -424,6 +424,11 @@ def runner_entrypoint(job: object) -> None:
         raise ValueError(
             f"factors job missing required params: version/date_range, got {params!r}"
         )
+    # 预热因子注册表（import 因子类 + 从 DB 填 _meta_cache），否则全新 worker 进程
+    # 跑 run_type=factors 会在 Factor.__init__ 抛 FactorMetaMissing。
+    # CLI `quant factors` 入口早已 ensure_loaded()；「定向更新」是 run_type=factors
+    # 的首个真实调用方，旧 entrypoint 漏了这步（真机 e2e 2026-06-07 暴露）。
+    ensure_loaded()
     job_id = getattr(job, "id", None)
     run_factors(
         factor_version=str(factor_version),
