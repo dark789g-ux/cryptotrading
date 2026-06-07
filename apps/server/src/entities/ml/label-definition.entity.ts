@@ -19,7 +19,7 @@ import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
  * （避免三处真相源；新增类型改 migration 成本高）。
  */
 @Entity({ schema: 'factors', name: 'label_definitions' })
-@Index('idx_label_definitions_enabled_base_type', ['enabled', 'baseType'])
+@Index('ix_label_definitions_enabled_base', ['enabled', 'baseType'])
 export class LabelDefinitionEntity {
   @PrimaryColumn({ name: 'label_id', type: 'varchar', length: 64 })
   labelId: string;

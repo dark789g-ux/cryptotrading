@@ -22,7 +22,7 @@ import type { ExitRuleDef } from '@cryptotrading/shared-types';
  * DB **不加** CHECK 约束（避免三处真相源）。
  */
 @Entity({ schema: 'factors', name: 'strategy_definitions' })
-@Index('idx_strategy_definitions_enabled', ['enabled'])
+@Index('ix_strategy_definitions_enabled', ['enabled'])
 export class StrategyDefinitionEntity {
   @PrimaryColumn({ name: 'strategy_id', type: 'varchar', length: 64 })
   strategyId: string;
