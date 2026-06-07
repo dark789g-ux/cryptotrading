@@ -44,6 +44,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from quant_pipeline.db.engine import session_scope
+from quant_pipeline.features.factor_code_fingerprint import assert_fm_code_fingerprint
 from quant_pipeline.quality.report import gate_check
 from quant_pipeline.training.group_utils import build_groups, flatten_features
 from quant_pipeline.utils.paths import (
@@ -420,6 +421,10 @@ def train_model(
     _progress(0, "train:start")
 
     # ---- 1. 数据加载 ----
+    # followup problem2 护门:校验 fm 的因子计算代码口径指纹与当前代码一致。
+    # 不一致(如 close_adj 口径变更后未重物化)→ raise;旧 fm 无指纹只 warn。
+    with session_scope() as _fp_sess:
+        assert_fm_code_fingerprint(feature_set_id, _fp_sess)
     df = _load_feature_matrix(feature_set_id, date_range=date_range)
     df = df.sort_values(["trade_date", "ts_code"]).reset_index(drop=True)
 

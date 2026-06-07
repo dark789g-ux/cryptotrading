@@ -31,6 +31,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from quant_pipeline.db.engine import session_scope
+from quant_pipeline.features.factor_code_fingerprint import assert_fm_code_fingerprint
 from quant_pipeline.inference.score_writer import compute_rank_in_day, write_scores
 from quant_pipeline.quality.report import gate_check
 from quant_pipeline.utils.paths import resolve_artifact_local_path
@@ -169,6 +170,9 @@ def predict_one_day(
 
     run_info = _load_model_run(session, model_version=model_version, model_run_id=None)
     feature_set_id = run_info["feature_set_id"]
+    # followup problem2 护门:校验 fm 因子代码口径指纹一致(置于算法分派前,覆盖
+    # lgb-lambdarank / lstm / lgb-multiclass 三条推理路径)。不一致 raise;旧 fm 无指纹只 warn。
+    assert_fm_code_fingerprint(feature_set_id, session)
     artifact_uri_str = run_info["artifact_uri"]
     model_path = _resolve_artifact_local_path(artifact_uri_str)
     if not model_path.exists():

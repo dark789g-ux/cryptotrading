@@ -332,6 +332,8 @@ def test_predict_one_day_loads_meta_and_scores(
             "artifact_uri": "./artifacts/whatever/model.txt",
         },
     )
+    # 本用例测 booster.predict + rank，不测因子代码指纹护门(session 为 mock)→ no-op。
+    monkeypatch.setattr(runner_mod, "assert_fm_code_fingerprint", lambda *a, **k: None)
     monkeypatch.setattr(
         runner_mod,
         "_resolve_artifact_local_path",

@@ -29,6 +29,7 @@ from quant_pipeline.features.builder import (
 from quant_pipeline.features.builder import (
     FACTOR_CLIP_SIGMA as _BUILDER_FACTOR_CLIP_SIGMA,
 )
+from quant_pipeline.features.factor_code_fingerprint import factor_code_fingerprint
 from quant_pipeline.features.feature_set_hash import (  # spec 02 §哈希方案 A
     apply_overlay_to_feature_set_id,
     build_overlay,
@@ -222,23 +223,28 @@ def _upsert_feature_set(
     factor_ids: list[str],
     new_listing_min_days: int,
 ) -> None:
-    """spec 03：INSERT ... ON CONFLICT DO NOTHING（不再 UPDATE）。
+    """spec 03：INSERT ... ON CONFLICT 保留 metadata；仅 factor_code_fp 跟随物化更新。
 
     - 预查复用机制（D-16）已在 :func:`resolve_feature_set_id` 处保证命中
       老行；走到这里若 PK 冲突说明同 ID 已存在，metadata 列保留原值即可。
     - 写入的 ``factor_ids`` text[] 由调用方保证已排序（与 builder 哈希侧、
       DB 唯一索引侧三处对齐）。
+    - factor_code_fp（followup problem2 护门）：因子计算代码口径指纹，**随本次物化
+      所用代码更新**——所以 ON CONFLICT 时 DO UPDATE 该列(而非 DO NOTHING)。
+      problem2 场景正是"同 fs id 下 close_adj 口径变更后重物化",必须刷新指纹,
+      否则护门读到陈旧指纹反而误判。其余 metadata 列仍保留原值。
     """
 
+    fp = factor_code_fingerprint(factor_ids, factor_version)
     sql = text(
         """
         INSERT INTO factors.feature_sets
             (feature_set_id, factor_version, scheme, factor_ids,
-             new_listing_min_days, created_at)
+             new_listing_min_days, created_at, factor_code_fp)
         VALUES
             (:feature_set_id, :factor_version, :scheme,
-             CAST(:factor_ids AS text[]), :new_listing_min_days, now())
-        ON CONFLICT (feature_set_id) DO NOTHING
+             CAST(:factor_ids AS text[]), :new_listing_min_days, now(), :fp)
+        ON CONFLICT (feature_set_id) DO UPDATE SET factor_code_fp = EXCLUDED.factor_code_fp
         """
     )
     with session_scope() as session:
@@ -250,6 +256,7 @@ def _upsert_feature_set(
                 "scheme": scheme,
                 "factor_ids": "{" + ",".join(f'"{f}"' for f in factor_ids) + "}",
                 "new_listing_min_days": int(new_listing_min_days),
+                "fp": fp,
             },
         )
 

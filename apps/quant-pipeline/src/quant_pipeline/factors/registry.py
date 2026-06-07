@@ -152,6 +152,23 @@ def get_factor(factor_id: str, factor_version: str) -> Factor:
     return _materialize((factor_id, factor_version))
 
 
+def get_factor_class(factor_id: str, factor_version: str) -> type[Factor]:
+    """按 (factor_id, factor_version) 取因子**类**(不实例化,不需 _meta_cache)。
+
+    用于因子代码指纹(getsource compute)等只需类、不需 DB 元数据的场景。
+    类在 import 期由 @register 装饰器登记(factors/__init__ 自动 import_all_factors)。
+    不存在抛 KeyError。
+    """
+
+    key = (factor_id, factor_version)
+    if key not in _REGISTRY_CLASSES:
+        raise KeyError(
+            f"factor not registered: factor_id={factor_id!r}, "
+            f"factor_version={factor_version!r}; 已注册: {sorted(_REGISTRY_CLASSES.keys())}"
+        )
+    return _REGISTRY_CLASSES[key]
+
+
 def list_factors(
     *,
     factor_version: str | None = None,

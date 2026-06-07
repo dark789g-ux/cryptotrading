@@ -139,6 +139,8 @@ def _patch_model_run(monkeypatch: pytest.MonkeyPatch, model_path: Path) -> None:
     monkeypatch.setattr(
         runner_mod, "_resolve_artifact_local_path", lambda _uri: model_path
     )
+    # 本组测分派逻辑(session=None),不测因子代码指纹护门 → 置为 no-op。
+    monkeypatch.setattr(runner_mod, "assert_fm_code_fingerprint", lambda *a, **k: None)
 
 
 def test_dispatch_algorithm_lstm_routes_to_lstm_predictor(
