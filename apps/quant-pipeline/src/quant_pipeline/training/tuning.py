@@ -70,7 +70,11 @@ from sqlalchemy import text
 
 from quant_pipeline.db.engine import session_scope
 from quant_pipeline.evaluation.ranking_metrics import ndcg_at_k
-from quant_pipeline.training.group_utils import build_groups, flatten_features
+from quant_pipeline.training.group_utils import (
+    build_groups,
+    flatten_features,
+    label_to_bucketed_gain,
+)
 from quant_pipeline.training.lightgbm_lambdarank import (
     DEFAULT_HYPERPARAMS,
     train_lambdarank,
@@ -91,17 +95,6 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------
 # 单 trial 内部训练（1 折 PurgedWalkForwardSplit）
 # ----------------------------------------------------------------------
-
-
-def _label_to_int_rank(df_meta: pd.DataFrame, y: pd.Series) -> pd.Series:
-    """LambdaRank 要求 label 为非负整数 gain；按 trade_date 截面 rank。"""
-
-    df = pd.DataFrame(
-        {"td": df_meta["trade_date"].astype(str).to_numpy(), "y": y.to_numpy()}
-    )
-    ranks = df.groupby("td", sort=False)["y"].rank(method="first").astype(int) - 1
-    ranks.index = y.index
-    return ranks
 
 
 def _objective_one_trial(
@@ -140,8 +133,8 @@ def _objective_one_trial(
         y_train = y_clean.iloc[train_idx].reset_index(drop=True)
         df_train = df_clean.iloc[train_idx].reset_index(drop=True)
         groups_train = build_groups(df_train)
-        # 标签保持连续；只在 train_lambdarank 入口处做截面 rank（评审 04-#1 口径）
-        y_train_rank = _label_to_int_rank(df_train, y_train)
+        # 标签保持连续；只在 train_lambdarank 入口处做截面分位分桶（与 NDCG 评估同口径）
+        y_train_rank = label_to_bucketed_gain(df_train, y_train)
 
         X_test = X_clean.iloc[test_idx].reset_index(drop=True)
         y_test = y_clean.iloc[test_idx].reset_index(drop=True)
@@ -269,7 +262,7 @@ def _evaluate_on_holdout(
     y_tr = y_tuning.reset_index(drop=True)
     df_tr = df_tuning.reset_index(drop=True)
     groups_tr = build_groups(df_tr)
-    y_tr_rank = _label_to_int_rank(df_tr, y_tr)
+    y_tr_rank = label_to_bucketed_gain(df_tr, y_tr)
 
     X_ho = X_holdout.reset_index(drop=True)
     y_ho = y_holdout.reset_index(drop=True)

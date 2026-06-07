@@ -44,6 +44,7 @@ from quant_pipeline.training.gbdt_pointwise import (
     predict_gbdt_pointwise,
     train_gbdt_pointwise,
 )
+from quant_pipeline.training.group_utils import label_to_bucketed_gain
 from quant_pipeline.training.lightgbm_lambdarank import train_lambdarank
 from quant_pipeline.training.linear_baseline import (
     predict_linear,
@@ -60,21 +61,6 @@ def _build_groups(df: pd.DataFrame) -> np.ndarray:
     """以 trade_date 为 query group；返回每日样本数数组。"""
 
     return df.groupby("trade_date", sort=False).size().to_numpy().astype(np.int64)
-
-
-def _label_to_cross_sectional_rank(
-    df_meta: pd.DataFrame, y: pd.Series
-) -> pd.Series:
-    """LightGBM LambdaRank 要求 label 为非负整数 gain。
-
-    把连续 label 按 trade_date 截面转为整数 rank（0..n-1，越大越好）。
-    """
-
-    df = pd.DataFrame({"td": df_meta["trade_date"].astype(str).to_numpy(), "y": y.to_numpy()})
-    # 同日内按 y 升序 rank → 整数 0..n-1
-    ranks = df.groupby("td", sort=False)["y"].rank(method="first").astype(int) - 1
-    ranks.index = y.index
-    return ranks
 
 
 def _fold_predict_three(
@@ -108,7 +94,7 @@ def _fold_predict_three(
     )
     scores_gbdt = predict_gbdt_pointwise(gbdt_booster, X_test)
 
-    # 3) LightGBM LambdaRank（要求 label 为整数 gain → 用同日截面 rank）
+    # 3) LightGBM LambdaRank（要求有界整数 gain → 调用方已对 y_train 做同日截面分位分桶）
     lambdarank_booster = train_lambdarank(
         X_train,
         y_train_rank,
@@ -263,8 +249,8 @@ def compare_three(
         y_train = y_all.iloc[train_idx].reset_index(drop=True)
         df_train_part = df_features.iloc[train_idx].reset_index(drop=True)
         groups_train = _build_groups(df_train_part)
-        # LambdaRank 需要整数 gain label：按当日截面排名
-        y_train_rank = _label_to_cross_sectional_rank(df_train_part, y_train)
+        # LambdaRank 需要有界整数 gain label：按当日截面分位分桶(与 NDCG 评估同口径)
+        y_train_rank = label_to_bucketed_gain(df_train_part, y_train)
 
         X_test = X_all.iloc[test_idx].reset_index(drop=True)
         y_test = y_all.iloc[test_idx].reset_index(drop=True)

@@ -29,7 +29,7 @@ from quant_pipeline.evaluation.ranking_metrics import (
     ndcg_at_k,
     rank_ic_spearman,
 )
-from quant_pipeline.training.group_utils import build_groups
+from quant_pipeline.training.group_utils import build_groups, label_to_bucketed_gain
 from quant_pipeline.training.lightgbm_lambdarank import (
     DEFAULT_HYPERPARAMS,
     DEFAULT_NUM_BOOST_ROUND,
@@ -40,19 +40,6 @@ from quant_pipeline.utils.paths import artifact_dir
 from quant_pipeline.worker.progress import ProgressCallback
 
 logger = logging.getLogger(__name__)
-
-
-def _label_to_cross_sectional_rank(
-    df_meta: pd.DataFrame, y: pd.Series
-) -> pd.Series:
-    """把连续 label 按 trade_date 截面转为整数 rank（0..n-1）给 LambdaRank 当 gain。"""
-
-    df = pd.DataFrame(
-        {"td": df_meta["trade_date"].astype(str).to_numpy(), "y": y.to_numpy()}
-    )
-    ranks = df.groupby("td", sort=False)["y"].rank(method="first").astype(int) - 1
-    ranks.index = y.index
-    return ranks
 
 
 def train_single_fold(
@@ -88,8 +75,8 @@ def train_single_fold(
     y_train = y_all.iloc[train_idx].reset_index(drop=True)
     df_train_part = df_train.iloc[train_idx].reset_index(drop=True)
     groups_train = build_groups(df_train_part)
-    # LambdaRank 需要整数 gain：仅对训练标签做截面 rank（评估仍用连续 label）
-    y_train_rank = _label_to_cross_sectional_rank(df_train_part, y_train)
+    # LambdaRank 需要有界整数 gain：仅对训练标签做截面分位分桶（评估仍用连续 label）
+    y_train_rank = label_to_bucketed_gain(df_train_part, y_train)
 
     X_test = X_all.iloc[test_idx].reset_index(drop=True)
     y_test = y_all.iloc[test_idx].reset_index(drop=True)

@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 import pandas as pd
 
 from quant_pipeline.evaluation.ab_compare import MODEL_NAMES, compare_three
-from quant_pipeline.training.group_utils import build_groups
+from quant_pipeline.training.group_utils import build_groups, label_to_bucketed_gain
 from quant_pipeline.training.lightgbm_lambdarank import (
     DEFAULT_HYPERPARAMS,
     DEFAULT_NUM_BOOST_ROUND,
@@ -112,11 +112,15 @@ def train_walk_forward(
     if job_id is not None:
         update_progress(job_id, progress_end, stage="train:wf_done")
 
-    # 以 LambdaRank 整段 booster 作为生产推理用 artifact
+    # 以 LambdaRank 整段 booster 作为生产推理用 artifact。
+    # 修复(followup label_gain 崩溃):LambdaRank label 必须是有界整数 gain。0aca2d5
+    # "移除标签双重变换"时把这里的截面 rank 误删,直喂原始连续含负 y_all 会触发
+    # "label should be int type"(崩B);且应与评估折/NDCG 同口径——故同走截面分位分桶。
     final_groups = build_groups(df_train)
+    y_all_gain = label_to_bucketed_gain(df_train, y_all)
     final_booster = train_lambdarank(
         X_all,
-        y_all,
+        y_all_gain,
         final_groups,
         hyperparams=hyperparams,
         seed=seed,
