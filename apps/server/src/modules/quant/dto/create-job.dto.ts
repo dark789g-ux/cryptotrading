@@ -47,6 +47,14 @@ export class CreateJobDto {
   label_ref?: { label_id: string; label_version: string };
 }
 
+/**
+ * 外部 `POST /quant/jobs` 允许创建的 run_type 白名单（spec 03-backend-decoupling 外部 API 契约）。
+ *
+ * 刻意排除、勿"补全"（`create-job.dto.spec.ts` 已锁定拒绝）：
+ * - `monitor`：在 dispatcher `_ROUTES` 里（worker 能跑），但只走内部创建，不开放外部 POST。
+ * - `train_e2e`：已废弃（spec 2026-06-06，dispatcher 路由已删），不能再新建；历史 job 仍存于
+ *   DB，靠前端 `JobRunType` 类型 + 作业列表筛选下拉展示/筛选，但不在此白名单。
+ */
 export const ALLOWED_RUN_TYPES: readonly MlJobRunType[] = [
   'noop',
   'sync',
