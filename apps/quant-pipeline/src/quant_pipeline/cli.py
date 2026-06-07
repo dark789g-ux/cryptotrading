@@ -212,10 +212,13 @@ def sync_raw(
 
 @labels_app.command("build")  # type: ignore[untyped-decorator]  # typer 装饰器在 mypy strict 下判为 untyped，仅类型层屏蔽
 def labels_build(
-    scheme: str = typer.Option(
-        "strategy-aware",
+    scheme: str | None = typer.Option(
+        None,
         "--scheme",
-        help="标签方案：strategy-aware（推荐主用） | fwd_5d_ret（兜底）",
+        help="标签方案：strategy-aware（推荐主用） | fwd_5d_ret（兜底）。"
+             "不传时默认 strategy-aware。"
+             "传了 --strategy-id/--strategy-version 时由 codec 自动算出，无需手动指定；"
+             "若同时显式指定 --scheme 且与 codec 不一致则 fail-fast 报错。",
     ),
     date_range: str = typer.Option(
         ...,
@@ -234,21 +237,95 @@ def labels_build(
         "--progress",
         help="显示终端进度条",
     ),
+    strategy_id: str = typer.Option(
+        "",
+        "--strategy-id",
+        help="策略 ID（与 --strategy-version 必须同时给或同时不给）。"
+             "给定时由 codec 算 scheme + 从 factors.strategy_definitions 加载 exit_rules，"
+             "防止自定义 strategy-aware scheme 静默使用 default 规则错标。",
+    ),
+    strategy_version: str = typer.Option(
+        "",
+        "--strategy-version",
+        help="策略版本（与 --strategy-id 必须同时给或同时不给）。",
+    ),
 ) -> None:
     """计算 strategy-aware / fwd_5d_ret 标签，upsert 到 factors.labels。
 
     CLI 直跑，不写 ml.jobs；与 worker dispatcher 的 'labels' run_type 走同一组
     runner（02-quant-pipeline §3）。
+
+    自定义 strategy-aware scheme（形如 strategy-aware__<id>_<ver>）必须配合
+    --strategy-id/--strategy-version 使用，否则会静默回退到 default exit_rules 错标。
     """
 
     setup_logging()
-    from quant_pipeline.labels.runner import compute_labels
+    from quant_pipeline.labels.dir3_scheme import base_scheme_codec
+    from quant_pipeline.labels.runner import _load_strategy_definition, compute_labels
 
     try:
         validate_date_range(date_range)
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
+
+    # ---- 参数合法性 fail-fast ----
+
+    # 规范化：空字符串视作"未传"
+    sid = strategy_id.strip() or None
+    sver = strategy_version.strip() or None
+    # scheme=None 表示用户未显式传 --scheme
+    explicit_scheme: str | None = scheme  # 保留原始值用于 mismatch 检测
+
+    # 守门 1：两者必须同时给或同时不给
+    if bool(sid) != bool(sver):
+        typer.echo(
+            "错误：--strategy-id 与 --strategy-version 必须同时给或同时不给。"
+            f"（当前：strategy-id={strategy_id!r}，strategy-version={strategy_version!r}）",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    exit_rules: list[dict] | None = None
+    resolved_scheme: str  # 最终传给 compute_labels 的 scheme
+
+    if sid and sver:
+        # 给了 strategy-id+version → 用 codec 算权威 scheme + 加载 exit_rules
+        codec_scheme = base_scheme_codec(
+            "strategy_aware",
+            {"strategy_id": sid, "strategy_version": sver},
+        )
+        # 守门 2：若用户同时显式传了 --scheme 且与 codec 结果不一致 → fail-fast
+        # explicit_scheme=None 表示未显式传，跳过一致性检查；
+        # 显式传了且不一致 → 报错（防止用户手误指定错误 scheme 与 codec 冲突）。
+        if explicit_scheme is not None and explicit_scheme != codec_scheme:
+            typer.echo(
+                f"错误：--scheme={explicit_scheme!r} 与 --strategy-id/--strategy-version 通过 codec "
+                f"算出的 scheme={codec_scheme!r} 不一致。"
+                "请去掉 --scheme 参数，让 codec 自动决定；或检查 strategy-id/version 是否正确。",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        resolved_scheme = codec_scheme
+        exit_rules = _load_strategy_definition(sid, sver)
+    else:
+        # 没给 strategy-id/version，只靠 --scheme（或默认值）
+        # 未显式传 --scheme 时回退到默认 "strategy-aware"
+        resolved_scheme = explicit_scheme if explicit_scheme is not None else "strategy-aware"
+
+        # 守门 3：自定义 strategy-aware scheme（以 "strategy-aware__" 开头）
+        # 若不配 strategy-id/version → 会静默使用 default exit_rules 错标，禁止
+        _CUSTOM_STRATEGY_AWARE_PREFIX = "strategy-aware__"
+        if resolved_scheme.startswith(_CUSTOM_STRATEGY_AWARE_PREFIX):
+            typer.echo(
+                f"错误：scheme={resolved_scheme!r} 是自定义 strategy-aware scheme，"
+                "必须配合 --strategy-id/--strategy-version 才能正确加载 exit_rules。"
+                "若不传，将静默回退到 default 规则（止损-8%/跌破MA5/最大持仓20日）错标，"
+                "违反 lint-no-silent-degradation。请补充 --strategy-id 和 --strategy-version。",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        # 恰好等于 "strategy-aware"（default 别名）或其它非 strategy-aware scheme → 维持原行为
 
     if progress:
         with Progress(
@@ -261,21 +338,23 @@ def labels_build(
             task = prog.add_task("labels:loading", total=100)
             callback = _make_progress_callback(prog, task)
             n = compute_labels(
-                scheme=scheme,
+                scheme=resolved_scheme,
                 date_range=date_range,
                 new_listing_min_days=new_listing_min_days,
+                exit_rules=exit_rules,
                 job_id=None,
                 progress_callback=callback,
             )
     else:
         n = compute_labels(
-            scheme=scheme,
+            scheme=resolved_scheme,
             date_range=date_range,
             new_listing_min_days=new_listing_min_days,
+            exit_rules=exit_rules,
             job_id=None,
         )
 
-    typer.echo(f"labels build scheme={scheme} {date_range}: rows_upserted={n}")
+    typer.echo(f"labels build scheme={resolved_scheme} {date_range}: rows_upserted={n}")
 
 
 # ----------------------------------------------------------------------
