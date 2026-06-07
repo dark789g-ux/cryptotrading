@@ -242,3 +242,6 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 .worktrees/
+
+# Claude Code harness 运行时锁（每会话生成的 pid/sessionId 锁，非入库产物）
+.claude/scheduled_tasks.lock
