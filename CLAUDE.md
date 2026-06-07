@@ -10,6 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 如果有更简单的方案，说出来；在该反驳时要反驳
 - 如果有不清楚的地方，停下来，说明哪里困惑，然后提问
 
+## 子代理派发
+- 在用 Agent 工具派发 subagent_type: Explore 时显式传 model: sonnet
+
 ## 项目
 cryptotrading：量化交易回测系统。覆盖加密货币（币安公开 REST）与 A 股（Tushare Pro）的 K 线 / 资金流向采集、策略回测与 Web 可视化。
 
@@ -62,3 +65,14 @@ cryptotrading：量化交易回测系统。覆盖加密货币（币安公开 RES
 **数据流要点**：
 - Tushare 拉数据 → 写 `raw.*` 表（`daily_quote / daily_basic / adj_factor / trade_cal / ...`）→ 服务端计算技术指标（MA/MACD/KDJ，`technicalindicators` 库）→ 前端按 `trade_date` 对齐展示。
 - SSE 进度推送：同步任务和量化 jobs 均通过 SSE 推进度；`EventSource` 不带 Authorization header，量化 jobs 流先 `POST /api/quant/jobs/:id/sse-token` 取短期 token，再用 query 参数建连（详见 [apps/web/src/views/quant/README.md](apps/web/src/views/quant/README.md)）。
+
+## 会话交接提示词（`prompts/`）
+
+`prompts/` 存放**自包含的跨会话任务交接提示词（handoff prompts）**：每个 `.md` 可整段贴给全新会话 / agent 直接接手，不依赖上一会话上下文——用于一个任务跨多会话推进，或在会话末尾把"未做完 / 下一步"固化下来交给下一棒。
+
+**典型结构**（非强制，按需取舍）：一句话目标 → 现状摸底（**file:line 为证，别凭模块名猜**）→ 已定方向 + 待 brainstorming 敲定的开放问题 → 硬约束 / 项目规范 → 验证标准 → 前序进度 / 待续。
+
+**约定**：
+- **命名**：动词开头 kebab-case 描述任务，如 `add-strategy-signal-stats.md`。
+- **生命周期**：写交接 → 新会话接手 → 完成后**删除，或移入 `prompts/archive/`**（已完成 / 过时的归此，保留可追溯、不占主目录视线），别让已实现的交接留在主目录冒充"待办"。
+- **提交**：交接文档用 `docs(prompts): …` 或 `docs(<域>): …交接`；删除已实现的用 `chore(<域>): 删除已实现的交接提示词`。
