@@ -88,14 +88,19 @@
             </n-statistic>
           </n-grid-item>
           <n-grid-item>
-            <n-statistic label="最差单笔">
+            <n-statistic label="均亏">
+              <span>{{ fmtPctNullable(latestProgress.avgLoss) }}</span>
+            </n-statistic>
+          </n-grid-item>
+          <n-grid-item>
+            <n-statistic label="最差单笔收益">
               <n-tooltip trigger="hover">
                 <template #trigger>
                   <span :style="worstStyle(latestProgress.worstTradeRet)">
                     {{ fmtPctNullable(latestProgress.worstTradeRet) }}
                   </span>
                 </template>
-                历史最大单笔亏损
+                历史最差单笔收益（min ret），全胜时可为正
               </n-tooltip>
             </n-statistic>
           </n-grid-item>
@@ -161,9 +166,14 @@ const runs = computed<SignalTestRun[]>(() =>
   props.testId ? (store.runsMap.get(props.testId) ?? []) : [],
 )
 
-const latestProgress = computed<SignalTestRunProgress | null>(() =>
-  props.testId ? (store.runProgress.get(props.testId) ?? null) : null,
-)
+const latestProgress = computed<SignalTestRunProgress | SignalTestRun | null>(() => {
+  if (!props.testId) return null
+  const sessionProgress = store.runProgress.get(props.testId) ?? null
+  if (sessionProgress?.status === 'completed') return sessionProgress
+  // Fallback: most recent completed run from history (fetchRuns is called on select)
+  const historyCompleted = store.runsMap.get(props.testId)?.find((r) => r.status === 'completed') ?? null
+  return sessionProgress ?? historyCompleted
+})
 
 const progressPct = computed(() => {
   const p = latestProgress.value
