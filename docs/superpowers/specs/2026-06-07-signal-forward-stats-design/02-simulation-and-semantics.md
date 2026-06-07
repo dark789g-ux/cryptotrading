@@ -91,7 +91,9 @@ worst_trade_ret = min(ret over all N)               (最差单笔, 替代"最大
 |---|---|---|---|
 | `losses` 为空（无亏损样本） | `null`（标记"无亏损样本"） | `null` | `null` |
 | `N = 0`（无有效样本） | `null` | `null` | `null`，且 run 标记"零样本"warn |
-| `wins` 为空 | `0` | `0` | 负值（正常算） |
+| `wins` 为空（全亏） | `0`（Σwins=0） | `null`（avgWin 无样本） | `null`（b 不可用，避免除零） |
+
+> 凯利 `f*` 仅在赔率 `b != null 且 b > 0` 时可算，否则一律 `null`（不得用 `b=0` 反算导致除零）。`avg_win/avg_loss` 对空集取 `null`（不编造 0）。
 
 前端对 `null` 显示 "—"。`ret = 0` 的样本计入 `N` 与 `avg_hold_days`，但不计入 wins/losses（与 `report.ts` 的 `pnl>0`/`pnl<0` 分组一致，`pnl=0` 不归任一组）。
 
