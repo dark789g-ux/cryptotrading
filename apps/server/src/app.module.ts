@@ -67,6 +67,8 @@ import { BaseDataSyncModule } from './market-data/base-data-sync/base-data-sync.
 import { OamvModule } from './market-data/oamv/oamv.module';
 import { OamvDailyEntity } from './entities/oamv/oamv-daily.entity';
 import { ActiveMvModule } from './market-data/active-mv/active-mv.module';
+import { SignalRollingIndicatorModule } from './market-data/signal-rolling-indicator/signal-rolling-indicator.module';
+import { SignalRollingIndicatorEntity } from './entities/strategy/signal-rolling-indicator.entity';
 import { StockAmvDailyEntity } from './entities/active-mv/stock-amv-daily.entity';
 import { IndustryAmvDailyEntity } from './entities/active-mv/industry-amv-daily.entity';
 import { ConceptAmvDailyEntity } from './entities/active-mv/concept-amv-daily.entity';
@@ -138,6 +140,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           SignalTestEntity,
           SignalTestRunEntity,
           SignalTestTradeEntity,
+          // signal_rolling_indicator（预计算滚动指标，spec 2026-06-09-signal-rolling-indicators-design）
+          SignalRollingIndicatorEntity,
           MoneyFlowStockEntity,
           MoneyFlowIndustryEntity,
           MoneyFlowSectorEntity,
@@ -191,6 +195,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     BaseDataSyncModule,
     OamvModule,
     ActiveMvModule,
+    SignalRollingIndicatorModule,
     DailyReviewModule,
     QuantModule,
   ],
