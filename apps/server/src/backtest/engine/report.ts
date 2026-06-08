@@ -193,8 +193,20 @@ function buildSymbols(allTrades: TradeRecord[]): object[] {
     const totalBuy = positions.reduce((a, p) => a + p.buyAmount, 0);
     const returns = positions.map((p) => p.returnPct);
     const avgReturn = returns.length ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
-    const bestReturn = returns.length ? Math.max(...returns) : 0;
-    const worstReturn = returns.length ? Math.min(...returns) : 0;
+    // 线性求 min/max：避免 Math.max(...returns)/Math.min(...returns) 把整段数组展开为函数实参，
+    // 大样本下超 V8 实参上限抛 RangeError（同 signal-stats 6a3bd7e）。此处 returns 为单标的持仓
+    // 收益、规模极小、实际触不到上限，改写仅为与该修法一致、杜绝未来扩成全量数组时踩坑。
+    let bestReturn = 0;
+    let worstReturn = 0;
+    if (returns.length) {
+      bestReturn = returns[0];
+      worstReturn = returns[0];
+      for (let i = 1; i < returns.length; i++) {
+        const v = returns[i];
+        if (v > bestReturn) bestReturn = v;
+        if (v < worstReturn) worstReturn = v;
+      }
+    }
     const avgHold = posCount ? positions.reduce((a, p) => a + p.holdCandles, 0) / posCount : 0;
     const halfCount = positions.filter((p) => p.hadHalf).length;
     const entryTimes = positions.map((p) => p.entryTime);
