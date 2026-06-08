@@ -71,6 +71,8 @@ export class BaseDataSyncService {
    */
   async sync(dto: SyncDto, onProgress?: (event: SyncEvent) => void): Promise<SyncResult> {
     const errors: ErrorItem[] = [];
+    // 预期正常的空日（仅 suspend_d 当日无停复牌）—— 与 errors 分桶，不计入"失败 N 项"。
+    const warnings: ErrorItem[] = [];
     let success = 0;
     const rangeParams = { start_date: dto.start_date, end_date: dto.end_date };
 
@@ -132,7 +134,7 @@ export class BaseDataSyncService {
     if (openDates.length === 0) {
       this.logger.warn(`范围内无开市日，params=${JSON.stringify(rangeParams)}`);
       errors.push({ apiName: 'no_open_trade_dates', params: rangeParams });
-      return { success, skipped: 0, errors };
+      return { success, skipped: 0, errors, warnings };
     }
 
     // ── Step3 stk_limit 逐开市日 ───────────────────────────────────
@@ -219,10 +221,10 @@ export class BaseDataSyncService {
         errors.push({ apiName: 'suspend_d', params, message: msg });
         continue;
       }
-      // suspend_d 某日 0 行 = 可能正常（当日无停复牌事件）；仅 warn/记录，不进跨表硬对齐
+      // suspend_d 某日 0 行 = 正常（当日无停复牌事件）；归 warnings，不计入"失败 N 项"
       if (rows.length === 0) {
-        this.logger.warn(`suspend_d ${tradeDate} 返回 0 行（可能正常），params=${JSON.stringify(params)}`);
-        errors.push({ apiName: 'suspend_d_empty', params });
+        this.logger.warn(`suspend_d ${tradeDate} 返回 0 行（正常空日），params=${JSON.stringify(params)}`);
+        warnings.push({ apiName: 'suspend_d_empty', params });
         continue;
       }
       const entities = rows.map((row) =>
@@ -242,7 +244,7 @@ export class BaseDataSyncService {
       );
     }
 
-    return { success, skipped: 0, errors };
+    return { success, skipped: 0, errors, warnings };
   }
 
   /**
@@ -283,9 +285,12 @@ export class BaseDataSyncService {
     setTimeout(async () => {
       try {
         const result = await this.sync(dto, (e) => subject.next(e));
+        // 失败判定只看 errors；warnings（正常空日）仅作文案补充，不影响"X 项失败"措辞。
+        const failPart = result.errors.length ? `，${result.errors.length} 项失败` : '';
+        const warnPart = result.warnings.length ? `，${result.warnings.length} 项空日警告` : '';
         subject.next({
           type: 'done',
-          message: result.errors.length ? `同步完成，${result.errors.length} 项失败` : '同步完成',
+          message: `同步完成${failPart}${warnPart}`,
           result,
         });
         subject.complete();

@@ -113,6 +113,7 @@ describe('BaseDataSyncService', () => {
     expect(stkLimitRepo.upsert).toHaveBeenCalledTimes(1);
     expect(suspendRepo.upsert).toHaveBeenCalledTimes(1);
     expect(result.errors).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0); // 无空日，warnings 桶为空
     expect(result.success).toBe(3); // 1 trade_cal + 1 stk + 1 suspend
   });
 
@@ -151,7 +152,7 @@ describe('BaseDataSyncService', () => {
     expect(result.success).toBe(2);
   });
 
-  it('某日 suspend_d 0 行：errors 含 suspend_d_empty（可能正常，仅记录）', async () => {
+  it('某日 suspend_d 0 行：归 warnings 含 suspend_d_empty（正常空日），不计入 errors', async () => {
     const { service, client, tradeCalRepo, suspendRepo } = await buildModule();
     client.query.mockResolvedValueOnce([calRow('20260512', '1')]);
     tradeCalRepo.find.mockResolvedValueOnce([{ calDate: '20260512' }]);
@@ -161,10 +162,16 @@ describe('BaseDataSyncService', () => {
     const result = await service.sync(DTO);
 
     expect(suspendRepo.upsert).not.toHaveBeenCalled();
-    expect(result.errors).toContainEqual({
+    // 正常空日归 warnings 桶
+    expect(result.warnings).toContainEqual({
       apiName: 'suspend_d_empty',
       params: { trade_date: '20260512' },
     });
+    // 关键：suspend_d 空日不得计入 errors（否则 UX 误显示"失败 N 项"）
+    expect(result.errors).not.toContainEqual(
+      expect.objectContaining({ apiName: 'suspend_d_empty' }),
+    );
+    expect(result.errors).toHaveLength(0);
   });
 
   it('suspend_d upsert 冲突键为 3 列 [tsCode, tradeDate, suspendType]', async () => {

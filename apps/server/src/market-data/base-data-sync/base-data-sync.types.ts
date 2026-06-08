@@ -17,9 +17,10 @@ export interface SyncDto {
 /**
  * 失败 / 空数据项。
  * apiName 取值：
- *  - 'trade_cal' / 'stk_limit' / 'suspend_d'：三方调用异常（含 message）
- *  - 'trade_cal_empty' / 'stk_limit_empty' / 'suspend_d_empty'：当日/范围返回 0 行（仅 params）
- *  - 'no_open_trade_dates'：范围内无开市日，跳过后两表（仅 params）
+ *  - 'trade_cal' / 'stk_limit' / 'suspend_d'：三方调用异常（含 message）→ errors
+ *  - 'trade_cal_empty' / 'stk_limit_empty'：当日/范围返回 0 行（仅 params）→ errors（可疑）
+ *  - 'no_open_trade_dates'：范围内无开市日，跳过后两表（仅 params）→ errors
+ *  - 'suspend_d_empty'：suspend_d 某日 0 行（当日无停复牌，正常，仅 params）→ warnings
  */
 export interface ErrorItem {
   apiName: string;
@@ -35,6 +36,12 @@ export interface SyncResult {
   skipped: number;
   /** 失败 / 空数据项 */
   errors: ErrorItem[];
+  /**
+   * 预期正常的空日警告（非失败）。
+   * 目前仅 suspend_d 某日 0 行（当日无停复牌事件，spec 明确属正常）归此桶，
+   * 与 errors 同类型但语义为"正常空日"，前端不计入"失败 N 项"。
+   */
+  warnings: ErrorItem[];
 }
 
 /** SSE 进度事件。 */
