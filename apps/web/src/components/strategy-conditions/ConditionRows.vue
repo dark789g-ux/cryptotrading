@@ -142,6 +142,12 @@ const A_SHARE_FIELDS: FieldOption[] = [
   { label: '行业AMV-MACD-DIF', value: 'ind_amv_dif', supportsCross: false },
   { label: '行业AMV-MACD-DEA', value: 'ind_amv_dea', supportsCross: false },
   { label: '行业AMV-MACD-MACD', value: 'ind_amv_macd', supportsCross: false },
+  // 滚动区间位置 / 量比（跨表，不支持上穿/下穿）
+  { label: '120日区间位置', value: 'pos_120', supportsCross: false },
+  { label: '60日区间位置', value: 'pos_60', supportsCross: false },
+  { label: '收盘/MA60', value: 'close_ma60_ratio', supportsCross: false },
+  { label: '量比(60日均量)', value: 'vol_ratio_60', supportsCross: false },
+  { label: '量比(120日均量)', value: 'vol_ratio_120', supportsCross: false },
 ];
 
 const CRYPTO_FIELDS: FieldOption[] = [
