@@ -11,6 +11,9 @@ export class AShareSyncStateEntity {
   @Column({ name: 'indicator_dirty_from_date', length: 8, nullable: true })
   indicatorDirtyFromDate: string;
 
+  @Column({ name: 'signal_rolling_dirty_from_date', length: 8, nullable: true })
+  signalRollingDirtyFromDate: string;
+
   @Column({ name: 'indicator_calculated_to_date', length: 8, nullable: true })
   indicatorCalculatedToDate: string;
 
