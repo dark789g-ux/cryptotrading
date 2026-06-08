@@ -6,6 +6,11 @@
 
 ---
 
+## 2026-06-08: evaluate code 里的中文字面量经 PowerShell→webbridge 传输会被破坏，字符串比较假阴性
+**Symptom**: evaluate 里 `txt.indexOf('某中文')>=0` 返回 false，但页面明明渲染了该中文（snapshot/innerText 里能看到，只是显示成乱码）。换成结构性检查（`querySelectorAll('.x').length`）或 ASCII 锚点（'ths_daily'/'0AMV'/数字）立刻正常。
+**Cause**: Windows PowerShell 控制台 GBK 编码，把 evaluate code **字符串里的中文字面量**在 PowerShell→JSON→daemon 传输途中搞坏，到浏览器已非原字符 → 比较恒不等。读回结果里的中文乱码只是控制台**显示**问题（浏览器内数据正确），但 code 里写死的中文是**真被破坏**。
+**Lesson**: PowerShell 驱动 webbridge 时，evaluate code 里**别塞中文字面量做比较/匹配**。改用 ① 结构性事实（元素计数、class 存在、titleCount）② ASCII 锚点（接口名/数字/英文 class）③ 真要判中文用 `charCodeAt` 数组或在 JS 内部读 DOM 自比，不跨进程传中文。
+
 ## 2026-06-08: 定位 Vue 组件实例——从它渲染的后代元素往上找，别从父容器往上
 **Symptom**: `document.querySelector('main').__vueParentComponent` 往上 `.parent` 找页面级组件(SignalStatsView)返回找不到；但从 modal 里的 `form` 往上找同一组件却成功。
 **Cause**: `__vueParentComponent.parent` 是**祖先**链。目标组件渲染在 main **内部**(是 main 的后代)，从 main(祖先容器)往上永远到不了它。modal/form 能找到是因 modal 是该组件的**子组件**，form 链往上恰好经过它。
