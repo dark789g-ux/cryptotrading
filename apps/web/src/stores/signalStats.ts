@@ -9,10 +9,12 @@ import type {
   CreateSignalTestDto,
   UpdateSignalTestDto,
   TradesPage,
+  SignalTestWithLatestRun,
+  RetHistogramResult,
 } from '../api/modules/strategy/signalStats'
 
 export const useSignalStatsStore = defineStore('signalStats', () => {
-  const tests = ref<SignalTest[]>([])
+  const tests = ref<SignalTestWithLatestRun[]>([])
   const runProgress = ref<Map<string, SignalTestRunProgress>>(new Map())
   const runningId = ref<string | null>(null)
   const loading = ref(false)
@@ -21,6 +23,7 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
   // runs & trades keyed by testId / runId
   const runsMap = ref<Map<string, SignalTestRun[]>>(new Map())
   const tradesMap = ref<Map<string, TradesPage>>(new Map())
+  const histogramMap = ref<Record<string, RetHistogramResult>>({})
 
   async function fetchTests() {
     loading.value = true
@@ -34,14 +37,17 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
 
   async function createTest(dto: CreateSignalTestDto) {
     const data = await signalStatsApi.create(dto)
-    tests.value.unshift(data)
+    tests.value.unshift({ ...data, latestRun: null })
     return data
   }
 
   async function updateTest(id: string, dto: UpdateSignalTestDto) {
     const data = await signalStatsApi.update(id, dto)
     const idx = tests.value.findIndex((t) => t.id === id)
-    if (idx !== -1) tests.value[idx] = data
+    if (idx !== -1) {
+      const existing = tests.value[idx]
+      tests.value[idx] = { ...data, latestRun: existing.latestRun ?? null }
+    }
     return data
   }
 
@@ -66,8 +72,9 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
           if (progress.status === 'completed' || progress.status === 'failed') {
             clearInterval(poll)
             runningId.value = null
-            // refresh runs list after completion
+            // refresh runs list and table row (latestRun) after completion
             await fetchRuns(id)
+            await fetchTests()
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : '轮询进度失败'
@@ -104,6 +111,15 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
     return data
   }
 
+  async function fetchRetHistogram(runId: string) {
+    if (histogramMap.value[runId]) {
+      return histogramMap.value[runId]
+    }
+    const data = await signalStatsApi.getRetHistogram(runId)
+    histogramMap.value[runId] = data
+    return data
+  }
+
   async function fetchTrades(runId: string, page = 1, pageSize = 50) {
     const data = await signalStatsApi.listTrades(runId, page, pageSize)
     tradesMap.value.set(runId, data)
@@ -118,12 +134,14 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
     lastPollError,
     runsMap,
     tradesMap,
+    histogramMap,
     fetchTests,
     createTest,
     updateTest,
     deleteTest,
     startRun,
     fetchRuns,
+    fetchRetHistogram,
     fetchTrades,
   }
 })

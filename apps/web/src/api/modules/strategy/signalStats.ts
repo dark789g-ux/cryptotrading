@@ -51,10 +51,27 @@ export interface SignalTestRun {
   kellyF: string | null
   avgHoldDays: string | null
   worstTradeRet: string | null
+  bestTradeRet: string | null
   filteredCount: number
   createdAt: string
   completedAt: string | null
 }
+
+export interface RetHistogramBin {
+  lo: number
+  hi: number
+  count: number
+  sign: 'win' | 'loss'
+}
+
+export interface RetHistogramResult {
+  runId: string
+  sampleCount: number
+  binWidth: number | null
+  bins: RetHistogramBin[]
+}
+
+export type SignalTestWithLatestRun = SignalTest & { latestRun: SignalTestRun | null }
 
 export interface SignalTestRunProgress {
   id: string
@@ -99,7 +116,7 @@ export const signalStatsApi = {
   },
 
   findAll() {
-    return request<SignalTest[]>(`${API_BASE}/signal-tests`)
+    return request<SignalTestWithLatestRun[]>(`${API_BASE}/signal-tests`)
   },
 
   findOne(id: string) {
@@ -129,6 +146,12 @@ export const signalStatsApi = {
   listTrades(runId: string, page = 1, pageSize = 50) {
     return request<TradesPage>(
       `${API_BASE}/signal-tests/runs/${runId}/trades?page=${page}&pageSize=${pageSize}`,
+    )
+  },
+
+  getRetHistogram(runId: string, bins = 25) {
+    return request<RetHistogramResult>(
+      `${API_BASE}/signal-tests/runs/${runId}/ret-histogram?bins=${bins}`,
     )
   },
 }
