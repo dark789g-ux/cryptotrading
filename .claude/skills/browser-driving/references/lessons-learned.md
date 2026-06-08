@@ -6,6 +6,21 @@
 
 ---
 
+## 2026-06-08: 定位 Vue 组件实例——从它渲染的后代元素往上找，别从父容器往上
+**Symptom**: `document.querySelector('main').__vueParentComponent` 往上 `.parent` 找页面级组件(SignalStatsView)返回找不到；但从 modal 里的 `form` 往上找同一组件却成功。
+**Cause**: `__vueParentComponent.parent` 是**祖先**链。目标组件渲染在 main **内部**(是 main 的后代)，从 main(祖先容器)往上永远到不了它。modal/form 能找到是因 modal 是该组件的**子组件**，form 链往上恰好经过它。
+**Lesson**: 要 `.parent` 上溯到某页面组件实例，起点必须是**它渲染出的后代 DOM**(如 `querySelectorAll('main *')[k]` 或它特有元素)，不是父容器(main/body/#app)。稳妥写法：遍历 `querySelectorAll('main *')` 逐个 `__vueParentComponent` 上溯匹配 `type.__name`，命中即返回。
+
+## 2026-06-08: git-bash 里 `cmd | grep -q X && break` 不跳出 for 循环
+**Symptom**: 轮询脚本 `for i in ...; do st=$(...); echo "$st"|grep -q PAT && break; sleep 2; done` —— 条件早已满足却不 break，循环跑满上限才退出（webbridge runningId 早转 null，脚本仍空转数百秒）。
+**Cause**: MSYS/git-bash 下 `pipeline && break` 的 break 在 pipeline 子 shell 上下文求值，不作用于外层 for 循环。
+**Lesson**: 轮询退出条件别用 `cmd|grep -q && break`。先赋值再用 `if echo "$st"|grep -q X; then break; fi`，或纯 bash 字符串匹配 `[[ $st == *X* ]] && break`（无 pipeline，最稳）。
+
+## 2026-06-08: git-bash 无 python3 —— webbridge JSON 响应改用 grep -oE 或 PowerShell
+**Symptom**: `curl ... | python3 -c "json.load..."` 处理 webbridge snapshot 报 `Python was not found`（Windows 把 python3 转到 Microsoft Store 别名）。
+**Cause**: Windows git-bash PATH 里没有 python3；python 经 py launcher 只在 PowerShell 可用，git-bash 调不到。
+**Lesson**: git-bash 里别管道 python3 处理 webbridge JSON。截取控件 ref 用 `grep -oE '"name":"X"[^}]*"ref":"@e[0-9]+"'`；snapshot 太大时按已知锚点（"买入条件"/"保存"）grep 缩范围；要真解析 JSON 换 PowerShell `ConvertFrom-Json`。
+
 ## 2026-06-07: n-collapse / 非激活 tab 内的子组件懒渲染 —— 设 exposed ref 不会挂载它，DOM 里查无
 **Symptom**: 通过组件 exposed ref 把表单值设好（`canSubmit` 已变 true），但该控件对应的子组件和它的 `v-if` 提示（如标签选择器 + 闭合警告）在 DOM 里查不到（`querySelector(...)` 返回 null）。
 **Cause**: Naive UI `n-collapse-item`（同理非激活 `n-tab-pane`）的内容是**懒渲染**——首次展开才创建 DOM。折叠态下子组件压根没 mount，设父组件的 ref 只改了响应式 state，不会让折叠子树出现。
