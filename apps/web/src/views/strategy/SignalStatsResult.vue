@@ -1,8 +1,19 @@
 <template>
   <div class="signal-stats-result">
-    <!-- Latest run progress / status -->
-    <template v-if="latestProgress">
-      <div v-if="latestProgress.status === 'running'" class="progress-section">
+    <!-- Config summary bar -->
+    <div class="config-summary">
+      <span>{{ exitModeLabel }}</span>
+      <span class="dot">·</span>
+      <span>{{ universeLabel }}</span>
+      <span class="dot">·</span>
+      <span>{{ dateRangeLabel }}</span>
+      <span class="dot">·</span>
+      <span>{{ conditionLabel }}</span>
+    </div>
+
+    <template v-if="latestRun">
+      <!-- Running progress -->
+      <div v-if="latestRun.status === 'running'" class="progress-section">
         <n-progress
           type="line"
           :percentage="progressPct"
@@ -11,33 +22,34 @@
           :height="20"
         />
         <span class="progress-label">
-          扫描中 {{ latestProgress.progressScanned }} / {{ latestProgress.progressTotal }}
+          扫描中 {{ latestRun.progressScanned }} / {{ latestRun.progressTotal }}
         </span>
       </div>
 
+      <!-- Failed -->
       <n-alert
-        v-if="latestProgress.status === 'failed'"
+        v-if="latestRun.status === 'failed'"
         type="error"
         title="运行失败"
         :bordered="false"
         style="margin-bottom: 16px"
       >
-        {{ latestProgress.errorMessage ?? '未知错误' }}
+        {{ latestRun.errorMessage ?? '未知错误' }}
       </n-alert>
 
-      <!-- Metrics cards: only show when completed -->
-      <template v-if="latestProgress.status === 'completed'">
-        <n-grid :cols="4" :x-gap="12" :y-gap="12" class="metrics-grid">
+      <!-- Completed: metrics + tabs -->
+      <template v-if="latestRun.status === 'completed'">
+        <n-grid :cols="5" :x-gap="12" :y-gap="12" class="metrics-grid">
           <n-grid-item>
             <n-statistic label="样本数">
-              <span>{{ latestProgress.sampleCount ?? '—' }}</span>
+              <span>{{ latestRun.sampleCount ?? '—' }}</span>
             </n-statistic>
           </n-grid-item>
           <n-grid-item>
             <n-statistic label="胜率">
-              <n-tooltip v-if="latestProgress.winRate !== null" trigger="hover">
+              <n-tooltip v-if="latestRun.winRate !== null" trigger="hover">
                 <template #trigger>
-                  <span>{{ fmtPct(latestProgress.winRate) }}</span>
+                  <span>{{ fmtPct(latestRun.winRate) }}</span>
                 </template>
                 盈利笔数 / 总样本数
               </n-tooltip>
@@ -48,9 +60,9 @@
             <n-statistic label="赔率 b">
               <n-tooltip trigger="hover">
                 <template #trigger>
-                  <span>{{ fmtNullable(latestProgress.payoffRatio) }}</span>
+                  <span>{{ fmtNullable(latestRun.payoffRatio) }}</span>
                 </template>
-                <span v-if="latestProgress.payoffRatio !== null">均盈 / |均亏|</span>
+                <span v-if="latestRun.payoffRatio !== null">均盈 / |均亏|</span>
                 <span v-else>无亏损样本，赔率无法计算</span>
               </n-tooltip>
             </n-statistic>
@@ -59,9 +71,9 @@
             <n-statistic label="盈亏比 PF">
               <n-tooltip trigger="hover">
                 <template #trigger>
-                  <span>{{ fmtNullable(latestProgress.profitFactor) }}</span>
+                  <span>{{ fmtNullable(latestRun.profitFactor) }}</span>
                 </template>
-                <span v-if="latestProgress.profitFactor !== null">总盈利 / |总亏损|</span>
+                <span v-if="latestRun.profitFactor !== null">总盈利 / |总亏损|</span>
                 <span v-else>无亏损样本，PF 无法计算</span>
               </n-tooltip>
             </n-statistic>
@@ -70,69 +82,75 @@
             <n-statistic label="凯利 f*">
               <n-tooltip trigger="hover">
                 <template #trigger>
-                  <span>{{ fmtNullable(latestProgress.kellyF) }}</span>
+                  <span>{{ fmtNullable(latestRun.kellyF) }}</span>
                 </template>
-                <span v-if="latestProgress.kellyF !== null">Kelly 最优仓位比例</span>
+                <span v-if="latestRun.kellyF !== null">Kelly 最优仓位比例</span>
                 <span v-else>无亏损样本，凯利无法计算</span>
               </n-tooltip>
             </n-statistic>
           </n-grid-item>
           <n-grid-item>
             <n-statistic label="均持仓天数">
-              <span>{{ fmtNullable(latestProgress.avgHoldDays) }}</span>
+              <span>{{ fmtNullable(latestRun.avgHoldDays) }}</span>
             </n-statistic>
           </n-grid-item>
           <n-grid-item>
             <n-statistic label="均盈">
-              <span>{{ fmtPctNullable(latestProgress.avgWin) }}</span>
+              <span>{{ fmtPctNullable(latestRun.avgWin) }}</span>
             </n-statistic>
           </n-grid-item>
           <n-grid-item>
             <n-statistic label="均亏">
-              <span>{{ fmtPctNullable(latestProgress.avgLoss) }}</span>
+              <span>{{ fmtPctNullable(latestRun.avgLoss) }}</span>
             </n-statistic>
           </n-grid-item>
           <n-grid-item>
             <n-statistic label="最差单笔收益">
               <n-tooltip trigger="hover">
                 <template #trigger>
-                  <span :style="worstStyle(latestProgress.worstTradeRet)">
-                    {{ fmtPctNullable(latestProgress.worstTradeRet) }}
+                  <span :style="worstStyle(latestRun.worstTradeRet)">
+                    {{ fmtPctNullable(latestRun.worstTradeRet) }}
                   </span>
                 </template>
                 历史最差单笔收益（min ret），全胜时可为正
               </n-tooltip>
             </n-statistic>
           </n-grid-item>
+          <n-grid-item>
+            <n-statistic label="最佳单笔收益">
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <span :style="bestStyle(latestRun.bestTradeRet)">
+                    {{ fmtPctNullable(latestRun.bestTradeRet) }}
+                  </span>
+                </template>
+                历史最佳单笔收益（max ret）
+              </n-tooltip>
+            </n-statistic>
+          </n-grid-item>
         </n-grid>
+
+        <n-tabs v-model:value="activeTab" display-directive="show:lazy" type="line">
+          <n-tab-pane name="histogram" tab="收益率分布">
+            <RetHistogram :run-id="latestRun.id" />
+          </n-tab-pane>
+          <n-tab-pane name="trades" tab="逐笔明细">
+            <n-data-table
+              :columns="tradeColumns"
+              :data="trades"
+              :loading="tradesLoading"
+              :bordered="false"
+              size="small"
+              :pagination="tradePagination"
+              remote
+              @update:page="handlePageChange"
+            />
+          </n-tab-pane>
+        </n-tabs>
       </template>
     </template>
 
-    <!-- Historical runs table -->
-    <n-divider v-if="runs.length > 0">历史运行对比</n-divider>
-    <n-data-table
-      v-if="runs.length > 0"
-      :columns="runColumns"
-      :data="runs"
-      :bordered="false"
-      size="small"
-      :row-class-name="(row: SignalTestRun) => row.id === selectedRunId ? 'run-row--selected' : ''"
-    />
-
-    <!-- Trade detail table -->
-    <template v-if="selectedRunId">
-      <n-divider>逐笔明细</n-divider>
-      <n-data-table
-        :columns="tradeColumns"
-        :data="trades"
-        :loading="tradesLoading"
-        :bordered="false"
-        size="small"
-        :pagination="tradePagination"
-        remote
-        @update:page="handlePageChange"
-      />
-    </template>
+    <n-empty v-else description="尚无运行结果" />
   </div>
 </template>
 
@@ -145,38 +163,55 @@ import {
   NTooltip,
   NProgress,
   NAlert,
-  NDivider,
   NDataTable,
-  NButton,
-  NTag,
+  NTabs,
+  NTabPane,
+  NEmpty,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { useSignalStatsStore } from '../../stores/signalStats'
-import type { SignalTestRun, SignalTestTrade, SignalTestRunProgress } from '../../api/modules/strategy/signalStats'
+import type {
+  SignalTestWithLatestRun,
+  SignalTestTrade,
+} from '../../api/modules/strategy/signalStats'
+import RetHistogram from '../../components/strategy/RetHistogram.vue'
 
 interface Props {
-  testId: string | null
+  test: SignalTestWithLatestRun
 }
 
 const props = defineProps<Props>()
 
 const store = useSignalStatsStore()
 
-const runs = computed<SignalTestRun[]>(() =>
-  props.testId ? (store.runsMap.get(props.testId) ?? []) : [],
-)
+const latestRun = computed(() => props.test.latestRun)
 
-const latestProgress = computed<SignalTestRunProgress | SignalTestRun | null>(() => {
-  if (!props.testId) return null
-  const sessionProgress = store.runProgress.get(props.testId) ?? null
-  if (sessionProgress?.status === 'completed') return sessionProgress
-  // Fallback: most recent completed run from history (fetchRuns is called on select)
-  const historyCompleted = store.runsMap.get(props.testId)?.find((r) => r.status === 'completed') ?? null
-  return sessionProgress ?? historyCompleted
+// ── Config summary ─────────────────────────────────────────────────────────────
+
+const exitModeLabel = computed(() => {
+  const t = props.test
+  return t.exitMode === 'fixed_n'
+    ? `固定${t.horizonN}日`
+    : `条件出场(≤${t.maxHold})`
 })
 
+const universeLabel = computed(() => {
+  const u = props.test.universe
+  return u.type === 'all' ? '全市场' : `指定${u.tsCodes?.length ?? 0}只`
+})
+
+const dateRangeLabel = computed(
+  () => `${fmtTradeDate(props.test.dateStart)}~${fmtTradeDate(props.test.dateEnd)}`,
+)
+
+const conditionLabel = computed(
+  () => `买${props.test.buyConditions.length}/卖${props.test.exitConditions?.length ?? 0}条`,
+)
+
+// ── Progress ────────────────────────────────────────────────────────────────────
+
 const progressPct = computed(() => {
-  const p = latestProgress.value
+  const p = latestRun.value
   if (!p || p.progressTotal === 0) return 0
   return Math.round((p.progressScanned / p.progressTotal) * 100)
 })
@@ -209,6 +244,13 @@ function worstStyle(v: string | null | undefined): Record<string, string> {
   return n < 0 ? { color: '#d03050' } : {}
 }
 
+function bestStyle(v: string | null | undefined): Record<string, string> {
+  if (v === null || v === undefined) return {}
+  const n = parseFloat(v)
+  if (isNaN(n)) return {}
+  return n > 0 ? { color: '#18a058' } : {}
+}
+
 function fmtTradeDate(s: string): string {
   if (!s || s.length !== 8) return s
   return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
@@ -220,21 +262,24 @@ function fmtRetPct(v: string): string {
   return (n * 100).toFixed(2) + '%'
 }
 
-// ── Runs table ─────────────────────────────────────────────────────────────────
+// ── Tabs + trade detail ─────────────────────────────────────────────────────────
 
-const selectedRunId = ref<string | null>(null)
+const activeTab = ref<'histogram' | 'trades'>('histogram')
+const tradesLoaded = ref(false)
 const tradesLoading = ref(false)
 const tradePage = ref(1)
 const tradePageSize = 50
 
 const trades = computed<SignalTestTrade[]>(() => {
-  if (!selectedRunId.value) return []
-  return store.tradesMap.get(selectedRunId.value)?.items ?? []
+  const run = latestRun.value
+  if (!run) return []
+  return store.tradesMap.get(run.id)?.items ?? []
 })
 
 const tradeTotal = computed(() => {
-  if (!selectedRunId.value) return 0
-  return store.tradesMap.get(selectedRunId.value)?.total ?? 0
+  const run = latestRun.value
+  if (!run) return 0
+  return store.tradesMap.get(run.id)?.total ?? 0
 })
 
 const tradePagination = computed(() => ({
@@ -244,17 +289,12 @@ const tradePagination = computed(() => ({
   showSizePicker: false,
 }))
 
-async function selectRun(runId: string) {
-  selectedRunId.value = runId
-  tradePage.value = 1
-  await loadTrades()
-}
-
 async function loadTrades() {
-  if (!selectedRunId.value) return
+  const run = latestRun.value
+  if (!run) return
   tradesLoading.value = true
   try {
-    await store.fetchTrades(selectedRunId.value, tradePage.value, tradePageSize)
+    await store.fetchTrades(run.id, tradePage.value, tradePageSize)
   } finally {
     tradesLoading.value = false
   }
@@ -265,99 +305,13 @@ async function handlePageChange(page: number) {
   await loadTrades()
 }
 
-// Auto-select latest completed run when runs list changes
-watch(runs, (newRuns) => {
-  if (newRuns.length > 0 && !selectedRunId.value) {
-    const completed = newRuns.find((r) => r.status === 'completed')
-    if (completed) selectRun(completed.id)
+// Lazy-load trade detail on first switch to the 'trades' tab.
+watch(activeTab, (tab) => {
+  if (tab === 'trades' && !tradesLoaded.value) {
+    tradesLoaded.value = true
+    loadTrades()
   }
 })
-
-// Reset when test changes
-watch(
-  () => props.testId,
-  () => {
-    selectedRunId.value = null
-    tradePage.value = 1
-  },
-)
-
-const runColumns: DataTableColumns<SignalTestRun> = [
-  {
-    title: '运行时间',
-    key: 'createdAt',
-    render: (row) => {
-      const d = new Date(row.createdAt)
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-    },
-  },
-  {
-    title: '状态',
-    key: 'status',
-    width: 80,
-    render: (row) => {
-      const typeMap: Record<string, 'success' | 'error' | 'info'> = {
-        completed: 'success',
-        failed: 'error',
-        running: 'info',
-      }
-      const labelMap: Record<string, string> = {
-        completed: '完成',
-        failed: '失败',
-        running: '运行中',
-      }
-      return h(NTag, { type: typeMap[row.status] ?? 'default', size: 'small' }, {
-        default: () => labelMap[row.status] ?? row.status,
-      })
-    },
-  },
-  {
-    title: '样本数',
-    key: 'sampleCount',
-    render: (row) => row.sampleCount ?? '—',
-  },
-  {
-    title: '胜率',
-    key: 'winRate',
-    render: (row) => fmtPct(row.winRate),
-  },
-  {
-    title: '赔率 b',
-    key: 'payoffRatio',
-    render: (row) => fmtNullable(row.payoffRatio),
-  },
-  {
-    title: 'PF',
-    key: 'profitFactor',
-    render: (row) => fmtNullable(row.profitFactor),
-  },
-  {
-    title: '凯利 f*',
-    key: 'kellyF',
-    render: (row) => fmtNullable(row.kellyF),
-  },
-  {
-    title: '均持仓',
-    key: 'avgHoldDays',
-    render: (row) => fmtNullable(row.avgHoldDays),
-  },
-  {
-    title: '操作',
-    key: 'actions',
-    width: 100,
-    render: (row) =>
-      h(
-        NButton,
-        {
-          size: 'small',
-          type: row.id === selectedRunId.value ? 'primary' : 'default',
-          onClick: () => selectRun(row.id),
-          disabled: row.status !== 'completed',
-        },
-        { default: () => '查看明细' },
-      ),
-  },
-]
 
 const tradeColumns: DataTableColumns<SignalTestTrade> = [
   { title: '标的', key: 'tsCode', width: 110 },
@@ -416,6 +370,23 @@ const tradeColumns: DataTableColumns<SignalTestTrade> = [
   padding: 0;
 }
 
+.config-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--n-action-color, #f7f7fa);
+  font-size: 13px;
+  color: var(--n-text-color-2, #666);
+}
+
+.config-summary .dot {
+  color: var(--n-text-color-3, #bbb);
+}
+
 .progress-section {
   margin-bottom: 16px;
   display: flex;
@@ -431,9 +402,5 @@ const tradeColumns: DataTableColumns<SignalTestTrade> = [
 
 .metrics-grid {
   margin-bottom: 16px;
-}
-
-:deep(.run-row--selected td) {
-  background: color-mix(in srgb, var(--color-primary, #2080f0) 8%, transparent);
 }
 </style>

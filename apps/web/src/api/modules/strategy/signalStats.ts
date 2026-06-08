@@ -73,24 +73,6 @@ export interface RetHistogramResult {
 
 export type SignalTestWithLatestRun = SignalTest & { latestRun: SignalTestRun | null }
 
-export interface SignalTestRunProgress {
-  id: string
-  status: 'running' | 'completed' | 'failed'
-  progressScanned: number
-  progressTotal: number
-  errorMessage: string | null
-  sampleCount: number | null
-  winRate: string | null
-  avgWin: string | null
-  avgLoss: string | null
-  payoffRatio: string | null
-  profitFactor: string | null
-  kellyF: string | null
-  avgHoldDays: string | null
-  worstTradeRet: string | null
-  filteredCount: number
-}
-
 export interface SignalTestTrade {
   id: string
   runId: string
@@ -136,7 +118,8 @@ export const signalStatsApi = {
   },
 
   getRunProgress(id: string) {
-    return request<SignalTestRunProgress>(`${API_BASE}/signal-tests/${id}/run/progress`)
+    // Backend returns the full run entity (incl. id/createdAt) from this endpoint.
+    return request<SignalTestRun>(`${API_BASE}/signal-tests/${id}/run/progress`)
   },
 
   listRuns(id: string) {

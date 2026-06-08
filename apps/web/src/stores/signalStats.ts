@@ -2,9 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { signalStatsApi } from '../api/modules/strategy/signalStats'
 import type {
-  SignalTest,
   SignalTestRun,
-  SignalTestRunProgress,
   SignalTestTrade,
   CreateSignalTestDto,
   UpdateSignalTestDto,
@@ -15,13 +13,11 @@ import type {
 
 export const useSignalStatsStore = defineStore('signalStats', () => {
   const tests = ref<SignalTestWithLatestRun[]>([])
-  const runProgress = ref<Map<string, SignalTestRunProgress>>(new Map())
   const runningId = ref<string | null>(null)
   const loading = ref(false)
   const lastPollError = ref<string | null>(null)
 
-  // runs & trades keyed by testId / runId
-  const runsMap = ref<Map<string, SignalTestRun[]>>(new Map())
+  // trades keyed by runId; histogram keyed by runId
   const tradesMap = ref<Map<string, TradesPage>>(new Map())
   const histogramMap = ref<Record<string, RetHistogramResult>>({})
 
@@ -54,8 +50,12 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
   async function deleteTest(id: string) {
     await signalStatsApi.remove(id)
     tests.value = tests.value.filter((t) => t.id !== id)
-    runProgress.value.delete(id)
-    runsMap.value.delete(id)
+  }
+
+  /** Patch the polled run entity into the matching test's latestRun (reactive). */
+  function patchLatestRun(testId: string, run: SignalTestRun) {
+    const t = tests.value.find((x) => x.id === testId)
+    if (t) t.latestRun = run
   }
 
   async function startRun(id: string) {
@@ -66,15 +66,16 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
 
       const poll = setInterval(async () => {
         try {
-          const progress = await signalStatsApi.getRunProgress(id)
-          runProgress.value.set(id, progress)
+          // Backend returns the full run entity here; patch it into the matching
+          // test's latestRun so both the table row and an open detail update live.
+          const progressRun = await signalStatsApi.getRunProgress(id)
+          patchLatestRun(id, progressRun)
 
-          if (progress.status === 'completed' || progress.status === 'failed') {
+          if (progressRun.status === 'completed' || progressRun.status === 'failed') {
             clearInterval(poll)
             runningId.value = null
-            // refresh runs list and table row (latestRun) after completion
-            await fetchRuns(id)
-            await fetchTests()
+            // The patched run is already the complete finished entity; no extra
+            // fetchTests needed (filteredCount etc. are part of the run entity).
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : '轮询进度失败'
@@ -105,12 +106,6 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
     }
   }
 
-  async function fetchRuns(testId: string) {
-    const data = await signalStatsApi.listRuns(testId)
-    runsMap.value.set(testId, data)
-    return data
-  }
-
   async function fetchRetHistogram(runId: string) {
     if (histogramMap.value[runId]) {
       return histogramMap.value[runId]
@@ -128,11 +123,9 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
 
   return {
     tests,
-    runProgress,
     runningId,
     loading,
     lastPollError,
-    runsMap,
     tradesMap,
     histogramMap,
     fetchTests,
@@ -140,7 +133,6 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
     updateTest,
     deleteTest,
     startRun,
-    fetchRuns,
     fetchRetHistogram,
     fetchTrades,
   }
