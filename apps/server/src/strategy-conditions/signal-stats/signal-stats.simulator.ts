@@ -287,6 +287,54 @@ export function decideStrategy(
   return null; // 窗口不足以凑满 max_hold、未命中、未退市
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 持有窗口构造：共享纯函数（供 DB 层与批量化路径复用）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * quoteMap 的值类型：DB 层与批量化路径共用的 quote 行形状。
+ * 字段名与 raw.daily_quote 列名对应（camelCase）。
+ */
+export interface WindowQuote {
+  qfqOpen: number | null;
+  qfqClose: number | null;
+  open: number | null;
+}
+
+/**
+ * 由「持有窗口日期序列 + quote/limit/exitHit 预取结果」组装 HoldingDaySnapshot[]。
+ *
+ * 与 simulator.db.ts 内联循环**语义等价**，唯一差异在 exitSignalHit 的判定：
+ *   内联版：exitHitDates 来自 windowDates.slice(1) 的查询（buyDate 不在集合），故 days[0] 恒 false。
+ *   本函数：hitSet 可能覆盖更大区间（含 buyDate），因此用 `idx > 0` 显式排除 days[0]，
+ *   复刻原语义、保证 days[] byte-identical（zero-drift 核心不变量）。
+ *
+ * @param windowDates  持有窗口的 SSE 交易日数组（buyDate 起升序）
+ * @param quoteMap     预取的 quote 行（key=cal_date；停牌日无 key）
+ * @param limitMap     预取的涨停价行（key=cal_date；缺失时 upLimit=null）
+ * @param hitSet       命中卖出条件的交易日集合（可包含 buyDate，函数内部排除）
+ */
+export function buildHoldingDays(
+  windowDates: string[],
+  quoteMap: Map<string, WindowQuote>,
+  limitMap: Map<string, number | null>,
+  hitSet: Set<string>,
+): HoldingDaySnapshot[] {
+  return windowDates.map((calDate, idx) => {
+    const q = quoteMap.get(calDate);
+    const hasQuote = !!q && q.qfqOpen !== null && q.qfqClose !== null;
+    return {
+      calDate,
+      hasQuote,
+      qfqOpen: q?.qfqOpen ?? null,
+      qfqClose: q?.qfqClose ?? null,
+      rawOpen: q?.open ?? null,
+      upLimit: limitMap.get(calDate) ?? null,
+      exitSignalHit: idx > 0 && hitSet.has(calDate), // idx>0：排除 buyDate（zero-drift 核心不变量）
+    };
+  });
+}
+
 /** 升序数组中 <= target 的最大元素下标（找不到返回 -1）。 */
 export function findLastIndexLE(sortedAsc: string[], target: string): number {
   let lo = 0;
