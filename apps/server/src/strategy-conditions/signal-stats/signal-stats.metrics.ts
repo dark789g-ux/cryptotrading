@@ -86,8 +86,16 @@ export function calcSignalStats(
   const avgHoldDays = mean(holdDays);
 
   // 最差单笔 / 最佳单笔
-  const worstTradeRet = Math.min(...rets);
-  const bestTradeRet = Math.max(...rets);
+  // 用线性扫描而非 Math.min(...rets)/Math.max(...rets)：后者把整段数组展开为函数实参，
+  // 大样本（实测 ~12.5 万以上）超 V8 实参上限抛 RangeError: Maximum call stack size exceeded。
+  // 上方 N===0 已 early-return，故 rets[0] 必存在。
+  let worstTradeRet = rets[0];
+  let bestTradeRet = rets[0];
+  for (let i = 1; i < N; i++) {
+    const r = rets[i];
+    if (r < worstTradeRet) worstTradeRet = r;
+    if (r > bestTradeRet) bestTradeRet = r;
+  }
 
   return {
     sampleCount: N,

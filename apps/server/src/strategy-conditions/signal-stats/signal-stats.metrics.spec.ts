@@ -215,4 +215,34 @@ describe('calcSignalStats', () => {
     const r2 = calcSignalStats(rets, holdDays);
     expect(r1).toEqual(r2);
   });
+
+  // ─────────────────────────────────────────────
+  // 10. 大样本不栈溢出（min/max spread 回归）
+  // ─────────────────────────────────────────────
+  // 旧实现 Math.min(...rets)/Math.max(...rets) 把整段数组展开为函数实参，
+  // 大样本（实测 ~12.5 万以上）超 V8 实参上限抛 RangeError: Maximum call stack size exceeded。
+  // 取 N=500000（> 真机实测 44 万失败点，确保覆盖旧实现的崩溃区）。
+  describe('大样本：N=500000 不栈溢出', () => {
+    const N = 500_000;
+    // 振荡填充，值域约 [-0.05, 0.0499]
+    const big = new Array<number>(N);
+    for (let i = 0; i < N; i++) {
+      big[i] = ((i % 1000) - 500) * 0.0001;
+    }
+    // 植入确定极值（远超振荡值域），用于校验 min/max 正确
+    big[123] = -0.9;
+    big[456] = 1.5;
+    const holdDays = new Array<number>(N).fill(1);
+
+    it('不抛 Range: Maximum call stack size exceeded', () => {
+      expect(() => calcSignalStats(big, holdDays)).not.toThrow();
+    });
+
+    it('sampleCount = N，worst/best 与植入极值一致', () => {
+      const r = calcSignalStats(big, holdDays);
+      expect(r.sampleCount).toBe(N);
+      expect(r.worstTradeRet).toBeCloseTo(-0.9, 10);
+      expect(r.bestTradeRet).toBeCloseTo(1.5, 10);
+    });
+  });
 });

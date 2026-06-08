@@ -54,8 +54,16 @@ export function buildRetHistogram(
     return { runId, sampleCount: 0, binWidth: null, bins: [] };
   }
 
-  const lo = Math.min(...rets);
-  const hi = Math.max(...rets);
+  // 线性求 min/max：避免 Math.min(...rets)/Math.max(...rets) 在大样本下把整段数组展开为
+  // 函数实参超 V8 上限抛 RangeError（同 signal-stats.metrics.ts）。
+  // 上方 rets.length===0 已 early-return，故 rets[0] 必存在。
+  let lo = rets[0];
+  let hi = rets[0];
+  for (let i = 1; i < rets.length; i++) {
+    const v = rets[i];
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
   const range = hi - lo;
 
   // 确定桶宽

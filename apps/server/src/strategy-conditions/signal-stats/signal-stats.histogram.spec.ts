@@ -204,3 +204,28 @@ describe('buildRetHistogram - sampleCount invariant', () => {
     expect(total).toBe(rets.length);
   });
 });
+
+// ── 大样本不栈溢出（min/max spread 回归） ──────────────────────────────────
+
+describe('buildRetHistogram - 大样本 N=500000 不栈溢出', () => {
+  // 旧实现 Math.min(...rets)/Math.max(...rets) 大样本下超 V8 实参上限抛
+  // RangeError: Maximum call stack size exceeded（同 signal-stats.metrics）。
+  const N = 500_000;
+  const rets = new Array<number>(N);
+  for (let i = 0; i < N; i++) {
+    rets[i] = ((i % 1000) - 500) * 0.0001; // 值域约 [-0.05, 0.0499]
+  }
+  rets[123] = -0.9; // 植入确定最小
+  rets[456] = 1.5; // 植入确定最大
+
+  it('不抛 RangeError', () => {
+    expect(() => buildRetHistogram('run-big', rets, 25)).not.toThrow();
+  });
+
+  it('count 守恒 & sampleCount=N', () => {
+    const result = buildRetHistogram('run-big', rets, 25);
+    expect(result.sampleCount).toBe(N);
+    const total = result.bins.reduce((s, b) => s + b.count, 0);
+    expect(total).toBe(N);
+  });
+});
