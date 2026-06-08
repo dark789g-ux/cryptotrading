@@ -27,6 +27,12 @@ import { SignalTestTradeEntity } from '../../entities/strategy/signal-test-trade
 import { CreateSignalTestDto } from './dto/create-signal-test.dto';
 import { UpdateSignalTestDto } from './dto/update-signal-test.dto';
 import { SignalStatsRunner } from './signal-stats.runner';
+import { buildRetHistogram, RetHistogramResult } from './signal-stats.histogram';
+
+/** 方案列表条目：附带该方案最新一次 run 的完整实体（无 run 时为 null）。 */
+export type SignalTestWithLatestRun = SignalTestEntity & {
+  latestRun: SignalTestRunEntity | null;
+};
 
 @Injectable()
 export class SignalStatsService {
@@ -64,8 +70,27 @@ export class SignalStatsService {
     return this.testRepo.save(entity);
   }
 
-  async findAll(): Promise<SignalTestEntity[]> {
-    return this.testRepo.find({ order: { createdAt: 'DESC' } });
+  async findAll(): Promise<SignalTestWithLatestRun[]> {
+    const tests = await this.testRepo.find({ order: { createdAt: 'DESC' } });
+
+    // 两步查询 + JS 拼接，避开 TypeORM 同表 leftJoin+orderBy 已知坑。
+    // DISTINCT ON (test_id) ORDER BY test_id, created_at DESC → 每个 test 最新 run。
+    const latestRuns = await this.runRepo
+      .createQueryBuilder('r')
+      .distinctOn(['r.testId'])
+      .orderBy('r.testId', 'ASC')
+      .addOrderBy('r.createdAt', 'DESC')
+      .getMany();
+
+    const runByTestId = new Map<string, SignalTestRunEntity>();
+    for (const run of latestRuns) {
+      runByTestId.set(run.testId, run);
+    }
+
+    return tests.map((test) => ({
+      ...test,
+      latestRun: runByTestId.get(test.id) ?? null,
+    }));
   }
 
   async findOne(id: string): Promise<SignalTestEntity> {
@@ -191,6 +216,23 @@ export class SignalStatsService {
       take: safeSize,
     });
     return { total, items };
+  }
+
+  /** 收益率分布直方图。 */
+  async getRetHistogram(runId: string, bins: number): Promise<RetHistogramResult> {
+    // 确认 run 存在
+    const run = await this.runRepo.findOne({ where: { id: runId } });
+    if (!run) throw new NotFoundException(`Run ${runId} not found`);
+
+    // 单列查询 ret，numeric 以 string 返回，转为 number
+    const rows = await this.tradeRepo
+      .createQueryBuilder('t')
+      .select('t.ret', 'ret')
+      .where('t.runId = :runId', { runId })
+      .getRawMany<{ ret: string }>();
+
+    const rets = rows.map((r) => Number(r.ret));
+    return buildRetHistogram(runId, rets, bins);
   }
 
   // ──────────────────────────────────────────────────────────────────────────

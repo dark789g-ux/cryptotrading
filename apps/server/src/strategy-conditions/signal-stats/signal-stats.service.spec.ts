@@ -1,7 +1,7 @@
 /**
  * signal-stats.service.spec.ts
  *
- * 单测：DTO 校验（fail-fast） + 区间越界 + 模式必填。
+ * 单测：DTO 校验（fail-fast） + 区间越界 + 模式必填 + findAll latestRun + getRetHistogram。
  * 使用 mock Repository / DataSource，不连真 DB。
  */
 import { BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
@@ -10,7 +10,21 @@ import { CreateSignalTestDto } from './dto/create-signal-test.dto';
 
 // ── mock 工厂 ──────────────────────────────────────────────────────────────
 
-function makeMockRepo(entity?: Record<string, unknown>) {
+/** 构造一个可链式调用 createQueryBuilder 的 mock，getMany/getRawMany 返回指定值。 */
+function makeQueryBuilderMock(getManyResult: unknown[] = [], getRawManyResult: unknown[] = []) {
+  const qb: Record<string, jest.Mock> = {};
+  const chain = () => qb;
+  qb.distinctOn = jest.fn(chain);
+  qb.orderBy = jest.fn(chain);
+  qb.addOrderBy = jest.fn(chain);
+  qb.select = jest.fn(chain);
+  qb.where = jest.fn(chain);
+  qb.getMany = jest.fn(async () => getManyResult);
+  qb.getRawMany = jest.fn(async () => getRawManyResult);
+  return qb;
+}
+
+function makeMockRepo(entity?: Record<string, unknown>, qbMock?: Record<string, jest.Mock>) {
   return {
     create: jest.fn((v: unknown) => v),
     save: jest.fn(async (e: unknown) => e),
@@ -18,6 +32,7 @@ function makeMockRepo(entity?: Record<string, unknown>) {
     find: jest.fn(async () => []),
     remove: jest.fn(async () => undefined),
     findAndCount: jest.fn(async () => [[], 0]),
+    createQueryBuilder: jest.fn(() => qbMock ?? makeQueryBuilderMock()),
   };
 }
 
@@ -201,6 +216,7 @@ describe('SignalStatsService - triggerRun', () => {
       find: jest.fn(async () => []),
       remove: jest.fn(),
       findAndCount: jest.fn(async () => [[], 0]),
+      createQueryBuilder: jest.fn(() => makeQueryBuilderMock()),
     };
     const runRepo = {
       create: jest.fn((v: unknown) => v),
@@ -210,6 +226,7 @@ describe('SignalStatsService - triggerRun', () => {
       find: jest.fn(async () => []),
       remove: jest.fn(),
       findAndCount: jest.fn(async () => [[], 0]),
+      createQueryBuilder: jest.fn(() => makeQueryBuilderMock()),
     };
     const svc = new SignalStatsService(
       testRepo as any,
@@ -230,6 +247,7 @@ describe('SignalStatsService - triggerRun', () => {
       find: jest.fn(async () => []),
       remove: jest.fn(),
       findAndCount: jest.fn(async () => [[], 0]),
+      createQueryBuilder: jest.fn(() => makeQueryBuilderMock()),
     };
     const savedRun = { id: 'run-new', status: 'running', testId: 'test-1' };
     const runRepo = {
@@ -239,6 +257,7 @@ describe('SignalStatsService - triggerRun', () => {
       find: jest.fn(async () => []),
       remove: jest.fn(),
       findAndCount: jest.fn(async () => [[], 0]),
+      createQueryBuilder: jest.fn(() => makeQueryBuilderMock()),
     };
     const runner = makeMockRunner();
     const svc = new SignalStatsService(
@@ -253,5 +272,166 @@ describe('SignalStatsService - triggerRun', () => {
     // runner 应被异步调用（不等待）
     await new Promise((r) => setImmediate(r));
     expect(runner.executeRun).toHaveBeenCalledWith(testEntity, 'run-new');
+  });
+});
+
+// ── findAll with latestRun ────────────────────────────────────────────────
+
+describe('SignalStatsService - findAll with latestRun', () => {
+  const testA = { id: 'test-a', name: 'A', createdAt: new Date('2024-01-01') };
+  const testB = { id: 'test-b', name: 'B', createdAt: new Date('2024-01-02') };
+  const runForA = { id: 'run-a1', testId: 'test-a', status: 'completed', createdAt: new Date('2024-02-01') };
+
+  it('有 run 的 test 附带 latestRun', async () => {
+    // testRepo.find 返回 [testA, testB]
+    // runRepo.createQueryBuilder.getMany 返回 [runForA]（只有 testA 有 run）
+    const runQb = makeQueryBuilderMock([runForA]);
+    const testRepo = {
+      ...makeMockRepo(),
+      find: jest.fn(async () => [testA, testB]),
+    };
+    const runRepo = {
+      ...makeMockRepo(),
+      createQueryBuilder: jest.fn(() => runQb),
+    };
+    const svc = new SignalStatsService(
+      testRepo as any,
+      runRepo as any,
+      makeMockRepo() as any,
+      makeMockDataSource() as any,
+      makeMockRunner() as any,
+    );
+
+    const result = await svc.findAll();
+    expect(result).toHaveLength(2);
+
+    const withRun = result.find((r) => r.id === 'test-a');
+    expect(withRun?.latestRun).toEqual(runForA);
+
+    const withoutRun = result.find((r) => r.id === 'test-b');
+    expect(withoutRun?.latestRun).toBeNull();
+  });
+
+  it('无任何 run 时每个 test.latestRun 均为 null', async () => {
+    const runQb = makeQueryBuilderMock([]); // 无 run
+    const testRepo = {
+      ...makeMockRepo(),
+      find: jest.fn(async () => [testA, testB]),
+    };
+    const runRepo = {
+      ...makeMockRepo(),
+      createQueryBuilder: jest.fn(() => runQb),
+    };
+    const svc = new SignalStatsService(
+      testRepo as any,
+      runRepo as any,
+      makeMockRepo() as any,
+      makeMockDataSource() as any,
+      makeMockRunner() as any,
+    );
+
+    const result = await svc.findAll();
+    for (const item of result) {
+      expect(item.latestRun).toBeNull();
+    }
+  });
+
+  it('无方案时返回空数组', async () => {
+    const runQb = makeQueryBuilderMock([]);
+    const testRepo = {
+      ...makeMockRepo(),
+      find: jest.fn(async () => []),
+    };
+    const runRepo = {
+      ...makeMockRepo(),
+      createQueryBuilder: jest.fn(() => runQb),
+    };
+    const svc = new SignalStatsService(
+      testRepo as any,
+      runRepo as any,
+      makeMockRepo() as any,
+      makeMockDataSource() as any,
+      makeMockRunner() as any,
+    );
+
+    const result = await svc.findAll();
+    expect(result).toEqual([]);
+  });
+});
+
+// ── getRetHistogram ───────────────────────────────────────────────────────
+
+describe('SignalStatsService - getRetHistogram', () => {
+  it('run 不存在时抛 NotFoundException', async () => {
+    const runRepo = {
+      ...makeMockRepo(undefined), // findOne 返回 null
+      createQueryBuilder: jest.fn(() => makeQueryBuilderMock()),
+    };
+    const svc = new SignalStatsService(
+      makeMockRepo() as any,
+      runRepo as any,
+      makeMockRepo() as any,
+      makeMockDataSource() as any,
+      makeMockRunner() as any,
+    );
+    await expect(svc.getRetHistogram('non-existent-run', 25)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('run 存在但无明细时返回 bins:[], sampleCount:0', async () => {
+    const existingRun = { id: 'run-1', testId: 'test-1', status: 'completed' };
+    // tradeRepo.createQueryBuilder.getRawMany 返回空数组
+    const tradeQb = makeQueryBuilderMock([], []);
+    const runRepo = {
+      ...makeMockRepo(existingRun as any),
+      createQueryBuilder: jest.fn(() => makeQueryBuilderMock()),
+    };
+    const tradeRepo = {
+      ...makeMockRepo(),
+      createQueryBuilder: jest.fn(() => tradeQb),
+    };
+    const svc = new SignalStatsService(
+      makeMockRepo() as any,
+      runRepo as any,
+      tradeRepo as any,
+      makeMockDataSource() as any,
+      makeMockRunner() as any,
+    );
+    const result = await svc.getRetHistogram('run-1', 25);
+    expect(result.bins).toEqual([]);
+    expect(result.sampleCount).toBe(0);
+    expect(result.binWidth).toBeNull();
+  });
+
+  it('run 存在且有明细时返回正确 sampleCount', async () => {
+    const existingRun = { id: 'run-2', testId: 'test-1', status: 'completed' };
+    const rawRows = [
+      { ret: '0.05' },
+      { ret: '-0.03' },
+      { ret: '0.08' },
+    ];
+    const tradeQb = makeQueryBuilderMock([], rawRows);
+    const runRepo = {
+      ...makeMockRepo(existingRun as any),
+      createQueryBuilder: jest.fn(() => makeQueryBuilderMock()),
+    };
+    const tradeRepo = {
+      ...makeMockRepo(),
+      createQueryBuilder: jest.fn(() => tradeQb),
+    };
+    const svc = new SignalStatsService(
+      makeMockRepo() as any,
+      runRepo as any,
+      tradeRepo as any,
+      makeMockDataSource() as any,
+      makeMockRunner() as any,
+    );
+    const result = await svc.getRetHistogram('run-2', 25);
+    expect(result.runId).toBe('run-2');
+    expect(result.sampleCount).toBe(3);
+    // 总 count 守恒
+    const total = result.bins.reduce((s, b) => s + b.count, 0);
+    expect(total).toBe(3);
   });
 });

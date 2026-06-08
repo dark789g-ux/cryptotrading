@@ -44,6 +44,19 @@ export class SignalStatsController {
     return this.service.listTrades(runId, p, ps);
   }
 
+  /**
+   * GET /api/signal-tests/runs/:runId/ret-histogram
+   * 收益率分布直方图。?bins=25（可选，默认 25，clamp [5,60]）
+   */
+  @Get('runs/:runId/ret-histogram')
+  getRetHistogram(
+    @Param('runId') runId: string,
+    @Query('bins') bins?: string,
+  ) {
+    const b = parseInt(bins ?? '25', 10);
+    return this.service.getRetHistogram(runId, b);
+  }
+
   // ── 集合路由 ─────────────────────────────────────────────────────────────
 
   /** POST /api/signal-tests 创建方案 */
