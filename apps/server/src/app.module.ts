@@ -63,6 +63,7 @@ import { ThsIndexDailyIndicatorEntity } from './entities/ths-index-daily/ths-ind
 import { MoneyFlowModule } from './market-data/money-flow/money-flow.module';
 import { IndexCatalogModule } from './market-data/index-catalog/index-catalog.module';
 import { ThsIndexDailyModule } from './market-data/ths-index-daily/ths-index-daily.module';
+import { BaseDataSyncModule } from './market-data/base-data-sync/base-data-sync.module';
 import { OamvModule } from './market-data/oamv/oamv.module';
 import { OamvDailyEntity } from './entities/oamv/oamv-daily.entity';
 import { ActiveMvModule } from './market-data/active-mv/active-mv.module';
@@ -187,6 +188,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     MoneyFlowModule,
     IndexCatalogModule,
     ThsIndexDailyModule,
+    BaseDataSyncModule,
     OamvModule,
     ActiveMvModule,
     DailyReviewModule,
