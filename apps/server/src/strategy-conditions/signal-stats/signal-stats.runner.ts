@@ -8,7 +8,7 @@
  *   1. enumerator.listSseTradingDays → progressTotal（初始化进度）。
  *   2. enumerator.enumerateSignals 逐日枚举买入信号（onProgress 回调更新 progress_scanned）。
  *   3. 预取全局 SSE 日历（enumerator.listAllSseTradingDays），SimulateSignalParams 共享复用。
- *   4. 对每个信号调 SignalStatsSimulator.simulateSignal → SimulatedTrade 或 FilterReason。
+ *   4. 批量调 SignalStatsSimulator.simulateSignalsBatched → SimulationOutcome[]（按 tsCode 分组预取 + 内存切窗 + 有界并发）。
  *   5. 从 trades 提取 ret[]/holdDays[] 调 calcSignalStats 聚合。
  *   6. 落库：更新 run（completed + 指标 + filteredCount） + 批量插入 signal_test_trade。
  *   异常 → run.status='failed' + error_message（不静默吞）。
@@ -84,7 +84,7 @@ export class SignalStatsRunner {
       return;
     }
 
-    // ── 2. 预取全局 SSE 日历（simulateSignal 共享，避免每信号重查）
+    // ── 2. 预取全局 SSE 日历（simulateSignalsBatched 共享，避免每信号重查）
     const sseCalendar = await this.enumerator.listAllSseTradingDays();
 
     // ── 3. 枚举买入信号，逐日更新 progress_scanned
@@ -116,20 +116,19 @@ export class SignalStatsRunner {
         ? { mode: 'fixed_n', horizonN: horizonN! }
         : { mode: 'strategy', maxHold: maxHold! };
 
-    // ── 5. 逐信号模拟出场
+    // ── 5. 批量模拟出场（按 tsCode 分组预取 + 内存切窗 + 有界并发）
     const trades: SimulatedTrade[] = [];
     const filterCounts: FilterCounts = { suspended: 0, limit_up: 0, new_listing: 0, insufficient_data: 0 };
 
-    for (const signal of signals) {
-      const outcome = await this.simulator.simulateSignal({
-        tsCode: signal.tsCode,
-        signalDate: signal.signalDate,
-        exit,
-        exitConditions: exitMode === 'strategy' ? (exitConditions ?? []) : null,
-        sseCalendar,
-        dateEnd,
-      });
+    const outcomes = await this.simulator.simulateSignalsBatched({
+      signals,
+      exit,
+      exitConditions: exitMode === 'strategy' ? (exitConditions ?? []) : null,
+      sseCalendar,
+      dateEnd,
+    });
 
+    for (const outcome of outcomes) {
       if (outcome.kind === 'trade') {
         trades.push(outcome.trade);
       } else {

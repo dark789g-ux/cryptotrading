@@ -58,13 +58,8 @@ function makeMockEnumerator(
 function makeMockSimulator(
   outcomes: Array<{ kind: 'trade' | 'filtered'; trade?: Record<string, unknown>; reason?: string }>,
 ) {
-  let callIdx = 0;
   return {
-    simulateSignal: jest.fn(async () => {
-      const o = outcomes[callIdx % outcomes.length];
-      callIdx++;
-      return o;
-    }),
+    simulateSignalsBatched: jest.fn(async () => outcomes),
   };
 }
 
@@ -114,7 +109,7 @@ describe('SignalStatsRunner', () => {
         sampleCount: 0,
         filteredCount: 0,
       }));
-      expect(simulator.simulateSignal).not.toHaveBeenCalled();
+      expect(simulator.simulateSignalsBatched).not.toHaveBeenCalled();
     });
   });
 
@@ -133,7 +128,7 @@ describe('SignalStatsRunner', () => {
         sampleCount: 0,
         filteredCount: 0,
       }));
-      expect(simulator.simulateSignal).not.toHaveBeenCalled();
+      expect(simulator.simulateSignalsBatched).not.toHaveBeenCalled();
     });
   });
 
@@ -228,7 +223,7 @@ describe('SignalStatsRunner', () => {
       const tradingDays = ['20240102'];
       const signals = [{ signalDate: '20240102', tsCode: '600519.SH' }];
       const badSimulator = {
-        simulateSignal: jest.fn(async () => { throw new Error('Simulator crash'); }),
+        simulateSignalsBatched: jest.fn(async () => { throw new Error('Simulator crash'); }),
       };
       const enumerator = makeMockEnumerator(tradingDays, tradingDays, signals);
       const runner = buildRunner(enumerator, badSimulator as any, runRepo);
