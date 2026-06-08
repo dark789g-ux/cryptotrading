@@ -136,15 +136,21 @@ async function recalculateDirtyQfqQuotesForSymbol(
       ts_code,
       qfq_dirty_from_date,
       indicator_dirty_from_date,
+      signal_rolling_dirty_from_date,
       updated_at
     )
-    VALUES ($1, NULL, $2, now())
+    VALUES ($1, NULL, $2, $2, now())
     ON CONFLICT (ts_code) DO UPDATE SET
       qfq_dirty_from_date = NULL,
       indicator_dirty_from_date = CASE
         WHEN a_share_sync_states.indicator_dirty_from_date IS NULL THEN EXCLUDED.indicator_dirty_from_date
         WHEN EXCLUDED.indicator_dirty_from_date < a_share_sync_states.indicator_dirty_from_date THEN EXCLUDED.indicator_dirty_from_date
         ELSE a_share_sync_states.indicator_dirty_from_date
+      END,
+      signal_rolling_dirty_from_date = CASE
+        WHEN a_share_sync_states.signal_rolling_dirty_from_date IS NULL THEN EXCLUDED.signal_rolling_dirty_from_date
+        WHEN EXCLUDED.signal_rolling_dirty_from_date < a_share_sync_states.signal_rolling_dirty_from_date THEN EXCLUDED.signal_rolling_dirty_from_date
+        ELSE a_share_sync_states.signal_rolling_dirty_from_date
       END,
       updated_at = now()
   `, [tsCode, dirtyFrom]);

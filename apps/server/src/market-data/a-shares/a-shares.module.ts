@@ -14,18 +14,22 @@ import { ASharesIndicatorService } from './services/a-shares-indicator.service';
 import { ASharesService } from './a-shares.service';
 import { ASharesSyncService } from './sync/a-shares-sync.service';
 import { TushareClientService } from './services/tushare-client.service';
+import { SignalRollingIndicatorModule } from '../signal-rolling-indicator/signal-rolling-indicator.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([
-    AShareSymbolEntity,
-    DailyQuoteEntity,
-    DailyBasicEntity,
-    DailyIndicatorEntity,
-    AdjFactorEntity,
-    IndicatorCalcStateEntity,
-    AShareSyncStateEntity,
-    AShareFilterPresetEntity,
-  ])],
+  imports: [
+    TypeOrmModule.forFeature([
+      AShareSymbolEntity,
+      DailyQuoteEntity,
+      DailyBasicEntity,
+      DailyIndicatorEntity,
+      AdjFactorEntity,
+      IndicatorCalcStateEntity,
+      AShareSyncStateEntity,
+      AShareFilterPresetEntity,
+    ]),
+    SignalRollingIndicatorModule,
+  ],
   controllers: [ASharesController],
   providers: [ASharesService, ASharesSyncService, ASharesIndicatorService, ASharesFilterPresetsService, TushareClientService],
   exports: [ASharesService],

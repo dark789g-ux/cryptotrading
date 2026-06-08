@@ -7,6 +7,7 @@ import { DailyQuoteEntity } from '../../../entities/raw/daily-quote.entity';
 import { AShareSymbolEntity } from '../../../entities/a-share/a-share-symbol.entity';
 import { AShareSyncStateEntity } from '../../../entities/a-share/a-share-sync-state.entity';
 import { ASharesIndicatorService } from '../services/a-shares-indicator.service';
+import { SignalRollingIndicatorService } from '../../signal-rolling-indicator/signal-rolling-indicator.service';
 import { shouldSyncDataset } from './a-shares-sync-completeness';
 import { markDirtyRanges, mergeChangedDates, recalculateDirtyQfqQuotes } from './a-shares-sync-dirty-ranges';
 import {
@@ -50,6 +51,7 @@ export class ASharesSyncService {
     private readonly syncStateRepo: Repository<AShareSyncStateEntity>,
     private readonly tushareClient: TushareClientService,
     private readonly indicatorService: ASharesIndicatorService,
+    private readonly signalRollingIndicatorService: SignalRollingIndicatorService,
   ) {}
 
   async syncWithProgress(
@@ -246,6 +248,12 @@ export class ASharesSyncService {
         );
       } catch (err: unknown) {
         failedItems.push(createStageFailedItem('indicator_recalculate', err));
+      }
+
+      try {
+        await this.signalRollingIndicatorService.recalculateDirtyForSymbols([...changedRanges.keys()]);
+      } catch (err: unknown) {
+        failedItems.push(createStageFailedItem('signal_rolling_recalculate', err));
       }
     }
 
