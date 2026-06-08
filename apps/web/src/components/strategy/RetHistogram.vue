@@ -30,12 +30,15 @@ async function fetchAndRender() {
   try {
     const result = await store.fetchRetHistogram(props.runId)
     data.value = result
+    // loading 必须在 initOrRender 之前置 false：图表容器 .ret-chart 受模板 v-if="loading"
+    // 互斥门控，loading 仍为 true 时它不在 DOM、el.value 为 undefined → echarts.init 被
+    // initOrRender 的 `if (!el.value) return` 跳过，loading 转 false 后又无人重触发 → 图表永远空白。
+    loading.value = false
     await nextTick()
     if (result.bins.length === 0) return
     initOrRender()
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : '加载直方图失败'
-  } finally {
     loading.value = false
   }
 }
