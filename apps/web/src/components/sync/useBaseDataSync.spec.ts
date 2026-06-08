@@ -79,6 +79,31 @@ describe('useBaseDataSync', () => {
     expect(api.syncing.value).toBe(false)
   })
 
+  it('done 事件带 warnings（空日警告）→ finished 透传 warnings，且不计入失败弹窗', async () => {
+    const message = makeMessage()
+    const api = useBaseDataSync(message)
+    api.syncDateRange.value = [new Date(2026, 0, 5).getTime(), new Date(2026, 0, 7).getTime()]
+
+    startMock.mockImplementation(async (_url: string, options: { onDone?: (d?: unknown) => void }) => {
+      options.onDone?.({
+        result: {
+          success: 5,
+          skipped: 0,
+          errors: [],
+          warnings: [{ apiName: 'suspend_d_empty', params: { trade_date: '20260106' } }],
+        },
+      })
+    })
+
+    await api.confirmSync()
+
+    // warnings 透传到 finished
+    expect(api.finished.value?.result.warnings).toHaveLength(1)
+    // errors 为空 → 不弹"N 项失败"，走 success 文案
+    expect(message.error).not.toHaveBeenCalled()
+    expect(message.success).toHaveBeenCalledWith('基础数据同步完成')
+  })
+
   it('confirmSync 的 error 事件 → message.error + syncing=false，finished 不置位', async () => {
     const message = makeMessage()
     const api = useBaseDataSync(message)

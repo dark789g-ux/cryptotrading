@@ -30,6 +30,9 @@ interface BaseDataSyncResult {
   success: number
   skipped: number
   errors: BaseDataSyncErrorItem[]
+  // 预期正常的空日（仅 suspend_d 当日无停复牌），与后端 SyncResult.warnings 对齐；非失败。
+  // 可选：后端实际恒返回该字段，但读取侧一律 `?? []` 防御，老测试 fixture 不必补该字段。
+  warnings?: BaseDataSyncErrorItem[]
 }
 
 interface FinishedState {

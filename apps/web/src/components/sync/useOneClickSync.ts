@@ -230,6 +230,11 @@ export function useOneClickSync(message: OneClickMessageApi) {
       if (ok && result) {
         const res = result.result
         steps.value[i].rowsWritten = res?.success ?? 0
+        // 正常空日（suspend_d 当日无停复牌）仅 info 提示，不影响步骤 success/failed 判定。
+        const warns = res?.warnings ?? []
+        if (warns.length > 0) {
+          pushLog({ step: key, level: 'info', text: `空日警告 ${warns.length} 项（suspend_d 当日无停复牌，正常）` })
+        }
         const errs = res?.errors ?? []
         if (errs.length > 0) {
           for (const e of errs) {

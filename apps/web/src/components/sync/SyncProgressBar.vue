@@ -15,7 +15,9 @@
         <span>{{ sse.message.value }}</span>
       </div>
       <div class="sync-progress-summary">
-        写入 {{ finished.result.success }} 行 / 跳过 {{ finished.result.skipped }} 日 / 失败 {{ finished.result.errors.length }} 项
+        写入 {{ finished.result.success }} 行 / 跳过 {{ finished.result.skipped }} 日 / 失败 {{ finished.result.errors.length }} 项<template
+          v-if="finished.result.warnings?.length"
+        > / 空日警告 {{ finished.result.warnings.length }} 项</template>
       </div>
     </template>
   </div>
@@ -37,7 +39,9 @@ interface SseLike {
 }
 
 interface FinishedLike {
-  result: { success: number; skipped: number; errors: unknown[] }
+  // ★warnings 必须可选：本组件被 base-data / crypto / ths 复用，
+  //   crypto/ths 的 result 无 warnings 字段，可选保证其零回归（计数与展示不变）。
+  result: { success: number; skipped: number; errors: unknown[]; warnings?: unknown[] }
 }
 
 defineProps<{
