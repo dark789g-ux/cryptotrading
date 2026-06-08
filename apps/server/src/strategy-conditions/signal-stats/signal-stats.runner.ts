@@ -166,6 +166,7 @@ export class SignalStatsRunner {
       kellyF: numStr(stats.kellyF),
       avgHoldDays: numStr(stats.avgHoldDays),
       worstTradeRet: numStr(stats.worstTradeRet),
+      bestTradeRet: numStr(stats.bestTradeRet),
       filteredCount,
       completedAt: new Date(),
     });

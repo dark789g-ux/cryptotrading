@@ -55,6 +55,9 @@ export class SignalTestRunEntity {
   @Column({ type: 'numeric', nullable: true, name: 'worst_trade_ret' })
   worstTradeRet: string | null;
 
+  @Column({ type: 'numeric', nullable: true, name: 'best_trade_ret' })
+  bestTradeRet: string | null;
+
   @Column({ type: 'int', default: 0, name: 'filtered_count' })
   filteredCount: number;
 

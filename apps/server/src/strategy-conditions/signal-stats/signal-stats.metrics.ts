@@ -15,6 +15,7 @@ export interface SignalStatsResult {
   kellyF: number | null;        // 凯利 f* = p - (1-p)/b
   avgHoldDays: number | null;
   worstTradeRet: number | null; // 最差单笔 = min(ret)
+  bestTradeRet: number | null;  // 最佳单笔 = max(ret)
 }
 
 /**
@@ -42,6 +43,7 @@ export function calcSignalStats(
       kellyF: null,
       avgHoldDays: null,
       worstTradeRet: null,
+      bestTradeRet: null,
     };
   }
 
@@ -83,8 +85,9 @@ export function calcSignalStats(
   // 平均持仓天数：N>0（已在上方 early-return 处理过 N=0）
   const avgHoldDays = mean(holdDays);
 
-  // 最差单笔
+  // 最差单笔 / 最佳单笔
   const worstTradeRet = Math.min(...rets);
+  const bestTradeRet = Math.max(...rets);
 
   return {
     sampleCount: N,
@@ -96,5 +99,6 @@ export function calcSignalStats(
     kellyF,
     avgHoldDays,
     worstTradeRet,
+    bestTradeRet,
   };
 }

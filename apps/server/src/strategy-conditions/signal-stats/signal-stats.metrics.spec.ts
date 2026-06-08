@@ -176,7 +176,37 @@ describe('calcSignalStats', () => {
   });
 
   // ─────────────────────────────────────────────
-  // 8. 无副作用：多次调用同参数结果一致
+  // 8. bestTradeRet = max(rets)
+  // ─────────────────────────────────────────────
+  describe('bestTradeRet 取 max', () => {
+    it('正常混合 [0.05,-0.02,0.10] → 0.10', () => {
+      const result = calcSignalStats([0.05, -0.02, 0.10], [1, 1, 1]);
+      expect(result.bestTradeRet).toBeCloseTo(0.10, 10);
+    });
+
+    it('全亏 [-0.03,-0.01] → -0.01', () => {
+      const result = calcSignalStats([-0.03, -0.01], [1, 1]);
+      expect(result.bestTradeRet).toBeCloseTo(-0.01, 10);
+    });
+
+    it('全胜 [0.02,0.08] → 0.08', () => {
+      const result = calcSignalStats([0.02, 0.08], [1, 1]);
+      expect(result.bestTradeRet).toBeCloseTo(0.08, 10);
+    });
+
+    it('N=0 [] → null', () => {
+      const result = calcSignalStats([], []);
+      expect(result.bestTradeRet).toBeNull();
+    });
+
+    it('单样本 [0.04] → 0.04', () => {
+      const result = calcSignalStats([0.04], [1]);
+      expect(result.bestTradeRet).toBeCloseTo(0.04, 10);
+    });
+  });
+
+  // ─────────────────────────────────────────────
+  // 9. 无副作用：多次调用同参数结果一致
   // ─────────────────────────────────────────────
   it('纯函数无副作用，同参数多次调用结果一致', () => {
     const rets = [0.1, -0.05, 0.2, -0.1];
