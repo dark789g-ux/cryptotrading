@@ -1,5 +1,6 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import { useASharesSync } from '@/components/symbols/a-shares/useASharesSync'
+import { useBaseDataSync } from './useBaseDataSync'
 import { useMoneyFlowSync } from './useMoneyFlowSync'
 import { useThsIndexDailySync } from './useThsIndexDailySync'
 import { useOamvSync } from './useOamvSync'
@@ -53,6 +54,7 @@ export function useOneClickSync(message: OneClickMessageApi) {
 
   // ---- 底层 composable 实例化 ----
   const noopReload = async () => {}
+  const baseDataCtrl = useBaseDataSync(adaptMessage(message))
   const aSharesCtrl = useASharesSync(adaptMessage(message), noopReload)
   const moneyFlowCtrl = useMoneyFlowSync(message)
   const thsIndexCtrl = useThsIndexDailySync(message)
@@ -201,9 +203,70 @@ export function useOneClickSync(message: OneClickMessageApi) {
     })
   }
 
-  // ---- 4 步骤执行 ----
-  async function runAShares() {
+  // ---- 步骤执行 ----
+  // 基础数据（trade_cal / stk_limit / suspend_d）：SSE 步骤，照 runThsIndexDaily 模板。
+  // 用 useBaseDataSync 自身的增量默认范围（buildDefaultDateRange / 库存水位）直接触发，
+  // 不复用一键同步的 dateRange、不弹 modal，全程无交互。
+  async function runBaseData() {
     const i = 0
+    const key: OneClickStepKey = 'base-data'
+    currentStepIndex.value = i
+    setStepStatus(i, 'running')
+    pushLog({ step: key, level: 'info', text: '开始基础数据同步' })
+
+    const stopWatcher = installSseWatcher(
+      i,
+      key,
+      baseDataCtrl.sse.phase,
+      baseDataCtrl.sse.percent,
+      baseDataCtrl.sse.status,
+      baseDataCtrl.sse.message,
+    )
+
+    try {
+      baseDataCtrl.syncMode.value = 'incremental'
+      void baseDataCtrl.confirmSync()
+      const { ok, result } = await awaitFinished(baseDataCtrl.finished, baseDataCtrl.sse.status)
+      if (ok && result) {
+        const res = result.result
+        steps.value[i].rowsWritten = res?.success ?? 0
+        const errs = res?.errors ?? []
+        if (errs.length > 0) {
+          for (const e of errs) {
+            const item: OneClickErrorItem = {
+              step: key,
+              level: 'warn',
+              apiName: e.apiName,
+              message: e.message ?? JSON.stringify(e.params ?? {}),
+            }
+            steps.value[i].errors.push(item)
+            pushLog({ step: key, level: 'warn', text: `[${item.apiName}] ${item.message}` })
+          }
+          setStepStatus(i, 'failed')
+        } else {
+          setStepStatus(i, 'success')
+        }
+        steps.value[i].percent = 100
+      } else {
+        setStepStatus(i, 'failed')
+        steps.value[i].errors.push({
+          step: key,
+          level: 'error',
+          message: baseDataCtrl.sse.message.value || '基础数据同步失败',
+        })
+      }
+    } catch (e: unknown) {
+      setStepStatus(i, 'failed')
+      const msg = e instanceof Error ? e.message : String(e)
+      steps.value[i].errors.push({ step: key, level: 'error', message: msg })
+      pushLog({ step: key, level: 'error', text: msg })
+    } finally {
+      stopWatcher()
+    }
+  }
+
+  async function runAShares() {
+    const i = 1
     const key: OneClickStepKey = 'a-shares'
     currentStepIndex.value = i
     setStepStatus(i, 'running')
@@ -250,7 +313,7 @@ export function useOneClickSync(message: OneClickMessageApi) {
   }
 
   async function runMoneyFlow() {
-    const i = 1
+    const i = 2
     const key: OneClickStepKey = 'money-flow'
     currentStepIndex.value = i
     setStepStatus(i, 'running')
@@ -316,7 +379,7 @@ export function useOneClickSync(message: OneClickMessageApi) {
   }
 
   async function runThsIndexDaily() {
-    const i = 2
+    const i = 3
     const key: OneClickStepKey = 'ths-index-daily'
     currentStepIndex.value = i
     setStepStatus(i, 'running')
@@ -411,19 +474,19 @@ export function useOneClickSync(message: OneClickMessageApi) {
   }
 
   async function runStockAmv() {
-    await runAmvStep(3, 'stock-amv', '同步个股 AMV', () => activeMvCtrl.syncStock())
+    await runAmvStep(4, 'stock-amv', '同步个股 AMV', () => activeMvCtrl.syncStock())
   }
 
   async function runIndustryAmv() {
-    await runAmvStep(4, 'industry-amv', '同步行业指数 AMV', () => activeMvCtrl.syncIndustry())
+    await runAmvStep(5, 'industry-amv', '同步行业指数 AMV', () => activeMvCtrl.syncIndustry())
   }
 
   async function runConceptAmv() {
-    await runAmvStep(5, 'concept-amv', '同步板块（概念）AMV', () => activeMvCtrl.syncConcept())
+    await runAmvStep(6, 'concept-amv', '同步板块（概念）AMV', () => activeMvCtrl.syncConcept())
   }
 
   async function runOamv() {
-    const i = 6
+    const i = 7
     const key: OneClickStepKey = 'oamv'
     currentStepIndex.value = i
     setStepStatus(i, 'running')
@@ -464,34 +527,39 @@ export function useOneClickSync(message: OneClickMessageApi) {
     })
 
     try {
-      await runAShares()
+      await runBaseData()
       if (cancelled.value) {
         markRemainingSkipped(1)
         return
       }
-      await runMoneyFlow()
+      await runAShares()
       if (cancelled.value) {
         markRemainingSkipped(2)
         return
       }
-      await runThsIndexDaily()
+      await runMoneyFlow()
       if (cancelled.value) {
         markRemainingSkipped(3)
         return
       }
-      await runStockAmv()
+      await runThsIndexDaily()
       if (cancelled.value) {
         markRemainingSkipped(4)
         return
       }
-      await runIndustryAmv()
+      await runStockAmv()
       if (cancelled.value) {
         markRemainingSkipped(5)
         return
       }
-      await runConceptAmv()
+      await runIndustryAmv()
       if (cancelled.value) {
         markRemainingSkipped(6)
+        return
+      }
+      await runConceptAmv()
+      if (cancelled.value) {
+        markRemainingSkipped(7)
         return
       }
       await runOamv()
@@ -538,10 +606,11 @@ export function useOneClickSync(message: OneClickMessageApi) {
     const i = currentStepIndex.value
     if (i >= 0 && i < steps.value.length) {
       // best-effort 中断当前步骤的 SSE
-      if (i === 1) moneyFlowCtrl.sse.reset()
-      if (i === 2) thsIndexCtrl.sse.reset()
-      // i === 0 (A 股) syncSse 句柄未暴露，依赖 cancelled watcher 让 awaitASharesDone 走 error 分支
-      // i === 3/4/5 (个股/行业/概念 AMV) 与 i === 6 (0AMV) 均为普通 fetch，无 abort 句柄；等其返回
+      if (i === 0) baseDataCtrl.sse.reset()
+      if (i === 2) moneyFlowCtrl.sse.reset()
+      if (i === 3) thsIndexCtrl.sse.reset()
+      // i === 1 (A 股) syncSse 句柄未暴露，依赖 cancelled watcher 让 awaitASharesDone 走 error 分支
+      // i === 4/5/6 (个股/行业/概念 AMV) 与 i === 7 (0AMV) 均为普通 fetch，无 abort 句柄；等其返回
       setStepStatus(i, 'failed')
       const stepKey = steps.value[i].step
       steps.value[i].errors.push({ step: stepKey, level: 'warn', message: '用户取消' })

@@ -7,7 +7,7 @@
         <div class="ocs-header-text">
           <div class="ocs-title">一键同步 A 股核心数据</div>
           <div class="ocs-subtitle">
-            按顺序同步：A股数据 → 资金流向 → 指数日线 → 个股/行业/板块 AMV → 大盘 0AMV
+            按顺序同步：基础数据 → A股数据 → 资金流向 → 指数日线 → 个股/行业/板块 AMV → 大盘 0AMV
           </div>
         </div>
       </div>

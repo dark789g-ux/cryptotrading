@@ -1,6 +1,7 @@
 // 一键同步相关类型与常量（从 useOneClickSync.ts 抽出，保持单文件 ≤500 行）
 
 export type OneClickStepKey =
+  | 'base-data'
   | 'a-shares'
   | 'money-flow'
   | 'ths-index-daily'
@@ -52,6 +53,7 @@ export interface OneClickMessageApi {
 export const LOG_LIMIT = 500
 
 export const STEP_LABELS: Record<OneClickStepKey, string> = {
+  'base-data': '基础数据 (日历/涨跌停/停牌)',
   'a-shares': 'A 股数据',
   'money-flow': '资金流向',
   'ths-index-daily': '指数日线 (ths_daily)',
@@ -78,6 +80,7 @@ export function emptyStep(step: OneClickStepKey): OneClickStepState {
 
 export function buildInitialSteps(): OneClickStepState[] {
   return [
+    emptyStep('base-data'),
     emptyStep('a-shares'),
     emptyStep('money-flow'),
     emptyStep('ths-index-daily'),
