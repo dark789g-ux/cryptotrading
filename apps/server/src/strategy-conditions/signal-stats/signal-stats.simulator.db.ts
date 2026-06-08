@@ -11,10 +11,12 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { StrategyConditionItem } from '../../entities/strategy/strategy-condition.entity';
 import { StrategyConditionsQueryBuilder } from '../strategy-conditions.query-builder';
+import { mapWithConcurrency } from './signal-stats.concurrency';
 import {
   ExitConfig,
-  HoldingDaySnapshot,
   SimulationOutcome,
+  WindowQuote,
+  buildHoldingDays,
   findLastIndexLE,
   simulateTradeCore,
 } from './signal-stats.simulator';
@@ -36,6 +38,29 @@ export interface SimulateSignalParams {
   sseCalendar: string[];
   /** date_end（YYYYMMDD），出场日超出此 → insufficient_data。 */
   dateEnd: string;
+}
+
+/** 批量出场模拟默认组间并发上界（峰值在途连接 ≤ 此值，留余量给 PG pool max=10）。 */
+export const DEFAULT_BATCH_CONCURRENCY = 8;
+
+/**
+ * 批量出场模拟入参（按 ts_code 分组 + 内存切窗 + 有界并发）。
+ *
+ * 与逐信号 simulateSignal 行为 zero-drift（输出 byte-identical）：同一信号在两条路径下
+ * 喂给 simulateTradeCore 的 days[]/daysSinceList/delistDate 逐元素一致。
+ */
+export interface BatchSimulateParams {
+  /** 待模拟信号（含 ts_code + signalDate）。组内顺序保持与输入一一对应。 */
+  signals: Array<{ tsCode: string; signalDate: string }>;
+  exit: ExitConfig;
+  /** strategy 模式卖出条件；fixed_n 可省略/为空。 */
+  exitConditions?: StrategyConditionItem[] | null;
+  /** 全局 SSE 日历（升序 cal_date）。 */
+  sseCalendar: string[];
+  /** date_end（YYYYMMDD）。 */
+  dateEnd: string;
+  /** 组间并发上界，默认 DEFAULT_BATCH_CONCURRENCY。 */
+  concurrency?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,19 +130,9 @@ export class SignalStatsSimulator {
     }
 
     // 6. 组装持有窗口序列。
-    const daysSnap: HoldingDaySnapshot[] = windowDates.map((calDate) => {
-      const q = quoteMap.get(calDate);
-      const hasQuote = !!q && q.qfqOpen !== null && q.qfqClose !== null;
-      return {
-        calDate,
-        hasQuote,
-        qfqOpen: q?.qfqOpen ?? null,
-        qfqClose: q?.qfqClose ?? null,
-        rawOpen: q?.open ?? null,
-        upLimit: limitMap.get(calDate) ?? null,
-        exitSignalHit: exitHitDates.has(calDate),
-      };
-    });
+    //    旧路径 exitHitDates 来自 windowDates.slice(1)（不含 buyDate）；buildHoldingDays 用 idx>0
+    //    同样排除 buyDate，故对旧路径结果完全一致（zero-drift）。
+    const daysSnap = buildHoldingDays(windowDates, quoteMap, limitMap, exitHitDates);
 
     return simulateTradeCore({
       tsCode,
@@ -129,11 +144,147 @@ export class SignalStatsSimulator {
     });
   }
 
+  /**
+   * 批量出场模拟：按 ts_code 分组 → 每组一次性预取覆盖区间的 quote/limit/命中日 →
+   * 内存切窗喂纯函数 → 组间有界并发。与逐信号 simulateSignal **zero-drift**。
+   *
+   * 返回的 outcomes 组间顺序不保证与全局输入顺序一致（调用方按 trade/filter 累加，与顺序无关）；
+   * 组内 outcome 与该组输入信号一一对应。
+   */
+  async simulateSignalsBatched(params: BatchSimulateParams): Promise<SimulationOutcome[]> {
+    const { signals, exit, sseCalendar, dateEnd } = params;
+    const exitConditions = params.exitConditions ?? [];
+    const concurrency = params.concurrency ?? DEFAULT_BATCH_CONCURRENCY;
+    const sseLen = sseCalendar.length;
+
+    // 1. 按 ts_code 分组（保组内原始顺序）。
+    const groups = new Map<string, Array<{ tsCode: string; signalDate: string }>>();
+    for (const sig of signals) {
+      const arr = groups.get(sig.tsCode);
+      if (arr) arr.push(sig);
+      else groups.set(sig.tsCode, [sig]);
+    }
+    const tsCodes = Array.from(groups.keys());
+
+    // 2. 一次性预取 symbol 行（缺行 → Map 无 key → get 返回 undefined，语义同旧 fetchSymbol 返 null）。
+    const symbolMap = await this.prefetchSymbolMap(tsCodes);
+
+    // 3. 组间有界并发；每组结果是 SimulationOutcome[]，最后 flat。
+    const perTsCode = async (tsCode: string): Promise<SimulationOutcome[]> => {
+      const sym = symbolMap.get(tsCode); // 可能 undefined
+      const groupSignals = groups.get(tsCode)!;
+
+      // 3a. 逐信号先算 prelim（insufficient_data 三种早退都在查 DB 之前判定，与旧路径逐字一致）。
+      interface Prelim {
+        signal: { tsCode: string; signalDate: string };
+        buyIdx: number;
+        windowDates: string[];
+      }
+      // outcomes 与 groupSignals 一一对应；prelim 仅装“有效”信号（拿到 windowDates）。
+      const outcomes: (SimulationOutcome | null)[] = new Array(groupSignals.length).fill(null);
+      const prelims: Array<{ index: number; prelim: Prelim }> = [];
+      for (let i = 0; i < groupSignals.length; i++) {
+        const sig = groupSignals[i];
+        const sigIdx = sseCalendar.indexOf(sig.signalDate);
+        if (sigIdx < 0 || sigIdx + 1 >= sseLen) {
+          outcomes[i] = { kind: 'filtered', reason: 'insufficient_data' };
+          continue;
+        }
+        const buyIdx = sigIdx + 1;
+        const buyDate = sseCalendar[buyIdx];
+        if (buyDate > dateEnd) {
+          outcomes[i] = { kind: 'filtered', reason: 'insufficient_data' };
+          continue;
+        }
+        const windowDates = sseCalendar.slice(buyIdx).filter((d) => d <= dateEnd);
+        if (windowDates.length === 0) {
+          outcomes[i] = { kind: 'filtered', reason: 'insufficient_data' };
+          continue;
+        }
+        prelims.push({ index: i, prelim: { signal: sig, buyIdx, windowDates } });
+      }
+
+      // 3b. 全组无有效信号 → 直接返回早退 outcomes（不查 DB）。
+      if (prelims.length === 0) {
+        return outcomes.map((o) => o ?? { kind: 'filtered', reason: 'insufficient_data' });
+      }
+
+      // 3c. unionWindow = 各有效信号 windowDates 的并集 = slice(minBuyIdx)（截到 dateEnd）。
+      let minBuyIdx = prelims[0].prelim.buyIdx;
+      for (const p of prelims) if (p.prelim.buyIdx < minBuyIdx) minBuyIdx = p.prelim.buyIdx;
+      const unionWindow = sseCalendar.slice(minBuyIdx).filter((d) => d <= dateEnd);
+
+      // 3d. 组内串行 await（勿 Promise.all——连接池峰值约束在组间并发，组内顺序 fetch）。
+      const quoteMap = await this.fetchQuotes(tsCode, unionWindow);
+      const limitMap = await this.fetchLimits(tsCode, unionWindow);
+      let hitSet = new Set<string>();
+      if (exit.mode === 'strategy') {
+        // 对整个 unionWindow 查；buildHoldingDays 的 idx>0 会逐信号排除各自 buyDate，故安全。
+        hitSet = await this.fetchExitSignalHits(tsCode, unionWindow, exitConditions);
+      }
+
+      // 3e. effListIdx 可按 tsCode 缓存一次；daysSinceList 必须 per-signal（依赖各自 buyIdx）。
+      let effListIdx = -1;
+      let hasListAnchor = false;
+      if (sym?.listDate) {
+        hasListAnchor = true;
+        const listIdx = sseCalendar.indexOf(sym.listDate);
+        effListIdx = listIdx >= 0 ? listIdx : findLastIndexLE(sseCalendar, sym.listDate);
+      }
+      const delistDate = sym?.delistDate ?? null;
+
+      // 3f. 按原始顺序为有效信号产出 outcome。
+      for (const { index, prelim } of prelims) {
+        const { signal, buyIdx, windowDates } = prelim;
+        let daysSinceList: number | null = null;
+        if (hasListAnchor && effListIdx >= 0) daysSinceList = buyIdx - effListIdx;
+        const days = buildHoldingDays(windowDates, quoteMap, limitMap, hitSet);
+        outcomes[index] = simulateTradeCore({
+          tsCode,
+          signalDate: signal.signalDate,
+          days,
+          daysSinceList,
+          delistDate,
+          exit,
+        });
+      }
+
+      return outcomes.map((o) => o ?? { kind: 'filtered', reason: 'insufficient_data' });
+    };
+
+    const grouped = await mapWithConcurrency(tsCodes, concurrency, perTsCode);
+    return grouped.flat();
+  }
+
+  /**
+   * 批量预取 symbol 的 list_date/delist_date。
+   *
+   * **只用查询返回的行建 Map**：查不到的 ts_code 不放进 Map（get 返回 undefined），
+   * 语义与旧 fetchSymbol 返 null 一致（sym?.listDate falsy → daysSinceList=null；
+   * sym?.delistDate ?? null → null）。**不要给缺行的 ts_code 预填 entry**，否则会把
+   * “无此标的”误当“有行但字段 null”，delistDate 语义漂移。
+   */
+  async prefetchSymbolMap(
+    tsCodes: string[],
+  ): Promise<Map<string, { listDate: string | null; delistDate: string | null }>> {
+    const map = new Map<string, { listDate: string | null; delistDate: string | null }>();
+    if (tsCodes.length === 0) return map;
+    const rows = await this.dataSource.query<
+      Array<{ ts_code: string; list_date: string | null; delist_date: string | null }>
+    >(
+      `SELECT ts_code, list_date, delist_date
+         FROM a_share_symbols
+        WHERE ts_code = ANY($1::text[])`,
+      [tsCodes],
+    );
+    for (const r of rows) {
+      map.set(r.ts_code, { listDate: r.list_date ?? null, delistDate: r.delist_date ?? null });
+    }
+    return map;
+  }
+
   /** 批量取某标的若干交易日的 qfq_open/qfq_close/open。停牌日无行（map 不含该 key）。 */
-  private async fetchQuotes(
-    tsCode: string,
-    dates: string[],
-  ): Promise<Map<string, { qfqOpen: number | null; qfqClose: number | null; open: number | null }>> {
+  private async fetchQuotes(tsCode: string, dates: string[]): Promise<Map<string, WindowQuote>> {
     const rows = await this.dataSource.query<
       Array<{ trade_date: string; qfq_open: string | null; qfq_close: string | null; open: string | null }>
     >(
@@ -142,7 +293,7 @@ export class SignalStatsSimulator {
         WHERE ts_code = $1 AND trade_date = ANY($2::text[])`,
       [tsCode, dates],
     );
-    const map = new Map<string, { qfqOpen: number | null; qfqClose: number | null; open: number | null }>();
+    const map = new Map<string, WindowQuote>();
     for (const r of rows) {
       map.set(r.trade_date, {
         qfqOpen: toNum(r.qfq_open),
