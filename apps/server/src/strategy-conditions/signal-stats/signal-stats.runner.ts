@@ -10,7 +10,8 @@
  *   3. 预取全局 SSE 日历（enumerator.listAllSseTradingDays），simulateSignalsBatched 共享复用。
  *   4. 批量调 SignalStatsSimulator.simulateSignalsBatched → SimulationOutcome[]（按 tsCode 分组预取 + 内存切窗 + 有界并发）。
  *   5. 从 trades 提取 ret[]/holdDays[] 调 calcSignalStats 聚合。
- *   6. 落库：更新 run（completed + 指标 + filteredCount） + 批量插入 signal_test_trade。
+ *   6. 落库：先批量插入 signal_test_trade，再更新 run（completed + 指标 + filteredCount）——
+ *      顺序保证 completed ⇔ 全量 trade 已落库（防详情早读部分数据 / 插入失败翻 failed）。
  *   异常 → run.status='failed' + error_message（不静默吞）。
  *   空数据（0 信号 / 全被过滤）→ run 仍 completed，sampleCount=0，filteredCount 正常填充。
  */
@@ -58,6 +59,14 @@ export class SignalStatsRunner {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`SignalStatsRun ${runId} failed: ${msg}`, err instanceof Error ? err.stack : undefined);
+      // 清理可能已落库的半截逐笔明细：insert 排在标 completed 之前，若插入中途失败会残留
+      // 部分 trade，删除避免 failed run 仍挂着部分明细误导详情。清理失败不得掩盖原始错误。
+      try {
+        await this.tradeRepo.delete({ runId });
+      } catch (cleanupErr: unknown) {
+        const cmsg = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+        this.logger.error(`SignalStatsRun ${runId} 清理半截 trade 失败: ${cmsg}`);
+      }
       await this.runRepo.update(runId, {
         status: 'failed',
         errorMessage: msg,
@@ -152,7 +161,15 @@ export class SignalStatsRunner {
     const holdDays = trades.map((t) => t.holdDays);
     const stats = calcSignalStats(rets, holdDays);
 
-    // ── 7. 落库：更新 run（numeric 列以 string 存，对齐实体约定）
+    // ── 7. 先批量插入逐笔明细（分批避免超大 SQL）
+    //     必须排在「标 completed」之前：让 completed 严格意味着「全量 trade 已落库」。
+    //     否则详情 / ret-histogram 接口会在插入未完时现读到部分数据；且插入中途失败
+    //     会把已 completed 的 run 翻成 failed。插入未完期间 run 仍 running，状态更诚实。
+    if (trades.length > 0) {
+      await this.insertTradesBatched(runId, trades);
+    }
+
+    // ── 8. 落库：更新 run 为 completed + 聚合指标（numeric 列以 string 存，对齐实体约定）
     const numStr = (v: number | null): string | null => (v === null ? null : String(v));
     await this.runRepo.update(runId, {
       status: 'completed',
@@ -170,11 +187,6 @@ export class SignalStatsRunner {
       filteredCount,
       completedAt: new Date(),
     });
-
-    // ── 8. 批量插入逐笔明细（分批避免超大 SQL）
-    if (trades.length > 0) {
-      await this.insertTradesBatched(runId, trades);
-    }
 
     this.logger.log(
       `SignalStatsRun ${runId} completed: signals=${signals.length}, trades=${trades.length}, ` +

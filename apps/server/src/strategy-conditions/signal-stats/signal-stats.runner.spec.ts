@@ -26,6 +26,7 @@ function makeMockTradeRepo() {
   return {
     create: jest.fn((v: unknown) => v),
     save: jest.fn(async (e: unknown) => e),
+    delete: jest.fn(async () => undefined),
   };
 }
 
@@ -199,6 +200,37 @@ describe('SignalStatsRunner', () => {
     });
   });
 
+  describe('落库顺序：插入 trade 必须先于标 completed（reorder 防竞态）', () => {
+    it('tradeRepo.save 在 runRepo.update({status:completed}) 之前调用', async () => {
+      const runRepo = makeMockRunRepo();
+      const tradingDays = ['20240102', '20240103', '20240104', '20240105', '20240108'];
+      const signals = [{ signalDate: '20240102', tsCode: '600519.SH' }];
+      const trade = {
+        tsCode: '600519.SH', signalDate: '20240102', buyDate: '20240103',
+        exitDate: '20240108', buyPrice: 1000, exitPrice: 1100, ret: 0.1,
+        holdDays: 5, exitReason: 'max_hold',
+      };
+      const simulator = makeMockSimulator([{ kind: 'trade', trade }]);
+      const enumerator = makeMockEnumerator(tradingDays, tradingDays, signals);
+      const tradeRepo = makeMockTradeRepo();
+      const runner = buildRunner(enumerator, simulator, runRepo, tradeRepo);
+
+      await runner.executeRun(makeTestEntity(), 'run-order');
+
+      // 首次 trade 写入的全局调用序号（jest 跨 mock 单调计数）
+      expect(tradeRepo.save).toHaveBeenCalled();
+      const firstSaveOrder = tradeRepo.save.mock.invocationCallOrder[0];
+      // 标 completed 的 runRepo.update 调用序号
+      const completedIdx = (runRepo.update.mock.calls as unknown[][]).findIndex(
+        (c) => c[0] === 'run-order' && (c[1] as Record<string, unknown>).status === 'completed',
+      );
+      expect(completedIdx).toBeGreaterThanOrEqual(0);
+      const completedOrder = runRepo.update.mock.invocationCallOrder[completedIdx];
+      // 插入必须先于标 completed
+      expect(firstSaveOrder).toBeLessThan(completedOrder);
+    });
+  });
+
   describe('异常处理', () => {
     it('enumerator 抛出异常 → run.status=failed + errorMessage（不静默吞）', async () => {
       const runRepo = makeMockRunRepo();
@@ -234,6 +266,38 @@ describe('SignalStatsRunner', () => {
         status: 'failed',
         errorMessage: 'Simulator crash',
       }));
+    });
+
+    it('插入逐笔中途失败 → run 落 failed（不先 completed）+ 清理半截 trade', async () => {
+      const runRepo = makeMockRunRepo();
+      const tradingDays = ['20240102', '20240103', '20240104', '20240105', '20240108'];
+      const signals = [{ signalDate: '20240102', tsCode: '600519.SH' }];
+      const trade = {
+        tsCode: '600519.SH', signalDate: '20240102', buyDate: '20240103',
+        exitDate: '20240108', buyPrice: 1000, exitPrice: 1100, ret: 0.1,
+        holdDays: 5, exitReason: 'max_hold',
+      };
+      const simulator = makeMockSimulator([{ kind: 'trade', trade }]);
+      const enumerator = makeMockEnumerator(tradingDays, tradingDays, signals);
+      const tradeRepo = makeMockTradeRepo();
+      // 注入插入失败
+      tradeRepo.save = jest.fn(async (_e: unknown) => { throw new Error('insert batch failed'); });
+      const runner = buildRunner(enumerator, simulator, runRepo, tradeRepo);
+
+      await runner.executeRun(makeTestEntity(), 'run-insert-fail');
+
+      // 插入排在标 completed 之前，失败时尚未标 completed → 不应出现 completed
+      const completedCall = (runRepo.update.mock.calls as unknown[][]).find(
+        (c) => c[0] === 'run-insert-fail' && (c[1] as Record<string, unknown>).status === 'completed',
+      );
+      expect(completedCall).toBeUndefined();
+      // 落 failed
+      expect(runRepo.update).toHaveBeenCalledWith('run-insert-fail', expect.objectContaining({
+        status: 'failed',
+        errorMessage: 'insert batch failed',
+      }));
+      // 清理半截 trade
+      expect(tradeRepo.delete).toHaveBeenCalledWith({ runId: 'run-insert-fail' });
     });
   });
 
