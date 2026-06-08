@@ -14,16 +14,12 @@
 
             <!-- Card 1：加密货币 -->
             <section class="data-source-card data-source-card--crypto">
-              <div class="data-source-header">
-                <div class="data-source-icon">
-                  <n-icon><sync-outline /></n-icon>
-                </div>
-                <div class="data-source-heading">
-                  <span class="data-source-eyebrow">Crypto Market</span>
-                  <h3 class="data-source-title">加密货币数据</h3>
-                  <p class="data-source-desc">同步交易标的的多周期行情，支持全部标的或自定义范围。</p>
-                </div>
-              </div>
+              <DataSourceCardHeader
+                :icon="SyncOutline"
+                eyebrow="Crypto Market"
+                title="加密货币数据"
+                description="同步交易标的的多周期行情，支持全部标的或自定义范围。"
+              />
 
               <div class="data-source-body">
                 <n-form-item label="时间周期">
@@ -72,69 +68,29 @@
               </div>
             </section>
 
-            <!-- Card 2：A 股 -->
-            <section class="data-source-card data-source-card--ashares">
-              <div class="data-source-header">
-                <div class="data-source-icon">
-                  <n-icon><cloud-download-outline /></n-icon>
-                </div>
-                <div class="data-source-heading">
-                  <span class="data-source-eyebrow">A-Share Market</span>
-                  <h3 class="data-source-title">A 股数据</h3>
-                  <p class="data-source-desc">TuShare 日线数据独立同步，与加密货币数据源并列管理。</p>
-                </div>
-              </div>
-
+            <!-- Card 2/3：A 股、资金流向（同构卡，v-for 渲染） -->
+            <section
+              v-for="card in syncCardsLead"
+              :key="card.modifier"
+              :class="`data-source-card data-source-card--${card.modifier}`"
+            >
+              <DataSourceCardHeader
+                :icon="card.icon"
+                :eyebrow="card.eyebrow"
+                :title="card.title"
+                :description="card.description"
+              />
               <div class="data-source-body">
-                <div class="source-note">
-                  打开同步面板后可选择全量或增量同步，并查看同步进度。
-                </div>
+                <div class="source-note">{{ card.note }}</div>
               </div>
-
               <div class="data-source-actions">
                 <n-button
-                  block
-                  secondary
-                  type="primary"
-                  :loading="aSharesSyncing"
-                  :disabled="aSharesSyncing || oneClickRunning"
-                  @click="openASharesSyncModal"
+                  block secondary type="primary"
+                  :loading="card.loading.value"
+                  :disabled="card.loading.value || oneClickRunning"
+                  @click="card.onClick"
                 >
-                  <template #icon><n-icon><cloud-download-outline /></n-icon></template>
-                  配置并同步
-                </n-button>
-              </div>
-            </section>
-
-            <!-- Card 3：资金流向 -->
-            <section class="data-source-card data-source-card--moneyflow">
-              <div class="data-source-header">
-                <div class="data-source-icon">
-                  <n-icon><swap-horizontal-outline /></n-icon>
-                </div>
-                <div class="data-source-heading">
-                  <span class="data-source-eyebrow">Money Flow</span>
-                  <h3 class="data-source-title">资金流向数据</h3>
-                  <p class="data-source-desc">同花顺/东方财富资金流向，按日期范围同步个股、行业、板块、大盘四个维度。</p>
-                </div>
-              </div>
-
-              <div class="data-source-body">
-                <div class="source-note">
-                  点击按钮选择日期范围，同步个股、行业、板块、大盘四个维度的资金流向数据。
-                </div>
-              </div>
-
-              <div class="data-source-actions">
-                <n-button
-                  block
-                  secondary
-                  type="primary"
-                  :loading="moneyFlowSyncing"
-                  :disabled="moneyFlowSyncing || oneClickRunning"
-                  @click="openMoneyFlowModal"
-                >
-                  <template #icon><n-icon><swap-horizontal-outline /></n-icon></template>
+                  <template #icon><n-icon><component :is="card.icon" /></n-icon></template>
                   配置并同步
                 </n-button>
               </div>
@@ -142,16 +98,12 @@
 
             <!-- Card 4：行业/概念目录 -->
             <section class="data-source-card data-source-card--index-catalog">
-              <div class="data-source-header">
-                <div class="data-source-icon">
-                  <n-icon><cloud-download-outline /></n-icon>
-                </div>
-                <div class="data-source-heading">
-                  <span class="data-source-eyebrow">Index Catalog</span>
-                  <h3 class="data-source-title">行业/概念目录与成分股</h3>
-                  <p class="data-source-desc">同步同花顺行业指数（type=I）和概念指数（type=N）目录，并刷新各板块的成分股关系。</p>
-                </div>
-              </div>
+              <DataSourceCardHeader
+                :icon="CloudDownloadOutline"
+                eyebrow="Index Catalog"
+                title="行业/概念目录与成分股"
+                description="同步同花顺行业指数（type=I）和概念指数（type=N）目录，并刷新各板块的成分股关系。"
+              />
 
               <div class="data-source-body">
                 <IndexCatalogSyncProgress
@@ -180,69 +132,29 @@
               </div>
             </section>
 
-            <!-- Card 5：指数日线 (ths_daily) -->
-            <section class="data-source-card data-source-card--ths-index-daily">
-              <div class="data-source-header">
-                <div class="data-source-icon">
-                  <n-icon><trending-up-outline /></n-icon>
-                </div>
-                <div class="data-source-heading">
-                  <span class="data-source-eyebrow">THS Index Daily</span>
-                  <h3 class="data-source-title">指数日线 (ths_daily)</h3>
-                  <p class="data-source-desc">同花顺行业（type=I）/概念（type=N）指数日线 K 线 + 指标计算（MA/MACD/KDJ/BBI/BRICK）。</p>
-                </div>
-              </div>
-
+            <!-- Card 5/6/7：指数日线、0AMV、基础数据（同构卡，v-for 渲染） -->
+            <section
+              v-for="card in syncCardsTail"
+              :key="card.modifier"
+              :class="`data-source-card data-source-card--${card.modifier}`"
+            >
+              <DataSourceCardHeader
+                :icon="card.icon"
+                :eyebrow="card.eyebrow"
+                :title="card.title"
+                :description="card.description"
+              />
               <div class="data-source-body">
-                <div class="source-note">
-                  按 trade_date 循环拉取，全市场 I+N 合计约 ~700 行/日，落库后按受影响指数重算指标。
-                </div>
+                <div class="source-note">{{ card.note }}</div>
               </div>
-
               <div class="data-source-actions">
                 <n-button
-                  block
-                  secondary
-                  type="primary"
-                  :loading="thsIndexDailySyncing"
-                  :disabled="thsIndexDailySyncing || oneClickRunning"
-                  @click="openThsIndexDailyModal"
+                  block secondary type="primary"
+                  :loading="card.loading.value"
+                  :disabled="card.loading.value || oneClickRunning"
+                  @click="card.onClick"
                 >
-                  <template #icon><n-icon><trending-up-outline /></n-icon></template>
-                  配置并同步
-                </n-button>
-              </div>
-            </section>
-
-            <!-- Card 6：0AMV -->
-            <section class="data-source-card data-source-card--oamv">
-              <div class="data-source-header">
-                <div class="data-source-icon">
-                  <n-icon><trending-up-outline /></n-icon>
-                </div>
-                <div class="data-source-heading">
-                  <span class="data-source-eyebrow">Active Market Value</span>
-                  <h3 class="data-source-title">活跃市值（0AMV）</h3>
-                  <p class="data-source-desc">中证A股指数 930903.CSI 的活跃市值指标，用于衡量 A 股市场活跃度。</p>
-                </div>
-              </div>
-
-              <div class="data-source-body">
-                <div class="source-note">
-                  中证A股指数 930903.CSI 的活跃市值指标，用于衡量 A 股市场活跃度。
-                </div>
-              </div>
-
-              <div class="data-source-actions">
-                <n-button
-                  block
-                  secondary
-                  type="primary"
-                  :loading="oamvSyncing"
-                  :disabled="oamvSyncing || oneClickRunning"
-                  @click="openOamvModal"
-                >
-                  <template #icon><n-icon><trending-up-outline /></n-icon></template>
+                  <template #icon><n-icon><component :is="card.icon" /></n-icon></template>
                   配置并同步
                 </n-button>
               </div>
@@ -288,18 +200,7 @@
       @confirm="confirmCryptoSync"
     >
       <template #extra>
-        <div v-if="cryptoProgressVisible" class="crypto-sync-progress">
-          <div class="sync-progress-head">
-            <span>{{ cryptoSse.phase.value || '同步中' }}</span>
-            <span>{{ Math.round(cryptoSse.percent.value) }}%</span>
-          </div>
-          <n-progress
-            type="line"
-            :percentage="Math.round(cryptoSse.percent.value)"
-            :status="cryptoSse.status.value === 'error' ? 'error' : cryptoSse.status.value === 'done' ? 'success' : 'default'"
-            indicator-placement="inside"
-          />
-        </div>
+        <SyncProgressBar :visible="cryptoProgressVisible" :sse="cryptoSse" />
       </template>
     </data-sync-modal>
 
@@ -358,36 +259,49 @@
       @confirm="confirmThsIndexDailySync"
     >
       <template #extra>
-        <div v-if="thsIndexDailyProgressVisible" class="crypto-sync-progress">
-          <div class="sync-progress-head">
-            <span>{{ thsIndexDailySse.phase.value || '同步中' }}</span>
-            <span>{{ Math.round(thsIndexDailySse.percent.value) }}%</span>
-          </div>
-          <n-progress
-            type="line"
-            :percentage="Math.round(thsIndexDailySse.percent.value)"
-            :status="thsIndexDailySse.status.value === 'error' ? 'error' : thsIndexDailyFinished ? 'success' : 'default'"
-            indicator-placement="inside"
-          />
-          <div class="sync-progress-meta">
-            <span>{{ thsIndexDailySse.message.value }}</span>
-          </div>
-          <div v-if="thsIndexDailyFinished" class="sync-progress-summary">
-            写入 {{ thsIndexDailyFinished.result.success }} 行 / 跳过 {{ thsIndexDailyFinished.result.skipped }} 日 / 失败 {{ thsIndexDailyFinished.result.errors.length }} 项
-          </div>
-        </div>
+        <SyncProgressBar
+          :visible="thsIndexDailyProgressVisible"
+          :sse="thsIndexDailySse"
+          :finished="thsIndexDailyFinished"
+        />
+      </template>
+    </data-sync-modal>
+
+    <!-- 基础数据（trade_cal / stk_limit / suspend_d）同步 Modal -->
+    <data-sync-modal
+      v-model:show="baseDataShow"
+      title="同步基础数据 (日历/涨跌停/停牌)"
+      description="trade_cal / stk_limit / suspend_d，按依赖顺序串行同步。"
+      :icon="CalendarOutline"
+      :syncing="baseDataSyncing"
+      v-model:sync-mode="baseDataSyncMode"
+      v-model:sync-date-range="baseDataSyncDateRange"
+      :data-date-range-label="baseDataDateRangeLabel"
+      :data-date-range-loading="baseDataDateRangeLoading"
+      :can-confirm="baseDataCanConfirm"
+      :finished="!!baseDataFinished"
+      @confirm="confirmBaseDataSync"
+    >
+      <template #extra>
+        <SyncProgressBar
+          :visible="baseDataProgressVisible"
+          :sse="baseDataSse"
+          :finished="baseDataFinished"
+        />
       </template>
     </data-sync-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { useMessage, NButton, NCard, NCheckbox, NCheckboxGroup, NForm, NFormItem, NIcon, NProgress, NRadioButton, NRadioGroup, NSelect, NSpace } from 'naive-ui'
-import { SyncOutline, CloudDownloadOutline, SwapHorizontalOutline, TrendingUpOutline } from '@vicons/ionicons5'
+import { useMessage, NButton, NCard, NCheckbox, NCheckboxGroup, NForm, NFormItem, NIcon, NRadioButton, NRadioGroup, NSelect, NSpace } from 'naive-ui'
+import { SyncOutline, CloudDownloadOutline, SwapHorizontalOutline, TrendingUpOutline, CalendarOutline } from '@vicons/ionicons5'
 import { useSyncView } from '../../composables/hooks/useSyncView'
 import ASharesSyncModal from '../../components/symbols/a-shares/ASharesSyncModal.vue'
 import { useASharesSync } from '../../components/symbols/a-shares/useASharesSync'
 import DataSyncModal from '../../components/sync/DataSyncModal.vue'
+import DataSourceCardHeader from '../../components/sync/DataSourceCardHeader.vue'
+import SyncProgressBar from '../../components/sync/SyncProgressBar.vue'
 import MoneyFlowSyncProgress from '../../components/sync/MoneyFlowSyncProgress.vue'
 import IndexCatalogSyncProgress from '../../components/sync/IndexCatalogSyncProgress.vue'
 import { useCryptoSync } from '../../components/sync/useCryptoSync'
@@ -395,6 +309,7 @@ import { useOamvSync } from '../../components/sync/useOamvSync'
 import { useMoneyFlowSync } from '../../components/sync/useMoneyFlowSync'
 import { useIndexCatalogSync } from '../../components/sync/useIndexCatalogSync'
 import { useThsIndexDailySync } from '../../components/sync/useThsIndexDailySync'
+import { useBaseDataSync } from '../../components/sync/useBaseDataSync'
 import { computed, provide } from 'vue'
 import OneClickSyncPanel from '../../components/sync/OneClickSyncPanel.vue'
 import { useOneClickSync } from '../../components/sync/useOneClickSync'
@@ -500,10 +415,84 @@ const {
   openModal: openThsIndexDailyModal,
   confirmSync: confirmThsIndexDailySync,
 } = useThsIndexDailySync(message)
+
+// 基础数据（trade_cal / stk_limit / suspend_d）Modal
+const {
+  show: baseDataShow,
+  syncing: baseDataSyncing,
+  syncMode: baseDataSyncMode,
+  syncDateRange: baseDataSyncDateRange,
+  dateRangeLabel: baseDataDateRangeLabel,
+  dateRangeLoading: baseDataDateRangeLoading,
+  canConfirm: baseDataCanConfirm,
+  syncProgressVisible: baseDataProgressVisible,
+  sse: baseDataSse,
+  finished: baseDataFinished,
+  openModal: openBaseDataModal,
+  confirmSync: confirmBaseDataSync,
+} = useBaseDataSync(message)
 // 一键同步顶层 controller（与下方 4 张相关卡片共享 running 状态）
 const oneClickCtrl = useOneClickSync(message)
 const oneClickRunning = computed(() => oneClickCtrl.running.value)
 provide('oneClickRunning', oneClickRunning)
+
+// 同构数据源卡配置（v-for 渲染，文案/图标/绑定逐字沿用各卡现状）
+// lead 段：渲染在 crypto 之后、index-catalog 之前
+const syncCardsLead = [
+  {
+    modifier: 'ashares',
+    icon: CloudDownloadOutline,
+    eyebrow: 'A-Share Market',
+    title: 'A 股数据',
+    description: 'TuShare 日线数据独立同步，与加密货币数据源并列管理。',
+    note: '打开同步面板后可选择全量或增量同步，并查看同步进度。',
+    loading: aSharesSyncing,
+    onClick: openASharesSyncModal,
+  },
+  {
+    modifier: 'moneyflow',
+    icon: SwapHorizontalOutline,
+    eyebrow: 'Money Flow',
+    title: '资金流向数据',
+    description: '同花顺/东方财富资金流向，按日期范围同步个股、行业、板块、大盘四个维度。',
+    note: '点击按钮选择日期范围，同步个股、行业、板块、大盘四个维度的资金流向数据。',
+    loading: moneyFlowSyncing,
+    onClick: openMoneyFlowModal,
+  },
+]
+// tail 段：渲染在 index-catalog 之后
+const syncCardsTail = [
+  {
+    modifier: 'ths-index-daily',
+    icon: TrendingUpOutline,
+    eyebrow: 'THS Index Daily',
+    title: '指数日线 (ths_daily)',
+    description: '同花顺行业（type=I）/概念（type=N）指数日线 K 线 + 指标计算（MA/MACD/KDJ/BBI/BRICK）。',
+    note: '按 trade_date 循环拉取，全市场 I+N 合计约 ~700 行/日，落库后按受影响指数重算指标。',
+    loading: thsIndexDailySyncing,
+    onClick: openThsIndexDailyModal,
+  },
+  {
+    modifier: 'oamv',
+    icon: TrendingUpOutline,
+    eyebrow: 'Active Market Value',
+    title: '活跃市值（0AMV）',
+    description: '中证A股指数 930903.CSI 的活跃市值指标，用于衡量 A 股市场活跃度。',
+    note: '中证A股指数 930903.CSI 的活跃市值指标，用于衡量 A 股市场活跃度。',
+    loading: oamvSyncing,
+    onClick: openOamvModal,
+  },
+  {
+    modifier: 'base-data',
+    icon: CalendarOutline,
+    eyebrow: 'Base Data',
+    title: '基础数据 (日历/涨跌停/停牌)',
+    description: 'trade_cal / stk_limit / suspend_d，按依赖顺序串行同步',
+    note: '交易日历、涨跌停价、停牌信息按依赖顺序串行拉取，作为 A 股策略与回测的基础数据底座。',
+    loading: baseDataSyncing,
+    onClick: openBaseDataModal,
+  },
+]
 </script>
 
 <style scoped src="./SyncView.styles.css"></style>
