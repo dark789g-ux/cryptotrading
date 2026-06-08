@@ -36,6 +36,11 @@ export const ASHARE_FIELD_COL_MAP: Record<string, string> = {
   amv_dif: 'sa.amv_dif',
   amv_dea: 'sa.amv_dea',
   amv_macd: 'sa.amv_macd',
+  pos_120:          'd.pos_120',
+  pos_60:           'd.pos_60',
+  close_ma60_ratio: 'd.close_ma60_ratio',
+  vol_ratio_60:     'd.vol_ratio_60',
+  vol_ratio_120:    'd.vol_ratio_120',
 };
 
 /** 行业 AMV-MACD 字段（个股所在行业 type='I' 指数；走 EXISTS 子查询） */

@@ -90,4 +90,28 @@ describe('buildEnumerateQuery', () => {
     // where.params=[5,10]，再 date，再 tsCodes
     expect(params).toEqual([5, 10, '20260506', ['000001.SZ']]);
   });
+
+  it('新字段 pos_120 lt 0.25：WHERE 含 d.pos_120 < $1，参数 [0.25]', () => {
+    const conds: StrategyConditionItem[] = [{ field: 'pos_120', operator: 'lt', value: 0.25 }];
+    const where = qb.buildAShareQuery(conds);
+    const { sql, params } = buildEnumerateQuery(where, '20260506', { type: 'all' });
+    expect(params[0]).toBe(0.25);
+    expect(sql).toContain('d.pos_120 < $1');
+  });
+
+  it('新字段 vol_ratio_60 gt 3：WHERE 含 d.vol_ratio_60 > $1，参数 [3]', () => {
+    const conds: StrategyConditionItem[] = [{ field: 'vol_ratio_60', operator: 'gt', value: 3 }];
+    const where = qb.buildAShareQuery(conds);
+    const { sql, params } = buildEnumerateQuery(where, '20260506', { type: 'all' });
+    expect(params[0]).toBe(3);
+    expect(sql).toContain('d.vol_ratio_60 > $1');
+  });
+
+  it('buildEnumerateQuery FROM 含 LEFT JOIN signal_rolling_indicator d', () => {
+    const conds: StrategyConditionItem[] = [{ field: 'close', operator: 'gt', value: 5 }];
+    const where = qb.buildAShareQuery(conds);
+    const { sql } = buildEnumerateQuery(where, '20260506', { type: 'all' });
+    expect(sql).toContain('LEFT JOIN signal_rolling_indicator d');
+    expect(sql).toContain('ON d.ts_code = i.ts_code AND d.trade_date = i.trade_date');
+  });
 });

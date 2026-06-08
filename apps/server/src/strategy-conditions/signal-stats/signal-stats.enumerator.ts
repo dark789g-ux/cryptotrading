@@ -146,6 +146,8 @@ export function buildEnumerateQuery(
         ON m.ts_code = i.ts_code AND m.trade_date = i.trade_date
       LEFT JOIN stock_amv_daily sa
         ON sa.ts_code = i.ts_code AND sa.trade_date = i.trade_date
+      LEFT JOIN signal_rolling_indicator d
+        ON d.ts_code = i.ts_code AND d.trade_date = i.trade_date
      WHERE i.trade_date = ${datePh}${universeClause}
        AND ${where.sql}
      ORDER BY i.ts_code
