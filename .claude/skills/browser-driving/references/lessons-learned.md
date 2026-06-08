@@ -6,6 +6,11 @@
 
 ---
 
+## 2026-06-09: 图表区空白——数 容器children/canvas/[_echarts_instance_] 区分"没 init"vs"尺寸 0"
+**Symptom**: e2e 验 ECharts 图表，图表区空白。容器 div 存在且 clientWidth/Height 非 0，但里面没图。
+**Cause**: 两种成因要分开——(a) 实例根本没创建 vs (b) 创建了但 0 尺寸/空数据。本例 (a)：组件把图表容器放在 `v-if="loading"` 的互斥分支，init 在 loading 仍 true 时跑→容器不在 DOM→`el` ref undefined→`echarts.init` 被 `if(!el.value)return` 跳过，loading 转 false 后无人重触发。
+**Lesson**: 图表空白先 `evaluate` 数三个值：`容器.children.length` / 容器内 `canvas` 数 / `document.querySelectorAll('[_echarts_instance_]').length`。全 0 = init 没跑（查组件 init 时机/loading 门控，直接读源码，别瞎试 resize）；有 canvas 但宽高 0 = sizing 问题（试 `window.dispatchEvent(new Event('resize'))`）。前后端定界：`evaluate` 内 `await fetch('/api/...')`（带登录 cookie）直接打接口，200+数据则 bug 在前端渲染、不在后端。
+
 ## 2026-06-08: evaluate code 里的中文字面量经 PowerShell→webbridge 传输会被破坏，字符串比较假阴性
 **Symptom**: evaluate 里 `txt.indexOf('某中文')>=0` 返回 false，但页面明明渲染了该中文（snapshot/innerText 里能看到，只是显示成乱码）。换成结构性检查（`querySelectorAll('.x').length`）或 ASCII 锚点（'ths_daily'/'0AMV'/数字）立刻正常。
 **Cause**: Windows PowerShell 控制台 GBK 编码，把 evaluate code **字符串里的中文字面量**在 PowerShell→JSON→daemon 传输途中搞坏，到浏览器已非原字符 → 比较恒不等。读回结果里的中文乱码只是控制台**显示**问题（浏览器内数据正确），但 code 里写死的中文是**真被破坏**。
