@@ -1,35 +1,44 @@
 /**
  * signal-stats.batch-equivalence.spec.ts
  *
- * 新旧路径等价测试（zero-drift 安全网）。
+ * 批量出场模拟 `simulateSignalsBatched` 的**特征 / 快照测试**。
  *
- * 证明：批量出场模拟 `simulateSignalsBatched` 与逐信号 `simulateSignal` 对**同一份
- * 内存 fixture** 产出**完全一致**（deep-equal）的结果。
+ * 历史背景：本文件原为「新旧路径等价测试」——同一份 fixture 同时跑批量路径
+ * `simulateSignalsBatched` 与已删除的逐信号路径 `simulateSignal` 并 deep-equal。
+ * 两条路径的 zero-drift 等价性已经：
+ *   ① 在真实数据上确认（8000 信号 0 漂移）；
+ *   ② 历史上由 old-vs-new 差分 + 变异检测（mutation testing）证明该等价测试非空洞。
+ * 据此旧逐信号路径 `simulateSignal` / `SimulateSignalParams` / `fetchSymbol` 已从
+ * `signal-stats.simulator.db.ts` 删除，本测试也随之去掉对旧路径的对比，转为
+ * **对新批量路径单独做语义断言 + 全字段快照回归**（不再有 old 作 oracle）。
  *
- * 手法：用 Jest mock 注入假 DataSource + 假 queryBuilder，让两条路径吃同一份 fixture：
+ * 手法：用 Jest mock 注入假 DataSource + 假 queryBuilder，驱动新路径吃同一份 fixture：
  *   - 假 queryBuilder.buildAShareQuery 恒返回 { sql:'TRUE', params:[] }（命中与否完全由
  *     mock DataSource 按 fixture.hitDates 决定，与真实谓词无关）。
  *   - 假 DataSource.query 按 SQL 关键字分派，从 fixture 取数；**按传入的整个 dates 集合
- *     返回命中**（不自己 slice）——这正是 zero-drift 的本质：新路径传 unionWindow、旧路径
- *     传 windowDates.slice(1)，命中按日期独立取值，两路径据此各自切窗后必须一致。
+ *     返回命中**（不自己 slice）——批量路径传 unionWindow，命中按日期独立取值，
+ *     buildHoldingDays 的 idx>0 再逐信号排除各自 buyDate。
  *
  * 覆盖场景（见 fixture）：正常成交 / 停牌 suspended / 一字涨停 limit_up / 次新 new_listing /
  * insufficient_data（多形态）/ 退市强平 delist / 缺 symbol / 多信号同 tsCode /
- * 600009 同 tsCode S2-buyDate-命中（普通 strategy 等价用例）/ strategy 正常命中 /
+ * 600009 同 tsCode S2-buyDate-命中（普通 strategy 用例）/ strategy 正常命中 /
  * ★ 600100 per-signal daysSinceList 次新缺口（晚信号须用自己的 buyIdx，非组内 minBuyIdx）。
  *
- * 断言两层：
- *   (a) 逐 tsCode 有序等价（精确 per-signal 对齐，组内保序 deep-equal）。
- *   (b) 大混合多 tsCode 聚合等价（镜像 runner / E2E 验收口径：trades 排序 deep-equal +
- *       filtered 按 reason 计数相等）。
+ * 断言三层：
+ *   (a) 逐 tsCode 语义断言：每个场景显式断言新路径产物（suspended/limit_up/new_listing/
+ *       delist/signal/trade/insufficient_data 等）。
+ *   (b) 大混合多 tsCode 聚合（镜像 runner / E2E 验收口径：trades 排序 + filtered 按 reason
+ *       计数 + 关键 exitReason 形态）。
+ *   (c) 全字段快照兜底：对新路径 outcomes 按 ts_code+signalDate 排序后 toMatchSnapshot，
+ *       覆盖 ret/buyDate/exitDate/exitReason/holdDays/buyPrice/exitPrice 全字段回归。
  *
  * 【覆盖分工 / 本测试**不**守 idx>0】
  *   buildHoldingDays 的 `idx > 0`（排除 buyDate 不判 exitSignalHit）这个不变量，**不在本文件守**：
  *   decideStrategy 的出场循环从 i=1 起、永不读 days[0]，故即便 days[0].exitSignalHit 被误置 true
- *   也不影响出场决策——idx>0 对**本等价测试的输出**是死代码，删它本测试照样全绿。
+ *   也不影响出场决策——idx>0 对**本测试的输出**是死代码，删它本测试照样全绿。
  *   idx>0 的真正护门在 `signal-stats.simulator.spec.ts` 的 `buildHoldingDays` 纯函数单测
  *   （直接断言 days[0].exitSignalHit===false，删 idx>0 会让那几个用例转红）。
- *   下方 600009 场景因此**仅作普通 strategy 等价用例**保留，不再宣称守 idx>0。
+ *   下方 600009 场景因此**仅作普通 strategy 用例**保留，不宣称守 idx>0。
  */
 
 import { DataSource } from 'typeorm';
@@ -365,33 +374,10 @@ function groupByTsCode(signals: Sig[]): Map<string, Sig[]> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 跑两路径的 helper
+// 跑新批量路径的 helper
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function runOldPath(
-  sim: SignalStatsSimulator,
-  fx: Fixture,
-  signals: Sig[],
-  exit: ExitConfig,
-  exitConditions: unknown,
-): Promise<SimulationOutcome[]> {
-  const out: SimulationOutcome[] = [];
-  for (const s of signals) {
-    out.push(
-      await sim.simulateSignal({
-        tsCode: s.tsCode,
-        signalDate: s.signalDate,
-        exit,
-        exitConditions: exitConditions as any,
-        sseCalendar: fx.sseCalendar,
-        dateEnd: fx.dateEnd,
-      }),
-    );
-  }
-  return out;
-}
-
-async function runNewPath(
+async function runPath(
   sim: SignalStatsSimulator,
   fx: Fixture,
   signals: Sig[],
@@ -405,6 +391,39 @@ async function runNewPath(
     sseCalendar: fx.sseCalendar,
     dateEnd: fx.dateEnd,
   });
+}
+
+/**
+ * 全字段快照视图：按 ts_code 逐组跑批量路径（组内 outcome 与组内输入信号一一对应、保序），
+ * 把每个 outcome 配上其 signal，最后按 (ts_code, signal_date) 稳定排序得确定性快照。
+ *
+ * 不直接 zip 全量 `simulateSignalsBatched(allSignals)` 的输出——其组间顺序不保证与全局
+ * 输入一致（按 ts_code 分组后 flat），index 对齐会脆。逐组跑则组内顺序确定，映射可靠。
+ */
+async function snapshotView(
+  sim: SignalStatsSimulator,
+  fx: Fixture,
+  signals: Sig[],
+  exit: ExitConfig,
+  exitConditions: unknown,
+): Promise<Array<{ tsCode: string; signalDate: string; outcome: SimulationOutcome }>> {
+  const groups = groupByTsCode(signals);
+  const rows: Array<{ tsCode: string; signalDate: string; outcome: SimulationOutcome }> = [];
+  for (const [, groupSignals] of groups.entries()) {
+    const outcomes = await runPath(sim, fx, groupSignals, exit, exitConditions);
+    for (let i = 0; i < groupSignals.length; i++) {
+      rows.push({
+        tsCode: groupSignals[i].tsCode,
+        signalDate: groupSignals[i].signalDate,
+        outcome: outcomes[i],
+      });
+    }
+  }
+  return rows.sort((a, b) =>
+    a.tsCode === b.tsCode
+      ? a.signalDate.localeCompare(b.signalDate)
+      : a.tsCode.localeCompare(b.tsCode),
+  );
 }
 
 /** 聚合提取：trades（排序）+ filtered reason 计数。 */
@@ -438,60 +457,45 @@ const EXIT_CONDS_PLACEHOLDER = [
 // 测试套件
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('SignalStatsSimulator batch ↔ per-signal zero-drift equivalence', () => {
+describe('SignalStatsSimulator batch path feature & snapshot', () => {
   const modes: Array<{ name: string; exit: ExitConfig; conds: unknown }> = [
     { name: 'fixed_n horizonN=1', exit: EXIT_FIXED_1, conds: null },
     { name: 'fixed_n horizonN=3', exit: EXIT_FIXED_3, conds: null },
     { name: 'strategy maxHold=5', exit: EXIT_STRATEGY_5, conds: EXIT_CONDS_PLACEHOLDER },
   ];
 
-  // ── 断言 (a)：逐 tsCode 有序等价（精确 per-signal 对齐，组内保序 deep-equal） ──
-  describe('(a) per-tsCode ordered equivalence', () => {
+  // ── (a) 全字段快照兜底：逐 tsCode 跑批量路径 → 排序后 toMatchSnapshot ──
+  //    覆盖每个 outcome 的 ret/buyDate/exitDate/exitReason/holdDays/buyPrice/exitPrice 全字段回归。
+  describe('(a) full-field snapshot of batch outcomes', () => {
     for (const m of modes) {
-      describe(m.name, () => {
-        const groups = groupByTsCode(allSignals());
-        for (const [tsCode, groupSignals] of groups.entries()) {
-          it(`${tsCode} (${groupSignals.length} signal(s)) old==new per-signal in order`, async () => {
-            const fx = makeFixture();
-            const sim = makeSimulator(fx);
-
-            const oldOutcomes = await runOldPath(sim, fx, groupSignals, m.exit, m.conds);
-            const newOutcomes = await runNewPath(sim, fx, groupSignals, m.exit, m.conds);
-
-            expect(newOutcomes).toHaveLength(oldOutcomes.length);
-            expect(newOutcomes).toEqual(oldOutcomes);
-          });
-        }
-      });
-    }
-  });
-
-  // ── 断言 (b)：大混合多 tsCode 聚合等价（镜像 runner / E2E 验收口径） ──
-  describe('(b) big-mixed multi-tsCode aggregate equivalence', () => {
-    for (const m of modes) {
-      it(`${m.name}: trades sorted deep-equal + filtered counts equal`, async () => {
+      it(`${m.name}: sorted outcomes match snapshot`, async () => {
         const fx = makeFixture();
         const sim = makeSimulator(fx);
-        const signals = allSignals();
-
-        const oldOutcomes = await runOldPath(sim, fx, signals, m.exit, m.conds);
-        const newOutcomes = await runNewPath(sim, fx, signals, m.exit, m.conds);
-
-        const oldAgg = aggregate(oldOutcomes);
-        const newAgg = aggregate(newOutcomes);
-
-        expect(newAgg.trades).toEqual(oldAgg.trades);
-        expect(newAgg.filteredCounts).toEqual(oldAgg.filteredCounts);
+        const view = await snapshotView(sim, fx, allSignals(), m.exit, m.conds);
+        expect(view).toMatchSnapshot();
       });
     }
   });
 
-  // ── 兜底：fixture 真的覆盖到关键场景（防止“等价但两路径都没触发”） ──
-  describe('fixture sanity: scenarios are actually exercised', () => {
-    it('fixed_n covers trade + suspended + limit_up + new_listing + insufficient', async () => {
+  // ── (b) 大混合多 tsCode 聚合（镜像 runner / E2E 验收口径：trades 排序 + filtered 计数） ──
+  describe('(b) big-mixed multi-tsCode aggregate', () => {
+    for (const m of modes) {
+      it(`${m.name}: trades sorted + filtered counts match snapshot`, async () => {
+        const fx = makeFixture();
+        const sim = makeSimulator(fx);
+        const outcomes = await runPath(sim, fx, allSignals(), m.exit, m.conds);
+        const { trades, filteredCounts } = aggregate(outcomes);
+        expect({ trades, filteredCounts }).toMatchSnapshot();
+      });
+    }
+  });
+
+  // ── (c) 语义断言：新路径每类场景产物显式断言（可读的正确性核心，不依赖 oracle） ──
+  describe('(c) scenario semantics on batch path', () => {
+    it('fixed_n covers trade + suspended + limit_up + new_listing + insufficient + delist', async () => {
       const fx = makeFixture();
       const sim = makeSimulator(fx);
-      const outcomes = await runOldPath(sim, fx, allSignals(), EXIT_FIXED_3, null);
+      const outcomes = await runPath(sim, fx, allSignals(), EXIT_FIXED_3, null);
       const { trades, filteredCounts } = aggregate(outcomes);
 
       expect(trades.length).toBeGreaterThan(0);
@@ -504,20 +508,31 @@ describe('SignalStatsSimulator batch ↔ per-signal zero-drift equivalence', () 
 
       // ★ per-signal 次新缺口：600100 同 tsCode 两信号必须**一新一成**——
       //   S1(buyIdx=21,距 list 21<60) filtered new_listing、S2(buyIdx=61,距 list 61>=60) trade。
-      //   这是 (b) 新场景在 old 路径下的形态前提（new!=old 的对比在 (a)/(b) 断言里守）。
-      const s2 = trades.filter((t) => t.tsCode === '600100.SH');
-      expect(s2).toHaveLength(1); // 仅 S2 成交
-      expect(s2[0].buyDate).toBe(D(61)); // S2 buyDate=idx61
-      const newListing600100 = outcomes.filter(
-        (o, i) => allSignals()[i].tsCode === '600100.SH' && o.kind === 'filtered' && o.reason === 'new_listing',
+      //   新路径 daysSinceList 必须 per-signal（用各自 buyIdx，非组内 minBuyIdx），否则 S2 误判次新。
+      const s600100 = await snapshotView(
+        sim,
+        fx,
+        [
+          { tsCode: '600100.SH', signalDate: D(20) },
+          { tsCode: '600100.SH', signalDate: D(60) },
+        ],
+        EXIT_FIXED_3,
+        null,
       );
-      expect(newListing600100).toHaveLength(1); // 仅 S1 被次新剔除
+      const s100Trades = s600100.filter((r) => r.outcome.kind === 'trade');
+      const s100NewListing = s600100.filter(
+        (r) => r.outcome.kind === 'filtered' && r.outcome.reason === 'new_listing',
+      );
+      expect(s100Trades).toHaveLength(1); // 仅 S2 成交
+      const s2Out = s100Trades[0].outcome;
+      if (s2Out.kind === 'trade') expect(s2Out.trade.buyDate).toBe(D(61)); // S2 buyDate=idx61
+      expect(s100NewListing).toHaveLength(1); // 仅 S1 被次新剔除
     });
 
     it('strategy covers signal exit + max_hold + delist + same-tsCode S2-buyDate-hit signals', async () => {
       const fx = makeFixture();
       const sim = makeSimulator(fx);
-      const outcomes = await runOldPath(
+      const outcomes = await runPath(
         sim,
         fx,
         allSignals(),
@@ -538,18 +553,18 @@ describe('SignalStatsSimulator batch ↔ per-signal zero-drift equivalence', () 
       expect(
         trades.some((t) => t.tsCode === '600006.SH' && t.exitReason === 'delist'),
       ).toBe(true);
-      // 600009 同 tsCode S2-buyDate-命中：两信号都应有 outcome（成交或被过滤），两路径已在 (a) 比对。
+      // 600009 同 tsCode S2-buyDate-命中：至少有一条成交 outcome（专项断言见下方 describe）。
       expect(trades.filter((t) => t.tsCode === '600009.SH').length).toBeGreaterThanOrEqual(1);
     });
   });
 
-  // ── 同 tsCode S2-buyDate-命中专项（普通 strategy 等价用例）──
+  // ── 同 tsCode S2-buyDate-命中专项（普通 strategy 用例）──
   //    注意：这**不**守 idx>0（见文件头分工）。decideStrategy 出场循环从 i=1 起、永不读 days[0]，
   //    故 S2 自己窗口的 days[0]=buyDate 是否被判命中对出场决策无影响——删 idx>0 本用例照样绿。
   //    idx>0 的真护门在 signal-stats.simulator.spec.ts 的 buildHoldingDays 纯函数单测。
-  //    本用例只验证 unionWindow 把 S2 buyDate 纳入 hitSet 时两路径仍 byte-identical。
-  describe('same tsCode, S2 buyDate is a hit date (strategy equivalence)', () => {
-    it('600009 S1+S2 old==new; S2 exits at next hit (idx45), not its own buyDate (idx41)', async () => {
+  //    本用例验证 unionWindow 把 S2 buyDate 纳入 hitSet 时，S2 仍在下一命中日出场而非自己 buyDate。
+  describe('same tsCode, S2 buyDate is a hit date (strategy)', () => {
+    it('600009 S2 exits at next hit (idx45), not its own buyDate (idx41)', async () => {
       const fx = makeFixture();
       // 前置确认：S2 的 buyDate=idx41 确实在 fixture 命中集里（unionWindow 会纳入它）。
       expect(fx.hitDates['600009.SH'].has(D(41))).toBe(true);
@@ -560,27 +575,18 @@ describe('SignalStatsSimulator batch ↔ per-signal zero-drift equivalence', () 
         { tsCode: '600009.SH', signalDate: D(40) }, // S2，buyDate=idx41=命中日
       ];
 
-      const oldOutcomes = await runOldPath(
+      const outcomes = await runPath(
         sim,
         fx,
         s2Group,
         EXIT_STRATEGY_5,
         EXIT_CONDS_PLACEHOLDER,
       );
-      const newOutcomes = await runNewPath(
-        sim,
-        fx,
-        s2Group,
-        EXIT_STRATEGY_5,
-        EXIT_CONDS_PLACEHOLDER,
-      );
-
-      expect(newOutcomes).toEqual(oldOutcomes);
 
       // S2 不应在其 buyDate(idx41) 当天 'signal' 出场——decideStrategy 出场循环从 i=1 起、
       // 永不读 days[0]，故 buyDate 当天不判（这才是真正阻止 idx41 出场的机制，**非** idx>0）。
       // S2 的下一个命中日是 idx45 → S2 exitDate 应为 idx45 而非 idx41。
-      const s2 = newOutcomes[1];
+      const s2 = outcomes[1];
       expect(s2.kind).toBe('trade');
       if (s2.kind === 'trade') {
         expect(s2.trade.buyDate).toBe(D(41));
@@ -595,7 +601,7 @@ describe('SignalStatsSimulator batch ↔ per-signal zero-drift equivalence', () 
   //    守的真缺口：新路径 simulateSignalsBatched 的 daysSinceList=buyIdx-effListIdx 必须 per-signal。
   //    若误用组内最早 minBuyIdx，晚信号 S2 会被算成与早信号一样小的 daysSinceList → 误判次新。
   describe('★ per-signal new_listing trap: late signal uses own buyIdx, not minBuyIdx', () => {
-    it('600100 S1(new_listing)+S2(trade) old==new; new path must use S2 own buyIdx for daysSinceList', async () => {
+    it('600100 S1(new_listing)+S2(trade); batch path must use S2 own buyIdx for daysSinceList', async () => {
       const fx = makeFixture();
       // 前置：list_date=D(0)（effListIdx=0），同 tsCode 两信号 buyIdx 分别 21 / 61。
       expect(fx.symbols['600100.SH'].listDate).toBe(D(0));
@@ -607,15 +613,13 @@ describe('SignalStatsSimulator batch ↔ per-signal zero-drift equivalence', () 
       ];
 
       // fixed_n（次新过滤在入场阶段，与 fixed_n/strategy 无关，用 fixed_n 最直接）。
-      const oldOutcomes = await runOldPath(sim, fx, group, EXIT_FIXED_3, null);
-      const newOutcomes = await runNewPath(sim, fx, group, EXIT_FIXED_3, null);
+      const outcomes = await runPath(sim, fx, group, EXIT_FIXED_3, null);
 
-      // zero-drift：两路径逐信号一致。误用 minBuyIdx 时 S2 在新路径会翻成 new_listing → 此断言红。
-      expect(newOutcomes).toEqual(oldOutcomes);
-
-      // 灵魂断言（新路径形态）：S1 被次新剔除、S2 正常成交且 buyDate=idx61。
-      const s1 = newOutcomes[0];
-      const s2 = newOutcomes[1];
+      // 灵魂断言：S1 被次新剔除、S2 正常成交且 buyDate=idx61。
+      //   守的真缺口：daysSinceList 必须 per-signal——误用组内 minBuyIdx(=21) 时 S2 会被算成
+      //   21<60 → 误判 new_listing，此断言转红。
+      const s1 = outcomes[0];
+      const s2 = outcomes[1];
       expect(s1.kind).toBe('filtered');
       if (s1.kind === 'filtered') expect(s1.reason).toBe('new_listing');
       expect(s2.kind).toBe('trade');
@@ -624,11 +628,13 @@ describe('SignalStatsSimulator batch ↔ per-signal zero-drift equivalence', () 
   });
 
   // ── 多信号同 tsCode：unionWindow 并集逻辑不破坏单信号语义 ──
+  //    两信号各自 buyDate（S1=idx21、S2=idx41）必须各按自己的窗口成交，unionWindow=slice(21)
+  //    覆盖两窗但 per-signal 切窗后互不污染。
   describe('multi-signal same tsCode (unionWindow)', () => {
-    it('600008 S1+S2 old==new under all exit modes', async () => {
+    it('600008 S1+S2 each trades with its own buyDate under all exit modes', async () => {
       const group: Sig[] = [
-        { tsCode: '600008.SH', signalDate: D(20) },
-        { tsCode: '600008.SH', signalDate: D(40) },
+        { tsCode: '600008.SH', signalDate: D(20) }, // S1 → buyDate idx21
+        { tsCode: '600008.SH', signalDate: D(40) }, // S2 → buyDate idx41
       ];
       for (const m of [
         { exit: EXIT_FIXED_1, conds: null },
@@ -637,9 +643,15 @@ describe('SignalStatsSimulator batch ↔ per-signal zero-drift equivalence', () 
       ]) {
         const fx = makeFixture();
         const sim = makeSimulator(fx);
-        const oldOutcomes = await runOldPath(sim, fx, group, m.exit, m.conds);
-        const newOutcomes = await runNewPath(sim, fx, group, m.exit, m.conds);
-        expect(newOutcomes).toEqual(oldOutcomes);
+        const outcomes = await runPath(sim, fx, group, m.exit, m.conds);
+
+        expect(outcomes).toHaveLength(2);
+        const s1 = outcomes[0];
+        const s2 = outcomes[1];
+        expect(s1.kind).toBe('trade');
+        if (s1.kind === 'trade') expect(s1.trade.buyDate).toBe(D(21));
+        expect(s2.kind).toBe('trade');
+        if (s2.kind === 'trade') expect(s2.trade.buyDate).toBe(D(41));
       }
     });
   });

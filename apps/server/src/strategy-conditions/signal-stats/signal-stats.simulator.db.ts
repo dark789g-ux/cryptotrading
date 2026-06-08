@@ -22,23 +22,8 @@ import {
 } from './signal-stats.simulator';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DB 访问层入参契约（B4 消费）
+// DB 访问层入参契约
 // ─────────────────────────────────────────────────────────────────────────────
-
-export interface SimulateSignalParams {
-  tsCode: string;
-  signalDate: string;
-  exit: ExitConfig;
-  /**
-   * strategy 模式的卖出条件；fixed_n 模式可省略。
-   * DB 层据此逐日锚定 buildAShareQuery 填充 exitSignalHit。
-   */
-  exitConditions?: StrategyConditionItem[] | null;
-  /** 全局 SSE 日历（升序 cal_date 数组），由 enumerator 一次性预取后复用（避免每信号重查）。 */
-  sseCalendar: string[];
-  /** date_end（YYYYMMDD），出场日超出此 → insufficient_data。 */
-  dateEnd: string;
-}
 
 /** 批量出场模拟默认组间并发上界（峰值在途连接 ≤ 此值，留余量给 PG pool max=10）。 */
 export const DEFAULT_BATCH_CONCURRENCY = 8;
@@ -46,8 +31,8 @@ export const DEFAULT_BATCH_CONCURRENCY = 8;
 /**
  * 批量出场模拟入参（按 ts_code 分组 + 内存切窗 + 有界并发）。
  *
- * 与逐信号 simulateSignal 行为 zero-drift（输出 byte-identical）：同一信号在两条路径下
- * 喂给 simulateTradeCore 的 days[]/daysSinceList/delistDate 逐元素一致。
+ * 按 ts_code 分组后一次性预取覆盖区间数据、内存切窗喂给纯函数 simulateTradeCore；
+ * 正确性（与历史逐信号路径 zero-drift）已在真实数据上确认（8000 信号 0 漂移）。
  */
 export interface BatchSimulateParams {
   /** 待模拟信号（含 ts_code + signalDate）。组内顺序保持与输入一一对应。 */
@@ -76,77 +61,8 @@ export class SignalStatsSimulator {
   ) {}
 
   /**
-   * 模拟单个买入信号 → SimulatedTrade 或 FilterReason。
-   *
-   * 步骤：
-   * 1. 定位 buy_date = signalDate 在 sseCalendar 中之后的下一交易日；越界/超 dateEnd → insufficient_data。
-   * 2. 取持有窗口候选交易日（buy_date 起、升序、截到 dateEnd）。
-   * 3. 批量预取这些日的 daily_quote(qfq_open/qfq_close/open) + stk_limit(up_limit)，组装 HoldingDaySnapshot。
-   * 4. strategy 模式：对每个候选交易日锚定 buildAShareQuery(exitConditions) 判 exitSignalHit。
-   * 5. 取 list_date/delist_date，算 daysSinceList。
-   * 6. 调 simulateTradeCore 得结果。
-   */
-  async simulateSignal(params: SimulateSignalParams): Promise<SimulationOutcome> {
-    const { tsCode, signalDate, exit, sseCalendar, dateEnd } = params;
-
-    // 1. buy_date：signalDate 在日历中的位置 + 1。
-    const sigIdx = sseCalendar.indexOf(signalDate);
-    if (sigIdx < 0 || sigIdx + 1 >= sseCalendar.length) {
-      return { kind: 'filtered', reason: 'insufficient_data' };
-    }
-    const buyIdx = sigIdx + 1;
-    const buyDate = sseCalendar[buyIdx];
-    if (buyDate > dateEnd) {
-      return { kind: 'filtered', reason: 'insufficient_data' };
-    }
-
-    // 2. 持有窗口候选交易日：buy_date 起、升序、截到 dateEnd。
-    //    取足够长度（horizonN/maxHold 之外再留余量给停牌顺延 + 退市判定）。需求天数无上限保证，
-    //    但实际可交易日有限——这里取到 dateEnd 为止的全部 SSE 日（窗口候选），纯函数自行截断。
-    const windowDates = sseCalendar.slice(buyIdx).filter((d) => d <= dateEnd);
-    if (windowDates.length === 0) {
-      return { kind: 'filtered', reason: 'insufficient_data' };
-    }
-
-    // 3. 批量预取 quote + limit。
-    const quoteMap = await this.fetchQuotes(tsCode, windowDates);
-    const limitMap = await this.fetchLimits(tsCode, windowDates);
-
-    // 4. strategy 模式：逐日判 exitSignalHit（仅对 buy_date 之后的日有意义，但全填充无害）。
-    let exitHitDates = new Set<string>();
-    if (exit.mode === 'strategy') {
-      const exitConditions = params.exitConditions ?? [];
-      exitHitDates = await this.fetchExitSignalHits(tsCode, windowDates.slice(1), exitConditions);
-    }
-
-    // 5. list_date / delist_date / daysSinceList。
-    const sym = await this.fetchSymbol(tsCode);
-    let daysSinceList: number | null = null;
-    if (sym?.listDate) {
-      const listIdx = sseCalendar.indexOf(sym.listDate);
-      // list_date 不在日历（停牌首日非 SSE 交易日等边界）→ 取 <= list_date 的最近交易日索引。
-      const effListIdx = listIdx >= 0 ? listIdx : findLastIndexLE(sseCalendar, sym.listDate);
-      if (effListIdx >= 0) daysSinceList = buyIdx - effListIdx;
-    }
-
-    // 6. 组装持有窗口序列。
-    //    旧路径 exitHitDates 来自 windowDates.slice(1)（不含 buyDate）；buildHoldingDays 用 idx>0
-    //    同样排除 buyDate，故对旧路径结果完全一致（zero-drift）。
-    const daysSnap = buildHoldingDays(windowDates, quoteMap, limitMap, exitHitDates);
-
-    return simulateTradeCore({
-      tsCode,
-      signalDate,
-      days: daysSnap,
-      daysSinceList,
-      delistDate: sym?.delistDate ?? null,
-      exit,
-    });
-  }
-
-  /**
    * 批量出场模拟：按 ts_code 分组 → 每组一次性预取覆盖区间的 quote/limit/命中日 →
-   * 内存切窗喂纯函数 → 组间有界并发。与逐信号 simulateSignal **zero-drift**。
+   * 内存切窗喂纯函数 → 组间有界并发。
    *
    * 返回的 outcomes 组间顺序不保证与全局输入顺序一致（调用方按 trade/filter 累加，与顺序无关）；
    * 组内 outcome 与该组输入信号一一对应。
@@ -166,7 +82,7 @@ export class SignalStatsSimulator {
     }
     const tsCodes = Array.from(groups.keys());
 
-    // 2. 一次性预取 symbol 行（缺行 → Map 无 key → get 返回 undefined，语义同旧 fetchSymbol 返 null）。
+    // 2. 一次性预取 symbol 行（缺行 → Map 无 key → get 返回 undefined，语义同“无此标的”）。
     const symbolMap = await this.prefetchSymbolMap(tsCodes);
 
     // 3. 组间有界并发；每组结果是 SimulationOutcome[]，最后 flat。
@@ -260,7 +176,7 @@ export class SignalStatsSimulator {
    * 批量预取 symbol 的 list_date/delist_date。
    *
    * **只用查询返回的行建 Map**：查不到的 ts_code 不放进 Map（get 返回 undefined），
-   * 语义与旧 fetchSymbol 返 null 一致（sym?.listDate falsy → daysSinceList=null；
+   * 语义等同“无此标的”（sym?.listDate falsy → daysSinceList=null；
    * sym?.delistDate ?? null → null）。**不要给缺行的 ts_code 预填 entry**，否则会把
    * “无此标的”误当“有行但字段 null”，delistDate 语义漂移。
    */
@@ -348,20 +264,6 @@ export class SignalStatsSimulator {
     `;
     const rows = await this.dataSource.query<Array<{ tradeDate: string }>>(sql, params);
     return new Set(rows.map((r) => r.tradeDate));
-  }
-
-  /** 取标的 list_date/delist_date。 */
-  private async fetchSymbol(
-    tsCode: string,
-  ): Promise<{ listDate: string | null; delistDate: string | null } | null> {
-    const rows = await this.dataSource.query<
-      Array<{ list_date: string | null; delist_date: string | null }>
-    >(
-      `SELECT list_date, delist_date FROM a_share_symbols WHERE ts_code = $1`,
-      [tsCode],
-    );
-    if (rows.length === 0) return null;
-    return { listDate: rows[0].list_date ?? null, delistDate: rows[0].delist_date ?? null };
   }
 }
 
