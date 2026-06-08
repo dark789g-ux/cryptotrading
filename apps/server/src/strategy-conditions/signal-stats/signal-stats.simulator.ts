@@ -14,7 +14,7 @@
  *   raw.daily_quote(qfq_open, qfq_close, open), raw.stk_limit(up_limit),
  *   public.a_share_symbols(list_date, delist_date), raw.trade_cal(SSE / is_open=1)。
  *
- * DB 访问层见 signal-stats.simulator.db.ts（SignalStatsSimulator、SimulateSignalParams）。
+ * DB 访问层见 signal-stats.simulator.db.ts（SignalStatsSimulator、BatchSimulateParams）。
  */
 
 // ─────────────────────────────────────────────────────────────────────────────

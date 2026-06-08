@@ -307,14 +307,6 @@ function makeMockDataSource(fx: Fixture): DataSource {
       return out;
     }
 
-    // ── a_share_symbols 单条（= $1）→ [{list_date, delist_date}] | [] ──
-    if (sql.includes('a_share_symbols')) {
-      const tsCode = params[0] as string;
-      const s = fx.symbols[tsCode];
-      if (!s) return [];
-      return [{ list_date: s.listDate, delist_date: s.delistDate }];
-    }
-
     throw new Error(`unexpected SQL in mock: ${sql.slice(0, 80)}`);
   });
 

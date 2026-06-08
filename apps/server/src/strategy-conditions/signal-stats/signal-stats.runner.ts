@@ -7,7 +7,7 @@
  * 编排流程：
  *   1. enumerator.listSseTradingDays → progressTotal（初始化进度）。
  *   2. enumerator.enumerateSignals 逐日枚举买入信号（onProgress 回调更新 progress_scanned）。
- *   3. 预取全局 SSE 日历（enumerator.listAllSseTradingDays），SimulateSignalParams 共享复用。
+ *   3. 预取全局 SSE 日历（enumerator.listAllSseTradingDays），simulateSignalsBatched 共享复用。
  *   4. 批量调 SignalStatsSimulator.simulateSignalsBatched → SimulationOutcome[]（按 tsCode 分组预取 + 内存切窗 + 有界并发）。
  *   5. 从 trades 提取 ret[]/holdDays[] 调 calcSignalStats 聚合。
  *   6. 落库：更新 run（completed + 指标 + filteredCount） + 批量插入 signal_test_trade。
