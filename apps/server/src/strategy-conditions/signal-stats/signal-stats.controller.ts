@@ -4,7 +4,7 @@
  * REST 路由：基路由 /api/signal-tests（全局 /api 前缀由 main.ts 设定）。
  *
  * ⚠️ 路由声明顺序：静态段路由必须先于 /:id，避免被参数路由吞掉：
- *   GET /runs/:runId/trades  必须在  GET /:id  之前声明。
+ *   GET /runs/:runId/trades 与 GET /runs/:runId/ret-histogram 必须在 GET /:id 之前声明。
  *
  * 鉴权：AuthGuard 已全局注册（APP_GUARD），不再重复加 @UseGuards。
  * 路由不依赖 req.user（signal_test 无 user_id 列），直接调 service。

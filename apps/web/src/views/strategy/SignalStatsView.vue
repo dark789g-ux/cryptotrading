@@ -92,6 +92,10 @@ async function handleRun(id: string) {
 }
 
 function handleDetail(test: SignalTestWithLatestRun) {
+  if (!test.latestRun) {
+    message.info('该方案尚未运行，请先点「运行」')
+    return
+  }
   selectedTestId.value = test.id
   showDetail.value = true
 }
