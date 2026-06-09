@@ -20,19 +20,27 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { SignalTestEntity } from '../../entities/strategy/signal-test.entity';
 import { SignalTestRunEntity } from '../../entities/strategy/signal-test-run.entity';
 import { SignalTestTradeEntity } from '../../entities/strategy/signal-test-trade.entity';
+import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
 import { CreateSignalTestDto } from './dto/create-signal-test.dto';
 import { UpdateSignalTestDto } from './dto/update-signal-test.dto';
 import { SignalStatsRunner } from './signal-stats.runner';
 import { buildRetHistogram, RetHistogramResult } from './signal-stats.histogram';
+import {
+  buildTradeListOptions,
+  ListTradesOptions,
+} from './signal-stats.list-trades-options';
 
 /** 方案列表条目：附带该方案最新一次 run 的完整实体（无 run 时为 null）。 */
 export type SignalTestWithLatestRun = SignalTestEntity & {
   latestRun: SignalTestRunEntity | null;
 };
+
+/** listTrades 响应条目：在实体字段基础上注入 name（标的中文名，查不到为 null）。 */
+export type SignalTestTradeWithName = SignalTestTradeEntity & { name: string | null };
 
 @Injectable()
 export class SignalStatsService {
@@ -45,6 +53,8 @@ export class SignalStatsService {
     private readonly runRepo: Repository<SignalTestRunEntity>,
     @InjectRepository(SignalTestTradeEntity)
     private readonly tradeRepo: Repository<SignalTestTradeEntity>,
+    @InjectRepository(AShareSymbolEntity)
+    private readonly symbolRepo: Repository<AShareSymbolEntity>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly runner: SignalStatsRunner,
@@ -195,12 +205,13 @@ export class SignalStatsService {
     });
   }
 
-  /** 逐笔明细分页。 */
+  /** 逐笔明细分页（支持服务端排序/筛选，响应注入标的名称）。 */
   async listTrades(
     runId: string,
     page: number,
     pageSize: number,
-  ): Promise<{ total: number; items: SignalTestTradeEntity[] }> {
+    opts: ListTradesOptions = {},
+  ): Promise<{ total: number; items: SignalTestTradeWithName[] }> {
     // 确认 run 存在
     const run = await this.runRepo.findOne({ where: { id: runId } });
     if (!run) throw new NotFoundException(`Run ${runId} not found`);
@@ -209,13 +220,31 @@ export class SignalStatsService {
     const safeSize = Math.min(Math.max(1, pageSize), 500);
     const skip = (safePage - 1) * safeSize;
 
+    const { where, order } = buildTradeListOptions(runId, opts);
+
     const [items, total] = await this.tradeRepo.findAndCount({
-      where: { runId },
-      order: { signalDate: 'ASC', tsCode: 'ASC' },
+      where,
+      order,
       skip,
       take: safeSize,
     });
-    return { total, items };
+
+    // 名称注入（响应期，非 join）：同页内标的去重后批量查 a_share_symbols
+    const codes = [...new Set(items.map((t) => t.tsCode))];
+    const symbolRows = codes.length
+      ? await this.symbolRepo.find({
+          where: { tsCode: In(codes) },
+          select: { tsCode: true, name: true },
+        })
+      : [];
+    const nameMap = new Map(symbolRows.map((r) => [r.tsCode, r.name]));
+
+    const enriched: SignalTestTradeWithName[] = items.map((t) => ({
+      ...t,
+      name: nameMap.get(t.tsCode) ?? null,
+    }));
+
+    return { total, items: enriched };
   }
 
   /** 收益率分布直方图。 */

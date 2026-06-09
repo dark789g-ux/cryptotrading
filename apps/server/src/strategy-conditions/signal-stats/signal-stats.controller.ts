@@ -22,6 +22,7 @@ import {
 import { SignalStatsService } from './signal-stats.service';
 import { CreateSignalTestDto } from './dto/create-signal-test.dto';
 import { UpdateSignalTestDto } from './dto/update-signal-test.dto';
+import { ListTradesQueryDto } from './dto/list-trades-query.dto';
 
 @Controller('signal-tests')
 export class SignalStatsController {
@@ -31,17 +32,36 @@ export class SignalStatsController {
 
   /**
    * GET /api/signal-tests/runs/:runId/trades
-   * 逐笔明细分页。?page=1&pageSize=50
+   * 逐笔明细分页（支持排序/筛选/名称注入）。
+   * 查询参数：page/pageSize/sortField/sortOrder/tsCode/exitReason/retMin/retMax/holdDaysMin/holdDaysMax
    */
   @Get('runs/:runId/trades')
   listTrades(
     @Param('runId') runId: string,
-    @Query('page') page?: string,
-    @Query('pageSize') pageSize?: string,
+    @Query() q: ListTradesQueryDto,
   ) {
-    const p = parseInt(page ?? '1', 10);
-    const ps = parseInt(pageSize ?? '50', 10);
-    return this.service.listTrades(runId, p, ps);
+    const pRaw  = parseInt(q.page ?? '1', 10);
+    const psRaw = parseInt(q.pageSize ?? '50', 10);
+    const p  = Number.isNaN(pRaw)  ? 1  : pRaw;
+    const ps = Number.isNaN(psRaw) ? 50 : psRaw;
+
+    // 数值字段：空串/NaN → undefined
+    const parseNum = (s?: string): number | undefined => {
+      if (!s || s.trim() === '') return undefined;
+      const n = Number(s);
+      return isNaN(n) ? undefined : n;
+    };
+
+    return this.service.listTrades(runId, p, ps, {
+      sortField: q.sortField,
+      sortOrder: q.sortOrder,
+      tsCode: q.tsCode,
+      exitReason: q.exitReason,
+      retMin: parseNum(q.retMin),
+      retMax: parseNum(q.retMax),
+      holdDaysMin: parseNum(q.holdDaysMin),
+      holdDaysMax: parseNum(q.holdDaysMax),
+    });
   }
 
   /**

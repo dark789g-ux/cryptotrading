@@ -6,6 +6,7 @@ import { StrategyConditionHitEntity } from '../entities/strategy/strategy-condit
 import { SignalTestEntity } from '../entities/strategy/signal-test.entity';
 import { SignalTestRunEntity } from '../entities/strategy/signal-test-run.entity';
 import { SignalTestTradeEntity } from '../entities/strategy/signal-test-trade.entity';
+import { AShareSymbolEntity } from '../entities/a-share/a-share-symbol.entity';
 import { StrategyConditionsController } from './strategy-conditions.controller';
 import { StrategyConditionsService } from './strategy-conditions.service';
 import { StrategyConditionsRunner } from './strategy-conditions.runner';
@@ -24,6 +25,7 @@ import { SignalStatsSimulator } from './signal-stats/signal-stats.simulator.db';
     SignalTestEntity,
     SignalTestRunEntity,
     SignalTestTradeEntity,
+    AShareSymbolEntity,
   ])],
   controllers: [StrategyConditionsController, SignalStatsController],
   providers: [

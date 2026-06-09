@@ -68,12 +68,14 @@ function makeService(
   const testRepo = makeMockRepo(testEntity);
   const runRepo = makeMockRepo();
   const tradeRepo = makeMockRepo();
+  const symbolRepo = makeMockRepo();
   const dataSource = makeMockDataSource(calRows);
   const runner = makeMockRunner();
   return new SignalStatsService(
     testRepo as any,
     runRepo as any,
     tradeRepo as any,
+    symbolRepo as any,
     dataSource as any,
     runner as any,
   );
@@ -249,6 +251,7 @@ describe('SignalStatsService - CRUD', () => {
       testRepo as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -282,6 +285,7 @@ describe('SignalStatsService - triggerRun', () => {
       testRepo as any,
       runRepo as any,
       makeMockRepo() as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -313,6 +317,7 @@ describe('SignalStatsService - triggerRun', () => {
     const svc = new SignalStatsService(
       testRepo as any,
       runRepo as any,
+      makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockDataSource() as any,
       runner as any,
@@ -348,6 +353,7 @@ describe('SignalStatsService - findAll with latestRun', () => {
       testRepo as any,
       runRepo as any,
       makeMockRepo() as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -376,6 +382,7 @@ describe('SignalStatsService - findAll with latestRun', () => {
       testRepo as any,
       runRepo as any,
       makeMockRepo() as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -400,6 +407,7 @@ describe('SignalStatsService - findAll with latestRun', () => {
       testRepo as any,
       runRepo as any,
       makeMockRepo() as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -420,6 +428,7 @@ describe('SignalStatsService - getRetHistogram', () => {
     const svc = new SignalStatsService(
       makeMockRepo() as any,
       runRepo as any,
+      makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
@@ -445,6 +454,7 @@ describe('SignalStatsService - getRetHistogram', () => {
       makeMockRepo() as any,
       runRepo as any,
       tradeRepo as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -474,6 +484,7 @@ describe('SignalStatsService - getRetHistogram', () => {
       makeMockRepo() as any,
       runRepo as any,
       tradeRepo as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
