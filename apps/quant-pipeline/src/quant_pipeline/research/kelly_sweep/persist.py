@@ -62,14 +62,6 @@ def persist_results(
             topk_set.add(key)
             ci_map[key] = (r.kelly_ci_low, r.kelly_ci_high)
 
-    # ── 写前删旧行（幂等，防重试残留）────────────────────────────────────────
-    with session_scope() as session:
-        session.execute(
-            text("DELETE FROM research.kelly_sweep_results WHERE job_id = :job_id"),
-            {"job_id": job_id},
-        )
-        logger.info("persist_results: 删除 job_id=%s 旧行", job_id)
-
     # ── 批量 INSERT ──────────────────────────────────────────────────────────
     insert_sql = text(
         """
@@ -126,9 +118,15 @@ def persist_results(
             }
         )
 
-    # 分批写入（避免单次 SQL 参数过多导致 psycopg2 报错）
+    # 单事务：先 DELETE 旧行（幂等，防重试残留），再分批 INSERT
+    # batch 列表在事务外构建（in-memory，不依赖 DB），事务仅覆盖写操作以缩短持锁时间
     BATCH_SIZE = 500
     with session_scope() as session:
+        session.execute(
+            text("DELETE FROM research.kelly_sweep_results WHERE job_id = :job_id"),
+            {"job_id": job_id},
+        )
+        logger.info("persist_results: 删除 job_id=%s 旧行", job_id)
         for start in range(0, len(batch), BATCH_SIZE):
             chunk = batch[start : start + BATCH_SIZE]
             session.execute(insert_sql, chunk)
