@@ -61,7 +61,10 @@ export const useKellySweepStore = defineStore('kellySweep', () => {
   const summaryLoading = ref(false)
   const summaryError = ref<string | null>(null)
   const scatterLoading = ref(false)
+  const scatterError = ref<string | null>(null)
   const topkLoading = ref(false)
+  const topkError = ref<string | null>(null)
+  const historyError = ref<string | null>(null)
 
   /** 设置当前 jobId，清空旧结果 */
   function setCurrentJob(jobId: string | null) {
@@ -92,6 +95,7 @@ export const useKellySweepStore = defineStore('kellySweep', () => {
   /** 加载散点数据（两组） */
   async function loadScatter(jobId: string) {
     scatterLoading.value = true
+    scatterError.value = null
     try {
       const [withRs, noRs] = await Promise.all([
         kellySweepApi.getScatter(jobId, 'with_rs'),
@@ -101,6 +105,7 @@ export const useKellySweepStore = defineStore('kellySweep', () => {
       scatterNoRs.value = noRs
     } catch (e) {
       console.warn('[KellySweepStore] loadScatter failed', e)
+      scatterError.value = e instanceof Error ? e.message : '加载散点失败'
     } finally {
       scatterLoading.value = false
     }
@@ -109,6 +114,7 @@ export const useKellySweepStore = defineStore('kellySweep', () => {
   /** 加载 top-K 排行（两组，第一页） */
   async function loadTopk(jobId: string, group?: SweepGroup) {
     topkLoading.value = true
+    topkError.value = null
     try {
       if (!group || group === 'with_rs') {
         const res = await kellySweepApi.getTopk(jobId, { group: 'with_rs', page: 1, pageSize: 50 })
@@ -122,6 +128,7 @@ export const useKellySweepStore = defineStore('kellySweep', () => {
       }
     } catch (e) {
       console.warn('[KellySweepStore] loadTopk failed', e)
+      topkError.value = e instanceof Error ? e.message : '加载 top-K 失败'
     } finally {
       topkLoading.value = false
     }
@@ -141,10 +148,12 @@ export const useKellySweepStore = defineStore('kellySweep', () => {
   /** 加载历史 job 列表 */
   async function loadHistory(params: { page?: number } = {}) {
     historyLoading.value = true
+    historyError.value = null
     try {
       historyPage.value = await kellySweepApi.getHistory(params)
     } catch (e) {
       console.warn('[KellySweepStore] loadHistory failed', e)
+      historyError.value = e instanceof Error ? e.message : '加载历史失败'
     } finally {
       historyLoading.value = false
     }
@@ -165,7 +174,10 @@ export const useKellySweepStore = defineStore('kellySweep', () => {
     summaryLoading,
     summaryError,
     scatterLoading,
+    scatterError,
     topkLoading,
+    topkError,
+    historyError,
     setCurrentJob,
     loadSummary,
     loadScatter,

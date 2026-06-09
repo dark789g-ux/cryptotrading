@@ -3,9 +3,10 @@
     <KellyParetoScatter
       :points="scatterPoints"
       :loading="scatterLoading"
-      :error="null"
+      :error="scatterError"
     />
     <div style="margin-top: 16px" />
+    <div v-if="localError || topkError" class="err">{{ localError || topkError }}</div>
     <KellySweepTopkTable
       :rows="localRows"
       :total="localTotal"
@@ -37,9 +38,11 @@ const props = defineProps<{
   jobId: string | null
   scatterPoints: KellyScatterPoint[]
   scatterLoading?: boolean
+  scatterError?: string | null
   /** 初始 topk 行（由父首次加载传入，之后本组件自管） */
   initialTopkRows?: KellyTopkRow[]
   initialTopkTotal?: number
+  topkError?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -50,6 +53,7 @@ const emit = defineEmits<{
 const localRows = ref<KellyTopkRow[]>(props.initialTopkRows ?? [])
 const localTotal = ref(props.initialTopkTotal ?? 0)
 const localLoading = ref(false)
+const localError = ref<string | null>(null)
 
 // ---------- 分页/排序状态 ----------
 const page = ref(1)
@@ -72,6 +76,7 @@ watch(
 async function fetchTopk(p: number, sort?: string) {
   if (!props.jobId) return
   localLoading.value = true
+  localError.value = null
   try {
     const res = await kellySweepApi.getTopk(props.jobId, {
       group: props.group,
@@ -83,6 +88,7 @@ async function fetchTopk(p: number, sort?: string) {
     localTotal.value = res.total
   } catch (e) {
     console.warn(`[KellyGroupPanel] getTopk failed (group=${props.group})`, e)
+    localError.value = e instanceof Error ? e.message : '加载 top-K 失败'
   } finally {
     localLoading.value = false
   }
@@ -103,5 +109,10 @@ function onSortChange(sort: string) {
 <style scoped>
 .group-panel {
   padding: 8px 0;
+}
+.err {
+  color: var(--color-error, #d03050);
+  font-size: 13px;
+  padding: 4px 0 8px;
 }
 </style>

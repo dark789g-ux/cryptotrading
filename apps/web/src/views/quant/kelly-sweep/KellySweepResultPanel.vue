@@ -24,8 +24,10 @@
           :job-id="jobId"
           :scatter-points="scatterWithRs"
           :scatter-loading="scatterLoading"
+          :scatter-error="scatterError"
           :initial-topk-rows="topkWithRs"
           :initial-topk-total="topkTotalWithRs"
+          :topk-error="topkError"
           @detail="onDetailRequest"
         />
       </n-tab-pane>
@@ -35,8 +37,10 @@
           :job-id="jobId"
           :scatter-points="scatterNoRs"
           :scatter-loading="scatterLoading"
+          :scatter-error="scatterError"
           :initial-topk-rows="topkNoRs"
           :initial-topk-total="topkTotalNoRs"
+          :topk-error="topkError"
           @detail="onDetailRequest"
         />
       </n-tab-pane>
@@ -82,6 +86,8 @@ const props = defineProps<{
   topkTotalWithRs: number
   topkTotalNoRs: number
   topkLoading?: boolean
+  scatterError?: string | null
+  topkError?: string | null
 }>()
 
 // ---------- Tab ----------

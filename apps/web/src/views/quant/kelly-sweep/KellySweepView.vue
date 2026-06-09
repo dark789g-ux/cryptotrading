@@ -9,16 +9,19 @@
       </div>
       <!-- 历史扫描下拉 -->
       <div class="header-actions">
-        <n-select
-          v-model:value="selectedHistoryJobId"
-          :options="historyOptions"
-          :loading="store.historyLoading"
-          clearable
-          placeholder="历史扫描…"
-          size="small"
-          style="min-width: 220px"
-          @update:value="onHistorySelect"
-        />
+        <div class="history-select-wrap">
+          <n-select
+            v-model:value="selectedHistoryJobId"
+            :options="historyOptions"
+            :loading="store.historyLoading"
+            clearable
+            placeholder="历史扫描…"
+            size="small"
+            style="min-width: 220px"
+            @update:value="onHistorySelect"
+          />
+          <div v-if="store.historyError" class="err">{{ store.historyError }}</div>
+        </div>
         <n-button size="small" @click="store.loadHistory()">刷新历史</n-button>
       </div>
     </div>
@@ -65,11 +68,13 @@
             :scatter-with-rs="store.scatterWithRs"
             :scatter-no-rs="store.scatterNoRs"
             :scatter-loading="store.scatterLoading"
+            :scatter-error="store.scatterError"
             :topk-with-rs="store.topkWithRs"
             :topk-no-rs="store.topkNoRs"
             :topk-total-with-rs="store.topkTotalWithRs"
             :topk-total-no-rs="store.topkTotalNoRs"
             :topk-loading="store.topkLoading"
+            :topk-error="store.topkError"
           />
         </template>
         <div v-else class="empty-result">
@@ -206,6 +211,15 @@ async function onJobDone() {
 }
 .warn-hint {
   color: #d97706;
+  font-size: 12px;
+}
+.history-select-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.err {
+  color: var(--color-error, #d03050);
   font-size: 12px;
 }
 
