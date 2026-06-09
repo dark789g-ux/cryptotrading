@@ -140,10 +140,15 @@ export const aSharesApi = {
   deleteFilterPreset: (id: string) => del<{ ok: true }>(`${API_BASE}/a-shares/filter-presets/${id}`),
   query: (body: AShareQueryBody) =>
     post<AShareQueryResult>(`${API_BASE}/a-shares/query`, body),
-  getKlines: (tsCode: string, limit = 300, priceMode: ASharePriceMode = 'qfq') => {
+  getKlines: (
+    tsCode: string, limit = 300, priceMode: ASharePriceMode = 'qfq',
+    range?: { startDate?: string; endDate?: string },   // 新增，YYYYMMDD
+  ) => {
     const qs = new URLSearchParams()
     qs.set('limit', String(limit))
     qs.set('priceMode', priceMode)
+    if (range?.startDate) qs.set('startDate', range.startDate)
+    if (range?.endDate)   qs.set('endDate', range.endDate)
     return request<AShareKlineBar[]>(`${API_BASE}/a-shares/${encodeURIComponent(tsCode)}/klines?${qs.toString()}`)
   },
   sync: (body: AShareSyncBody = {}) =>

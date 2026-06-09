@@ -79,6 +79,7 @@ export interface SignalTestTrade {
   id: string
   runId: string
   tsCode: string
+  name: string | null   // 标的名称（后端响应注入，可能为 null）
   signalDate: string
   buyDate: string
   exitDate: string
