@@ -240,9 +240,9 @@ export class KellySweepService {
 
     const qb = this.resultRepo
       .createQueryBuilder('r')
-      .where('r.job_id = :jobId', { jobId })
-      .andWhere('r.window_group = :group', { group })
-      .andWhere('r.is_topk = true')
+      .where('r.jobId = :jobId', { jobId })
+      .andWhere('r.windowGroup = :group', { group })
+      .andWhere('r.isTopk = :isTopk', { isTopk: true })
       .orderBy(`r.${field}`, order, 'NULLS LAST')
       .skip(skip)
       .take(take);
@@ -323,8 +323,8 @@ export class KellySweepService {
 
     const qb = this.jobRepo
       .createQueryBuilder('j')
-      .where("j.run_type = 'kelly_sweep'")
-      .orderBy('j.created_at', 'DESC')
+      .where('j.runType = :rt', { rt: 'kelly_sweep' })
+      .orderBy('j.createdAt', 'DESC')
       .skip(skip)
       .take(take);
 
