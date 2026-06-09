@@ -116,8 +116,13 @@ _LEGACY_FWD5_SCHEME: Final[str] = "fwd_5d_ret"
 #: strategy_version) 决定（见 base_scheme_codec）；default_exit@v1 回此 legacy 串，
 #: 守历史 factors.labels（scheme='strategy-aware'）不漂移（spec 02 §4）。
 _STRATEGY_AWARE_SCHEME: Final[str] = "strategy-aware"
+#: band_lock（波段跟踪止损 trailing_lock）canonical 别名串。无 max_hold 硬上限时回此
+#: legacy 串；带 max_hold=N 时回 'band_lock__mh{N}'（决定性、可复现、可与无上限并存）。
+_BAND_LOCK_SCHEME: Final[str] = "band_lock"
 
-_VALID_BASE_TYPES: Final[frozenset[str]] = frozenset({"fwd_ret", "strategy_aware"})
+_VALID_BASE_TYPES: Final[frozenset[str]] = frozenset(
+    {"fwd_ret", "strategy_aware", "band_lock"}
+)
 
 
 def base_scheme_codec(base_type: str, base_params: dict | None = None) -> str:
@@ -130,11 +135,26 @@ def base_scheme_codec(base_type: str, base_params: dict | None = None) -> str:
                                 → 'strategy-aware'（legacy 别名，守历史数据不漂移）
       - strategy_aware + {strategy_id:sid, strategy_version:sver}（其它）
                                 → 'strategy-aware__{sid}_{sver}'（决定性、可复现）
+      - band_lock + {} / {max_hold:None}     → 'band_lock'（不设硬上限）
+      - band_lock + {max_hold:N}（N>=1）      → 'band_lock__mh{N}'（带硬上限）
 
     Raises:
         ValueError: base_type 不在合法集合；fwd_ret 缺 horizon 或 horizon < 1；
-                    strategy_aware 缺 strategy_id / strategy_version。
+                    strategy_aware 缺 strategy_id / strategy_version；
+                    band_lock 的 max_hold 非正整数。
     """
+
+    if base_type == "band_lock":
+        sp = base_params or {}
+        max_hold = sp.get("max_hold")
+        if max_hold is None:
+            return _BAND_LOCK_SCHEME            # 不设硬上限 → legacy 别名串
+        if isinstance(max_hold, bool) or not isinstance(max_hold, int) or max_hold < 1:
+            raise ValueError(
+                f"base_scheme_codec: band_lock max_hold must be a positive int, "
+                f"got {max_hold!r}"
+            )
+        return f"band_lock__mh{int(max_hold)}"
 
     if base_type not in _VALID_BASE_TYPES:
         raise ValueError(
@@ -188,4 +208,5 @@ __all__ = [
     "base_scheme_codec",
     "_LEGACY_FWD5_SCHEME",
     "_STRATEGY_AWARE_SCHEME",
+    "_BAND_LOCK_SCHEME",
 ]

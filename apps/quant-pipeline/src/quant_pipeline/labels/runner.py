@@ -35,6 +35,7 @@ from quant_pipeline.labels._common import (
     derive_delist_map,
     derive_suspended_set,
 )
+from quant_pipeline.labels.band_lock_labels import compute_band_lock_labels
 from quant_pipeline.labels.fallback import (
     SCHEME_FWD_5D_RET,
     FallbackInputs,
@@ -65,6 +66,14 @@ _FWD_RET_HN_RE: re.Pattern[str] = re.compile(r"^fwd_ret_h(\d+)(__.+)?$")
 # strategy-aware 系串正则（spec 03 §2）：legacy 'strategy-aware' 与多策略
 # 'strategy-aware__{id}_{ver}' 都走 strategy_aware 分支。
 _STRATEGY_AWARE_RE: re.Pattern[str] = re.compile(r"^strategy-aware(__.+)?$")
+# band_lock 系串正则（trailing-lock-exit-design spec 03 §二）：legacy 'band_lock'
+# 与变体 'band_lock__{variant}' 都走 band_lock 独立有状态分支（共享核
+# simulate_band_lock，绕开 strategy_aware 的 first-match build_exit_rules）。
+_BAND_LOCK_RE: re.Pattern[str] = re.compile(r"^band_lock(__.+)?$")
+# band_lock__mh{N} 变体：max_hold 硬上限编进 scheme 串（与 fwd_ret_h{N} 对称，
+# 由 dir3_scheme.base_scheme_codec 决定性生成）。从 scheme 解析 max_hold，使
+# scheme 串自描述、增量重算决定性（同 scheme → 同 max_hold → 同标签）。
+_BAND_LOCK_MH_RE: re.Pattern[str] = re.compile(r"^band_lock__mh(\d+)$")
 
 logger = logging.getLogger(__name__)
 
@@ -78,10 +87,13 @@ def _load_daily_quotes(
 ) -> pd.DataFrame:
     """加载 [start, end_padded] 主窗口 daily_quote，并注入后复权列。
 
-    JOIN raw.adj_factor 取复权因子；经 _common.apply_hfq 注入 close_adj/low_adj/high_adj。
-    返回列 [ts_code, trade_date, close, low, high, adj_factor,
-            close_adj, low_adj, high_adj]。
-    high 供 strategy-aware 的 take_profit / trailing_stop 规则用（spec 03 §4）。
+    JOIN raw.adj_factor 取复权因子；经 _common.apply_hfq 注入
+    close_adj/low_adj/high_adj/open_adj。返回列 [ts_code, trade_date, open, close,
+    low, high, adj_factor, close_adj, low_adj, high_adj, open_adj]。
+    high 供 strategy-aware 的 take_profit / trailing_stop 规则用（spec 03 §4）；
+    open / open_adj 供 band_lock scheme 用（买在 T+1 开盘 hfq open_adj，限停板判定
+    用 raw open；其它 scheme 不读 open 列，无影响）。raw open/high 的列名亲查真 DB
+    确认（raw.daily_quote 同行含 open/high/low/close 原始列）。
     end_padded 含 max_hold 缓冲。
 
     head_rows_per_code > 0（仅 strategy_aware 含 ma_break；bug5 修复）：除主窗口外，对
@@ -104,7 +116,7 @@ def _load_daily_quotes(
 
     main_sql = text(
         """
-        SELECT q.ts_code, q.trade_date, q.close, q.low, q.high, a.adj_factor
+        SELECT q.ts_code, q.trade_date, q.open, q.close, q.low, q.high, a.adj_factor
         FROM raw.daily_quote q
         LEFT JOIN raw.adj_factor a
                ON a.ts_code = q.ts_code AND a.trade_date = q.trade_date
@@ -117,13 +129,13 @@ def _load_daily_quotes(
     # 降序前 N 行；LEFT JOIN adj_factor 与主窗口同口径，复权因子缺则该行 close_adj=NaN。
     head_sql = text(
         """
-        SELECT codes.ts_code, h.trade_date, h.close, h.low, h.high, a.adj_factor
+        SELECT codes.ts_code, h.trade_date, h.open, h.close, h.low, h.high, a.adj_factor
         FROM (
             SELECT DISTINCT ts_code FROM raw.daily_quote
             WHERE trade_date >= :start AND trade_date <= :end
         ) codes
         CROSS JOIN LATERAL (
-            SELECT q2.trade_date, q2.close, q2.low, q2.high
+            SELECT q2.trade_date, q2.open, q2.close, q2.low, q2.high
             FROM raw.daily_quote q2
             WHERE q2.ts_code = codes.ts_code AND q2.trade_date < :start
             ORDER BY q2.trade_date DESC
@@ -133,7 +145,7 @@ def _load_daily_quotes(
                ON a.ts_code = codes.ts_code AND a.trade_date = h.trade_date
         """
     )
-    cols = ["ts_code", "trade_date", "close", "low", "high", "adj_factor"]
+    cols = ["ts_code", "trade_date", "open", "close", "low", "high", "adj_factor"]
     try:
         with session_scope() as session:
             rows = session.execute(
@@ -148,9 +160,11 @@ def _load_daily_quotes(
                 ).fetchall()
         all_rows = list(rows) + list(head_rows)
         if not all_rows:
-            return pd.DataFrame(columns=[*cols, "close_adj", "low_adj", "high_adj"])
+            return pd.DataFrame(
+                columns=[*cols, "close_adj", "low_adj", "high_adj", "open_adj"]
+            )
         df = pd.DataFrame(all_rows, columns=cols)
-        for c in ("close", "low", "high", "adj_factor"):
+        for c in ("open", "close", "low", "high", "adj_factor"):
             df[c] = pd.to_numeric(df[c], errors="coerce")
         if head_rows:
             # 主窗口已 ORDER BY，head 行追加在后 → 拼接后重排，保持 (ts_code, trade_date)
@@ -466,6 +480,7 @@ def compute_labels(
     new_listing_min_days: int | None = None,
     fwd_horizon_days: int | None = None,
     exit_rules: list[dict] | None = None,
+    band_lock_max_hold: int | None = None,
     label_winsorize: tuple[float, float] | None = None,
     force_recompute: bool = False,
     job_id: UUID | None = None,
@@ -475,7 +490,8 @@ def compute_labels(
 
     参数：
         scheme:                "strategy-aware" / "strategy-aware__{id}_{ver}" /
-                               "fwd_5d_ret" / "fwd_ret_h{N}"
+                               "fwd_5d_ret" / "fwd_ret_h{N}" /
+                               "band_lock" / "band_lock__{variant}"
         date_range:            "YYYYMMDD:YYYYMMDD"
         new_listing_min_days:  新股门槛交易日阈值。None → 走默认 60；0 表示不过滤。
                                非法值由 _validate_min_days 抛 ValueError。
@@ -485,6 +501,9 @@ def compute_labels(
                                （list[dict]，见 strategy.exit_rules.build_exit_rules）。
                                None → 走 default_rules()（止损-8%/跌破MA5/最大持仓20日），
                                与 default_exit@v1 逐行等价；其它 scheme 忽略。
+        band_lock_max_hold:    仅 band_lock 系生效（trailing-lock-exit spec 03 §二）。
+                               透传给 simulate_band_lock 的 max_hold 硬上限（已走过
+                               可交易持有日数）。None → 不设硬上限；其它 scheme 忽略。
         label_winsorize:       spec 02 §「只截一次」：标签截尾**统一在 features.builder
                                执行**（features 层 winsorize_label_value），本函数
                                不在标签阶段再截一次（避免双重 winsorize）。此入参仅
@@ -513,27 +532,41 @@ def compute_labels(
     # dir3_band / dir3_tercile 路径已移除（历史数据在 DB，不靠重跑老代码路径）
     fwd_ret_hn_match = _FWD_RET_HN_RE.match(scheme)
     is_strategy_aware = _STRATEGY_AWARE_RE.match(scheme) is not None
+    is_band_lock = _BAND_LOCK_RE.match(scheme) is not None
+    # band_lock__mh{N} 把 max_hold 编进 scheme（决定性、scheme 自描述）。显式
+    # band_lock_max_hold 入参优先；未给则从 scheme 串解析（同 scheme → 同 max_hold）。
+    if is_band_lock and band_lock_max_hold is None:
+        mh_match = _BAND_LOCK_MH_RE.match(scheme)
+        if mh_match is not None:
+            band_lock_max_hold = int(mh_match.group(1))
     if (
         not is_strategy_aware
+        and not is_band_lock
         and scheme != SCHEME_FWD_5D_RET
         and fwd_ret_hn_match is None
     ):
         raise NotImplementedError(
             f"labels scheme={scheme!r} not implemented "
             f"(supported: 'strategy-aware', 'strategy-aware__{{id}}_{{ver}}', "
-            f"{SCHEME_FWD_5D_RET!r}, fwd_ret_h{{N}})"
+            f"{SCHEME_FWD_5D_RET!r}, fwd_ret_h{{N}}, "
+            f"'band_lock', 'band_lock__{{variant}}')"
         )
     start, end = date_range.split(":")
     if len(start) != 8 or len(end) != 8:
         raise ValueError(f"date_range must be 'YYYYMMDD:YYYYMMDD', got {date_range!r}")
 
-    # 头部 padding 解析（spec 02 §「padding 判定」）：仅 strategy_aware（含 ma_break）
-    # 需头部回看 ma_window−1 个交易日复现整段算的 MA NaN 边界；fwd_ret / 无 ma_break →
-    # ma_window=None → head_pad=0（缺口加载起点 g0_load=g0，不回看）。
-    ma_window = _resolve_ma_window(
-        is_strategy_aware=is_strategy_aware, exit_rules=exit_rules
-    )
-    head_pad = (ma_window - 1) if ma_window else 0
+    # 头部 padding 解析（spec 02 §「padding 判定」）：
+    #   strategy_aware（含 ma_break）需回看 ma_window−1 个交易日复现整段 MA NaN 边界；
+    #   band_lock 也用 MA5（5 个非停牌交易日 close_adj 滚动均值）→ 同样需回看 MA_WINDOW−1
+    #     个交易日预热，使 ma5 在缺口 chunk 起点处即可用、增量与整段重算一致；
+    #   fwd_ret / 无 ma_break → ma_window=None → head_pad=0（g0_load=g0，不回看）。
+    if is_band_lock:
+        head_pad = MA_WINDOW - 1
+    else:
+        ma_window = _resolve_ma_window(
+            is_strategy_aware=is_strategy_aware, exit_rules=exit_rules
+        )
+        head_pad = (ma_window - 1) if ma_window else 0
 
     # 算子区间（spec 02 §labels 增量缺口算法）：
     #   force_recompute=True → 整段重算覆盖（= 改造前整段行为，等价基线）；
@@ -648,6 +681,37 @@ def compute_labels(
                 )
             # entries 已限 [g0,g1]，输出 trade_date=signal_date ⊆ [g0,g1]；按 spec
             # 「_upsert_labels(rows ∩ [g0,g1])」再夹一次（头/尾 padding 区都不写）。
+            labels_df = labels_df.loc[
+                (labels_df["trade_date"] >= g0) & (labels_df["trade_date"] <= g1)
+            ].reset_index(drop=True)
+        elif is_band_lock:
+            # band_lock 独立有状态 scheme（trailing-lock-exit spec 03 §二）：买在 T+1
+            # hfq open_adj，调共享核 simulate_band_lock，绕开 strategy_aware first-match。
+            labels_df = compute_band_lock_labels(
+                LabelInputs(
+                    daily_quotes=quotes,
+                    stk_limit=stk_limit if not stk_limit.empty else None,
+                    suspend_d=suspend if not suspend.empty else None,
+                    delist=delist if not delist.empty else None,
+                    listing=listing if not listing.empty else None,
+                    entries=entries,
+                    end=g1,
+                    new_listing_min_days=new_listing_min_days,
+                    # 全局日历：窗口无关 new_listing 计数（约束 1 / bug3）。
+                    trade_calendar=trade_calendar,
+                ),
+                progress_callback=_progress if progress_callback is not None else None,
+                # scheme 透传：写入 records.scheme（legacy 'band_lock' 或变体），
+                # 与 factors.labels PK 对齐。
+                scheme=scheme,
+                max_hold=band_lock_max_hold,
+            )
+            if labels_df.empty:
+                raise RuntimeError(
+                    f"labels: compute_band_lock_labels produced 0 rows "
+                    f"date_range={date_range!r} scheme={scheme!r} subrange={(g0, g1)!r}"
+                )
+            # 输出 trade_date=signal_date ⊆ [g0,g1]；再夹一次（头/尾 padding 区不写）。
             labels_df = labels_df.loc[
                 (labels_df["trade_date"] >= g0) & (labels_df["trade_date"] <= g1)
             ].reset_index(drop=True)
@@ -783,12 +847,31 @@ def runner_entrypoint(job: object) -> None:
     # force_recompute 可选（spec 02 §force_recompute）：默认 False 走增量缺口；
     # True 整段重算覆盖（= 改造前整段行为）。
     force_recompute = bool(params.get("force_recompute", False))
+    # band_lock_max_hold 可选（仅 band_lock scheme 生效）：透传给 simulate_band_lock
+    # 的 max_hold 硬上限；缺省 None=不设硬上限。非 band_lock scheme 下 compute_labels
+    # 忽略该入参。校验 int（禁 bool / float / 字符串），越界由核 / 本处拦截。
+    band_lock_max_hold_raw = params.get("band_lock_max_hold")
+    band_lock_max_hold: int | None = None
+    if band_lock_max_hold_raw is not None:
+        if isinstance(band_lock_max_hold_raw, bool) or not isinstance(
+            band_lock_max_hold_raw, int
+        ):
+            raise ValueError(
+                f"band_lock_max_hold must be a positive int, "
+                f"got {band_lock_max_hold_raw!r}"
+            )
+        if band_lock_max_hold_raw < 1:
+            raise ValueError(
+                f"band_lock_max_hold must be >= 1, got {band_lock_max_hold_raw!r}"
+            )
+        band_lock_max_hold = int(band_lock_max_hold_raw)
     job_id = getattr(job, "id", None)
     compute_labels(
         scheme=str(scheme),
         date_range=str(date_range),
         new_listing_min_days=new_listing_min_days,
         exit_rules=exit_rules,
+        band_lock_max_hold=band_lock_max_hold,
         force_recompute=force_recompute,
         job_id=job_id,
     )

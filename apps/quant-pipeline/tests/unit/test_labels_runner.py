@@ -390,15 +390,17 @@ def test_load_daily_quotes_head_rows_included(
     head 查询补回 start 前最近 4 个在场行（20230202/0201/0131/0130）。
     """
 
+    # 列序与 _load_daily_quotes SQL 一致：(ts_code, trade_date, open, close, low, high, adj_factor)
+    # （band_lock scheme 需 raw open → SQL 增取 q.open；本 fixture 同步加 open 列）。
     main_rows = [
-        ("002499.SZ", "20230327", 1.70, 1.68, 1.72, 2.575),
-        ("002499.SZ", "20230328", 1.72, 1.70, 1.74, 2.575),
+        ("002499.SZ", "20230327", 1.69, 1.70, 1.68, 1.72, 2.575),
+        ("002499.SZ", "20230328", 1.71, 1.72, 1.70, 1.74, 2.575),
     ]
     head_rows = [
-        ("002499.SZ", "20230202", 1.68, 1.66, 1.70, 2.575),
-        ("002499.SZ", "20230201", 1.76, 1.74, 1.78, 2.575),
-        ("002499.SZ", "20230131", 1.68, 1.66, 1.70, 2.575),
-        ("002499.SZ", "20230130", 1.60, 1.58, 1.62, 2.575),
+        ("002499.SZ", "20230202", 1.67, 1.68, 1.66, 1.70, 2.575),
+        ("002499.SZ", "20230201", 1.75, 1.76, 1.74, 1.78, 2.575),
+        ("002499.SZ", "20230131", 1.67, 1.68, 1.66, 1.70, 2.575),
+        ("002499.SZ", "20230130", 1.59, 1.60, 1.58, 1.62, 2.575),
     ]
     seen: dict[str, Any] = {}
     _patch_session_main_head(
@@ -427,13 +429,14 @@ def test_load_daily_quotes_no_head_query_when_zero(
 ) -> None:
     """head_rows_per_code=0（fwd 路径）→ 不发 head 查询，结果仅主窗口（行为不变）。"""
 
+    # 列序：(ts_code, trade_date, open, close, low, high, adj_factor)（SQL 增取 q.open）。
     main_rows = [
-        ("X", "20240102", 10.0, 9.8, 10.2, 1.0),
-        ("X", "20240103", 10.5, 10.3, 10.7, 1.0),
+        ("X", "20240102", 9.9, 10.0, 9.8, 10.2, 1.0),
+        ("X", "20240103", 10.4, 10.5, 10.3, 10.7, 1.0),
     ]
     seen: dict[str, Any] = {}
     _patch_session_main_head(
-        monkeypatch, main_rows=main_rows, head_rows=[("Y", "20231229", 1, 1, 1, 1)],
+        monkeypatch, main_rows=main_rows, head_rows=[("Y", "20231229", 1, 1, 1, 1, 1)],
         seen=seen,
     )
 
