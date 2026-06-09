@@ -66,7 +66,7 @@ def make_path(
 
 class TestSimulateFixedN:
     def test_basic_n1(self):
-        """第 1 个 bar 出场（buy_date 当日）。"""
+        """第 1 个 bar 出场（buy_date 之后第一个可交易日）。"""
         bars = [make_bar("20260102", close=10.5)]
         path = make_path(bars, buy_price=10.0)
         r = simulate_fixed_n(path, n=1)
