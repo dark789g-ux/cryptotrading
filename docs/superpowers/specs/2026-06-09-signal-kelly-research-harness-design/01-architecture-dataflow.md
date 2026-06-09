@@ -12,8 +12,8 @@
 │     base 触发(如 KDJ_J<阈值) + 过滤次新/买入日停牌/一字涨停        │
 │            │                                                      │
 │            ▼                                                      │
-│  ② 前向路径加载    raw.daily_quote → 每信号 buy_date(T+1) 起        │
-│     未来 ≤maxWindow 可交易日 qfq O/H/L/C 序列(停牌跳过) → 缓存      │
+│  ② 前向路径加载    raw.daily_quote → 买在 open(buy_date=T+1)，路径  │
+│     取 buy_date 之后 ≤maxWindow 可交易日 qfq O/H/L/C(停牌跳过)→缓存 │
 │            │                                                      │
 │            ▼                                                      │
 │  ③ 入场特征计算    超跌幅度/连阴/缩量/波动区制/RS… 附到每个信号     │
@@ -34,7 +34,7 @@
 各段职责：
 
 - **① 信号枚举**：给定 base 入场触发（如 `KDJ_J < 阈值`），从 `raw.daily_indicator` 锚定每个 SSE 交易日 T 扫出 `(ts_code, signal_date)`。复用现有 `enumerator` 的 SQL 思路（见 [§4](#4-与现有-simulator-的口径对齐硬要求)）。**base 触发要足够宽**（如 `KDJ_J<0`），把"收紧"留给③的特征阈值，这样一次路径加载可服务多个入场变体。
-- **② 前向路径加载**：对每个信号取 `buy_date = T 之后第一个 SSE 交易日`，加载 `buy_date` 起未来 ≤ `maxWindow`（默认 20）个**可交易日**的 qfq O/H/L/C 序列；停牌日跳过、不占额度。结果缓存（parquet），后续④反复复用。
+- **② 前向路径加载**：对每个信号取 `buy_date = T 之后第一个 SSE 交易日`，买在 `open(buy_date)`；前向路径 `bars` 加载 `buy_date` **之后**第一个可交易日起未来 ≤ `maxWindow`（默认 20）个**可交易日**的 qfq O/H/L/C 序列（**不含 buy_date 当日**，入场日不参与出场判定，见 [03 §2](./03-exit-structures.md#2-价格基准持有窗口与触发位)）；停牌日跳过、不占额度。`buy_date` 之后无可交易日（数据边界）的信号无法成交，过滤掉。结果缓存（parquet），后续④反复复用。
 - **③ 入场特征计算**：对每个信号在 `signal_date` 截面计算附加特征（见 [02](./02-entry-features.md)），落成信号宽表的列。入场"变体"= 在这些列上加阈值过滤的组合。
 - **④ 出场模拟**：纯函数，输入 (前向路径, 出场参数)，输出 `exit_date / exit_price / ret / hold_days / exit_reason`（见 [03](./03-exit-structures.md)）。
 - **⑤ 网格聚合**：对每个 (入场变体 × 出场参数) 子集算指标（见 [04](./04-grid-sweep-guardrails.md)）。
@@ -86,7 +86,7 @@ Phase 1 是对现有 NestJS simulator 的**受控重实现**，以下口径**必
 | 次新股 | 上市 < 60 交易日过滤 | 一致 |
 | 一字涨停 | 买入日一字涨停过滤（用未复权 open 判定） | 一致 |
 | 退市 | `calDate >= delistDate`（当前交易日已到/过退市日）取上一有效日 qfq_close 强平，`exit_reason='delist'` | 一致 |
-| fixed_n 出场 | 第 N 个可交易日 qfq_close，`exit_reason='max_hold'` | 一致（用于自校验复现） |
+| fixed_n 出场 | buy_date **之后**第 N 个可交易日 qfq_close，`exit_reason='max_hold'`（`fixed_n(1)`=buy_date 之后第一个可交易日 close） | 一致（用于自校验复现） |
 
 **自校验闸**：harness 用 `base=KDJ_J<-10` + `fixed_n(1)` + 全市场 2023-01~2026-05 跑一遍，凯利须 ≈ 0.171、n ≈ 80276（容差内），对齐才信任后续结果——否则先查 T+1 / 复权 / 停牌口径，详见 [05 §1](./05-validation-phase2.md#1-自校验锚点phase-1-内置闸门)。
 

@@ -59,19 +59,29 @@ def _parquet_cache_path(cache_key: str) -> Path:
     return root / f"paths_{short}.parquet"
 
 
+# bars 语义版本：bars 改为「buy_date 之后第一个可交易日起」（不含 buy_date 当日）。
+# 任何会改变缓存内容含义的口径调整都应 bump 此字面量，使旧缓存自动失效。
+_CACHE_SEMANTIC_VERSION = "v2_bars_after_buy"
+
+
 def _make_cache_key(
     signals: list[SignalRecord],
     max_window: int,
     date_end: str,
 ) -> str:
-    """缓存 key：sha256(信号列表内容 + max_window + date_end)。
+    """缓存 key：sha256(语义版本 + 信号列表内容 + max_window + date_end)。
 
     信号列表内容 = 排序后的 (ts_code, signal_date, buy_date) 三元组序列。
+    语义版本 = _CACHE_SEMANTIC_VERSION；bars 口径变更后 bump 它即可自动失效旧缓存。
     """
     sorted_sigs = sorted(
         (f"{s.ts_code}|{s.signal_date}|{s.buy_date}" for s in signals)
     )
-    blob = "\n".join(sorted_sigs) + f"\nmax_window={max_window}\ndate_end={date_end}"
+    blob = (
+        f"version={_CACHE_SEMANTIC_VERSION}\n"
+        + "\n".join(sorted_sigs)
+        + f"\nmax_window={max_window}\ndate_end={date_end}"
+    )
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
@@ -81,23 +91,33 @@ def load_forward_paths(
     date_end: str,
     use_cache: bool = True,
 ) -> list[ForwardPath]:
-    """取每个信号 buy_date 起未来 ≤max_window 个可交易日的 qfq 路径。
+    """取每个信号 buy_date **之后**第一个可交易日起未来 ≤max_window 个可交易日的 qfq 路径。
 
-    停牌日（raw.daily_quote 无行或 qfq_open/qfq_close 为空）跳过，不占 max_window 额度。
-    口径：signal-stats.simulator.ts:239
+    bars 口径（v2，对齐 NestJS fixed_n）：
+      - bars[0] = buy_date **之后**第一个可交易日（**不含 buy_date 当日**），按时间升序。
+      - 停牌日（raw.daily_quote 无行或 qfq_open/qfq_close 为空）跳过，不占 max_window 额度。
+        口径：signal-stats.simulator.ts:239
+      - NestJS fixed_n(N) 锚点：买在 open(buy_date)、第 N 个出场日 = buy_date 之后第 N 个
+        可交易日的 qfq_close。证据 signal_test_trade run 06239e89：signal 20230206 →
+        buy_date 20230207 → exit_date 20230208（hold_days=1），即卖在 buy_date 之后第一个
+        可交易日的 close，而非 buy_date 当日。故 bars 不含 buy_date，exits.py 的
+        bars[0] 即对应 NestJS 的第 1 个持有日，逻辑透明。
+      - buy_date 之后无可交易日（数据边界）→ bars 为空 → 该信号无法成交，按「空 bars」
+        过滤（与 NestJS 尾部 insufficient_data 一致）。
 
-    buy_price = buy_date 的 qfq_open（口径：simulator.ts:154）。
+    buy_price = buy_date 当日的 qfq_open（口径：simulator.ts:154）。注意 buy_date 现在
+      **不在 bars 里**，须单独取其 qfq_open。
     delist_date 来自 a_share_symbols.delist_date（口径：simulator.db.ts:183-199）。
     atr14_at_signal = signal_date 的 raw.daily_indicator.atr_14（前复权口径，见模块 docstring）。
 
     Args:
         signals: enumerate_signals 产出的信号列表。
-        max_window: 前向最长可交易日数（停牌日不计）。
+        max_window: 前向最长可交易日数（停牌日不计；从 buy_date 之后第一个可交易日起算）。
         date_end: 路径数据截止日（YYYYMMDD），通常为 valid_range[1]。
         use_cache: 是否使用 parquet 缓存（默认 True）。
 
     Returns:
-        ForwardPath 列表，与 signals 一一对应（过滤 buy_price 为空的异常条目）。
+        ForwardPath 列表（过滤 buy_date 当日无 qfq_open、或 buy_date 之后无可交易日的条目）。
     """
     if not signals:
         return []
@@ -170,11 +190,21 @@ def load_forward_paths(
                 skipped += 1
                 continue
 
-            # 从 buy_date 起收集 ≤max_window 个有效可交易日
+            # buy_price = buy_date 当日的 qfq_open（buy_date 不进 bars，须单独取）。
+            # 口径：signal-stats.simulator.ts:154。buy_date 行情已在 quote_map 内（union
+            # 从 min_buy_date 起预取）。buy_date 当日停牌/无 qfq_open → 无法成交，跳过。
+            buy_q = quote_map.get(sig.buy_date)
+            if buy_q is None or buy_q[0] is None:
+                skipped += 1
+                continue
+            buy_price = buy_q[0]
+
+            # bars 从 buy_date **之后**第一个可交易日起收集 ≤max_window 个有效可交易日
+            # （不含 buy_date 当日）。口径对齐 NestJS fixed_n（见 docstring）。
             bars: list[Bar] = []
             tradable_count = 0
 
-            for d in all_calendar[buy_idx:]:
+            for d in all_calendar[buy_idx + 1:]:
                 if d > date_end:
                     break
                 if tradable_count >= max_window:
@@ -200,10 +230,10 @@ def load_forward_paths(
                 tradable_count += 1
 
             if not bars:
+                # buy_date 之后无可交易日（数据边界）→ 无法成交，与 NestJS 尾部
+                # insufficient_data 一致，过滤掉。
                 skipped += 1
                 continue
-
-            buy_price = bars[0].qfq_open
 
             result_paths.append(
                 ForwardPath(
@@ -334,7 +364,7 @@ def load_feature_inputs(
     sql_hist = text(
         """
         WITH pairs(ts_code, signal_date) AS (
-            SELECT unnest(:pair_codes::text[]), unnest(:pair_dates::text[])
+            SELECT unnest(CAST(:pair_codes AS text[])), unnest(CAST(:pair_dates AS text[]))
         ),
         ranked AS (
             SELECT q.ts_code,

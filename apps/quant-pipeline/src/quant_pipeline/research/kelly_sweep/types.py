@@ -63,7 +63,8 @@ class ForwardPath:
     """单条信号触发后的前向行情序列。
 
     buy_price 为 buy_date 的 qfq_open，即开盘买入价。
-    bars 按时间正序排列，长度 ≤ SweepConfig.max_window，停牌日已剔除。
+    bars 从 buy_date **之后**第一个可交易日起（**不含 buy_date 当日**），按时间正序排列，
+    长度 ≤ SweepConfig.max_window，停牌日已剔除。口径对齐 NestJS fixed_n（见 paths.py）。
     """
 
     ts_code: str
@@ -79,7 +80,8 @@ class ForwardPath:
     """买入价格，等于 buy_date 的 qfq_open（元）。"""
 
     bars: list[Bar]
-    """从 buy_date 起（含）的前向有行情可交易日序列，长度 ≤ max_window。"""
+    """buy_date 之后第一个可交易日起（**不含 buy_date 当日**）、按时间升序、停牌已剔除的
+    前向有行情可交易日序列，长度 ≤ max_window。"""
 
     delist_date: Optional[str]
     """退市日（8 位 YYYYMMDD）；若无退市风险则为 None。"""

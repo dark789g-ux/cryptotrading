@@ -71,7 +71,7 @@ def _check_delist(
 def simulate_fixed_n(path: ForwardPath, n: int) -> TradeResult:
     """第 n 个可交易 bar 出场，exit_price = 该 bar.qfq_close，reason = max_hold。
 
-    - n 从 1 开始计数（第 1 个 bar = bars[0] = buy_date）。
+    - n 从 1 开始计数（第 1 个 bar = bars[0] = buy_date 之后第一个可交易日）。
     - 若 bars 不足 n 个（窗口末端），以最后一个 bar 的 qfq_close 强平，reason = max_hold。
     - 退市优先（spec §8）：迭代中先检查退市，再计入 hold_days。
     """
@@ -83,7 +83,7 @@ def simulate_fixed_n(path: ForwardPath, n: int) -> TradeResult:
     for i, bar in enumerate(bars):
         hold_days = i + 1  # 1-based
 
-        # 退市检查：i >= 1 时检测（buy_date 本身不触发退市）
+        # 退市检查：i >= 1 时检测（首个 bar 无前一有效 bar，跳过）
         if i >= 1:
             result = _check_delist(path, bars, i, prev_bar=bars[i - 1], prev_hold_days=i)
             if result is not None:
@@ -132,7 +132,7 @@ def simulate_tp_sl(
     for i, bar in enumerate(bars):
         hold_days = i + 1  # 1-based
 
-        # 退市检查：i >= 1 时检测（buy_date 不触发退市）
+        # 退市检查：i >= 1 时检测（首个 bar 无前一有效 bar，跳过）
         if i >= 1:
             result = _check_delist(path, bars, i, prev_bar=bars[i - 1], prev_hold_days=i)
             if result is not None:
@@ -189,7 +189,7 @@ def simulate_trailing(
     if not bars:
         raise ValueError("ForwardPath.bars 为空，无法模拟出场")
 
-    # peak 初始化为 buy_date bar 的 qfq_high（bars[0]）
+    # peak 初始化为首个持有 bar 的 qfq_high（bars[0] = buy_date 之后第一日）
     peak = bars[0].qfq_high
 
     for i, bar in enumerate(bars):
@@ -211,7 +211,7 @@ def simulate_trailing(
             # 用今日 high 更新 peak
             if bar.qfq_high > peak:
                 peak = bar.qfq_high
-        # i=0 (buy_date): peak 已初始化，不做触发判定（当日买入，用昨日无意义）
+        # i=0 (首个持有 bar): peak 已初始化，不做触发判定（无昨日 peak）
         # maxHold 兜底
         if hold_days >= max_hold:
             return _make_result(path, bar, hold_days, bar.qfq_close, "max_hold")
@@ -260,7 +260,7 @@ def simulate_atr_stop(
     for i, bar in enumerate(bars):
         hold_days = i + 1
 
-        # 退市检查：i >= 1（buy_date 本身不触发退市）
+        # 退市检查：i >= 1（首个 bar 无前一有效 bar，跳过）
         if i >= 1:
             result = _check_delist(path, bars, i, prev_bar=bars[i - 1], prev_hold_days=i)
             if result is not None:
@@ -272,7 +272,7 @@ def simulate_atr_stop(
                 dynamic_sl = peak - k * atr
                 sl_level = max(sl_level, dynamic_sl)
 
-        # 触发判定（buy_date 亦可触发，如跳空低开低于 SL）
+        # 触发判定（首个持有 bar 亦可触发，如跳空低开低于 SL）
         if bar.qfq_low <= sl_level:
             exit_price = bar.qfq_open if bar.qfq_open <= sl_level else sl_level
             return _make_result(path, bar, hold_days, exit_price, "atr")

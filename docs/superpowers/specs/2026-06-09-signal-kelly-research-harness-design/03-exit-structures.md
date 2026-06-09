@@ -8,18 +8,21 @@
 
 | 结构 | 参数 | 候选网格 | 触发逻辑 |
 |---|---|---|---|
-| `fixed_n`（基线/复现） | N | 1 / 2 / 3 / 5 / 10 | 第 N 个可交易日出场，`exit_price = 当日 qfq_close` |
+| `fixed_n`（基线/复现） | N | 1 / 2 / 3 / 5 / 10 | 买入日(buy_date)**之后**第 N 个可交易日出场，`exit_price = 该日 qfq_close`（对齐 NestJS：`fixed_n(1)` 卖在 buy_date 之后第一个可交易日的 close） |
 | `tp_sl` 固定止盈止损 | TP%, SL%, maxHold | TP∈{3,5,8,12}% × SL∈{2,3,5}% × maxHold∈{5,10,20} | 见 §2–§5 |
 | `trailing` 移动止损 | Z%, maxHold | Z∈{3,5,8}% × maxHold∈{10,20} | 见 §6 |
 | `atr_stop` ATR 止损 | k, maxHold, 可选移动 | k∈{1.5,2,3} × maxHold∈{10,20} | 见 §7 |
 
 其中 `tp_sl` 的**非对称**结构（如 +8% / −3%）是直接结构性抬高 b 的核心杠杆。
 
-## 2. 价格基准与触发位
+## 2. 价格基准、持有窗口与触发位
 
 - 基准价 `entry = buy_date 的 qfq_open`（与 [index §6](./index.md#6-已核对的事实锚点实现时直接信任禁止再凭二手转述改写) 的 ret 口径一致）。
+- **持有窗口 = buy_date 之后的可交易日**：买在 `open(buy_date)`，前向路径 `bars` 从 buy_date **之后**第一个可交易日起（**不含 buy_date 当日**），停牌跳过、不占额度。
+- **入场日(buy_date)当日不参与任何出场/触发判定**（fixed_n / TP / SL / 移动 / ATR 均从 buy_date 之后第一个可交易日起检查，这是有意约定，对齐 NestJS：买在 buy_date 开盘，最早卖出在 buy_date 之后的可交易日）。
+- `fixed_n(N) = 买入日之后第 N 个可交易日的 qfq_close`（对齐 NestJS，用于自校验复现）。
 - 止盈位 `TP_level = entry × (1 + TP)`；止损位 `SL_level = entry × (1 − SL)`。
-- 逐个可交易日（停牌跳过）按时间序检查触发。
+- 逐个可交易日（buy_date 之后，停牌跳过）按时间序检查触发。
 
 ## 3. 盘中触发判定（硬口径）
 
@@ -61,7 +64,7 @@
 
 ## 6. trailing（移动止损）
 
-- 维护持有期内 `peak = max(qfq_high[buy_date..d])`。
+- 维护持有期内 `peak = max(qfq_high[buy_date之后第一个可交易日..d])`（入场日当日不参与，见 §2）。
 - 触发：`qfq_low[d] <= peak × (1 − Z)` → 出场，`exit_reason='trailing'`。
 - exit_price：回撤位 `peak×(1−Z)`；若当日跳空低于该位则取 `qfq_open[d]`（同 §4）。
 - peak 更新与触发同日的次序：**先用昨日 peak 判触发，再用今日 high 更新 peak**（避免用未来高点豁免今日触发）。

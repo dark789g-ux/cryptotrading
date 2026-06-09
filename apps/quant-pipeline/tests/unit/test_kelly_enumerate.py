@@ -362,7 +362,9 @@ class TestForwardPathConstruction:
         return SignalRecord(ts_code="000001.SZ", signal_date="20240101", buy_date="20240102")
 
     def test_suspended_day_skipped_does_not_count_toward_max_window(self, monkeypatch) -> None:
-        """20240103 停牌（无 quote 行），max_window=3 应取到 20240102/04/05 三天。"""
+        """bars 从 buy_date 之后起：20240104 停牌（无 quote 行），
+        max_window=3 应取到 buy_date(20240102) 之后的 20240103/05/08 三天。
+        """
         signal = self._make_signal()
 
         monkeypatch.setattr(
@@ -378,14 +380,16 @@ class TestForwardPathConstruction:
             lambda *a, **kw: {("000001.SZ", "20240101"): 0.25},
         )
 
-        # 20240103 无 quote（停牌），其余有行情
+        # buy_date=20240102 有行情（供 buy_price）；20240104 停牌（无 quote）；其余有行情。
+        # bars 从 buy_date 之后起 → 候选 20240103/04(停)/05/08/09，max_window=3 取 03/05/08。
         def fake_fetch_quotes(ts_code, dates):
             data = {
-                "20240102": (10.0, 10.5, 9.8, 10.2),
-                # 20240103 缺失 → 停牌
-                "20240104": (10.3, 10.8, 10.1, 10.6),
+                "20240102": (10.0, 10.5, 9.8, 10.2),  # buy_date 当日，仅供 buy_price，不进 bars
+                "20240103": (10.1, 10.6, 10.0, 10.4),
+                # 20240104 缺失 → 停牌（跳过，不占额度）
                 "20240105": (10.6, 11.0, 10.5, 10.9),
                 "20240108": (10.9, 11.2, 10.8, 11.1),
+                "20240109": (11.1, 11.4, 11.0, 11.3),
             }
             return {d: v for d, v in data.items() if d in dates}
 
@@ -401,13 +405,17 @@ class TestForwardPathConstruction:
 
         assert len(paths) == 1
         fp = paths[0]
-        # 停牌日 20240103 跳过，不占额度，max_window=3 取到 20240102/04/05
+        # buy_price 仍取 buy_date(20240102) 的 qfq_open
+        assert fp.buy_price == pytest.approx(10.0)
+        # bars 从 buy_date 之后起：停牌日 20240104 跳过、不占额度，max_window=3 取 20240103/05/08
         assert len(fp.bars) == 3
-        assert fp.bars[0].trade_date == "20240102"
-        assert fp.bars[1].trade_date == "20240104"
-        assert fp.bars[2].trade_date == "20240105"
-        # 20240108 不应出现（已达 max_window=3）
-        assert not any(b.trade_date == "20240108" for b in fp.bars)
+        assert fp.bars[0].trade_date == "20240103"
+        assert fp.bars[1].trade_date == "20240105"
+        assert fp.bars[2].trade_date == "20240108"
+        # buy_date 当日 20240102 不应出现在 bars 中
+        assert not any(b.trade_date == "20240102" for b in fp.bars)
+        # 20240109 不应出现（已达 max_window=3）
+        assert not any(b.trade_date == "20240109" for b in fp.bars)
 
     def test_buy_price_is_buy_date_qfq_open(self, monkeypatch) -> None:
         """buy_price = buy_date 的 qfq_open（simulator.ts:154）。"""
@@ -435,7 +443,10 @@ class TestForwardPathConstruction:
 
         paths = load_forward_paths([signal], max_window=2, date_end="20240112", use_cache=False)
         assert len(paths) == 1
+        # buy_price = buy_date(20240102) 的 qfq_open，即便 buy_date 不在 bars 中也单独取
         assert paths[0].buy_price == pytest.approx(12.34)
+        # bars 从 buy_date 之后起，bars[0] = 20240103（非 buy_date）
+        assert paths[0].bars[0].trade_date == "20240103"
 
     def test_atr14_at_signal_populated(self, monkeypatch) -> None:
         signal = self._make_signal()
@@ -452,9 +463,13 @@ class TestForwardPathConstruction:
             "quant_pipeline.research.kelly_sweep.paths._prefetch_atr14",
             lambda *a, **kw: {("000001.SZ", "20240101"): 0.55},
         )
+        # buy_date=20240102（供 buy_price）+ 之后一天 20240103（供 bars，否则空 bars 被过滤）
         monkeypatch.setattr(
             "quant_pipeline.research.kelly_sweep.paths._fetch_quotes_for_ts",
-            lambda ts_code, dates: {"20240102": (10.0, 10.5, 9.8, 10.2)},
+            lambda ts_code, dates: {
+                "20240102": (10.0, 10.5, 9.8, 10.2),
+                "20240103": (10.2, 10.7, 10.0, 10.5),
+            },
         )
 
         paths = load_forward_paths([signal], max_window=1, date_end="20240112", use_cache=False)
@@ -475,9 +490,13 @@ class TestForwardPathConstruction:
             "quant_pipeline.research.kelly_sweep.paths._prefetch_atr14",
             lambda *a, **kw: {},
         )
+        # buy_date=20240102（供 buy_price）+ 之后一天 20240103（供 bars，否则空 bars 被过滤）
         monkeypatch.setattr(
             "quant_pipeline.research.kelly_sweep.paths._fetch_quotes_for_ts",
-            lambda ts_code, dates: {"20240102": (10.0, 10.5, 9.8, 10.2)},
+            lambda ts_code, dates: {
+                "20240102": (10.0, 10.5, 9.8, 10.2),
+                "20240103": (10.2, 10.7, 10.0, 10.5),
+            },
         )
 
         paths = load_forward_paths([signal], max_window=1, date_end="20240112", use_cache=False)
@@ -504,7 +523,35 @@ class TestForwardPathConstruction:
         )
         monkeypatch.setattr(
             "quant_pipeline.research.kelly_sweep.paths._fetch_quotes_for_ts",
-            lambda ts_code, dates: {},  # 全部停牌
+            lambda ts_code, dates: {},  # 全部停牌（含 buy_date 当日）→ buy_q is None，跳过
+        )
+
+        paths = load_forward_paths([signal], max_window=3, date_end="20240112", use_cache=False)
+        assert paths == []
+
+    def test_buy_date_has_quote_but_no_tradable_after_is_filtered(self, monkeypatch) -> None:
+        """buy_date 当日有行情、但之后无任何可交易日（数据边界）→ 空 bars → 过滤。
+
+        对齐 NestJS 尾部 insufficient_data：buy_date 之后没有可成交日则无法形成交易。
+        """
+        signal = self._make_signal()  # buy_date = 20240102
+
+        monkeypatch.setattr(
+            "quant_pipeline.research.kelly_sweep.paths.load_sse_calendar",
+            lambda *a, **kw: self.CALENDAR,
+        )
+        monkeypatch.setattr(
+            "quant_pipeline.research.kelly_sweep.paths._prefetch_symbol_meta",
+            lambda *a, **kw: {"000001.SZ": {"delist_date": None}},
+        )
+        monkeypatch.setattr(
+            "quant_pipeline.research.kelly_sweep.paths._prefetch_atr14",
+            lambda *a, **kw: {},
+        )
+        # 仅 buy_date(20240102) 有行情，之后全部停牌 → bars 收集到 0 条
+        monkeypatch.setattr(
+            "quant_pipeline.research.kelly_sweep.paths._fetch_quotes_for_ts",
+            lambda ts_code, dates: {"20240102": (10.0, 10.5, 9.8, 10.2)},
         )
 
         paths = load_forward_paths([signal], max_window=3, date_end="20240112", use_cache=False)
@@ -663,10 +710,11 @@ class TestForwardPathsHeavySuspension:
         )
 
         def fake_fetch_quotes(ts_code, dates):
-            # 只有 TRADABLE 中的日期有行情，其余全部停牌
+            # buy_date(20240101) 当日有行情（供 buy_price），TRADABLE 各日有行情，其余全部停牌。
+            # bars 从 buy_date 之后起，故 buy_date 当日不进 bars。
             result = {}
             for d in dates:
-                if d in self.TRADABLE:
+                if d == "20240101" or d in self.TRADABLE:
                     result[d] = (10.0, 10.5, 9.8, 10.2)
             return result
 
@@ -679,14 +727,15 @@ class TestForwardPathsHeavySuspension:
 
         assert len(paths) == 1
         fp = paths[0]
-        # 修复后：5 个可交易日全部纳入
+        # 修复后：buy_date 之后的 5 个可交易日全部纳入
         assert len(fp.bars) == max_window, (
             f"期望 {max_window} 条 bars，实际 {len(fp.bars)}；"
             "若为 0 则说明 max_window*3 截断未移除"
         )
-        # 确认都是预期的可交易日
+        # 确认 bars 都是预期的可交易日（buy_date 当日 20240101 不在内）
         actual_dates = {b.trade_date for b in fp.bars}
         assert actual_dates == self.TRADABLE
+        assert "20240101" not in actual_dates
 
     def test_discrete_buy_dates_in_same_group_all_get_full_window(self, monkeypatch) -> None:
         """同组两个信号 buy_date 相差 10 天；修复后两者均能凑满 max_window=3 个可交易日。"""
@@ -712,8 +761,16 @@ class TestForwardPathsHeavySuspension:
             lambda *a, **kw: {},
         )
 
+        # 两个 buy_date 当日（cal[0]/cal[10]）有行情（供 buy_price），晚期 cal[12..14] 有行情；
+        # bars 从各自 buy_date 之后起，buy_date 当日不进 bars。
+        buy_dates = {cal[0], cal[10]}
+
         def fake_fetch(ts_code, dates):
-            return {d: (10.0, 10.5, 9.8, 10.2) for d in dates if d in tradable_late}
+            return {
+                d: (10.0, 10.5, 9.8, 10.2)
+                for d in dates
+                if d in tradable_late or d in buy_dates
+            }
 
         monkeypatch.setattr(
             "quant_pipeline.research.kelly_sweep.paths._fetch_quotes_for_ts",
