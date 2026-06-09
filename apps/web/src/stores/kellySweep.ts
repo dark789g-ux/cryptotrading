@@ -77,6 +77,8 @@ export const useKellySweepStore = defineStore('kellySweep', () => {
     topkTotalWithRs.value = 0
     topkTotalNoRs.value = 0
     summaryError.value = null
+    scatterError.value = null
+    topkError.value = null
   }
 
   /** 加载结果摘要 */
