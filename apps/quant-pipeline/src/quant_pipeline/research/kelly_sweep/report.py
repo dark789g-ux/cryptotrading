@@ -14,7 +14,7 @@ import csv
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from quant_pipeline.research.kelly_sweep.config import SweepConfig
 from quant_pipeline.research.kelly_sweep.metrics import bootstrap_kelly_ci
@@ -99,6 +99,7 @@ def rank_top_k(
     rows: list[ResultRow],
     config: SweepConfig,
     paths: list[ForwardPath],
+    on_progress: Optional[Callable[[int, int], None]] = None,
 ) -> dict[str, list[ResultRow]]:
     """按 window_group 取 top-K（kelly_valid 降序），对入选行计算 bootstrap CI。
 
@@ -107,9 +108,11 @@ def rank_top_k(
     same_day_rule 从 row.same_day_rule 取（与扫描时口径一致）。
 
     Args:
-        rows:   run_sweep 产出的 ResultRow 列表。
-        config: SweepConfig（top_k + bootstrap_iters）。
-        paths:  run_sweep 使用的同批 ForwardPath（valid_rets_for 重算用）。
+        rows:        run_sweep 产出的 ResultRow 列表。
+        config:      SweepConfig（top_k + bootstrap_iters）。
+        paths:       run_sweep 使用的同批 ForwardPath（valid_rets_for 重算用）。
+        on_progress: 可选进度回调 `(done: int, total: int) -> None`；bootstrap CI
+                     每算完一行 emit (done, total_topk_rows)。默认 None → 不回调。
 
     Returns:
         dict[window_group → list[ResultRow]]（CI 已填充，kelly_ci_low/high 为 float 或 None）。
@@ -121,13 +124,17 @@ def rank_top_k(
             continue
         groups.setdefault(row.window_group, []).append(row)
 
+    # 预计算总 top-K 行数，供 on_progress 使用
+    _all_top: list[tuple[str, list[ResultRow]]] = []
+    for wg, grp in groups.items():
+        sorted_grp = sorted(grp, key=lambda r: r.kelly_valid, reverse=True)
+        _all_top.append((wg, sorted_grp[: config.top_k]))
+    _total_topk = sum(len(t) for _, t in _all_top)
+    _done_ci = 0
+
     result: dict[str, list[ResultRow]] = {}
 
-    for wg, grp in groups.items():
-        # 降序排序
-        sorted_grp = sorted(grp, key=lambda r: r.kelly_valid, reverse=True)
-        top = sorted_grp[: config.top_k]
-
+    for wg, top in _all_top:
         enriched: list[ResultRow] = []
         for row in top:
             rets = valid_rets_for(row, paths)
@@ -135,9 +142,12 @@ def rank_top_k(
             # ResultRow 是 dataclass，需要替换字段值
             from dataclasses import replace as dc_replace
             enriched.append(dc_replace(row, kelly_ci_low=ci_low, kelly_ci_high=ci_high))
+            _done_ci += 1
+            if on_progress is not None:
+                on_progress(_done_ci, _total_topk)
 
         result[wg] = enriched
-        logger.info("rank_top_k [%s]: %d 行入选，top-%d CI 计算完毕", wg, len(grp), len(enriched))
+        logger.info("rank_top_k [%s]: %d 行入选，top-%d CI 计算完毕", wg, len(top), len(enriched))
 
     return result
 

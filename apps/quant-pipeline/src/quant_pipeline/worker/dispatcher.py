@@ -270,6 +270,35 @@ def _runner_monitor(job: Job) -> None:
     _entry(job)
 
 
+def _runner_kelly_sweep(job: Job) -> None:
+    """kelly_sweep runner（spec 2026-06-09）：凯利上界网格扫描研究 harness。
+
+    复刻 CLI 的 _run_sweep_pipeline 调用链：
+      enumerate_signals → load_forward_paths → load_feature_inputs →
+      load_index_daily → run_sweep → compute_pareto_frontier →
+      rank_top_k → persist_results
+
+    params schema（spec 02 data-model）：
+      {
+        "base_trigger": {"field": "kdj_j", "op": "lt", "value": 0.0},
+        "universe": "all",
+        "max_window": 20, "max_entry_filters": 1, "min_samples": 300,
+        "train_range": ["20230101", "20241231"],
+        "valid_range": ["20250101", "20260608"],
+        "bootstrap_iters": 1000, "same_day_rule": "sl_first",
+        "rs_benchmark": ["hs300", "zz500"], "rs_lookback": 5, "top_k": 30,
+        "exit_families": ["fixed_n", "tp_sl", "trailing", "atr_stop"]
+      }
+
+    结果写入 research.kelly_sweep_results；摘要写入 ml.jobs.result_payload。
+    """
+
+    from quant_pipeline.worker.kelly_sweep_runner import run_kelly_sweep
+
+    result = run_kelly_sweep(job)
+    _update_job_result(job.id, result)
+
+
 def _make_progress_callback(job_id: UUID) -> Any:
     """构造一个把进度回写 ml.jobs 的 callback，供 prepare_runner 使用。
 
@@ -374,6 +403,8 @@ _ROUTES = {
     "optuna": _runner_optuna,
     "seed_avg": _runner_seed_avg,
     "monitor": _runner_monitor,
+    # spec 2026-06-09 kelly_sweep
+    "kelly_sweep": _runner_kelly_sweep,
 }
 
 

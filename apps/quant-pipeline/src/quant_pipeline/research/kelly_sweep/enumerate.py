@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Literal
+from typing import Callable, Literal, Optional
 
 from sqlalchemy import text
 
@@ -144,7 +144,10 @@ def load_sse_calendar(date_start: str | None = None, date_end: str | None = None
     return [row[0] for row in rows]
 
 
-def enumerate_signals(config: SweepConfig) -> list[SignalRecord]:
+def enumerate_signals(
+    config: SweepConfig,
+    on_progress: Optional[Callable[[int, int], None]] = None,
+) -> list[SignalRecord]:
     """枚举 train+valid 区间内满足 base_trigger 且通过入场过滤的信号。
 
     步骤：
@@ -153,7 +156,9 @@ def enumerate_signals(config: SweepConfig) -> list[SignalRecord]:
     3. 买入日过滤：停牌（daily_quote 无行或 qfq_open 为空）、一字涨停、次新。
 
     Args:
-        config: SweepConfig，包含 base_trigger / universe / train_range / valid_range。
+        config:       SweepConfig，包含 base_trigger / universe / train_range / valid_range。
+        on_progress:  可选进度回调 `(done: int, total: int) -> None`；粗粒度，各过滤阶段完成后 emit。
+                      默认 None → 不回调，对现有 CLI/单测路径零影响。
 
     Returns:
         满足过滤的 SignalRecord 列表（按 signal_date 升序，同日按 ts_code 升序）。
@@ -183,6 +188,8 @@ def enumerate_signals(config: SweepConfig) -> list[SignalRecord]:
     # 为避免 N+1 查询，先枚举全部信号，再批量取 buy_date 的 quote 与 limit。
     raw_signals = _scan_indicator_signals(config.base_trigger, range_calendar, config.universe)
     logger.info("indicator 扫描完毕：%d 条原始信号", len(raw_signals))
+    if on_progress is not None:
+        on_progress(1, 3)  # 阶段 1/3：indicator 扫描完成
 
     # 5. 计算 buy_date（T+1），过滤越界信号
     with_buy_date: list[tuple[str, str, str]] = []  # (ts_code, signal_date, buy_date)
@@ -196,6 +203,8 @@ def enumerate_signals(config: SweepConfig) -> list[SignalRecord]:
         with_buy_date.append((ts_code, signal_date, buy_date))
 
     logger.info("T+1 推进后：%d 条信号", len(with_buy_date))
+    if on_progress is not None:
+        on_progress(2, 3)  # 阶段 2/3：T+1 推进完成
 
     # 6. 批量取 buy_date 的 quote（停牌过滤）与 limit（一字涨停过滤）
     buy_dates_unique = list({bd for _, _, bd in with_buy_date})
@@ -254,6 +263,8 @@ def enumerate_signals(config: SweepConfig) -> list[SignalRecord]:
         limit_up_count,
         new_listing_count,
     )
+    if on_progress is not None:
+        on_progress(3, 3)  # 阶段 3/3：过滤完成
     return results
 
 

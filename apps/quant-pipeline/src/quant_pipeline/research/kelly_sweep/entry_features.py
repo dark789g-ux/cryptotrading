@@ -21,12 +21,6 @@ import pandas as pd
 # THS 指数日线仅 2024-01-02 起（8 位字符串比较）
 _THS_MIN_DATE = "20240102"
 
-# RS 基准代码映射
-_RS_BENCHMARK_CODE: dict[str, str] = {
-    "hs300": "883300.TI",
-    "zz500": "883304.TI",
-}
-
 OpLiteral = Literal["lt", "lte", "gt", "gte", "eq", "neq"]
 
 

@@ -25,7 +25,7 @@ import hashlib
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import pandas as pd
 from sqlalchemy import text
@@ -90,6 +90,7 @@ def load_forward_paths(
     max_window: int,
     date_end: str,
     use_cache: bool = True,
+    on_progress: Optional[Callable[[int, int], None]] = None,
 ) -> list[ForwardPath]:
     """取每个信号 buy_date **之后**第一个可交易日起未来 ≤max_window 个可交易日的 qfq 路径。
 
@@ -115,6 +116,8 @@ def load_forward_paths(
         max_window: 前向最长可交易日数（停牌日不计；从 buy_date 之后第一个可交易日起算）。
         date_end: 路径数据截止日（YYYYMMDD），通常为 valid_range[1]。
         use_cache: 是否使用 parquet 缓存（默认 True）。
+        on_progress: 可选进度回调 `(done: int, total: int) -> None`；
+                     按已处理 ts_code 数 emit。默认 None → 不回调。
 
     Returns:
         ForwardPath 列表（过滤 buy_date 当日无 qfq_open、或 buy_date 之后无可交易日的条目）。
@@ -157,6 +160,8 @@ def load_forward_paths(
     # 预取每个 ts_code 在其联合窗口内的 quote 数据
     result_paths: list[ForwardPath] = []
     skipped = 0
+    _n_codes = len(ts_codes)
+    _done_codes = 0
 
     for ts_code, group_signals in groups.items():
         sym = symbol_map.get(ts_code)
@@ -247,6 +252,10 @@ def load_forward_paths(
                 )
             )
 
+        _done_codes += 1
+        if on_progress is not None:
+            on_progress(_done_codes, _n_codes)
+
     logger.info(
         "load_forward_paths 完成：%d 路径，跳过 %d 条",
         len(result_paths),
@@ -267,6 +276,7 @@ def load_forward_paths(
 def load_feature_inputs(
     signals: list[SignalRecord],
     history_window: int = 20,
+    on_progress: Optional[Callable[[int, int], None]] = None,
 ) -> tuple[pd.DataFrame, dict[tuple[str, str], pd.DataFrame]]:
     """取各信号 signal_date 的截面特征及历史窗口数据（供 T4 入场特征计算）。
 
@@ -337,6 +347,9 @@ def load_feature_inputs(
     )
     for col in ["qfq_close", "ma5", "ma30", "atr_14", "kdj_j", "vol"]:
         cross_df[col] = pd.to_numeric(cross_df[col], errors="coerce")
+
+    if on_progress is not None:
+        on_progress(1, 2)  # 截面数据加载完成
 
     # ── 2. 历史窗口：按 ts_code 分组批量预取 ─────────────────────────────────
     # 取「截至 signal_date 最近 history_window 个可交易日」的 qfq_pct_chg 和 vol。
@@ -417,18 +430,26 @@ def load_feature_inputs(
         if not window.empty:
             history_map[(ts_code, signal_date)] = window
 
+    if on_progress is not None:
+        on_progress(2, 2)  # 历史窗口数据加载完成
+
     return cross_df, history_map
 
 
-def load_index_daily(codes: list[str], date_range: tuple[str, str]) -> pd.DataFrame:
+def load_index_daily(
+    codes: list[str],
+    date_range: tuple[str, str],
+    on_progress: Optional[Callable[[int, int], None]] = None,
+) -> pd.DataFrame:
     """取 public.ths_index_daily_quotes 的日线数据。
 
     真 DB 核实列名（2026-06-09）：ts_code, trade_date, open, high, low, close, pct_change
     出处：psql 'backslash-d public.ths_index_daily_quotes'（2026-06-09 查得）
 
     Args:
-        codes: 指数代码列表，如 ['883300.TI', '883304.TI']。
-        date_range: (start, end) YYYYMMDD，含两端。
+        codes:       指数代码列表，如 ['883300.TI', '883304.TI']。
+        date_range:  (start, end) YYYYMMDD，含两端。
+        on_progress: 可选进度回调；加载完后 emit (1, 1)。默认 None。
     """
     if not codes:
         return pd.DataFrame(
@@ -454,6 +475,8 @@ def load_index_daily(codes: list[str], date_range: tuple[str, str]) -> pd.DataFr
     df = pd.DataFrame(rows, columns=cols)
     for col in ["open", "high", "low", "close", "pct_change"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
+    if on_progress is not None:
+        on_progress(1, 1)  # 指数日线加载完成
     return df
 
 

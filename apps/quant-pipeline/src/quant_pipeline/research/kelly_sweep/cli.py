@@ -48,7 +48,13 @@ from quant_pipeline.research.kelly_sweep.report import (
     rank_top_k,
     render_report,
 )
-from quant_pipeline.research.kelly_sweep.sweep import run_sweep, valid_rets_for
+from quant_pipeline.research.kelly_sweep.sweep import (
+    BENCH_CODE_MAP,
+    DEFAULT_EXIT_GRID,
+    build_exit_grid,
+    run_sweep,
+    valid_rets_for,
+)
 from quant_pipeline.research.kelly_sweep.types import BaseTrigger
 
 logger = logging.getLogger(__name__)
@@ -147,6 +153,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--max-entry-filters", type=int, default=2,
         help="单变体最多附加特征数（默认 2）",
+    )
+    p.add_argument(
+        "--exit-families", default="fixed_n,tp_sl,trailing,atr_stop",
+        help=(
+            "出场族逗号分隔，过滤 DEFAULT_EXIT_GRID 子集"
+            "（默认全选：fixed_n,tp_sl,trailing,atr_stop）"
+        ),
     )
     p.add_argument("-v", "--verbose", action="store_true", help="开启 DEBUG 日志")
 
@@ -309,11 +322,16 @@ def _run_sweep_pipeline(args: argparse.Namespace) -> int:
         top_k=args.top_k,
     )
 
+    # 构造出场网格（通过 build_exit_grid 过滤，与 Web 端口径一致）
+    exit_families = [f.strip() for f in args.exit_families.split(",") if f.strip()]
+    exit_grid = build_exit_grid(exit_families)
+
     output_dir = Path(args.output_dir)
 
     print(f"Kelly Sweep: {config.base_trigger}, universe={config.universe}")
     print(f"train={config.train_range}, valid={config.valid_range}")
     print(f"min_samples={config.min_samples}, top_k={config.top_k}")
+    print(f"exit_families={exit_families}, exit_grid 大小={len(exit_grid)}")
     print()
 
     # 1. 枚举信号
@@ -336,8 +354,7 @@ def _run_sweep_pipeline(args: argparse.Namespace) -> int:
 
     # 4. 加载指数日线（RS 基准）
     index_daily_df = None
-    _bench_code_map = {"hs300": "883300.TI", "zz500": "883304.TI"}
-    bench_codes = [_bench_code_map[b] for b in rs_benchmark if b in _bench_code_map]
+    bench_codes = [BENCH_CODE_MAP[b] for b in rs_benchmark if b in BENCH_CODE_MAP]
     if bench_codes:
         print(f"加载指数日线（{bench_codes}）...")
         index_daily_df = load_index_daily(
@@ -354,6 +371,7 @@ def _run_sweep_pipeline(args: argparse.Namespace) -> int:
         cross_section_df=cross_section_df,
         history_map=history_map,
         index_daily_df=index_daily_df,
+        exit_grid=exit_grid,
     )
     print(f"  ResultRow 数：{len(rows)}")
 

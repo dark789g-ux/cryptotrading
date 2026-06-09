@@ -23,7 +23,7 @@ from __future__ import annotations
 import itertools
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import pandas as pd
 
@@ -51,6 +51,15 @@ logger = logging.getLogger(__name__)
 # RS 数据时间硬约束（与 entry_features._THS_MIN_DATE 同源）
 # ─────────────────────────────────────────────────────────────────────────────
 _THS_MIN_DATE = "20240102"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RS 基准名 → THS 指数代码映射（单一真相源）
+# cli.py / kelly_sweep_runner.py 均从此处 import，禁止在别处硬编码副本。
+# ─────────────────────────────────────────────────────────────────────────────
+BENCH_CODE_MAP: dict[str, str] = {
+    "hs300": "883300.TI",
+    "zz500": "883304.TI",
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 默认网格常量（可被 run_sweep 的 entry_grid / exit_grid 参数覆盖）
@@ -107,6 +116,37 @@ for _k, _mh in itertools.product([1.5, 2.0, 3.0], [10, 20]):
 
 # 组合数警告阈值（spec 04§1）
 _COMBO_WARN_THRESHOLD = 5000
+
+# 合法出场族名称（与 DEFAULT_EXIT_GRID 的 type 字段一一对应）
+_KNOWN_EXIT_FAMILIES: frozenset[str] = frozenset(["fixed_n", "tp_sl", "trailing", "atr_stop"])
+
+
+def build_exit_grid(families: list[str]) -> list[dict[str, Any]]:
+    """从 DEFAULT_EXIT_GRID 按 type 过滤出指定族的子集。
+
+    runner 和 CLI 共用同一个函数，保证 Web 端与 CLI 端出场网格口径一致。
+
+    Args:
+        families: 出场族名称列表，子集 of {"fixed_n","tp_sl","trailing","atr_stop"}。
+
+    Returns:
+        DEFAULT_EXIT_GRID 中 type 属于 families 的子列表（顺序保持与 DEFAULT_EXIT_GRID 一致）。
+
+    Raises:
+        ValueError: families 为空（至少选一族）或含未知 type（fail-fast）。
+    """
+    if not families:
+        raise ValueError(
+            "build_exit_grid: families 不能为空，至少选一族（fixed_n/tp_sl/trailing/atr_stop）"
+        )
+    unknown = set(families) - _KNOWN_EXIT_FAMILIES
+    if unknown:
+        raise ValueError(
+            f"build_exit_grid: 含未知出场族 {sorted(unknown)!r}，"
+            f"合法值为 {sorted(_KNOWN_EXIT_FAMILIES)!r}"
+        )
+    family_set = set(families)
+    return [cfg for cfg in DEFAULT_EXIT_GRID if cfg["type"] in family_set]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -372,12 +412,9 @@ def _compute_feature_df(
     rs_vals: list[float] = []
 
     # 按 rs_benchmark 取基准 close 字典：{(code, date): close}
-    # 默认只用 hs300（883300.TI）；多基准未来可扩展
+    # 默认只用 hs300；多基准未来可扩展
     # 这里统一合并为 rs_vs_index 单列（单基准场景）
-    _rs_benchmark_code_map = {
-        "hs300": "883300.TI",
-        "zz500": "883304.TI",
-    }
+    # 注：基准代码映射使用模块级 BENCH_CODE_MAP，禁止在此重复硬编码。
 
     # 构建 index close 查找表：{(ts_code, trade_date): close}
     idx_close_lookup: dict[tuple[str, str], float] = {}
@@ -457,7 +494,7 @@ def _compute_feature_df(
             continue
 
         # 选择基准（默认 hs300，rs_benchmarks 列表第一项）
-        bench_code = _rs_benchmark_code_map.get(rs_benchmarks[0] if rs_benchmarks else "hs300")
+        bench_code = BENCH_CODE_MAP.get(rs_benchmarks[0] if rs_benchmarks else "hs300")
         if bench_code is None:
             # industry 基准（单信号时逻辑复杂，当前版本 rs 置 nan，避免静默出错）
             rs_vals.append(float("nan"))
@@ -575,6 +612,7 @@ def run_sweep(
     member_df: Optional[pd.DataFrame] = None,
     entry_filter_candidates: Optional[list[tuple[str, str, float]]] = None,
     exit_grid: Optional[list[dict[str, Any]]] = None,
+    on_progress: Optional[Callable[[int, int], None]] = None,
 ) -> list[ResultRow]:
     """网格扫描主入口。
 
@@ -588,6 +626,9 @@ def run_sweep(
         member_df:            load_member_map 产出的成份股映射（可选，industry RS 用）。
         entry_filter_candidates: 附加特征阈值候选列表（None 时用默认值）。
         exit_grid:            出场参数网格（None 时用默认值）。
+        on_progress:          可选进度回调 `(done: int, total: int) -> None`；
+                              外层 for variant 循环每完成一个变体后 emit (i+1, n_variants)。
+                              默认 None → 不回调，对现有 CLI/单测路径零影响。
 
     Returns:
         ResultRow 列表（每行 = 一个 (variant, exit) 组合的结果）。
@@ -658,10 +699,13 @@ def run_sweep(
     # ── 4. 扫描 ────────────────────────────────────────────────────────────
     results: list[ResultRow] = []
 
-    for variant in variants:
+    for _variant_i, variant in enumerate(variants):
         # 4a. 掩码取变体子集
         subset_df = _apply_variant_mask(feature_df, variant)
         if subset_df.empty:
+            # 变体被跳过，但仍 emit 进度（保持 done/total 单调递增）
+            if on_progress is not None:
+                on_progress(_variant_i + 1, n_variants)
             continue
 
         # 4b. 按 signal_date 切 train/valid（含 RS clamp 逻辑）
@@ -744,6 +788,10 @@ def run_sweep(
                     same_day_rule=config.same_day_rule,
                 )
             )
+
+        # 每完成一个变体（所有出场配置）后 emit 进度
+        if on_progress is not None:
+            on_progress(_variant_i + 1, n_variants)
 
     logger.info(
         "run_sweep 完成：%d ResultRow（变体=%d，出场=%d）",
