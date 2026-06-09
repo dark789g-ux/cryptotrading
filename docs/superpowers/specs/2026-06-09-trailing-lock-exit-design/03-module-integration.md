@@ -88,10 +88,15 @@
 一字涨停(买不进) = raw_open ≥ up_limit        # 仅入场端
 封死跌停(卖不出) = raw_high ≤ down_limit       # 仅出场端
 limit 缺失       = 该端约束不生效（不误杀）
-MA5             = 5日 qfq/hfq close 滚动均值，左扩≥4交易日预热，不足为 None
+MA5             = 5个"非停牌交易日"的 qfq/hfq close 滚动均值（停牌日不进窗口），左扩≥4交易日预热，不足为 None
 signal_high     = 信号日(T) 的 qfq/hfq high   # 与持仓期 low 同复权基准
 cost            = 持仓首日(T+1) 的 qfq/hfq open
+次新过滤         = 不进 band_lock 核；由各模块上游处理（见下）
 ```
+
+**次新（new_listing）过滤归属**（核函数不做，避免三模块口径分裂时背锅）：
+- signal-stats：沿用现有 `simulateTradeCore`（`signal-stats.simulator.ts:146-152`，T+1 距 list_date <60 个 SSE 交易日剔除），在 `decideBandLock` **之前**完成，已亲验。
+- exit_rules / kelly_sweep：沿用各自**上游 candidate / 信号生成**既有的次新口径；band_lock scheme **不额外**做次新过滤。实现前确认上游是否已含次新剔除，若三模块要求口径一致则在 candidate 层对齐（不在核内）。
 
 > 任一进 fail-fast 断言 / SQL join 键 / 硬编码的列名、后缀、表名，落地前按
 > [.claude/rules/data-integrity.md](../../../../.claude/rules/data-integrity.md) **亲查实体 / 真 DB 一条**再写，
