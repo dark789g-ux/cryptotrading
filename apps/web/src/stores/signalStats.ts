@@ -3,12 +3,11 @@ import { ref } from 'vue'
 import { signalStatsApi } from '../api/modules/strategy/signalStats'
 import type {
   SignalTestRun,
-  SignalTestTrade,
   CreateSignalTestDto,
   UpdateSignalTestDto,
-  TradesPage,
   SignalTestWithLatestRun,
   RetHistogramResult,
+  ListTradesParams,
 } from '../api/modules/strategy/signalStats'
 
 export const useSignalStatsStore = defineStore('signalStats', () => {
@@ -17,8 +16,7 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
   const loading = ref(false)
   const lastPollError = ref<string | null>(null)
 
-  // trades keyed by runId; histogram keyed by runId
-  const tradesMap = ref<Map<string, TradesPage>>(new Map())
+  // histogram keyed by runId
   const histogramMap = ref<Record<string, RetHistogramResult>>({})
 
   async function fetchTests() {
@@ -115,10 +113,8 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
     return data
   }
 
-  async function fetchTrades(runId: string, page = 1, pageSize = 50) {
-    const data = await signalStatsApi.listTrades(runId, page, pageSize)
-    tradesMap.value.set(runId, data)
-    return data
+  async function fetchTrades(runId: string, params: ListTradesParams = {}) {
+    return signalStatsApi.listTrades(runId, params)
   }
 
   return {
@@ -126,7 +122,6 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
     runningId,
     loading,
     lastPollError,
-    tradesMap,
     histogramMap,
     fetchTests,
     createTest,

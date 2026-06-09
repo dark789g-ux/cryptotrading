@@ -95,6 +95,19 @@ export interface TradesPage {
   total: number
 }
 
+export interface ListTradesParams {
+  page?: number
+  pageSize?: number
+  sortField?: 'tsCode' | 'signalDate' | 'buyDate' | 'exitDate' | 'buyPrice' | 'exitPrice' | 'ret' | 'holdDays' | 'exitReason'
+  sortOrder?: 'asc' | 'desc'
+  tsCode?: string
+  exitReason?: SignalTestTrade['exitReason']
+  retMin?: number
+  retMax?: number
+  holdDaysMin?: number
+  holdDaysMax?: number
+}
+
 export const signalStatsApi = {
   create(data: CreateSignalTestDto) {
     return post<SignalTest>(`${API_BASE}/signal-tests`, data)
@@ -129,10 +142,21 @@ export const signalStatsApi = {
     return request<SignalTestRun[]>(`${API_BASE}/signal-tests/${id}/runs`)
   },
 
-  listTrades(runId: string, page = 1, pageSize = 50) {
-    return request<TradesPage>(
-      `${API_BASE}/signal-tests/runs/${runId}/trades?page=${page}&pageSize=${pageSize}`,
-    )
+  listTrades(runId: string, params: ListTradesParams = {}) {
+    const qs = new URLSearchParams()
+    qs.set('page', String(params.page ?? 1))
+    qs.set('pageSize', String(params.pageSize ?? 50))
+    if (params.sortField) {
+      qs.set('sortField', params.sortField)
+      qs.set('sortOrder', params.sortOrder ?? 'asc')
+    }
+    if (params.tsCode) qs.set('tsCode', params.tsCode)
+    if (params.exitReason) qs.set('exitReason', params.exitReason)
+    if (params.retMin != null) qs.set('retMin', String(params.retMin))
+    if (params.retMax != null) qs.set('retMax', String(params.retMax))
+    if (params.holdDaysMin != null) qs.set('holdDaysMin', String(params.holdDaysMin))
+    if (params.holdDaysMax != null) qs.set('holdDaysMax', String(params.holdDaysMax))
+    return request<TradesPage>(`${API_BASE}/signal-tests/runs/${runId}/trades?${qs.toString()}`)
   },
 
   getRetHistogram(runId: string, bins = 25) {

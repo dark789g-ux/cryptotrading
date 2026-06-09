@@ -135,16 +135,7 @@
             <RetHistogram :run-id="latestRun.id" />
           </n-tab-pane>
           <n-tab-pane name="trades" tab="逐笔明细">
-            <n-data-table
-              :columns="tradeColumns"
-              :data="trades"
-              :loading="tradesLoading"
-              :bordered="false"
-              size="small"
-              :pagination="tradePagination"
-              remote
-              @update:page="handlePageChange"
-            />
+            <SignalTradesPanel :run-id="latestRun.id" />
           </n-tab-pane>
         </n-tabs>
       </template>
@@ -155,7 +146,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, h } from 'vue'
+import { ref, computed } from 'vue'
 import {
   NGrid,
   NGridItem,
@@ -163,26 +154,20 @@ import {
   NTooltip,
   NProgress,
   NAlert,
-  NDataTable,
   NTabs,
   NTabPane,
   NEmpty,
 } from 'naive-ui'
-import type { DataTableColumns } from 'naive-ui'
-import { useSignalStatsStore } from '../../stores/signalStats'
-import type {
-  SignalTestWithLatestRun,
-  SignalTestTrade,
-} from '../../api/modules/strategy/signalStats'
+import type { SignalTestWithLatestRun } from '../../api/modules/strategy/signalStats'
 import RetHistogram from '../../components/strategy/RetHistogram.vue'
+import SignalTradesPanel from '../../components/strategy/SignalTradesPanel.vue'
+import { fmtTradeDate } from '../../components/strategy/signalStatsFormatters'
 
 interface Props {
   test: SignalTestWithLatestRun
 }
 
 const props = defineProps<Props>()
-
-const store = useSignalStatsStore()
 
 const latestRun = computed(() => props.test.latestRun)
 
@@ -217,7 +202,7 @@ const progressPct = computed(() => {
   return Math.round((p.progressScanned / p.progressTotal) * 100)
 })
 
-// ── Formatting helpers ────────────────────────────────────────────────────────
+// ── Formatting helpers (metrics cards only) ────────────────────────────────────
 
 function fmtNullable(v: string | null | undefined): string {
   if (v === null || v === undefined) return '—'
@@ -252,120 +237,9 @@ function bestStyle(v: string | null | undefined): Record<string, string> {
   return n > 0 ? { color: '#18a058' } : {}
 }
 
-function fmtTradeDate(s: string): string {
-  if (!s || s.length !== 8) return s
-  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
-}
-
-function fmtRetPct(v: string): string {
-  const n = parseFloat(v)
-  if (isNaN(n)) return v
-  return (n * 100).toFixed(2) + '%'
-}
-
-// ── Tabs + trade detail ─────────────────────────────────────────────────────────
+// ── Tabs ────────────────────────────────────────────────────────────────────────
 
 const activeTab = ref<'histogram' | 'trades'>('histogram')
-const tradesLoaded = ref(false)
-const tradesLoading = ref(false)
-const tradePage = ref(1)
-const tradePageSize = 50
-
-const trades = computed<SignalTestTrade[]>(() => {
-  const run = latestRun.value
-  if (!run) return []
-  return store.tradesMap.get(run.id)?.items ?? []
-})
-
-const tradeTotal = computed(() => {
-  const run = latestRun.value
-  if (!run) return 0
-  return store.tradesMap.get(run.id)?.total ?? 0
-})
-
-const tradePagination = computed(() => ({
-  page: tradePage.value,
-  pageSize: tradePageSize,
-  itemCount: tradeTotal.value,
-  showSizePicker: false,
-}))
-
-async function loadTrades() {
-  const run = latestRun.value
-  if (!run) return
-  tradesLoading.value = true
-  try {
-    await store.fetchTrades(run.id, tradePage.value, tradePageSize)
-  } finally {
-    tradesLoading.value = false
-  }
-}
-
-async function handlePageChange(page: number) {
-  tradePage.value = page
-  await loadTrades()
-}
-
-// Lazy-load trade detail on first switch to the 'trades' tab.
-watch(activeTab, (tab) => {
-  if (tab === 'trades' && !tradesLoaded.value) {
-    tradesLoaded.value = true
-    loadTrades()
-  }
-})
-
-const tradeColumns: DataTableColumns<SignalTestTrade> = [
-  { title: '标的', key: 'tsCode', width: 110 },
-  {
-    title: '信号日',
-    key: 'signalDate',
-    render: (row) => fmtTradeDate(row.signalDate),
-  },
-  {
-    title: '买入日',
-    key: 'buyDate',
-    render: (row) => fmtTradeDate(row.buyDate),
-  },
-  {
-    title: '出场日',
-    key: 'exitDate',
-    render: (row) => fmtTradeDate(row.exitDate),
-  },
-  {
-    title: '买入价',
-    key: 'buyPrice',
-    render: (row) => parseFloat(row.buyPrice).toFixed(3),
-  },
-  {
-    title: '出场价',
-    key: 'exitPrice',
-    render: (row) => parseFloat(row.exitPrice).toFixed(3),
-  },
-  {
-    title: '收益率',
-    key: 'ret',
-    render: (row) => {
-      const n = parseFloat(row.ret)
-      const color = n >= 0 ? '#18a058' : '#d03050'
-      return h('span', { style: { color } }, fmtRetPct(row.ret))
-    },
-  },
-  { title: '持仓天数', key: 'holdDays' },
-  {
-    title: '出场原因',
-    key: 'exitReason',
-    render: (row) => {
-      const labelMap: Record<string, string> = {
-        max_hold: '强平',
-        signal: '信号',
-        delist: '退市',
-        stop: '止损',
-        ma5_exit: 'MA5离场',
-      }
-      return labelMap[row.exitReason] ?? row.exitReason
-    },
-  },
-]
 </script>
 
 <style scoped>
