@@ -89,6 +89,7 @@ const activeKey = computed(() => {
   if (name === 'quant-factors') return 'quant-factors'
   if (name === 'quant-labels') return 'quant-labels'
   if (name === 'quant-strategies') return 'quant-strategies'
+  if (name === 'quant-kelly-sweep') return 'quant-kelly-sweep'
   if (name?.startsWith('quant')) return 'quant-overview'
   return name
 })
@@ -119,6 +120,7 @@ const menuOptions = computed(() => [
             { label: '因子清单', key: 'quant-factors' },
             { label: '标签库', key: 'quant-labels' },
             { label: '策略管理', key: 'quant-strategies' },
+            { label: '凯利网格搜索', key: 'quant-kelly-sweep' },
           ],
         },
       ]
@@ -141,6 +143,7 @@ const QUANT_CHILD_KEYS = [
   'quant-factors',
   'quant-labels',
   'quant-strategies',
+  'quant-kelly-sweep',
 ]
 
 const expandedKeys = ref<string[]>([])

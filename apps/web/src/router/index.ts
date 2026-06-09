@@ -145,6 +145,13 @@ const routes: any[] = [
     component: () => import('../views/quant/QuantStrategiesView.vue'),
     meta: { title: '量化策略管理', requireAdmin: true },
   },
+  {
+    // kelly-sweep-web-console spec：凯利网格搜索操作台（admin-only，继承 /quant/* 守卫）
+    path: '/quant/kelly-sweep',
+    name: 'quant-kelly-sweep',
+    component: () => import('../views/quant/kelly-sweep/KellySweepView.vue'),
+    meta: { title: '凯利网格搜索', requireAdmin: true },
+  },
 ]
 
 const router = createRouter({
