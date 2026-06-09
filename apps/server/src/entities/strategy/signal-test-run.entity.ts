@@ -25,6 +25,9 @@ export class SignalTestRunEntity {
   @Column({ type: 'int', default: 0, name: 'progress_total' })
   progressTotal: number;
 
+  @Column({ type: 'varchar', length: 16, nullable: true, name: 'phase' })
+  phase: 'scanning' | 'simulating' | 'writing' | null;
+
   @Column({ type: 'text', nullable: true, name: 'error_message' })
   errorMessage: string | null;
 
