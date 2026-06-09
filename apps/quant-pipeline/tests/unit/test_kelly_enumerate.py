@@ -36,6 +36,31 @@ from quant_pipeline.research.kelly_sweep.types import Bar, BaseTrigger, ForwardP
 from quant_pipeline.research.kelly_sweep.config import SweepConfig
 
 
+def _q4(
+    qfq_open: float | None,
+    qfq_high: float | None,
+    qfq_low: float | None,
+    qfq_close: float | None,
+) -> dict[str, float | None]:
+    """构造 _fetch_quotes_for_ts 的行情 dict（band_lock 字段缺省 None）。
+
+    band_lock 改造后 _fetch_quotes_for_ts 返回 dict（含 raw_open/raw_high/ma5/up_limit/down_limit），
+    旧 4 元组 mock 统一经此 helper 转 dict；这些用例只验持有窗口/buy_price，band_lock 字段不参与，
+    故置 None（与无 daily_indicator/stk_limit 行的真实降级一致）。
+    """
+    return {
+        "qfq_open": qfq_open,
+        "qfq_high": qfq_high,
+        "qfq_low": qfq_low,
+        "qfq_close": qfq_close,
+        "raw_open": None,
+        "raw_high": None,
+        "ma5": None,
+        "up_limit": None,
+        "down_limit": None,
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. _find_last_index_le
 # ─────────────────────────────────────────────────────────────────────────────
@@ -384,12 +409,12 @@ class TestForwardPathConstruction:
         # bars 从 buy_date 之后起 → 候选 20240103/04(停)/05/08/09，max_window=3 取 03/05/08。
         def fake_fetch_quotes(ts_code, dates):
             data = {
-                "20240102": (10.0, 10.5, 9.8, 10.2),  # buy_date 当日，仅供 buy_price，不进 bars
-                "20240103": (10.1, 10.6, 10.0, 10.4),
+                "20240102": _q4(10.0, 10.5, 9.8, 10.2),  # buy_date 当日，仅供 buy_price，不进 bars
+                "20240103": _q4(10.1, 10.6, 10.0, 10.4),
                 # 20240104 缺失 → 停牌（跳过，不占额度）
-                "20240105": (10.6, 11.0, 10.5, 10.9),
-                "20240108": (10.9, 11.2, 10.8, 11.1),
-                "20240109": (11.1, 11.4, 11.0, 11.3),
+                "20240105": _q4(10.6, 11.0, 10.5, 10.9),
+                "20240108": _q4(10.9, 11.2, 10.8, 11.1),
+                "20240109": _q4(11.1, 11.4, 11.0, 11.3),
             }
             return {d: v for d, v in data.items() if d in dates}
 
@@ -436,8 +461,8 @@ class TestForwardPathConstruction:
         monkeypatch.setattr(
             "quant_pipeline.research.kelly_sweep.paths._fetch_quotes_for_ts",
             lambda ts_code, dates: {
-                "20240102": (12.34, 12.8, 12.1, 12.5),
-                "20240103": (12.5, 12.9, 12.3, 12.7),
+                "20240102": _q4(12.34, 12.8, 12.1, 12.5),
+                "20240103": _q4(12.5, 12.9, 12.3, 12.7),
             },
         )
 
@@ -467,8 +492,8 @@ class TestForwardPathConstruction:
         monkeypatch.setattr(
             "quant_pipeline.research.kelly_sweep.paths._fetch_quotes_for_ts",
             lambda ts_code, dates: {
-                "20240102": (10.0, 10.5, 9.8, 10.2),
-                "20240103": (10.2, 10.7, 10.0, 10.5),
+                "20240102": _q4(10.0, 10.5, 9.8, 10.2),
+                "20240103": _q4(10.2, 10.7, 10.0, 10.5),
             },
         )
 
@@ -494,8 +519,8 @@ class TestForwardPathConstruction:
         monkeypatch.setattr(
             "quant_pipeline.research.kelly_sweep.paths._fetch_quotes_for_ts",
             lambda ts_code, dates: {
-                "20240102": (10.0, 10.5, 9.8, 10.2),
-                "20240103": (10.2, 10.7, 10.0, 10.5),
+                "20240102": _q4(10.0, 10.5, 9.8, 10.2),
+                "20240103": _q4(10.2, 10.7, 10.0, 10.5),
             },
         )
 
@@ -551,7 +576,7 @@ class TestForwardPathConstruction:
         # 仅 buy_date(20240102) 有行情，之后全部停牌 → bars 收集到 0 条
         monkeypatch.setattr(
             "quant_pipeline.research.kelly_sweep.paths._fetch_quotes_for_ts",
-            lambda ts_code, dates: {"20240102": (10.0, 10.5, 9.8, 10.2)},
+            lambda ts_code, dates: {"20240102": _q4(10.0, 10.5, 9.8, 10.2)},
         )
 
         paths = load_forward_paths([signal], max_window=3, date_end="20240112", use_cache=False)
@@ -715,7 +740,7 @@ class TestForwardPathsHeavySuspension:
             result = {}
             for d in dates:
                 if d == "20240101" or d in self.TRADABLE:
-                    result[d] = (10.0, 10.5, 9.8, 10.2)
+                    result[d] = _q4(10.0, 10.5, 9.8, 10.2)
             return result
 
         monkeypatch.setattr(
@@ -767,7 +792,7 @@ class TestForwardPathsHeavySuspension:
 
         def fake_fetch(ts_code, dates):
             return {
-                d: (10.0, 10.5, 9.8, 10.2)
+                d: _q4(10.0, 10.5, 9.8, 10.2)
                 for d in dates
                 if d in tradable_late or d in buy_dates
             }

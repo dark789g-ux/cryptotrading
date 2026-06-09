@@ -40,6 +40,14 @@ class Bar:
 
     注意：加载时已剔除停牌日——停牌日不会出现在 ForwardPath.bars 中。
     价格均为前复权（qfq），与项目 signal_forward_stats 口径一致。
+
+    band_lock 出场族追加字段（其它出场族不读）：
+      - ma5：raw.daily_indicator.ma5（qfq_close 的 5 个非停牌交易日滚动均值，DB 现成，
+        与项目其它指标同口径；预热不足/无记录为 None）。
+      - raw_open/raw_high：未复权开/高价（raw.daily_quote.open/high），供一字涨停 / 封死跌停判定。
+      - up_limit/down_limit：raw.stk_limit 当日涨/跌停价（未复权）；缺该行时为 None（该端约束不生效）。
+    旧出场族（fixed_n/tp_sl/trailing/atr_stop）完全不读这些字段，故全部带默认值 None，
+    保证既有 Bar 构造点（含测试 make_bar）无需改动、零回归。
     """
 
     trade_date: str
@@ -56,6 +64,22 @@ class Bar:
 
     qfq_close: float
     """当日前复权收盘价（元）。"""
+
+    # ── band_lock 出场族专用（其它族不读；默认 None 保证旧构造点零改动）──────────
+    ma5: Optional[float] = None
+    """当日 MA5（raw.daily_indicator.ma5，qfq_close 5 非停牌交易日滚动均值）；无记录为 None。"""
+
+    raw_open: Optional[float] = None
+    """当日未复权开盘价（raw.daily_quote.open）；用于一字涨停判定。无则 None。"""
+
+    raw_high: Optional[float] = None
+    """当日未复权最高价（raw.daily_quote.high）；用于封死跌停判定。无则 None。"""
+
+    up_limit: Optional[float] = None
+    """当日涨停价（raw.stk_limit.up_limit，未复权）；缺行为 None（约束不生效）。"""
+
+    down_limit: Optional[float] = None
+    """当日跌停价（raw.stk_limit.down_limit，未复权）；缺行为 None（约束不生效）。"""
 
 
 @dataclass(frozen=True)
@@ -89,6 +113,23 @@ class ForwardPath:
     atr14_at_signal: Optional[float]
     """signal_date 当日的 ATR-14（元），供 atr_stop 出场规则使用；无数据则为 None。"""
 
+    # ── band_lock 出场族专用（其它族不读；默认 None 保证旧构造点零改动）──────────
+    signal_bar_high: Optional[float] = None
+    """信号日 T（signal_date）的前复权最高价 qfq_high，= 共享核 signal_high 入参。
+
+    band_lock 锁定条件 adj_low > signal_high 需此值；无数据则 None
+    （band_lock 模拟时缺此值无法锁定 → simulate_band_lock_exit 跳过该路径）。
+    """
+
+    buy_bar: Optional["Bar"] = None
+    """持仓首日 = buy_date(T+1) 当日的完整 Bar（含 ma5/raw/limit）。
+
+    kelly_sweep 的 bars[0] 是 buy_date **之后**第一日（不含 buy_date），而 band_lock 共享核
+    要求 bars[0] = 持仓首日 T+1、cost=adj_open(T+1)、方案由 adj_close(T+1) 判定。故 band_lock
+    适配时须把 buy_bar 拼回序列开头（[buy_bar] + bars）喂核。其它出场族不读此字段（它们用
+    path.buy_price 表达入场价、bars 表达持有日，口径独立、不受影响）。无数据则 None。
+    """
+
 
 @dataclass(frozen=True)
 class TradeResult:
@@ -98,12 +139,14 @@ class TradeResult:
     hold_days 为可交易持有日数（停牌日不计，对齐 simulator.ts tradableCount）。
 
     exit_reason 取值：
-        max_hold  — 到达 max_window 强制平仓
+        max_hold  — 到达 max_window / band_lock max_hold 强制平仓
         delist    — 退市前强制平仓
         tp        — 固定比例止盈触发
         sl        — 固定比例止损触发
         trailing  — 移动止损触发
         atr       — ATR 倍数止损触发
+        stop      — band_lock 跟踪止损触发
+        ma5_exit  — band_lock 锁定后 MA5 收盘离场
     """
 
     ts_code: str
@@ -124,8 +167,11 @@ class TradeResult:
     hold_days: int
     """持仓可交易日数（停牌日不计）。"""
 
-    exit_reason: Literal["max_hold", "delist", "tp", "sl", "trailing", "atr"]
-    """出场原因；同日双触发时按 SweepConfig.same_day_rule 决定。"""
+    exit_reason: Literal[
+        "max_hold", "delist", "tp", "sl", "trailing", "atr", "stop", "ma5_exit"
+    ]
+    """出场原因；同日双触发时按 SweepConfig.same_day_rule 决定。
+    stop/ma5_exit 仅 band_lock 出场族产出。"""
 
 
 @dataclass(frozen=True)

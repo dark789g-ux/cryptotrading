@@ -69,10 +69,17 @@ def _make_row(
 
 
 class TestBuildExitGrid:
-    def test_all_four_families_equals_default(self) -> None:
-        """build_exit_grid(全选四族) == DEFAULT_EXIT_GRID。"""
-        result = build_exit_grid(["fixed_n", "tp_sl", "trailing", "atr_stop"])
+    def test_all_families_equals_default(self) -> None:
+        """build_exit_grid(全选五族) == DEFAULT_EXIT_GRID（含 band_lock）。"""
+        result = build_exit_grid(["fixed_n", "tp_sl", "trailing", "atr_stop", "band_lock"])
         assert result == DEFAULT_EXIT_GRID
+
+    def test_four_families_excludes_band_lock(self) -> None:
+        """只选原四族 → 不含 band_lock，长度 = DEFAULT - band_lock 条数。"""
+        result = build_exit_grid(["fixed_n", "tp_sl", "trailing", "atr_stop"])
+        assert all(e["type"] != "band_lock" for e in result)
+        n_band_lock = sum(1 for e in DEFAULT_EXIT_GRID if e["type"] == "band_lock")
+        assert len(result) == len(DEFAULT_EXIT_GRID) - n_band_lock
 
     def test_single_family_fixed_n(self) -> None:
         """只选 fixed_n → 仅 fixed_n 类型的出场配置。"""

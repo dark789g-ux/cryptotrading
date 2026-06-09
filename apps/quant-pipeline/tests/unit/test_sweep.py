@@ -156,9 +156,14 @@ class TestDefaultExitGrid:
         atr = [e for e in DEFAULT_EXIT_GRID if e["type"] == "atr_stop"]
         assert len(atr) == 6
 
+    def test_band_lock_count(self) -> None:
+        """band_lock: max_hold ∈ {None,10,20} = 3 条（trailing_lock 出场族）。"""
+        band = [e for e in DEFAULT_EXIT_GRID if e["type"] == "band_lock"]
+        assert len(band) == 3
+
     def test_total_count(self) -> None:
-        """总计 5+36+6+6 = 53 条（spec 04§1）。"""
-        assert len(DEFAULT_EXIT_GRID) == 53
+        """总计 5+36+6+6+3 = 56 条（spec 04§1 + trailing_lock band_lock 出场族）。"""
+        assert len(DEFAULT_EXIT_GRID) == 56
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Literal, Optional
 
 from quant_pipeline.research.kelly_sweep.types import Bar, ForwardPath, TradeResult
+from quant_pipeline.strategy.band_lock_exit import BandLockBar, simulate_band_lock
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -287,3 +288,134 @@ def simulate_atr_stop(
     # 窗口耗尽
     last_bar = bars[-1]
     return _make_result(path, last_bar, hold_days=len(bars), exit_price=last_bar.qfq_close, exit_reason="max_hold")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. simulate_band_lock_exit（波段跟踪止损，复用 strategy/band_lock_exit.py 共享核）
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _to_band_lock_bar(bar: Bar) -> BandLockBar:
+    """把 kelly_sweep 的 Bar 适配成共享核 BandLockBar（adj_*=qfq_*）。
+
+    kelly_sweep 全程前复权（qfq）→ 共享核的复权基准 adj_* 直接喂 qfq_*。
+    Bar.bars 已剔停牌（停牌日不在序列内），故 is_suspended 恒 False；ma5/raw/limit
+    缺失时为 None，共享核各自按"该端约束不生效 / 不触发 MA5 离场"降级（不误杀）。
+    """
+    return BandLockBar(
+        adj_open=bar.qfq_open,
+        adj_high=bar.qfq_high,
+        adj_low=bar.qfq_low,
+        adj_close=bar.qfq_close,
+        ma5=bar.ma5,
+        raw_open=bar.raw_open,
+        raw_high=bar.raw_high,
+        up_limit=bar.up_limit,
+        down_limit=bar.down_limit,
+        is_suspended=False,
+    )
+
+
+def simulate_band_lock_exit(
+    path: ForwardPath,
+    *,
+    max_hold: Optional[int] = None,
+) -> Optional[TradeResult]:
+    """波段跟踪止损出场：把 path 适配后调 strategy/band_lock_exit.py 共享核。
+
+    口径对接（spec 03 §三 + 共享核 docstring）：
+      - 共享核约定 bars[0] = 持仓首日 T+1、cost=adj_open(T+1)、方案由 adj_close(T+1) 判定；
+        而 kelly_sweep 的 path.bars[0] 是 buy_date **之后**第一日（不含 buy_date），buy_date(T+1)
+        本身存于 path.buy_bar。故喂核序列 = [buy_bar] + path.bars（把持仓首日拼回开头）。
+      - signal_high = path.signal_bar_high（信号日 T 的 qfq_high）。
+      - 出场价直接用核给的复权价（exit_price，已是 qfq），ret = exit_price/buy_price - 1
+        （buy_price = buy_bar 的 qfq_open，即 path.buy_price）。
+
+    无交易（返回 None，不计入凯利样本，与 atr_stop 无 ATR 同形态）：
+      - 入场买不进：核返回 kind='no_entry'（buy_bar 一字涨停 raw_open≥up_limit / 停牌）。
+        注：kelly_sweep 上游 enumerate_signals 已按 buy_date 一字涨停剔信号，此分支通常不触发，
+        但保留以与其它两模块及 spec 口径一致、并防御 buy_bar 缺失。
+      - 数据不全：path.buy_bar 为 None 或 path.signal_bar_high 为 None（band_lock 必需输入缺失）。
+
+    退市 / 窗口耗尽兜底（核不处理，调用方收口，spec 01 §六）：
+      - 退市优先：若 path.bars 中存在 trade_date>=delist_date 的 bar（下标 j>=1），则核只在
+        delist 之前的 bar 上推进；核未在 delist 前出场 → 用 bars[j-1].qfq_close 强平、reason=delist
+        （与 _check_delist 现有口径一致：用上一有效 bar close、hold_days=j）。
+      - 窗口耗尽（核 no_exit 且无退市）：用最后一个 bar.qfq_close 强平、reason=max_hold
+        （与其它出场族窗口不足兜底一致）。
+
+    Args:
+        path:     ForwardPath（须含 buy_bar + signal_bar_high，由 load_forward_paths 填充）。
+        max_hold: band_lock 硬上限（已走过可交易持有日数）；None=不封顶。
+
+    Returns:
+        TradeResult；无交易时 None。
+    """
+    bars = path.bars
+    if not bars:
+        raise ValueError("ForwardPath.bars 为空，无法模拟出场")
+
+    # band_lock 必需输入缺失 → 无法模拟，按"无交易"处理（不计入样本）
+    if path.buy_bar is None or path.signal_bar_high is None:
+        return None
+
+    # ── 退市优先：截断 delist_date 当日及之后的 bar（核只在 delist 前推进）──────
+    # 与 _check_delist 口径一致：仅 j>=1 的 bar 触发退市（首个持有日 bars[0] 不被退市预占）。
+    delist_cut = len(bars)  # 默认不截断
+    if path.delist_date is not None:
+        for j in range(1, len(bars)):
+            if bars[j].trade_date >= path.delist_date:
+                delist_cut = j
+                break
+    held_bars = bars[:delist_cut]
+
+    # ── 喂核：[持仓首日 buy_bar] + delist 前的持有 bar ──────────────────────────
+    core_bars = [_to_band_lock_bar(path.buy_bar)] + [
+        _to_band_lock_bar(b) for b in held_bars
+    ]
+    outcome = simulate_band_lock(core_bars, path.signal_bar_high, max_hold=max_hold)
+
+    if outcome.kind == "no_entry":
+        return None
+
+    if outcome.kind == "exit":
+        # exit_index 是 core_bars 下标：0=buy_bar(持仓首日，核内不出场)、k>=1 → held_bars[k-1]。
+        # 共享核保证持仓首日不出场，故 exit_index>=1。
+        ei = outcome.exit_index
+        assert ei is not None and ei >= 1, (
+            f"band_lock 出场 exit_index 应 >=1（持仓首日不出场），实得 {ei!r}"
+        )
+        exit_bar = held_bars[ei - 1]
+        assert outcome.exit_price is not None
+        assert outcome.hold_days is not None
+        # band_lock 的 reason ∈ {stop, ma5_exit, max_hold}，均在 TradeResult.exit_reason 联合内。
+        reason: Literal["stop", "ma5_exit", "max_hold"] = outcome.reason  # type: ignore[assignment]
+        return _make_result(
+            path,
+            exit_bar,
+            hold_days=outcome.hold_days,
+            exit_price=outcome.exit_price,
+            exit_reason=reason,
+        )
+
+    # outcome.kind == 'no_exit'：核未出场（含顺延未解 / 窗口耗尽）→ 调用方收口
+    if delist_cut < len(bars):
+        # 退市优先：核在 delist 前未出场 → 用 delist 前一个有效 bar 的 qfq_close 强平
+        prev_bar = bars[delist_cut - 1]
+        return _make_result(
+            path,
+            prev_bar,
+            hold_days=delist_cut,
+            exit_price=prev_bar.qfq_close,
+            exit_reason="delist",
+        )
+
+    # 无退市、窗口耗尽 → 最后一个 bar qfq_close 强平
+    last_bar = bars[-1]
+    return _make_result(
+        path,
+        last_bar,
+        hold_days=len(bars),
+        exit_price=last_bar.qfq_close,
+        exit_reason="max_hold",
+    )

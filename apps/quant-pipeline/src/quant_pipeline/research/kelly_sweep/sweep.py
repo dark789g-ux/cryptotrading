@@ -38,6 +38,7 @@ from quant_pipeline.research.kelly_sweep.entry_features import (
 )
 from quant_pipeline.research.kelly_sweep.exits import (
     simulate_atr_stop,
+    simulate_band_lock_exit,
     simulate_fixed_n,
     simulate_tp_sl,
     simulate_trailing,
@@ -114,11 +115,19 @@ for _z, _mh in itertools.product([0.03, 0.05, 0.08], [10, 20]):
 for _k, _mh in itertools.product([1.5, 2.0, 3.0], [10, 20]):
     DEFAULT_EXIT_GRID.append({"type": "atr_stop", "k": _k, "max_hold": _mh})
 
+# band_lock: 波段跟踪止损（共享核 strategy/band_lock_exit.py）。
+# 参数仅 max_hold（已走过可交易持有日硬上限）；None=不封顶（核走窗口耗尽 no_exit→调用方兜底）。
+# 候选 {None, 10, 20}：不封顶 + 两档封顶，照 trailing/atr_stop 的 {10,20} 风格并补一条不封顶。
+for _mh in [None, 10, 20]:
+    DEFAULT_EXIT_GRID.append({"type": "band_lock", "max_hold": _mh})
+
 # 组合数警告阈值（spec 04§1）
 _COMBO_WARN_THRESHOLD = 5000
 
 # 合法出场族名称（与 DEFAULT_EXIT_GRID 的 type 字段一一对应）
-_KNOWN_EXIT_FAMILIES: frozenset[str] = frozenset(["fixed_n", "tp_sl", "trailing", "atr_stop"])
+_KNOWN_EXIT_FAMILIES: frozenset[str] = frozenset(
+    ["fixed_n", "tp_sl", "trailing", "atr_stop", "band_lock"]
+)
 
 
 def build_exit_grid(families: list[str]) -> list[dict[str, Any]]:
@@ -127,7 +136,7 @@ def build_exit_grid(families: list[str]) -> list[dict[str, Any]]:
     runner 和 CLI 共用同一个函数，保证 Web 端与 CLI 端出场网格口径一致。
 
     Args:
-        families: 出场族名称列表，子集 of {"fixed_n","tp_sl","trailing","atr_stop"}。
+        families: 出场族名称列表，子集 of {"fixed_n","tp_sl","trailing","atr_stop","band_lock"}。
 
     Returns:
         DEFAULT_EXIT_GRID 中 type 属于 families 的子列表（顺序保持与 DEFAULT_EXIT_GRID 一致）。
@@ -137,7 +146,8 @@ def build_exit_grid(families: list[str]) -> list[dict[str, Any]]:
     """
     if not families:
         raise ValueError(
-            "build_exit_grid: families 不能为空，至少选一族（fixed_n/tp_sl/trailing/atr_stop）"
+            "build_exit_grid: families 不能为空，"
+            "至少选一族（fixed_n/tp_sl/trailing/atr_stop/band_lock）"
         )
     unknown = set(families) - _KNOWN_EXIT_FAMILIES
     if unknown:
@@ -271,11 +281,20 @@ def _exit_id(exit_cfg: dict[str, Any]) -> str:
         return f"trailing(z={exit_cfg['z_pct']},mh={exit_cfg['max_hold']})"
     if t == "atr_stop":
         return f"atr_stop(k={exit_cfg['k']},mh={exit_cfg['max_hold']})"
+    if t == "band_lock":
+        # max_hold 可为 None（不封顶）；显式写出以与 mh=10/20 区分、保证 id 唯一。
+        return f"band_lock(mh={exit_cfg.get('max_hold')})"
     raise ValueError(f"未知出场类型 type={t!r}")
 
 
 def _run_exit(path: ForwardPath, exit_cfg: dict[str, Any], same_day_rule: str) -> Optional[float]:
-    """对单条路径运行出场模拟，返回 ret；atr_stop 无 ATR 数据时返回 None（跳过）。"""
+    """对单条路径运行出场模拟，返回 ret；无交易时返回 None（不计入凯利样本）。
+
+    None（跳过该信号）场景：
+      - atr_stop：atr14_at_signal 为 None（simulate_atr_stop 抛 ValueError）。
+      - band_lock：入场买不进（no_entry）或 buy_bar/signal_bar_high 缺失（simulate_band_lock_exit
+        直接返回 None）。
+    """
     t = exit_cfg["type"]
     try:
         if t == "fixed_n":
@@ -292,6 +311,12 @@ def _run_exit(path: ForwardPath, exit_cfg: dict[str, Any], same_day_rule: str) -
             trade = simulate_trailing(path, z_pct=exit_cfg["z_pct"], max_hold=exit_cfg["max_hold"])
         elif t == "atr_stop":
             trade = simulate_atr_stop(path, k=exit_cfg["k"], max_hold=exit_cfg["max_hold"])
+        elif t == "band_lock":
+            # max_hold 可缺/为 None（不封顶）；simulate_band_lock_exit 无交易时返回 None。
+            band_trade = simulate_band_lock_exit(path, max_hold=exit_cfg.get("max_hold"))
+            if band_trade is None:
+                return None
+            return band_trade.ret
         else:
             raise ValueError(f"未知出场类型 type={t!r}")
     except ValueError:

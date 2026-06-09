@@ -60,8 +60,10 @@ def _parquet_cache_path(cache_key: str) -> Path:
 
 
 # bars 语义版本：bars 改为「buy_date 之后第一个可交易日起」（不含 buy_date 当日）。
+# v3：Bar 增 ma5/raw_open/raw_high/up_limit/down_limit；ForwardPath 增 signal_bar_high/buy_bar
+#     （band_lock 出场族需）。新增列改变缓存 schema → bump 使旧 v2 parquet 自动失效重建。
 # 任何会改变缓存内容含义的口径调整都应 bump 此字面量，使旧缓存自动失效。
-_CACHE_SEMANTIC_VERSION = "v2_bars_after_buy"
+_CACHE_SEMANTIC_VERSION = "v3_band_lock_fields"
 
 
 def _make_cache_key(
@@ -176,16 +178,21 @@ def load_forward_paths(
             skipped += len(group_signals)
             continue
 
-        # 取 buy_date 起直到 date_end 的全部日历日作为 union_dates（口径：simulator.db.ts:131
-        # sseCalendar.slice(minBuyIdx).filter(d <= dateEnd)），不设 max_window*3 上界。
-        # 去掉 ×3 截断后，即使停牌密集或信号 buy_date 离散，也能凑满 max_window 个可交易日。
-        union_dates = [d for d in all_calendar[union_window_start_idx:] if d <= date_end]
+        # band_lock 需信号日 T（= 各 buy_date 的前一 SSE 交易日）的 qfq_high 作 signal_high。
+        # 各信号 signal_date 的最早者 = min_buy_date 的前一交易日，故 union 左端左扩 1 个交易日即覆盖
+        # 所有 signal_date。daily_indicator.ma5 是 DB 现成的滚动均值（已含历史预热），故 MA5 无需再
+        # 左扩取历史现算（区别于 spec 03 §三"qfq_close 滚动现算需左扩"的二手描述，见汇报）。
+        fetch_start_idx = max(0, union_window_start_idx - 1)
+
+        # 取 [signal_date, date_end] 的全部日历日作为 union_dates（持有窗口语义仍从 buy_date 起，
+        # 仅多预取 signal_date 一行供 signal_high；口径：simulator.db.ts:131 的左扩版）。
+        union_dates = [d for d in all_calendar[fetch_start_idx:] if d <= date_end]
 
         if not union_dates:
             skipped += len(group_signals)
             continue
 
-        # 一次性预取该 ts_code 在 union_dates 内的 quote
+        # 一次性预取该 ts_code 在 union_dates 内的行情（qfq OHLC + raw open/high + ma5 + up/down limit）
         quote_map = _fetch_quotes_for_ts(ts_code, union_dates)
 
         # 为每个信号构建 ForwardPath
@@ -199,10 +206,17 @@ def load_forward_paths(
             # 口径：signal-stats.simulator.ts:154。buy_date 行情已在 quote_map 内（union
             # 从 min_buy_date 起预取）。buy_date 当日停牌/无 qfq_open → 无法成交，跳过。
             buy_q = quote_map.get(sig.buy_date)
-            if buy_q is None or buy_q[0] is None:
+            if buy_q is None or buy_q["qfq_open"] is None:
                 skipped += 1
                 continue
-            buy_price = buy_q[0]
+            buy_price = buy_q["qfq_open"]
+
+            # band_lock 专用：持仓首日(buy_date=T+1) 的完整 Bar + 信号日(T) 的 qfq_high。
+            # buy_bar = buy_date 当日行（含 ma5/raw/limit），供共享核判方案/初始止损/入场。
+            buy_bar = _bar_from_quote(sig.buy_date, buy_q)
+            # signal_bar_high = signal_date(T) 的 qfq_high；signal_date 已在左扩 union 内预取。
+            sig_q = quote_map.get(sig.signal_date)
+            signal_bar_high = sig_q["qfq_high"] if sig_q is not None else None
 
             # bars 从 buy_date **之后**第一个可交易日起收集 ≤max_window 个有效可交易日
             # （不含 buy_date 当日）。口径对齐 NestJS fixed_n（见 docstring）。
@@ -219,19 +233,10 @@ def load_forward_paths(
                     # 停牌日：无 daily_quote 行，跳过、不占额度
                     # 口径：signal-stats.simulator.ts:239
                     continue
-                qfq_open, qfq_high, qfq_low, qfq_close = q
-                if qfq_open is None or qfq_close is None:
+                if q["qfq_open"] is None or q["qfq_close"] is None:
                     # qfq 价为空 → 视为停牌，跳过
                     continue
-                bars.append(
-                    Bar(
-                        trade_date=d,
-                        qfq_open=qfq_open,
-                        qfq_high=qfq_high if qfq_high is not None else qfq_open,
-                        qfq_low=qfq_low if qfq_low is not None else qfq_open,
-                        qfq_close=qfq_close,
-                    )
-                )
+                bars.append(_bar_from_quote(d, q))
                 tradable_count += 1
 
             if not bars:
@@ -249,6 +254,8 @@ def load_forward_paths(
                     bars=bars,
                     delist_date=delist_date or None,
                     atr14_at_signal=atr_map.get((ts_code, sig.signal_date)),
+                    signal_bar_high=signal_bar_high,
+                    buy_bar=buy_bar,
                 )
             )
 
@@ -507,6 +514,7 @@ def _save_paths_to_parquet(paths: list[ForwardPath], cache_path: Path) -> None:
     """
     rows = []
     for fp in paths:
+        bb = fp.buy_bar  # 持仓首日 Bar；band_lock 需，旧 path 可能为 None（防御）
         for i, bar in enumerate(fp.bars):
             rows.append(
                 {
@@ -516,12 +524,30 @@ def _save_paths_to_parquet(paths: list[ForwardPath], cache_path: Path) -> None:
                     "buy_price": fp.buy_price,
                     "delist_date": fp.delist_date,
                     "atr14_at_signal": fp.atr14_at_signal,
+                    # ── band_lock path 级字段（每行冗余存，还原时取首行）──────────
+                    "signal_bar_high": fp.signal_bar_high,
+                    "buy_bar_trade_date": bb.trade_date if bb is not None else None,
+                    "buy_bar_qfq_open": bb.qfq_open if bb is not None else None,
+                    "buy_bar_qfq_high": bb.qfq_high if bb is not None else None,
+                    "buy_bar_qfq_low": bb.qfq_low if bb is not None else None,
+                    "buy_bar_qfq_close": bb.qfq_close if bb is not None else None,
+                    "buy_bar_ma5": bb.ma5 if bb is not None else None,
+                    "buy_bar_raw_open": bb.raw_open if bb is not None else None,
+                    "buy_bar_raw_high": bb.raw_high if bb is not None else None,
+                    "buy_bar_up_limit": bb.up_limit if bb is not None else None,
+                    "buy_bar_down_limit": bb.down_limit if bb is not None else None,
                     "bar_index": i,
                     "trade_date": bar.trade_date,
                     "qfq_open": bar.qfq_open,
                     "qfq_high": bar.qfq_high,
                     "qfq_low": bar.qfq_low,
                     "qfq_close": bar.qfq_close,
+                    # ── band_lock 每根 bar 字段 ──────────────────────────────────
+                    "ma5": bar.ma5,
+                    "raw_open": bar.raw_open,
+                    "raw_high": bar.raw_high,
+                    "up_limit": bar.up_limit,
+                    "down_limit": bar.down_limit,
                 }
             )
     if not rows:
@@ -537,6 +563,13 @@ def _load_paths_from_parquet(cache_path: Path) -> list[ForwardPath]:
     if df.empty:
         return []
 
+    def _opt_f(row: object, col: str) -> float | None:
+        """parquet 列还原为 float|None；列缺失（旧 schema 已 bump 失效，防御）或 NaN → None。"""
+        if col not in row:  # type: ignore[operator]
+            return None
+        v = row[col]  # type: ignore[index]
+        return float(v) if pd.notna(v) else None
+
     paths: list[ForwardPath] = []
     grouped = df.groupby(["ts_code", "signal_date", "buy_date"], sort=False)
     for (ts_code, signal_date, buy_date), grp in grouped:
@@ -549,9 +582,32 @@ def _load_paths_from_parquet(cache_path: Path) -> list[ForwardPath]:
                 qfq_high=float(row["qfq_high"]),
                 qfq_low=float(row["qfq_low"]),
                 qfq_close=float(row["qfq_close"]),
+                ma5=_opt_f(row, "ma5"),
+                raw_open=_opt_f(row, "raw_open"),
+                raw_high=_opt_f(row, "raw_high"),
+                up_limit=_opt_f(row, "up_limit"),
+                down_limit=_opt_f(row, "down_limit"),
             )
             for _, row in grp.iterrows()
         ]
+
+        # ── band_lock path 级字段还原（buy_bar / signal_bar_high）────────────────
+        buy_bar: Bar | None = None
+        bb_td = first["buy_bar_trade_date"] if "buy_bar_trade_date" in first else None
+        if bb_td is not None and pd.notna(bb_td):
+            buy_bar = Bar(
+                trade_date=str(bb_td),
+                qfq_open=float(first["buy_bar_qfq_open"]),
+                qfq_high=float(first["buy_bar_qfq_high"]),
+                qfq_low=float(first["buy_bar_qfq_low"]),
+                qfq_close=float(first["buy_bar_qfq_close"]),
+                ma5=_opt_f(first, "buy_bar_ma5"),
+                raw_open=_opt_f(first, "buy_bar_raw_open"),
+                raw_high=_opt_f(first, "buy_bar_raw_high"),
+                up_limit=_opt_f(first, "buy_bar_up_limit"),
+                down_limit=_opt_f(first, "buy_bar_down_limit"),
+            )
+
         paths.append(
             ForwardPath(
                 ts_code=ts_code,
@@ -565,6 +621,8 @@ def _load_paths_from_parquet(cache_path: Path) -> list[ForwardPath]:
                     if pd.notna(first["atr14_at_signal"])
                     else None
                 ),
+                signal_bar_high=_opt_f(first, "signal_bar_high"),
+                buy_bar=buy_bar,
             )
         )
     return paths
@@ -591,20 +649,37 @@ def _prefetch_symbol_meta(ts_codes: list[str]) -> dict[str, dict[str, Optional[s
 def _fetch_quotes_for_ts(
     ts_code: str,
     dates: list[str],
-) -> dict[str, tuple[float | None, float | None, float | None, float | None]]:
-    """取某标的在指定日期集合内的 qfq_open/high/low/close。
+) -> dict[str, dict[str, float | None]]:
+    """取某标的在指定日期集合内的行情（qfq OHLC + raw open/high + ma5 + up/down limit）。
 
-    key = trade_date；停牌日无行，不在 map 中。
+    key = trade_date；停牌日无 daily_quote 行 → 不在 map 中。
+    daily_indicator / stk_limit 用 LEFT JOIN：缺行时对应字段为 None（不挡 quote 行）。
+
+    真 DB 核实（2026-06-09，本会话 psql \\d）：
+      - raw.daily_quote：open/high/low/close（未复权）+ qfq_open/qfq_high/qfq_low/qfq_close（前复权）
+      - raw.daily_indicator：ma5（qfq_close 5 非停牌交易日滚动均值，已验 600519.SH 20240108=1554.58）
+      - raw.stk_limit：up_limit/down_limit（未复权涨/跌停价），主键 (ts_code, trade_date)
+    join 键均 (ts_code, trade_date)。
     """
     if not dates:
         return {}
     engine = get_engine()
     sql = text(
         """
-        SELECT trade_date, qfq_open, qfq_high, qfq_low, qfq_close
-          FROM raw.daily_quote
-         WHERE ts_code = :ts_code
-           AND trade_date = ANY(:dates)
+        SELECT q.trade_date,
+               q.qfq_open, q.qfq_high, q.qfq_low, q.qfq_close,
+               q.open  AS raw_open,
+               q.high  AS raw_high,
+               i.ma5,
+               l.up_limit,
+               l.down_limit
+          FROM raw.daily_quote q
+          LEFT JOIN raw.daily_indicator i
+            ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
+          LEFT JOIN raw.stk_limit l
+            ON l.ts_code = q.ts_code AND l.trade_date = q.trade_date
+         WHERE q.ts_code = :ts_code
+           AND q.trade_date = ANY(:dates)
         """
     )
     with engine.connect() as conn:
@@ -614,9 +689,42 @@ def _fetch_quotes_for_ts(
         return float(v) if v is not None else None  # type: ignore[arg-type]
 
     return {
-        row[0]: (to_f(row[1]), to_f(row[2]), to_f(row[3]), to_f(row[4]))
+        row[0]: {
+            "qfq_open": to_f(row[1]),
+            "qfq_high": to_f(row[2]),
+            "qfq_low": to_f(row[3]),
+            "qfq_close": to_f(row[4]),
+            "raw_open": to_f(row[5]),
+            "raw_high": to_f(row[6]),
+            "ma5": to_f(row[7]),
+            "up_limit": to_f(row[8]),
+            "down_limit": to_f(row[9]),
+        }
         for row in rows
     }
+
+
+def _bar_from_quote(trade_date: str, q: dict[str, float | None]) -> Bar:
+    """从 _fetch_quotes_for_ts 的行情 dict 构造 Bar（qfq 缺失时降级到 qfq_open）。
+
+    调用前须保证 q['qfq_open'] / q['qfq_close'] 非空（持有窗口已剔停牌）。
+    qfq_high/qfq_low 缺失时退回 qfq_open（与原 load 口径一致）；ma5/raw/limit 透传，缺失为 None。
+    """
+    qfq_open = q["qfq_open"]
+    qfq_close = q["qfq_close"]
+    assert qfq_open is not None and qfq_close is not None
+    return Bar(
+        trade_date=trade_date,
+        qfq_open=qfq_open,
+        qfq_high=q["qfq_high"] if q["qfq_high"] is not None else qfq_open,
+        qfq_low=q["qfq_low"] if q["qfq_low"] is not None else qfq_open,
+        qfq_close=qfq_close,
+        ma5=q["ma5"],
+        raw_open=q["raw_open"],
+        raw_high=q["raw_high"],
+        up_limit=q["up_limit"],
+        down_limit=q["down_limit"],
+    )
 
 
 def _prefetch_atr14(signals: list[SignalRecord]) -> dict[tuple[str, str], float | None]:
