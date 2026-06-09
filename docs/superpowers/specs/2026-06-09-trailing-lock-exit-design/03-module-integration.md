@@ -98,6 +98,8 @@ cost            = 持仓首日(T+1) 的 qfq/hfq open
 - signal-stats：沿用现有 `simulateTradeCore`（`signal-stats.simulator.ts:146-152`，T+1 距 list_date <60 个 SSE 交易日剔除），在 `decideBandLock` **之前**完成，已亲验。
 - exit_rules / kelly_sweep：沿用各自**上游 candidate / 信号生成**既有的次新口径；band_lock scheme **不额外**做次新过滤。实现前确认上游是否已含次新剔除，若三模块要求口径一致则在 candidate 层对齐（不在核内）。
 
+**MA5 复权基差异（by-design，勿"对齐"）**：signal-stats / kelly_sweep 喂核 MA5 用 qfq（kelly_sweep 直接取 `raw.daily_indicator.ma5`，已验为 qfq 基），exit_rules 用 hfq。MA5 离场判据 `close<ma5 ∧ ma5<prev_ma5` 在各模块内 close 与 ma5 **同复权基**比较、相对关系自洽，与 [01 §一](./01-rule-semantics.md#一通用约定)「各模块用各自原生复权价」一致——这是有意设计，非 bug，**勿跨模块强行统一**。
+
 > 任一进 fail-fast 断言 / SQL join 键 / 硬编码的列名、后缀、表名，落地前按
 > [.claude/rules/data-integrity.md](../../../../.claude/rules/data-integrity.md) **亲查实体 / 真 DB 一条**再写，
 > 不采信本文及子代理转述（kelly_sweep / runner.py 行号均二手）。
