@@ -19,9 +19,9 @@ dependencies = [
     "numpy>=1.26",
     "tushare>=1.4",
 
-    # ---- M1/M2 加（占位，避免污染 M0 lock）----
+    # ---- M1/M2 加 ----
     # "polars>=0.20",
-    # "pyarrow>=15",
+    "pyarrow>=15",
     # ---- M2 Part G：LightGBM LambdaRank 训练 + inference ----
     "lightgbm>=4.3",
     "scikit-learn>=1.4",
