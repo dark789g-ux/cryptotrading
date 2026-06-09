@@ -28,6 +28,11 @@ import {
 /** 批量出场模拟默认组间并发上界（峰值在途连接 ≤ 此值，留余量给 PG pool max=10）。 */
 export const DEFAULT_BATCH_CONCURRENCY = 8;
 
+/** trailing_lock MA5 窗口长度（5 个非停牌交易日 qfq_close 均值）。 */
+export const MA5_WINDOW = 5;
+/** trailing_lock 取数左扩预热交易日数（buy 日 MA5 需 T-3..T+1，至少前推 4 个交易日）。 */
+export const MA5_PREHEAT_TRADING_DAYS = 4;
+
 /**
  * 批量出场模拟入参（按 ts_code 分组 + 内存切窗 + 有界并发）。
  *
@@ -130,9 +135,26 @@ export class SignalStatsSimulator {
       for (const p of prelims) if (p.prelim.buyIdx < minBuyIdx) minBuyIdx = p.prelim.buyIdx;
       const unionWindow = sseCalendar.slice(minBuyIdx).filter((d) => d <= dateEnd);
 
+      // 3c-bis. trailing_lock 须左扩取数：MA5 预热（buy 日 MA5 需 T-3..T+1）+ signalHigh=qfqHigh(T)。
+      //   T = buyIdx-1（最早 = minBuyIdx-1），再前推 MA5_PREHEAT_TRADING_DAYS 个交易日做预热。
+      //   左扩仅影响 quote/limit 预取与 MA5 滚动，**不**改各信号 windowDates（buy 日起的持有窗口语义不变）。
+      const isBandLock = exit.mode === 'trailing_lock';
+      const extStartIdx = isBandLock
+        ? Math.max(0, minBuyIdx - 1 - MA5_PREHEAT_TRADING_DAYS)
+        : minBuyIdx;
+      const fetchWindow = isBandLock
+        ? sseCalendar.slice(extStartIdx).filter((d) => d <= dateEnd)
+        : unionWindow;
+
       // 3d. 组内串行 await（勿 Promise.all——连接池峰值约束在组间并发，组内顺序 fetch）。
-      const quoteMap = await this.fetchQuotes(tsCode, unionWindow);
-      const limitMap = await this.fetchLimits(tsCode, unionWindow);
+      const quoteMap = await this.fetchQuotes(tsCode, fetchWindow);
+      const limitMap = await this.fetchLimits(tsCode, fetchWindow);
+      let downLimitMap: Map<string, number | null> | undefined;
+      if (isBandLock) {
+        // MA5 在 fetchWindow 的非停牌 qfq_close 序列上滚动现算，写回各 quote 行（仅非停牌日有 ma5）。
+        attachMa5(fetchWindow, quoteMap, MA5_WINDOW);
+        downLimitMap = await this.fetchDownLimits(tsCode, fetchWindow);
+      }
       let hitSet = new Set<string>();
       if (exit.mode === 'strategy') {
         // 对整个 unionWindow 查；buildHoldingDays 的 idx>0 会逐信号排除各自 buyDate，故安全。
@@ -154,13 +176,26 @@ export class SignalStatsSimulator {
         const { signal, buyIdx, windowDates } = prelim;
         let daysSinceList: number | null = null;
         if (hasListAnchor && effListIdx >= 0) daysSinceList = buyIdx - effListIdx;
-        const days = buildHoldingDays(windowDates, quoteMap, limitMap, hitSet);
+        const days = buildHoldingDays(
+          windowDates,
+          quoteMap,
+          limitMap,
+          hitSet,
+          isBandLock ? { downLimitMap } : undefined,
+        );
+        // trailing_lock：signalHigh = qfq_high(T)，T = buyIdx-1（已在 fetchWindow 内，因左扩覆盖 T）。
+        let signalHigh: number | undefined;
+        if (isBandLock) {
+          const signalDateT = sseCalendar[buyIdx - 1];
+          signalHigh = quoteMap.get(signalDateT)?.qfqHigh ?? undefined;
+        }
         outcomes[index] = simulateTradeCore({
           tsCode,
           signalDate: signal.signalDate,
           days,
           daysSinceList,
           delistDate,
+          signalHigh,
           exit,
         });
       }
@@ -199,12 +234,25 @@ export class SignalStatsSimulator {
     return map;
   }
 
-  /** 批量取某标的若干交易日的 qfq_open/qfq_close/open。停牌日无行（map 不含该 key）。 */
+  /**
+   * 批量取某标的若干交易日的 quote 行。停牌日无行（map 不含该 key）。
+   * 列已亲验存在（2026-06-09 真 DB information_schema 核对）：
+   *   raw.daily_quote 同行有 qfq_open/qfq_high/qfq_low/qfq_close 与 raw open/high/low/close。
+   * qfq_high/qfq_low/high(=rawHigh) 供 trailing_lock 用；fixed_n/strategy 不读这些字段（行为零漂移）。
+   */
   private async fetchQuotes(tsCode: string, dates: string[]): Promise<Map<string, WindowQuote>> {
     const rows = await this.dataSource.query<
-      Array<{ trade_date: string; qfq_open: string | null; qfq_close: string | null; open: string | null }>
+      Array<{
+        trade_date: string;
+        qfq_open: string | null;
+        qfq_high: string | null;
+        qfq_low: string | null;
+        qfq_close: string | null;
+        open: string | null;
+        high: string | null;
+      }>
     >(
-      `SELECT trade_date, qfq_open, qfq_close, open
+      `SELECT trade_date, qfq_open, qfq_high, qfq_low, qfq_close, open, high
          FROM raw.daily_quote
         WHERE ts_code = $1 AND trade_date = ANY($2::text[])`,
       [tsCode, dates],
@@ -215,6 +263,9 @@ export class SignalStatsSimulator {
         qfqOpen: toNum(r.qfq_open),
         qfqClose: toNum(r.qfq_close),
         open: toNum(r.open),
+        qfqHigh: toNum(r.qfq_high),
+        qfqLow: toNum(r.qfq_low),
+        high: toNum(r.high),
       });
     }
     return map;
@@ -230,6 +281,27 @@ export class SignalStatsSimulator {
     );
     const map = new Map<string, number | null>();
     for (const r of rows) map.set(r.trade_date, toNum(r.up_limit));
+    return map;
+  }
+
+  /**
+   * 批量取某标的若干交易日的 down_limit（未复权跌停价）。trailing_lock 封死跌停判定用。
+   * 列已亲验存在（2026-06-09 真 DB information_schema 核对：raw.stk_limit 有 up_limit/down_limit）。
+   */
+  private async fetchDownLimits(
+    tsCode: string,
+    dates: string[],
+  ): Promise<Map<string, number | null>> {
+    const rows = await this.dataSource.query<
+      Array<{ trade_date: string; down_limit: string | null }>
+    >(
+      `SELECT trade_date, down_limit
+         FROM raw.stk_limit
+        WHERE ts_code = $1 AND trade_date = ANY($2::text[])`,
+      [tsCode, dates],
+    );
+    const map = new Map<string, number | null>();
+    for (const r of rows) map.set(r.trade_date, toNum(r.down_limit));
     return map;
   }
 
@@ -272,4 +344,30 @@ function toNum(v: string | null | undefined): number | null {
   if (v === null || v === undefined) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * 在 fetchWindow 的**非停牌**（quoteMap 有行且 qfqClose 非空）qfq_close 序列上滚动现算 MA5，写回各 quote 行。
+ *
+ * 口径（spec 01 §六 + 03 §四）：MA5 = 最近 `win` 个**非停牌交易日** qfq_close 的均值（含当日）；
+ * 停牌日不进窗口（quoteMap 无 key 或 qfqClose=null → 跳过、不写 ma5）；不足 `win` 个 → ma5 留 null（预热不足）。
+ * 与 buildHoldingDays 的 hasQuote 口径一致：只有有 quote 的交易日参与滚动。
+ *
+ * dates 须升序（fetchWindow 来自 sseCalendar.slice，天然升序）。
+ */
+export function attachMa5(
+  dates: string[],
+  quoteMap: Map<string, WindowQuote>,
+  win: number,
+): void {
+  const buf: number[] = []; // 最近 win 个非停牌 qfq_close（升序）
+  let sum = 0;
+  for (const d of dates) {
+    const q = quoteMap.get(d);
+    if (!q || q.qfqClose === null) continue; // 停牌日：不进窗口、不写 ma5
+    buf.push(q.qfqClose);
+    sum += q.qfqClose;
+    if (buf.length > win) sum -= buf.shift()!;
+    q.ma5 = buf.length === win ? sum / win : null; // 不足 win 个 → 预热不足
+  }
 }

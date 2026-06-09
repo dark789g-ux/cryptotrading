@@ -263,8 +263,16 @@ export class SignalStatsService {
       if (dto.maxHold < 1) {
         throw new BadRequestException('maxHold 必须 ≥ 1');
       }
+    } else if (dto.exitMode === 'trailing_lock') {
+      // trailing_lock：maxHold 可选（留空=无硬上限）；若填须为整数且 ≥1。
+      // 无 horizonN / exitConditions 必填项。
+      if (dto.maxHold !== undefined && dto.maxHold !== null) {
+        if (!Number.isInteger(dto.maxHold) || dto.maxHold < 1) {
+          throw new BadRequestException('exitMode=trailing_lock 时 maxHold 须为整数且 ≥ 1');
+        }
+      }
     } else {
-      throw new BadRequestException('exitMode 必须为 fixed_n 或 strategy');
+      throw new BadRequestException('exitMode 必须为 fixed_n、strategy 或 trailing_lock');
     }
 
     // 3. universe.type='list' 时 tsCodes 非空

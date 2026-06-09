@@ -21,8 +21,10 @@ export interface CreateSignalTestDto {
    * 出场模式：
    * - `fixed_n`：固定 N 个交易日出场，须同时填 horizonN。
    * - `strategy`：卖出条件命中出场（或达到 maxHold 兜底），须同时填 exitConditions + maxHold。
+   * - `trailing_lock`：波段跟踪止损（锁定 + MA5 收盘离场 + 跌停顺延），可选 maxHold 硬上限；
+   *   无 horizonN、无 exitConditions。
    */
-  exitMode: 'fixed_n' | 'strategy';
+  exitMode: 'fixed_n' | 'strategy' | 'trailing_lock';
 
   /**
    * fixed_n 模式：持有到 buy_date 后第 N 个实际可交易日。
@@ -37,8 +39,9 @@ export interface CreateSignalTestDto {
   exitConditions?: StrategyConditionItem[];
 
   /**
-   * strategy 模式：最长持有可交易日数（兜底强平）。
-   * exitMode='strategy' 时必填且 ≥1。
+   * 最长持有可交易日数（兜底强平）。
+   * - exitMode='strategy' 时必填且 ≥1。
+   * - exitMode='trailing_lock' 时可选（留空=无硬上限）；若填须为整数且 ≥1。
    */
   maxHold?: number;
 

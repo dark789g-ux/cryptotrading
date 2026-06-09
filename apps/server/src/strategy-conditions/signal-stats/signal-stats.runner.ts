@@ -120,10 +120,17 @@ export class SignalStatsRunner {
     }
 
     // ── 4. 构造 exit 配置
-    const exit: ExitConfig =
-      exitMode === 'fixed_n'
-        ? { mode: 'fixed_n', horizonN: horizonN! }
-        : { mode: 'strategy', maxHold: maxHold! };
+    //   trailing_lock 必须在 strategy 之前显式分支：否则会落进 {mode:'strategy', maxHold: maxHold!}
+    //   导致行为错乱（trailing_lock 的 maxHold 可空、且走的是 decideBandLock 而非 decideStrategy）。
+    let exit: ExitConfig;
+    if (exitMode === 'fixed_n') {
+      exit = { mode: 'fixed_n', horizonN: horizonN! };
+    } else if (exitMode === 'trailing_lock') {
+      // maxHold 可选（留空=无硬上限）；null/undefined 统一收敛为 undefined。
+      exit = { mode: 'trailing_lock', maxHold: maxHold ?? undefined };
+    } else {
+      exit = { mode: 'strategy', maxHold: maxHold! };
+    }
 
     // ── 5. 批量模拟出场（按 tsCode 分组预取 + 内存切窗 + 有界并发）
     const trades: SimulatedTrade[] = [];

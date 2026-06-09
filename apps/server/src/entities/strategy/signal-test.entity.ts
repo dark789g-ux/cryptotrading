@@ -23,8 +23,9 @@ export class SignalTestEntity {
   @Column({ type: 'jsonb', name: 'buy_conditions' })
   buyConditions: StrategyConditionItem[];
 
+  // 列为 varchar(16) 无 DB CHECK；trailing_lock 波段跟踪止损出场新增（spec，无需迁移）。
   @Column({ type: 'varchar', length: 16, name: 'exit_mode' })
-  exitMode: 'fixed_n' | 'strategy';
+  exitMode: 'fixed_n' | 'strategy' | 'trailing_lock';
 
   @Column({ type: 'int', nullable: true, name: 'horizon_n' })
   horizonN: number | null;

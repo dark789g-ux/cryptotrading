@@ -39,8 +39,9 @@ export class SignalTestTradeEntity {
   @Column({ type: 'int', name: 'hold_days' })
   holdDays: number;
 
+  // 列为 varchar(16) 无 DB CHECK；trailing_lock 出场新增 'stop'/'ma5_exit'（spec 03 §1.3，无需迁移）。
   @Column({ type: 'varchar', length: 16, name: 'exit_reason' })
-  exitReason: 'max_hold' | 'signal' | 'delist';
+  exitReason: 'max_hold' | 'signal' | 'delist' | 'stop' | 'ma5_exit';
 
   @ManyToOne(() => SignalTestRunEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'run_id' })

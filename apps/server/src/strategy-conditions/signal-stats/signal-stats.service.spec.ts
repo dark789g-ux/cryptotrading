@@ -146,6 +146,56 @@ describe('SignalStatsService - DTO validation', () => {
     });
   });
 
+  describe('exitMode=trailing_lock', () => {
+    const baseTrailingLock: Partial<CreateSignalTestDto> = {
+      exitMode: 'trailing_lock',
+      // 复用 maxHold 字段、可选；不带 horizonN / exitConditions。
+      horizonN: undefined,
+    };
+
+    it('留空 maxHold（无硬上限）通过校验', async () => {
+      const svc = makeService();
+      await expect(
+        svc.create(buildValidDto({ ...baseTrailingLock, maxHold: undefined })),
+      ).resolves.toBeDefined();
+    });
+
+    it('合法 maxHold=10 通过校验', async () => {
+      const svc = makeService();
+      await expect(
+        svc.create(buildValidDto({ ...baseTrailingLock, maxHold: 10 })),
+      ).resolves.toBeDefined();
+    });
+
+    it('maxHold=0 时抛 400', async () => {
+      const svc = makeService();
+      await expect(
+        svc.create(buildValidDto({ ...baseTrailingLock, maxHold: 0 })),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('maxHold 非整数（1.5）时抛 400', async () => {
+      const svc = makeService();
+      await expect(
+        svc.create(buildValidDto({ ...baseTrailingLock, maxHold: 1.5 })),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('不强制 horizonN / exitConditions（均缺省仍通过）', async () => {
+      const svc = makeService();
+      await expect(
+        svc.create(
+          buildValidDto({
+            ...baseTrailingLock,
+            maxHold: undefined,
+            horizonN: undefined,
+            exitConditions: undefined,
+          }),
+        ),
+      ).resolves.toBeDefined();
+    });
+  });
+
   describe('universe', () => {
     it('type=list 且 tsCodes 为空时抛 400', async () => {
       const svc = makeService();

@@ -30,7 +30,7 @@ export interface SimulatedTrade {
   exitPrice: number;
   ret: number;
   holdDays: number;
-  exitReason: 'max_hold' | 'signal' | 'delist';
+  exitReason: 'max_hold' | 'signal' | 'delist' | 'stop' | 'ma5_exit';
 }
 
 export type FilterReason =
@@ -66,10 +66,23 @@ export interface HoldingDaySnapshot {
   qfqOpen: number | null;
   /** 前复权收盘价；停牌日为 null。出场取此作 exitPrice。 */
   qfqClose: number | null;
+  /** 前复权最高价；停牌日为 null。trailing_lock 暂不直接用（信号日 high 走 SimulationInput.signalHigh）。 */
+  qfqHigh: number | null;
+  /** 前复权最低价；停牌日为 null。trailing_lock 跟踪止损 / 锁定判定基准。 */
+  qfqLow: number | null;
   /** 未复权开盘价；用于一字涨停判定（与未复权 up_limit 比，判定计价分离）。停牌日 null。 */
   rawOpen: number | null;
+  /** 未复权最高价；用于封死跌停判定（与未复权 down_limit 比）。停牌日 null。 */
+  rawHigh: number | null;
   /** 当日涨停价（未复权）；缺失为 null（缺失则不触发涨停过滤）。 */
   upLimit: number | null;
+  /** 当日跌停价（未复权）；缺失为 null（缺失则封死跌停约束不生效）。 */
+  downLimit: number | null;
+  /**
+   * 5 个**非停牌交易日**前复权收盘价的均值（含当日）；预热不足（窗口左扩不够 / 早期停牌）为 null。
+   * trailing_lock 锁定后 MA5 收盘离场判定基准；fixed_n / strategy 模式不读。
+   */
+  ma5: number | null;
   /**
    * strategy 出场模式下，该日该 ts_code 是否命中**卖出条件**。
    * fixed_n 模式此字段无意义（纯函数不读）；strategy 模式由 DB 层逐日锚定 buildAShareQuery 填充。
@@ -97,13 +110,19 @@ export interface SimulationInput {
    * 退市日（YYYYMMDD），来自 a_share_symbols.delist_date；为空（未退市）→ null（永不触发退市强平）。
    */
   delistDate: string | null;
+  /**
+   * 信号 K 线 T 的前复权最高价 qfq_high(T)。trailing_lock 锁定判定基准（adj_low > signalHigh → 锁定）。
+   * 仅 trailing_lock 模式读取；fixed_n / strategy 模式不读（可省略）。
+   */
+  signalHigh?: number;
   /** 出场配置。 */
   exit: ExitConfig;
 }
 
 export type ExitConfig =
   | { mode: 'fixed_n'; horizonN: number }
-  | { mode: 'strategy'; maxHold: number };
+  | { mode: 'strategy'; maxHold: number }
+  | { mode: 'trailing_lock'; maxHold?: number };
 
 /** 次新过滤阈值：buy_date 距 list_date < 60 个 SSE 交易日 → 剔除。 */
 export const NEW_LISTING_MIN_TRADING_DAYS = 60;
@@ -154,18 +173,32 @@ export function simulateTradeCore(input: SimulationInput): SimulationOutcome {
   const buyPrice = buyDay.qfqOpen;
 
   // ── 3. 出场推进。
-  const decision =
-    exit.mode === 'fixed_n'
-      ? decideFixedN(days, exit.horizonN, delistDate)
-      : decideStrategy(days, exit.maxHold, delistDate);
+  let decision: ExitDecision | null;
+  if (exit.mode === 'fixed_n') {
+    decision = decideFixedN(days, exit.horizonN, delistDate);
+  } else if (exit.mode === 'strategy') {
+    decision = decideStrategy(days, exit.maxHold, delistDate);
+  } else {
+    // trailing_lock：signalHigh 缺失视为无效输入 → 数据不足（不静默当 0/Infinity 处理）。
+    if (input.signalHigh === undefined) {
+      return { kind: 'filtered', reason: 'insufficient_data' };
+    }
+    decision = decideBandLock(days, {
+      signalHigh: input.signalHigh,
+      maxHold: exit.maxHold,
+      delistDate,
+    });
+  }
 
   if (decision === null) {
-    // 数据不足以走到出场（窗口在凑满 N / max_hold 前耗尽，且未触发退市）。
+    // 数据不足以走到出场（窗口在凑满 N / max_hold 前耗尽，且未触发退市/止损/MA5）。
     return { kind: 'filtered', reason: 'insufficient_data' };
   }
 
   const { exitDay, exitReason, holdDays } = decision;
-  const exitPrice = exitDay.qfqClose;
+  // trailing_lock 的止损成交价≠qfq_close（跳空低开取 open），由 decision 显式给出 exitPrice；
+  // fixed_n / strategy / delist 不给（undefined）→ 沿用历史口径取 exit_day 的 qfq_close。
+  const exitPrice = decision.exitPrice ?? exitDay.qfqClose;
   if (exitPrice === null) {
     // 兜底：出场日竟无 qfq_close（理论上 decide* 只会选 hasQuote 日）→ 数据不足。
     return { kind: 'filtered', reason: 'insufficient_data' };
@@ -191,7 +224,12 @@ export function simulateTradeCore(input: SimulationInput): SimulationOutcome {
 
 interface ExitDecision {
   exitDay: HoldingDaySnapshot;
-  exitReason: 'max_hold' | 'signal' | 'delist';
+  exitReason: 'max_hold' | 'signal' | 'delist' | 'stop' | 'ma5_exit';
+  /**
+   * 显式出场成交价（前复权）。trailing_lock 止损成交价≠qfq_close（跳空低开取 open，故 min(stop,open)），
+   * 由 decideBandLock 给出；其余 decide*（fixed_n/strategy/delist）不给 → simulateTradeCore 回退取 exitDay.qfqClose。
+   */
+  exitPrice?: number;
   /**
    * 持有期内**实际可交易日**步数（buy_date 记第 0 天；停牌日不递增）。
    *
@@ -288,6 +326,201 @@ export function decideStrategy(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 波段跟踪止损 trailing_lock —— 与 Python 共享核 band_lock_exit.py 同构（单一真值）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 向下截断到 0.01（跨语言逐位一致，与 Python `math.floor(x*100)/100` 给出相同结果）。
+ *
+ * 统一先 `x*100`、`Math.floor`、再 `/100`；**不要**用字符串截断。
+ * 例：floor2(9.99)=9.99；floor2(10.4895)=10.48；floor2(10.567×0.999)=10.55。
+ */
+export function floor2(x: number): number {
+  return Math.floor(x * 100) / 100;
+}
+
+/** decideBandLock 选项。 */
+export interface BandLockOptions {
+  /** 信号 K 线 T 的前复权最高价 qfq_high(T)。锁定判定基准。 */
+  signalHigh: number;
+  /** 可选硬上限（已走过可交易持有日数）；undefined = 不封顶。 */
+  maxHold?: number;
+  /** 退市日（YYYYMMDD）；null=未退市，永不触发退市强平。 */
+  delistDate: string | null;
+}
+
+/**
+ * 封死跌停（卖不出）：raw_high ≤ down_limit。
+ * down_limit 缺失（null）→ 该端约束不生效，视为可卖（非封死）。
+ * raw_high 缺失（null）→ 无从判定封板，保守视为可卖（不因缺数据误顺延）。
+ */
+function isDeadLimitDown(day: HoldingDaySnapshot): boolean {
+  if (day.downLimit === null || day.rawHigh === null) return false;
+  return day.rawHigh <= day.downLimit;
+}
+
+/**
+ * trailing_lock 出场：波段跟踪止损 + 锁定 + 锁定后 MA5 收盘离场 + 封死跌停顺延（同构 Python 共享核）。
+ *
+ * 与 Python `simulate_band_lock` 逐行对应（规范见 01-rule-semantics.md §三）：
+ * - 入场端（停牌 / 一字涨停 / 次新）由 simulateTradeCore 先行过滤，本函数只接管 buyPrice 之后的出场推进。
+ * - days[0] = buy_date(T+1)；从 days[1] 起逐日推进；停牌日（hasQuote=false）跳过（不计 hold/不触发/不更新/不动 prev_ma5）。
+ * - 止损成交价（stop）≠ qfq_close（跳空低开取 open，故 min(stop_eff, open)），由返回的 exitPrice 显式给出。
+ * - 核函数不处理退市：signal-stats 在此**额外**接 delistDate 分支（沿用 decideFixedN/decideStrategy 口径，
+ *   reason='delist'、用退市前最后一个有 quote 日 qfq_close 强平），与现有两模式一致。
+ * - 窗口耗尽未出场（含顺延未解）→ null（insufficient_data），与现有口径一致。
+ */
+export function decideBandLock(
+  days: HoldingDaySnapshot[],
+  opts: BandLockOptions,
+): ExitDecision | null {
+  const { signalHigh, maxHold, delistDate } = opts;
+  if (days.length === 0) return null;
+  const entry = days[0]; // 调用方已保证 hasQuote 且 qfqOpen 非空
+
+  const cost = entry.qfqOpen!;
+  // 方案 1：持仓首日 close > open；否则方案 2。
+  const scheme =
+    entry.qfqClose !== null && entry.qfqClose > entry.qfqOpen! ? 1 : 2;
+
+  // 持仓首日“收盘后”设定、T+2 生效的初始止损。
+  let stopNext: number | null;
+  if (scheme === 1) {
+    stopNext = floor2(entry.qfqOpen! * 0.999);
+  } else {
+    // 方案二初始止损用 qfq_low；缺失则退回 qfq_open（防御，正常数据不缺）。
+    const baseLow = entry.qfqLow !== null ? entry.qfqLow : entry.qfqOpen!;
+    stopNext = floor2(baseLow * 0.999);
+  }
+
+  let locked = false;
+  let floorActive = false;
+  let pending: 'stop' | 'ma5_exit' | null = null;
+  let hold = 0;
+  let prevMa5 = entry.ma5;
+  const floorPrice = floor2(cost * 0.999); // 方案二保本地板价（常量）
+
+  // 退市强平兜底：记录退市前最后一个有 quote 日（与 decideFixedN/decideStrategy 同口径）。
+  let lastQuoteIdx = 0;
+  let lastQuoteHold = 0;
+
+  for (let i = 1; i < days.length; i++) {
+    const bar = days[i];
+
+    // 退市先于本日生效？沿用现有口径：用退市前最后一个有 quote 日 qfq_close 强平。
+    if (delistDate !== null && bar.calDate >= delistDate) {
+      if (lastQuoteIdx < 0 || days[lastQuoteIdx].qfqClose === null) return null;
+      return {
+        exitDay: days[lastQuoteIdx],
+        exitReason: 'delist',
+        holdDays: lastQuoteHold,
+      };
+    }
+
+    // 先判停牌：不计 hold / 不触发 / 不更新止损 / 不动 prevMa5。
+    if (!bar.hasQuote) continue;
+
+    hold += 1;
+    lastQuoteIdx = i;
+    lastQuoteHold = hold;
+    const stopEff = stopNext; // 今日生效 = 昨日收盘设定的。
+    const deadLimitDown = isDeadLimitDown(bar);
+
+    // (0) 顺延中（pending ≠ null）
+    if (pending !== null) {
+      if (!deadLimitDown) {
+        // 非封死跌停 → 出场 @qfq_open，reason 保留（非停牌日 hasQuote 保证 qfqOpen 非空）。
+        return {
+          exitDay: bar,
+          exitReason: pending,
+          exitPrice: bar.qfqOpen ?? undefined,
+          holdDays: hold,
+        };
+      }
+      // 仍封死 → 继续顺延。
+      continue;
+    }
+
+    // (1) 日内止损
+    if (stopEff !== null && bar.qfqLow !== null && bar.qfqLow <= stopEff) {
+      if (deadLimitDown) {
+        // 封死跌停卖不出 → 置 pending，顺延。
+        pending = 'stop';
+        continue;
+      }
+      // 跳空低开（open < stop）按开盘价成交 → 取 min(stop_eff, qfq_open)。
+      const fill = bar.qfqOpen !== null ? Math.min(stopEff, bar.qfqOpen) : stopEff;
+      return { exitDay: bar, exitReason: 'stop', exitPrice: fill, holdDays: hold };
+    }
+
+    // (2) 收盘处理（未被止损）
+    // (2-pre) 方案二保本地板激活（每个交易日都评估，含锁定当日；sticky）。
+    if (scheme === 2 && bar.qfqClose !== null && bar.qfqClose > cost) {
+      floorActive = true;
+    }
+
+    // (2a) 未锁定 且 qfq_low > signalHigh → 锁定。
+    if (!locked && bar.qfqLow !== null && bar.qfqLow > signalHigh) {
+      stopNext = floor2(bar.qfqLow * 0.999);
+      if (scheme === 2 && floorActive) {
+        stopNext = Math.max(stopNext, floorPrice);
+      }
+      locked = true; // 从此冻结，stopNext 不再更新。
+    }
+
+    if (locked) {
+      // (2b) 已锁定（含本日刚锁定）→ MA5 收盘离场。
+      if (
+        bar.ma5 !== null &&
+        prevMa5 !== null &&
+        bar.qfqClose !== null &&
+        bar.qfqClose < bar.ma5 &&
+        bar.ma5 < prevMa5
+      ) {
+        if (deadLimitDown) {
+          // 封死跌停 → 置 pending，顺延（本日不再评估 max_hold）。
+          pending = 'ma5_exit';
+          prevMa5 = bar.ma5;
+          continue;
+        }
+        return {
+          exitDay: bar,
+          exitReason: 'ma5_exit',
+          exitPrice: bar.qfqClose,
+          holdDays: hold,
+        };
+      }
+    } else {
+      // (2c) 未锁定 → 更新次日止损 stopNext。
+      if (bar.qfqLow !== null) {
+        const lowStop = floor2(bar.qfqLow * 0.999);
+        if (scheme === 2 && floorActive) {
+          stopNext = Math.max(lowStop, floorPrice);
+        } else {
+          stopNext = lowStop;
+        }
+      }
+      // qfq_low 缺失（停牌已被上面跳过，这里基本不会发生）→ 保持 stopNext 不变。
+    }
+
+    // (2d) max_hold 兜底。
+    if (maxHold !== undefined && hold >= maxHold) {
+      return {
+        exitDay: bar,
+        exitReason: 'max_hold',
+        exitPrice: bar.qfqClose ?? undefined,
+        holdDays: hold,
+      };
+    }
+
+    prevMa5 = bar.ma5;
+  }
+
+  // 窗口耗尽未出场（含顺延未解）→ null（insufficient_data，由 simulateTradeCore 收口）。
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 持有窗口构造：共享纯函数（供 DB 层与批量化路径复用）
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -299,6 +532,22 @@ export interface WindowQuote {
   qfqOpen: number | null;
   qfqClose: number | null;
   open: number | null;
+  /**
+   * trailing_lock 新增列（可选：fixed_n/strategy 路径不填、不读 → 缺失即 null，行为零漂移）。
+   * qfqHigh/qfqLow/high(=rawHigh) 取自 raw.daily_quote 同行；ma5 由 DB 层在 qfq_close 序列上滚动现算。
+   */
+  qfqHigh?: number | null;
+  qfqLow?: number | null;
+  high?: number | null;
+  ma5?: number | null;
+}
+
+/**
+ * buildHoldingDays 的可选附加数据（trailing_lock 用；fixed_n/strategy 省略 → 字段全 null）。
+ */
+export interface HoldingDayExtras {
+  /** 跌停价（未复权）映射（key=cal_date；缺失时 downLimit=null）。 */
+  downLimitMap?: Map<string, number | null>;
 }
 
 /**
@@ -309,17 +558,23 @@ export interface WindowQuote {
  *   本函数：hitSet 可能覆盖更大区间（含 buyDate），因此用 `idx > 0` 显式排除 days[0]，
  *   复刻原语义、保证 days[] byte-identical（zero-drift 核心不变量）。
  *
+ * trailing_lock 新字段（qfqHigh/qfqLow/rawHigh/downLimit/ma5）：从 WindowQuote 可选字段 + extras 取；
+ * fixed_n/strategy 路径不填这些 → 全 null，纯函数也不读，故现有两模式行为零漂移。
+ *
  * @param windowDates  持有窗口的 SSE 交易日数组（buyDate 起升序）
  * @param quoteMap     预取的 quote 行（key=cal_date；停牌日无 key）
  * @param limitMap     预取的涨停价行（key=cal_date；缺失时 upLimit=null）
  * @param hitSet       命中卖出条件的交易日集合（可包含 buyDate，函数内部排除）
+ * @param extras       可选附加数据（downLimitMap；trailing_lock 用）
  */
 export function buildHoldingDays(
   windowDates: string[],
   quoteMap: Map<string, WindowQuote>,
   limitMap: Map<string, number | null>,
   hitSet: Set<string>,
+  extras?: HoldingDayExtras,
 ): HoldingDaySnapshot[] {
+  const downLimitMap = extras?.downLimitMap;
   return windowDates.map((calDate, idx) => {
     const q = quoteMap.get(calDate);
     const hasQuote = !!q && q.qfqOpen !== null && q.qfqClose !== null;
@@ -328,8 +583,13 @@ export function buildHoldingDays(
       hasQuote,
       qfqOpen: q?.qfqOpen ?? null,
       qfqClose: q?.qfqClose ?? null,
+      qfqHigh: q?.qfqHigh ?? null,
+      qfqLow: q?.qfqLow ?? null,
       rawOpen: q?.open ?? null,
+      rawHigh: q?.high ?? null,
       upLimit: limitMap.get(calDate) ?? null,
+      downLimit: downLimitMap?.get(calDate) ?? null,
+      ma5: q?.ma5 ?? null,
       exitSignalHit: idx > 0 && hitSet.has(calDate), // idx>0：排除 buyDate（zero-drift 核心不变量）
     };
   });

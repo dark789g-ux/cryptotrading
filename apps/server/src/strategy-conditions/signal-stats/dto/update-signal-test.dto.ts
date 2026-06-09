@@ -10,7 +10,7 @@ import { SignalTestUniverse } from '../../../entities/strategy/signal-test.entit
 export interface UpdateSignalTestDto {
   name?: string;
   buyConditions?: StrategyConditionItem[];
-  exitMode?: 'fixed_n' | 'strategy';
+  exitMode?: 'fixed_n' | 'strategy' | 'trailing_lock';
   horizonN?: number;
   exitConditions?: StrategyConditionItem[];
   maxHold?: number;

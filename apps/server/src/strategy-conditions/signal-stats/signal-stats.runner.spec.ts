@@ -60,7 +60,8 @@ function makeMockSimulator(
   outcomes: Array<{ kind: 'trade' | 'filtered'; trade?: Record<string, unknown>; reason?: string }>,
 ) {
   return {
-    simulateSignalsBatched: jest.fn(async () => outcomes),
+    // 声明形参（即便忽略）让 mock.calls 推断出参数元组，便于断言传入的 exit 配置。
+    simulateSignalsBatched: jest.fn(async (_params: Record<string, unknown>) => outcomes),
   };
 }
 
@@ -197,6 +198,77 @@ describe('SignalStatsRunner', () => {
       expect(payload.winRate).toBe('1');
       // 插入 trade
       expect(tradeRepo.save).toHaveBeenCalled();
+    });
+  });
+
+  describe('exitMode=trailing_lock 接线', () => {
+    it('带 maxHold → 传给 simulator 的 exit 为 {mode:trailing_lock, maxHold}，trade(stop/ma5_exit) 正常落库', async () => {
+      const runRepo = makeMockRunRepo();
+      const tradingDays = ['20240102', '20240103', '20240104', '20240105', '20240108'];
+      const signals = [
+        { signalDate: '20240102', tsCode: '600519.SH' },
+        { signalDate: '20240103', tsCode: '000001.SZ' },
+      ];
+      // 两条 trailing_lock 出场：一条 stop、一条 ma5_exit。
+      const tradeStop = {
+        tsCode: '600519.SH', signalDate: '20240102', buyDate: '20240103',
+        exitDate: '20240105', buyPrice: 1000, exitPrice: 980, ret: -0.02,
+        holdDays: 2, exitReason: 'stop',
+      };
+      const tradeMa5 = {
+        tsCode: '000001.SZ', signalDate: '20240103', buyDate: '20240104',
+        exitDate: '20240108', buyPrice: 100, exitPrice: 108, ret: 0.08,
+        holdDays: 3, exitReason: 'ma5_exit',
+      };
+      const simulator = makeMockSimulator([
+        { kind: 'trade', trade: tradeStop },
+        { kind: 'trade', trade: tradeMa5 },
+      ]);
+      const enumerator = makeMockEnumerator(tradingDays, tradingDays, signals);
+      const tradeRepo = makeMockTradeRepo();
+      const runner = buildRunner(enumerator, simulator, runRepo, tradeRepo);
+
+      await runner.executeRun(
+        makeTestEntity({ exitMode: 'trailing_lock', horizonN: null, exitConditions: null, maxHold: 10 }),
+        'run-tl',
+      );
+
+      // 1) simulator 收到的 exit 配置正确 + exitConditions=null（trailing_lock 不传卖出条件）
+      expect(simulator.simulateSignalsBatched).toHaveBeenCalledTimes(1);
+      const params = simulator.simulateSignalsBatched.mock.calls[0][0] as Record<string, unknown>;
+      expect(params.exit).toEqual({ mode: 'trailing_lock', maxHold: 10 });
+      expect(params.exitConditions).toBeNull();
+
+      // 2) 两条 trade 落库（含 stop / ma5_exit reason 透传）
+      const created = tradeRepo.create.mock.calls.map((c) => c[0] as Record<string, unknown>);
+      const reasons = created.map((t) => t.exitReason);
+      expect(reasons).toContain('stop');
+      expect(reasons).toContain('ma5_exit');
+      expect(tradeRepo.save).toHaveBeenCalled();
+
+      // 3) run 标 completed，sampleCount=2
+      const completedCall = (runRepo.update.mock.calls as unknown[][]).find(
+        (c) => c[0] === 'run-tl' && (c[1] as Record<string, unknown>).status === 'completed',
+      );
+      expect(completedCall).toBeDefined();
+      expect((completedCall as unknown[])[1]).toMatchObject({ sampleCount: 2, filteredCount: 0 });
+    });
+
+    it('留空 maxHold → exit 为 {mode:trailing_lock, maxHold:undefined}（无硬上限）', async () => {
+      const runRepo = makeMockRunRepo();
+      const tradingDays = ['20240102', '20240103'];
+      const signals = [{ signalDate: '20240102', tsCode: '600519.SH' }];
+      const simulator = makeMockSimulator([{ kind: 'filtered', reason: 'insufficient_data' }]);
+      const enumerator = makeMockEnumerator(tradingDays, tradingDays, signals);
+      const runner = buildRunner(enumerator, simulator, runRepo);
+
+      await runner.executeRun(
+        makeTestEntity({ exitMode: 'trailing_lock', horizonN: null, exitConditions: null, maxHold: null }),
+        'run-tl-nocap',
+      );
+
+      const params = simulator.simulateSignalsBatched.mock.calls[0][0] as Record<string, unknown>;
+      expect(params.exit).toEqual({ mode: 'trailing_lock', maxHold: undefined });
     });
   });
 

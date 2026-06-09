@@ -34,8 +34,13 @@ function tradingDay(
     hasQuote: true,
     qfqOpen: opts.qfqOpen ?? 10,
     qfqClose: opts.qfqClose ?? 10,
+    qfqHigh: opts.qfqHigh ?? null,
+    qfqLow: opts.qfqLow ?? null,
     rawOpen: opts.rawOpen ?? 10,
+    rawHigh: opts.rawHigh ?? null,
     upLimit: opts.upLimit ?? 11, // rawOpen(10) < upLimit(11)：默认不涨停
+    downLimit: opts.downLimit ?? null,
+    ma5: opts.ma5 ?? null,
     exitSignalHit: opts.exitSignalHit ?? false,
     ...opts,
   };
@@ -48,8 +53,13 @@ function suspendedDay(calDate: string): HoldingDaySnapshot {
     hasQuote: false,
     qfqOpen: null,
     qfqClose: null,
+    qfqHigh: null,
+    qfqLow: null,
     rawOpen: null,
+    rawHigh: null,
     upLimit: null,
+    downLimit: null,
+    ma5: null,
     exitSignalHit: false,
   };
 }
