@@ -392,4 +392,214 @@ describe('SignalStatsRunner', () => {
       expect(progressUpdates.length).toBeGreaterThanOrEqual(1);
     });
   });
+
+  describe('phase 三阶段按序写入', () => {
+    it('正常成交：phase 按序 scanning → simulating(带 progressTotal=signals.length) → writing(带 progressTotal=trades.length) → completed', async () => {
+      const runRepo = makeMockRunRepo();
+      const tradingDays = ['20240102', '20240103', '20240104', '20240105', '20240108'];
+      const signals = [
+        { signalDate: '20240102', tsCode: '600519.SH' },
+        { signalDate: '20240103', tsCode: '000001.SZ' },
+      ];
+      const trade1 = {
+        tsCode: '600519.SH', signalDate: '20240102', buyDate: '20240103',
+        exitDate: '20240108', buyPrice: 1000, exitPrice: 1100, ret: 0.1,
+        holdDays: 5, exitReason: 'max_hold',
+      };
+      const trade2 = {
+        tsCode: '000001.SZ', signalDate: '20240103', buyDate: '20240104',
+        exitDate: '20240108', buyPrice: 10, exitPrice: 11, ret: 0.1,
+        holdDays: 4, exitReason: 'max_hold',
+      };
+      const simulator = makeMockSimulator([
+        { kind: 'trade', trade: trade1 },
+        { kind: 'trade', trade: trade2 },
+      ]);
+      const enumerator = makeMockEnumerator(tradingDays, tradingDays, signals);
+      const tradeRepo = makeMockTradeRepo();
+      const runner = buildRunner(enumerator, simulator, runRepo, tradeRepo);
+
+      await runner.executeRun(makeTestEntity(), 'run-phase');
+
+      const calls = runRepo.update.mock.calls as unknown[][];
+
+      // 提取各 phase 写入的索引位置（按调用顺序）
+      const scanningIdx = calls.findIndex(
+        (c) => c[0] === 'run-phase' && (c[1] as Record<string, unknown>).phase === 'scanning',
+      );
+      const simulatingIdx = calls.findIndex(
+        (c) => c[0] === 'run-phase' && (c[1] as Record<string, unknown>).phase === 'simulating',
+      );
+      const writingIdx = calls.findIndex(
+        (c) => c[0] === 'run-phase' && (c[1] as Record<string, unknown>).phase === 'writing',
+      );
+      const completedIdx = calls.findIndex(
+        (c) => c[0] === 'run-phase' && (c[1] as Record<string, unknown>).status === 'completed',
+      );
+
+      // 四阶段均已触发
+      expect(scanningIdx).toBeGreaterThanOrEqual(0);
+      expect(simulatingIdx).toBeGreaterThanOrEqual(0);
+      expect(writingIdx).toBeGreaterThanOrEqual(0);
+      expect(completedIdx).toBeGreaterThanOrEqual(0);
+
+      // 顺序：scanning < simulating < writing < completed
+      expect(scanningIdx).toBeLessThan(simulatingIdx);
+      expect(simulatingIdx).toBeLessThan(writingIdx);
+      expect(writingIdx).toBeLessThan(completedIdx);
+
+      // simulating 带 progressTotal=signals.length（=2）和 progressScanned=0
+      const simulatingPayload = calls[simulatingIdx][1] as Record<string, unknown>;
+      expect(simulatingPayload.progressTotal).toBe(2); // signals.length
+      expect(simulatingPayload.progressScanned).toBe(0);
+
+      // writing 带 progressTotal=trades.length（=2）和 progressScanned=0
+      const writingPayload = calls[writingIdx][1] as Record<string, unknown>;
+      expect(writingPayload.progressTotal).toBe(2); // trades.length
+      expect(writingPayload.progressScanned).toBe(0);
+    });
+
+    it('0 信号早退：phase 停在 scanning，直接 completed，不触发 simulating/writing', async () => {
+      const runRepo = makeMockRunRepo();
+      const tradingDays = ['20240102', '20240103'];
+      const enumerator = makeMockEnumerator(tradingDays, tradingDays, []);
+      const simulator = makeMockSimulator([]);
+      const runner = buildRunner(enumerator, simulator, runRepo);
+
+      await runner.executeRun(makeTestEntity(), 'run-phase-early');
+
+      const calls = runRepo.update.mock.calls as unknown[][];
+
+      const scanningIdx = calls.findIndex(
+        (c) => c[0] === 'run-phase-early' && (c[1] as Record<string, unknown>).phase === 'scanning',
+      );
+      const simulatingIdx = calls.findIndex(
+        (c) => c[0] === 'run-phase-early' && (c[1] as Record<string, unknown>).phase === 'simulating',
+      );
+      const writingIdx = calls.findIndex(
+        (c) => c[0] === 'run-phase-early' && (c[1] as Record<string, unknown>).phase === 'writing',
+      );
+
+      // scanning 触发，simulating/writing 不触发（0 信号早退）
+      expect(scanningIdx).toBeGreaterThanOrEqual(0);
+      expect(simulatingIdx).toBe(-1);
+      expect(writingIdx).toBe(-1);
+    });
+
+    it('全被过滤（0 trade）：simulating 触发，writing 不触发', async () => {
+      const runRepo = makeMockRunRepo();
+      const tradingDays = ['20240102', '20240103'];
+      const signals = [{ signalDate: '20240102', tsCode: '600519.SH' }];
+      const simulator = makeMockSimulator([{ kind: 'filtered', reason: 'suspended' }]);
+      const enumerator = makeMockEnumerator(tradingDays, tradingDays, signals);
+      const runner = buildRunner(enumerator, simulator, runRepo);
+
+      await runner.executeRun(makeTestEntity(), 'run-phase-filtered');
+
+      const calls = runRepo.update.mock.calls as unknown[][];
+
+      const simulatingIdx = calls.findIndex(
+        (c) => c[0] === 'run-phase-filtered' && (c[1] as Record<string, unknown>).phase === 'simulating',
+      );
+      const writingIdx = calls.findIndex(
+        (c) => c[0] === 'run-phase-filtered' && (c[1] as Record<string, unknown>).phase === 'writing',
+      );
+
+      // 有信号但全过滤：simulating 触发，writing 不触发
+      expect(simulatingIdx).toBeGreaterThanOrEqual(0);
+      expect(writingIdx).toBe(-1);
+    });
+  });
+
+  describe('simulator onGroupDone 累加验证', () => {
+    it('simulateSignalsBatched 收到的 onGroupDone 被正确调用：次数=tsCode 组数，累加和=signals.length', async () => {
+      // 用真实（非 mock）simulator 来验证 onGroupDone，需要拦截 simulateSignalsBatched 调用
+      // 策略：mock simulator 记录传入的 onGroupDone，然后手动模拟调用
+      const runRepo = makeMockRunRepo();
+      const tradingDays = ['20240102', '20240103'];
+      // 3 个信号，2 个 tsCode（600519.SH × 2，000001.SZ × 1）
+      const signals = [
+        { signalDate: '20240102', tsCode: '600519.SH' },
+        { signalDate: '20240103', tsCode: '600519.SH' },
+        { signalDate: '20240102', tsCode: '000001.SZ' },
+      ];
+
+      let capturedOnGroupDone: ((n: number) => void) | undefined;
+      const mockSimulator = {
+        simulateSignalsBatched: jest.fn(async (params: Record<string, unknown>) => {
+          capturedOnGroupDone = params.onGroupDone as (n: number) => void;
+          // 模拟批量路径：600519.SH 组有 2 个信号，000001.SZ 组有 1 个信号
+          capturedOnGroupDone?.(2); // 600519.SH 组完成
+          capturedOnGroupDone?.(1); // 000001.SZ 组完成
+          // 返回 3 个过滤结果（不需要真实 trade）
+          return [
+            { kind: 'filtered', reason: 'insufficient_data' },
+            { kind: 'filtered', reason: 'insufficient_data' },
+            { kind: 'filtered', reason: 'insufficient_data' },
+          ];
+        }),
+      };
+      const enumerator = makeMockEnumerator(tradingDays, tradingDays, signals);
+      const runner = buildRunner(enumerator, mockSimulator as any, runRepo);
+
+      await runner.executeRun(makeTestEntity(), 'run-group-done');
+
+      // onGroupDone 应被调用 2 次（2 个 tsCode 组），参数分别为 2 和 1，累加和=3=signals.length
+      expect(mockSimulator.simulateSignalsBatched).toHaveBeenCalledTimes(1);
+      const passedParams = mockSimulator.simulateSignalsBatched.mock.calls[0][0] as Record<string, unknown>;
+      expect(typeof passedParams.onGroupDone).toBe('function');
+
+      // 验证通过调用 onGroupDone 产生的效果：最终 sim.stop() 写入的 progressScanned 应=累加和=3
+      // 注：由于节流，stop() 最终矫正的 progressScanned 会写入 current=3（2+1）
+      // 我们通过 runRepo.update 的调用序列来验证
+      const calls = runRepo.update.mock.calls as unknown[][];
+      // 找到 sim.stop() 的最终矫正 update（在 simulating 阶段结束时）
+      // 模拟阶段结束后会有 stop() 写入，progressScanned 应为 3
+      const simStopUpdate = calls.find(
+        (c) =>
+          c[0] === 'run-group-done' &&
+          (c[1] as Record<string, unknown>).progressScanned === 3 &&
+          (c[1] as Record<string, unknown>).phase === undefined &&
+          (c[1] as Record<string, unknown>).status === undefined,
+      );
+      expect(simStopUpdate).toBeDefined();
+    });
+  });
+
+  describe('insertTradesBatched 进度上报节流', () => {
+    it('trades < BATCH*FLUSH_EVERY(=2000) 时：末批矫正仍写入正确 progressScanned', async () => {
+      const runRepo = makeMockRunRepo();
+      const tradingDays = ['20240102', '20240103', '20240104', '20240105', '20240108'];
+      const signals = [{ signalDate: '20240102', tsCode: '600519.SH' }];
+      const trade = {
+        tsCode: '600519.SH', signalDate: '20240102', buyDate: '20240103',
+        exitDate: '20240108', buyPrice: 1000, exitPrice: 1100, ret: 0.1,
+        holdDays: 5, exitReason: 'max_hold',
+      };
+      const simulator = makeMockSimulator([{ kind: 'trade', trade }]);
+      const enumerator = makeMockEnumerator(tradingDays, tradingDays, signals);
+      const tradeRepo = makeMockTradeRepo();
+      const runner = buildRunner(enumerator, simulator, runRepo, tradeRepo);
+
+      await runner.executeRun(makeTestEntity(), 'run-writing-flush');
+
+      const calls = runRepo.update.mock.calls as unknown[][];
+
+      // writing 阶段之后，应有末批矫正：progressScanned=1（1 条 trade）
+      // 找写入 progressScanned 且值为 1 的调用（排除 phase 和 status 等其他字段）
+      const writingFlush = calls.find(
+        (c) => {
+          const payload = c[1] as Record<string, unknown>;
+          return (
+            c[0] === 'run-writing-flush' &&
+            payload.progressScanned === 1 &&
+            payload.phase === undefined &&
+            payload.status === undefined &&
+            payload.progressTotal === undefined
+          );
+        },
+      );
+      expect(writingFlush).toBeDefined();
+    });
+  });
 });

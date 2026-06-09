@@ -49,6 +49,39 @@ export class SignalStatsRunner {
   ) {}
 
   /**
+   * 每个阶段一个节流封装。
+   * bump(n) 仅记内存；start() 起 ~1.5s 节流 flush；stop() 清 timer + 最终矫正。
+   */
+  private makePhaseProgress(runId: string, intervalMs = 1500) {
+    let current = 0;
+    let inFlight = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const flush = async () => {
+      if (inFlight) return; // 防上一个 update 未完又起
+      inFlight = true;
+      try {
+        await this.runRepo.update(runId, { progressScanned: current });
+      } finally {
+        inFlight = false;
+      }
+    };
+    return {
+      bump: (n: number) => {
+        current += n;
+      },
+      start: () => {
+        timer = setInterval(() => {
+          void flush();
+        }, intervalMs);
+      },
+      stop: async () => {
+        if (timer) clearInterval(timer);
+        await this.runRepo.update(runId, { progressScanned: current });
+      },
+    };
+  }
+
+  /**
    * 执行一次完整的信号前向统计 run。
    * 由 service 通过 `.catch(err => logger.error(...))` 包装后异步调用，
    * 内部不抛出——异常直接写入 run.errorMessage。
@@ -81,6 +114,7 @@ export class SignalStatsRunner {
     const tradingDays = await this.enumerator.listSseTradingDays(dateStart, dateEnd);
     const total = tradingDays.length;
     await this.runRepo.update(runId, { progressTotal: total });
+    await this.runRepo.update(runId, { phase: 'scanning' });
 
     if (total === 0) {
       this.logger.warn(`SignalStatsRun ${runId}: no SSE trading days in [${dateStart}, ${dateEnd}]`);
@@ -133,16 +167,25 @@ export class SignalStatsRunner {
     }
 
     // ── 5. 批量模拟出场（按 tsCode 分组预取 + 内存切窗 + 有界并发）
+    await this.runRepo.update(runId, { phase: 'simulating', progressTotal: signals.length, progressScanned: 0 });
+    const sim = this.makePhaseProgress(runId);
+    sim.start();
+    let outcomes: Awaited<ReturnType<typeof this.simulator.simulateSignalsBatched>>;
+    try {
+      outcomes = await this.simulator.simulateSignalsBatched({
+        signals,
+        exit,
+        exitConditions: exitMode === 'strategy' ? (exitConditions ?? []) : null,
+        sseCalendar,
+        dateEnd,
+        onGroupDone: (groupSize) => sim.bump(groupSize),
+      });
+    } finally {
+      await sim.stop(); // 清 timer + 最终矫正到 signals.length
+    }
+
     const trades: SimulatedTrade[] = [];
     const filterCounts: FilterCounts = { suspended: 0, limit_up: 0, new_listing: 0, insufficient_data: 0 };
-
-    const outcomes = await this.simulator.simulateSignalsBatched({
-      signals,
-      exit,
-      exitConditions: exitMode === 'strategy' ? (exitConditions ?? []) : null,
-      sseCalendar,
-      dateEnd,
-    });
 
     for (const outcome of outcomes) {
       if (outcome.kind === 'trade') {
@@ -173,6 +216,7 @@ export class SignalStatsRunner {
     //     否则详情 / ret-histogram 接口会在插入未完时现读到部分数据；且插入中途失败
     //     会把已 completed 的 run 翻成 failed。插入未完期间 run 仍 running，状态更诚实。
     if (trades.length > 0) {
+      await this.runRepo.update(runId, { phase: 'writing', progressTotal: trades.length, progressScanned: 0 });
       await this.insertTradesBatched(runId, trades);
     }
 
@@ -201,9 +245,12 @@ export class SignalStatsRunner {
     );
   }
 
-  /** 分批插入 signal_test_trade，每批 200 条避免 SQL 过长。 */
+  /** 分批插入 signal_test_trade，每批 200 条避免 SQL 过长；每 FLUSH_EVERY 批上报进度。 */
   private async insertTradesBatched(runId: string, trades: SimulatedTrade[]): Promise<void> {
     const BATCH = 200;
+    const FLUSH_EVERY = 10; // 每 2000 行 flush 一次
+    let written = 0;
+    let batchNo = 0;
     for (let i = 0; i < trades.length; i += BATCH) {
       const slice = trades.slice(i, i + BATCH);
       const entities = slice.map((t) =>
@@ -221,6 +268,12 @@ export class SignalStatsRunner {
         }),
       );
       await this.tradeRepo.save(entities);
+      written += slice.length;
+      if (++batchNo % FLUSH_EVERY === 0) {
+        await this.runRepo.update(runId, { progressScanned: written });
+      }
     }
+    // 末批矫正：确保最终值等于实际写入数
+    await this.runRepo.update(runId, { progressScanned: written });
   }
 }

@@ -51,6 +51,8 @@ export interface BatchSimulateParams {
   dateEnd: string;
   /** 组间并发上界，默认 DEFAULT_BATCH_CONCURRENCY。 */
   concurrency?: number;
+  /** 每个 tsCode 组模拟完成时回调，参数=该组信号数。用于上报模拟阶段进度（可选）。 */
+  onGroupDone?: (groupSize: number) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,7 +205,12 @@ export class SignalStatsSimulator {
       return outcomes.map((o) => o ?? { kind: 'filtered', reason: 'insufficient_data' });
     };
 
-    const grouped = await mapWithConcurrency(tsCodes, concurrency, perTsCode);
+    const perTsCodeWithProgress = async (tsCode: string): Promise<SimulationOutcome[]> => {
+      const out = await perTsCode(tsCode);
+      params.onGroupDone?.(groups.get(tsCode)!.length); // 同步、纯内存，不 await DB
+      return out;
+    };
+    const grouped = await mapWithConcurrency(tsCodes, concurrency, perTsCodeWithProgress);
     return grouped.flat();
   }
 
