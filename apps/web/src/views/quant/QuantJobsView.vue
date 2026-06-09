@@ -143,6 +143,7 @@ const runTypeOptions: RunTypeOption[] = [
   { label: 'infer', value: 'infer' },
   { label: 'optuna', value: 'optuna' },
   { label: 'seed_avg', value: 'seed_avg' },
+  { label: 'kelly_sweep', value: 'kelly_sweep' },
   { label: 'noop', value: 'noop' },
 ]
 

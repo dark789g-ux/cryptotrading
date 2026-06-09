@@ -44,7 +44,8 @@ export type MlJobRunType =
   | 'train'
   | 'infer'
   | 'optuna'
-  | 'seed_avg';
+  | 'seed_avg'
+  | 'kelly_sweep';
 
 @Entity({ schema: 'ml', name: 'jobs' })
 @Index(['status', 'priority', 'createdAt'])

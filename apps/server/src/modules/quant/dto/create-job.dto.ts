@@ -67,7 +67,187 @@ export const ALLOWED_RUN_TYPES: readonly MlJobRunType[] = [
   'infer',
   'optuna',
   'seed_avg',
+  'kelly_sweep',
 ] as const;
+
+/**
+ * `kelly_sweep` base_trigger.field 白名单。
+ *
+ * 唯一真相源：apps/quant-pipeline/src/quant_pipeline/research/kelly_sweep/enumerate.py:57
+ * （_ALLOWED_INDICATOR_FIELDS frozenset，2026-06-09 核实全部成员）。
+ * 改 Python 白名单时须同步此处。
+ */
+export const KELLY_SWEEP_ALLOWED_BASE_FIELDS: ReadonlySet<string> = new Set([
+  'kdj_k',
+  'kdj_d',
+  'kdj_j',
+  'macd',
+  'macd_dif',
+  'macd_dea',
+  'rsi_6',
+  'rsi_12',
+  'rsi_24',
+  'cci',
+  'dmi_pdi',
+  'dmi_mdi',
+  'dmi_adx',
+  'dmi_adxr',
+  'boll_upper',
+  'boll_mid',
+  'boll_lower',
+  'ma5',
+  'ma10',
+  'ma20',
+  'ma30',
+  'ma60',
+  'atr_14',
+  'obv',
+  'wr',
+  'bias',
+  'ema5',
+  'ema10',
+  'ema20',
+]);
+
+/** kelly_sweep exit_families 合法成员 */
+const KELLY_SWEEP_EXIT_FAMILIES: ReadonlySet<string> = new Set([
+  'fixed_n',
+  'tp_sl',
+  'trailing',
+  'atr_stop',
+]);
+
+/** YYYYMMDD 格式校验 */
+const YYYYMMDD_RE = /^\d{8}$/;
+
+/**
+ * 校验 kelly_sweep 的 params 字段（12 个 SweepConfig 字段 + exit_families）。
+ * 深度校验由 Python pydantic SweepConfig 兜底；NestJS 做基础边界与格式校验。
+ *
+ * 口径：apps/quant-pipeline/src/quant_pipeline/research/kelly_sweep/config.py:23-110
+ */
+export function validateKellySweepParams(params: Record<string, unknown>): void {
+  // base_trigger
+  const bt = params.base_trigger;
+  if (!bt || typeof bt !== 'object' || Array.isArray(bt)) {
+    throw new BadRequestException('kelly_sweep params.base_trigger 必须是对象 {field, op, value}');
+  }
+  const trigger = bt as Record<string, unknown>;
+  if (typeof trigger.field !== 'string' || !KELLY_SWEEP_ALLOWED_BASE_FIELDS.has(trigger.field)) {
+    throw new BadRequestException(
+      `kelly_sweep params.base_trigger.field 必须 ∈ 白名单，实际 ${JSON.stringify(trigger.field)}。` +
+        `允许值：${[...KELLY_SWEEP_ALLOWED_BASE_FIELDS].join(',')}`,
+    );
+  }
+  const validOps = ['lt', 'lte', 'gt', 'gte', 'eq', 'neq'];
+  if (typeof trigger.op !== 'string' || !validOps.includes(trigger.op)) {
+    throw new BadRequestException(
+      `kelly_sweep params.base_trigger.op 必须 ∈ {${validOps.join('|')}}，实际 ${JSON.stringify(trigger.op)}`,
+    );
+  }
+  if (typeof trigger.value !== 'number') {
+    throw new BadRequestException('kelly_sweep params.base_trigger.value 必须是数字');
+  }
+
+  // universe
+  const universe = params.universe;
+  if (universe !== 'all') {
+    if (!Array.isArray(universe) || universe.some((v) => typeof v !== 'string')) {
+      throw new BadRequestException(
+        "kelly_sweep params.universe 必须是 'all' 或 string[] (ts_code 列表)",
+      );
+    }
+  }
+
+  // train_range / valid_range
+  for (const rangeKey of ['train_range', 'valid_range'] as const) {
+    const range = params[rangeKey];
+    if (
+      !Array.isArray(range) ||
+      range.length !== 2 ||
+      !YYYYMMDD_RE.test(range[0] as string) ||
+      !YYYYMMDD_RE.test(range[1] as string)
+    ) {
+      throw new BadRequestException(
+        `kelly_sweep params.${rangeKey} 必须是 [YYYYMMDD, YYYYMMDD] 二元组`,
+      );
+    }
+    if ((range[0] as string) > (range[1] as string)) {
+      throw new BadRequestException(
+        `kelly_sweep params.${rangeKey}[0] (${range[0]}) 不得晚于 ${rangeKey}[1] (${range[1]})`,
+      );
+    }
+  }
+  // train_start <= valid_start
+  const trainRange = params.train_range as [string, string];
+  const validRange = params.valid_range as [string, string];
+  if (trainRange[0] > validRange[0]) {
+    throw new BadRequestException(
+      `kelly_sweep params.train_range[0] (${trainRange[0]}) 不得晚于 valid_range[0] (${validRange[0]})`,
+    );
+  }
+
+  // 数值下界
+  const numChecks: [string, number][] = [
+    ['max_window', 1],
+    ['min_samples', 1],
+    ['bootstrap_iters', 1],
+    ['rs_lookback', 1],
+    ['top_k', 1],
+  ];
+  for (const [field, minVal] of numChecks) {
+    const v = params[field];
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < minVal) {
+      throw new BadRequestException(
+        `kelly_sweep params.${field} 必须是整数且 >= ${minVal}，实际 ${JSON.stringify(v)}`,
+      );
+    }
+  }
+  // max_entry_filters >= 0
+  const mef = params.max_entry_filters;
+  if (typeof mef !== 'number' || !Number.isInteger(mef) || mef < 0) {
+    throw new BadRequestException(
+      `kelly_sweep params.max_entry_filters 必须是整数且 >= 0，实际 ${JSON.stringify(mef)}`,
+    );
+  }
+
+  // same_day_rule
+  if (params.same_day_rule !== 'sl_first' && params.same_day_rule !== 'tp_first') {
+    throw new BadRequestException(
+      `kelly_sweep params.same_day_rule 必须是 'sl_first' 或 'tp_first'，实际 ${JSON.stringify(params.same_day_rule)}`,
+    );
+  }
+
+  // rs_benchmark：只允许 hs300/zz500（industry 暂未接通，禁止提交）
+  const rsb = params.rs_benchmark;
+  if (!Array.isArray(rsb) || rsb.length === 0) {
+    throw new BadRequestException(
+      "kelly_sweep params.rs_benchmark 必须是非空数组，成员 ∈ ['hs300','zz500']",
+    );
+  }
+  for (const b of rsb as unknown[]) {
+    if (b !== 'hs300' && b !== 'zz500') {
+      throw new BadRequestException(
+        `kelly_sweep params.rs_benchmark 成员只允许 'hs300'|'zz500'（'industry' 暂未接通，禁止提交），实际 ${JSON.stringify(b)}`,
+      );
+    }
+  }
+
+  // exit_families：非空 ⊆ {fixed_n,tp_sl,trailing,atr_stop}
+  const ef = params.exit_families;
+  if (!Array.isArray(ef) || (ef as unknown[]).length === 0) {
+    throw new BadRequestException(
+      `kelly_sweep params.exit_families 必须是非空数组，成员 ∈ {${[...KELLY_SWEEP_EXIT_FAMILIES].join(',')}}`,
+    );
+  }
+  for (const f of ef as unknown[]) {
+    if (typeof f !== 'string' || !KELLY_SWEEP_EXIT_FAMILIES.has(f)) {
+      throw new BadRequestException(
+        `kelly_sweep params.exit_families 成员必须 ∈ {${[...KELLY_SWEEP_EXIT_FAMILIES].join(',')}}，实际 ${JSON.stringify(f)}`,
+      );
+    }
+  }
+}
 
 export interface ValidatedCreateJob {
   runType: MlJobRunType;
@@ -220,6 +400,11 @@ export function validateCreateJob(input: unknown): ValidatedCreateJob {
           '(3) params.strategy_id + params.strategy_version（两者均需非空）。',
       );
     }
+  }
+
+  // ---- kelly_sweep params 深度校验 ----
+  if (rt === 'kelly_sweep') {
+    validateKellySweepParams(params);
   }
 
   return {

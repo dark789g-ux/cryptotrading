@@ -84,6 +84,7 @@ import { FactorDefinitionEntity } from './entities/ml/factor-definition.entity';
 import { LabelDefinitionEntity } from './entities/ml/label-definition.entity';
 import { StrategyDefinitionEntity } from './entities/ml/strategy-definition.entity';
 import { FeatureSetEntity } from './entities/ml/feature-set.entity';
+import { KellySweepResult } from './entities/ml/kelly-sweep-result.entity';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -170,6 +171,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           StrategyDefinitionEntity,
           // factors.feature_sets（已物化特征集列表 API，新 spec 2026-06-06-labels-features-incremental-prepare-design）
           FeatureSetEntity,
+          // research.kelly_sweep_results（凯利网格搜索结果表，spec 2026-06-09-kelly-sweep-web-console-design）
+          KellySweepResult,
         ],
         synchronize: false,
         logging: ['error', 'warn'],

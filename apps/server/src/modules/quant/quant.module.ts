@@ -26,6 +26,7 @@ import { PgListenService } from './realtime/pg-listen.service';
 import { FactorsModule } from './factors/factors.module';
 import { LabelsModule } from './labels/labels.module';
 import { QuantStrategiesModule } from './strategies/strategies.module';
+import { KellySweepModule } from './kelly-sweep/kelly-sweep.module';
 
 /**
  * `apps/server/src/modules/quant/`：量化模型训练相关 HTTP 表面。
@@ -78,6 +79,8 @@ import { QuantStrategiesModule } from './strategies/strategies.module';
     LabelsModule,
     // 出场策略定义 CRUD（spec 2026-06-06-quant-strategy-management-design）
     QuantStrategiesModule,
+    // 凯利网格搜索结果查询（spec 2026-06-09-kelly-sweep-web-console-design）
+    KellySweepModule,
   ],
   controllers: [
     QuantJobsController,

@@ -145,6 +145,7 @@ export type JobRunType =
   | 'optuna'
   | 'seed_avg'
   | 'train_e2e'
+  | 'kelly_sweep'
 
 export type JobStatus =
   | 'pending'
