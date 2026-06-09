@@ -81,6 +81,14 @@ const columns = computed<DataTableColumns<SignalTestWithLatestRun>>(() => [
           { default: () => `固定N日(N=${row.horizonN ?? '?'})` },
         )
       }
+      if (row.exitMode === 'trailing_lock') {
+        const cap = row.maxHold == null ? '不封顶' : `≤${row.maxHold}`
+        return h(
+          NTag,
+          { type: 'success', size: 'small' },
+          { default: () => `波段跟踪止损(${cap})` },
+        )
+      }
       return h(
         NTag,
         { type: 'warning', size: 'small' },

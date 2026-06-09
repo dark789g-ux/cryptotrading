@@ -19,6 +19,7 @@
       <n-radio-group v-model:value="form.exitMode">
         <n-radio value="fixed_n">固定 N 个交易日</n-radio>
         <n-radio value="strategy">卖出条件命中</n-radio>
+        <n-radio value="trailing_lock">波段跟踪止损</n-radio>
       </n-radio-group>
     </n-form-item>
 
@@ -32,7 +33,7 @@
       </n-form-item>
     </template>
 
-    <template v-else>
+    <template v-else-if="form.exitMode === 'strategy'">
       <n-divider dashed>卖出条件</n-divider>
       <condition-rows
         v-model:conditions="form.exitConditions"
@@ -45,6 +46,24 @@
         :rule="{ type: 'number', required: true, min: 1, message: '请输入 ≥1 的正整数' }"
       >
         <n-input-number v-model:value="form.maxHold" :min="1" :precision="0" style="width: 140px" />
+      </n-form-item>
+    </template>
+
+    <template v-else>
+      <!-- trailing_lock：波段跟踪止损，无卖出条件编辑器，maxHold 可选 -->
+      <n-form-item
+        label="最长持有天数（可选，留空不封顶）"
+        path="maxHold"
+        :rule="{ type: 'number', min: 1, message: '请输入 ≥1 的正整数' }"
+      >
+        <n-input-number
+          v-model:value="form.maxHold"
+          :min="1"
+          :precision="0"
+          clearable
+          placeholder="留空不封顶"
+          style="width: 200px"
+        />
       </n-form-item>
     </template>
 
@@ -100,7 +119,11 @@ import {
 } from 'naive-ui'
 import type { FormItemRule } from 'naive-ui'
 import type { StrategyConditionItem } from '../../api/modules/strategy/strategyConditions'
-import type { SignalTest, CreateSignalTestDto } from '../../api/modules/strategy/signalStats'
+import type {
+  SignalTest,
+  CreateSignalTestDto,
+  SignalTestExitMode,
+} from '../../api/modules/strategy/signalStats'
 import ConditionRows from '../../components/strategy-conditions/ConditionRows.vue'
 
 // ── Main form ─────────────────────────────────────────────────────────────────
@@ -146,7 +169,7 @@ function buildDefaultRange(): [number, number] {
 const form = ref({
   name: '',
   buyConditions: [] as StrategyConditionItem[],
-  exitMode: 'fixed_n' as 'fixed_n' | 'strategy',
+  exitMode: 'fixed_n' as SignalTestExitMode,
   horizonN: 5 as number | null,
   exitConditions: [] as StrategyConditionItem[],
   maxHold: 20 as number | null,
@@ -172,6 +195,20 @@ watch(
     }
   },
   { immediate: true },
+)
+
+// 切换出场模式时复位 maxHold：trailing_lock 默认空=不封顶（spec 03 §1.3）；
+// strategy maxHold 必填，从空切回时回填默认 20 避免立刻校验报错。
+// 默认懒执行（不 immediate）——只响应用户切换动作，不冲掉初始化回填的 initialData.maxHold。
+watch(
+  () => form.value.exitMode,
+  (mode) => {
+    if (mode === 'trailing_lock') {
+      form.value.maxHold = null
+    } else if (mode === 'strategy' && form.value.maxHold == null) {
+      form.value.maxHold = 20
+    }
+  },
 )
 
 const dateRangeRule: FormItemRule = {
@@ -238,8 +275,11 @@ async function handleSubmit() {
 
   if (form.value.exitMode === 'fixed_n') {
     dto.horizonN = form.value.horizonN ?? undefined
-  } else {
+  } else if (form.value.exitMode === 'strategy') {
     dto.exitConditions = form.value.exitConditions
+    dto.maxHold = form.value.maxHold ?? undefined
+  } else {
+    // trailing_lock: 无 exitConditions、无 horizonN，maxHold 可选（留空不封顶）
     dto.maxHold = form.value.maxHold ?? undefined
   }
 

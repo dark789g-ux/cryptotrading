@@ -190,9 +190,10 @@ const latestRun = computed(() => props.test.latestRun)
 
 const exitModeLabel = computed(() => {
   const t = props.test
-  return t.exitMode === 'fixed_n'
-    ? `固定${t.horizonN}日`
-    : `条件出场(≤${t.maxHold})`
+  if (t.exitMode === 'fixed_n') return `固定${t.horizonN}日`
+  if (t.exitMode === 'trailing_lock')
+    return t.maxHold == null ? '波段跟踪止损' : `波段跟踪止损(≤${t.maxHold})`
+  return `条件出场(≤${t.maxHold})`
 })
 
 const universeLabel = computed(() => {
@@ -358,6 +359,8 @@ const tradeColumns: DataTableColumns<SignalTestTrade> = [
         max_hold: '强平',
         signal: '信号',
         delist: '退市',
+        stop: '止损',
+        ma5_exit: 'MA5离场',
       }
       return labelMap[row.exitReason] ?? row.exitReason
     },

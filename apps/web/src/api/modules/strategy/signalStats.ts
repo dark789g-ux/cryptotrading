@@ -6,11 +6,13 @@ export interface SignalTestUniverse {
   tsCodes?: string[]
 }
 
+export type SignalTestExitMode = 'fixed_n' | 'strategy' | 'trailing_lock'
+
 export interface SignalTest {
   id: string
   name: string
   buyConditions: StrategyConditionItem[]
-  exitMode: 'fixed_n' | 'strategy'
+  exitMode: SignalTestExitMode
   horizonN: number | null
   exitConditions: StrategyConditionItem[] | null
   maxHold: number | null
@@ -24,7 +26,7 @@ export interface SignalTest {
 export interface CreateSignalTestDto {
   name: string
   buyConditions: StrategyConditionItem[]
-  exitMode: 'fixed_n' | 'strategy'
+  exitMode: SignalTestExitMode
   horizonN?: number
   exitConditions?: StrategyConditionItem[]
   maxHold?: number
@@ -84,7 +86,7 @@ export interface SignalTestTrade {
   exitPrice: string
   ret: string
   holdDays: number
-  exitReason: 'max_hold' | 'signal' | 'delist'
+  exitReason: 'max_hold' | 'signal' | 'delist' | 'stop' | 'ma5_exit'
 }
 
 export interface TradesPage {
