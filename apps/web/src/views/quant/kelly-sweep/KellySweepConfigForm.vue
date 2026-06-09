@@ -209,7 +209,7 @@
  * I1 修复：defineModel 替代 defineProps；局部 ref 加 watch(config, resyncLocalRefs, {deep:true})
  * 保证父覆写（历史加载）时 universeMode/trainRange/validRange 同步。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   NCard, NCheckbox, NDatePicker, NDivider, NInput, NInputNumber,
   NRadio, NRadioGroup, NSelect,
@@ -217,6 +217,7 @@ import {
 import type { SelectOption } from 'naive-ui'
 import { kellySweepApi, type ExitFamily, type BaseTriggerOp } from '@/api/modules/quant/kellySweep'
 import type { SweepParams } from '@/api/modules/quant/kellySweep'
+import { useKellySweepConfigSync } from '@/composables/quant/useKellySweepConfigSync'
 
 // ---------- 出场族常量（来源 sweep.py:90-106 DEFAULT_EXIT_GRID，UI 粗估用） ----------
 const EXIT_FAMILY_SIZES: Record<ExitFamily, number> = {
@@ -282,72 +283,18 @@ const rsBenchmarkOptions: { label: string; value: string; disabled: boolean }[] 
   { label: 'industry（未接通）', value: 'industry', disabled: true },
 ]
 
-// ---------- universe 辅助 ----------
-const universeMode = ref<'all' | 'list'>(
-  Array.isArray(config.value.universe) ? 'list' : 'all',
-)
-const universeListText = ref(
-  Array.isArray(config.value.universe) ? config.value.universe.join(',') : '',
-)
-
-watch(universeMode, (m) => {
-  if (m === 'all') {
-    config.value = { ...config.value, universe: 'all' }
-  } else {
-    config.value = {
-      ...config.value,
-      universe: universeListText.value.split(',').map(s => s.trim()).filter(Boolean),
-    }
-  }
-})
-
-watch(universeListText, (t) => {
-  if (universeMode.value === 'list') {
-    config.value = {
-      ...config.value,
-      universe: t.split(',').map(s => s.trim()).filter(Boolean),
-    }
-  }
-})
-
-// ---------- 日期区间辅助（trade_date 格式 YYYYMMDD，用本地 TZ 提取）----------
-function tsToYYYYMMDD(ts: number): string {
-  const d = new Date(ts)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}${m}${day}`
-}
-
-function yyyymmddToTs(s: string): number {
-  const y = Number(s.slice(0, 4))
-  const m = Number(s.slice(4, 6)) - 1
-  const d = Number(s.slice(6, 8))
-  return new Date(y, m, d).getTime()
-}
-
-function initDateRange(range: [string, string]): [number, number] | null {
-  const [s, e] = range
-  return s && e ? [yyyymmddToTs(s), yyyymmddToTs(e)] : null
-}
-
-const trainRange = ref<[number, number] | null>(initDateRange(config.value.train_range))
-const validRange = ref<[number, number] | null>(initDateRange(config.value.valid_range))
+// ---------- universe / 日期区间同步（抽至 composable） ----------
+const {
+  universeMode,
+  universeListText,
+  trainRange,
+  validRange,
+  onTrainRangeChange,
+  onValidRangeChange,
+} = useKellySweepConfigSync(config)
 
 function isDateDisabled(): boolean {
   return false
-}
-
-function onTrainRangeChange(v: [number, number] | null) {
-  if (v) {
-    config.value = { ...config.value, train_range: [tsToYYYYMMDD(v[0]), tsToYYYYMMDD(v[1])] }
-  }
-}
-
-function onValidRangeChange(v: [number, number] | null) {
-  if (v) {
-    config.value = { ...config.value, valid_range: [tsToYYYYMMDD(v[0]), tsToYYYYMMDD(v[1])] }
-  }
 }
 
 // ---------- 出场族切换 ----------
@@ -371,34 +318,6 @@ function toggleRsBenchmark(v: string, checked: boolean) {
     config.value = { ...config.value, rs_benchmark: config.value.rs_benchmark.filter(x => x !== v) }
   }
 }
-
-// ---------- I1 修复：父覆写 config 时同步局部 ref ----------
-/**
- * 当父（KellySweepView）通过历史 job 加载覆写整个 config 时，
- * universeMode / universeListText / trainRange / validRange 需要重新同步，
- * 否则表单显示与实际 config 分叉。
- */
-function resyncLocalRefs(newConfig: SweepParams) {
-  // universe
-  if (Array.isArray(newConfig.universe)) {
-    universeMode.value = 'list'
-    universeListText.value = newConfig.universe.join(',')
-  } else {
-    universeMode.value = 'all'
-    universeListText.value = ''
-  }
-  // 日期区间
-  trainRange.value = initDateRange(newConfig.train_range)
-  validRange.value = initDateRange(newConfig.valid_range)
-}
-
-watch(
-  () => config.value,
-  (newConfig) => {
-    resyncLocalRefs(newConfig)
-  },
-  { deep: true },
-)
 
 // ---------- 组合数粗估 ----------
 
