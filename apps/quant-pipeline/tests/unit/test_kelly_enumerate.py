@@ -757,10 +757,12 @@ class TestLoadFeatureInputs:
     # ── 截面 DataFrame 构造辅助 ──────────────────────────────────────────────
 
     def _fake_cross_rows(self):
-        """fake SQL 返回给截面查询用的行（模拟 pg 返回 Decimal，用 float 代替）。"""
+        """fake SQL 返回给截面查询用的行（模拟 pg 返回 Decimal，用 float 代替）。
+        列顺序：ts_code, signal_date, qfq_close, ma5, ma30, atr_14, kdj_j, vol
+        """
         return [
-            ("000001.SZ", "20240110", 10.5, 10.2, 9.8, 0.25, 50000.0),
-            ("000002.SZ", "20240110", 8.3, 8.1, 7.9, 0.18, 30000.0),
+            ("000001.SZ", "20240110", 10.5, 10.2, 9.8, 0.25, -5.3, 50000.0),
+            ("000002.SZ", "20240110", 8.3, 8.1, 7.9, 0.18, 12.0, 30000.0),
         ]
 
     def _fake_hist_rows(self, history_window: int = 6):
@@ -810,11 +812,11 @@ class TestLoadFeatureInputs:
         assert isinstance(result, tuple) and len(result) == 2
 
     def test_cross_section_columns(self, monkeypatch) -> None:
-        """截面 DataFrame 必须含 ts_code/signal_date/qfq_close/ma5/ma30/atr_14/vol。"""
+        """截面 DataFrame 必须含 ts_code/signal_date/qfq_close/ma5/ma30/atr_14/kdj_j/vol。"""
         signals = self._make_signals()
         self._patch_engine(monkeypatch, self._fake_cross_rows(), self._fake_hist_rows())
         cross, _ = load_feature_inputs(signals)
-        expected_cols = {"ts_code", "signal_date", "qfq_close", "ma5", "ma30", "atr_14", "vol"}
+        expected_cols = {"ts_code", "signal_date", "qfq_close", "ma5", "ma30", "atr_14", "kdj_j", "vol"}
         assert expected_cols.issubset(set(cross.columns))
 
     def test_cross_section_row_count(self, monkeypatch) -> None:
@@ -861,7 +863,7 @@ class TestLoadFeatureInputs:
     def test_history_window_sorted_ascending(self, monkeypatch) -> None:
         """history_map 中的窗口 DataFrame 按 trade_date 升序排列。"""
         signals = [SignalRecord(ts_code="000001.SZ", signal_date="20240110", buy_date="20240111")]
-        cross_rows = [("000001.SZ", "20240110", 10.5, 10.2, 9.8, 0.25, 50000.0)]
+        cross_rows = [("000001.SZ", "20240110", 10.5, 10.2, 9.8, 0.25, -5.3, 50000.0)]
         hist_rows = [
             ("000001.SZ", "20240110", "20240108", -0.5, 10000.0),
             ("000001.SZ", "20240110", "20240105", 0.3, 12000.0),
@@ -877,7 +879,7 @@ class TestLoadFeatureInputs:
         """qfq_pct_chg 值正确转为 float（pg numeric 来的 Decimal 也能处理）。"""
         import decimal
         signals = [SignalRecord(ts_code="000001.SZ", signal_date="20240110", buy_date="20240111")]
-        cross_rows = [("000001.SZ", "20240110", 10.5, 10.2, 9.8, 0.25, 50000.0)]
+        cross_rows = [("000001.SZ", "20240110", 10.5, 10.2, 9.8, 0.25, -5.3, 50000.0)]
         # 模拟 pg 返回 Decimal 类型
         hist_rows = [
             ("000001.SZ", "20240110", "20240108", decimal.Decimal("-1.23"), decimal.Decimal("50000")),
@@ -894,7 +896,7 @@ class TestLoadFeatureInputs:
     def test_no_history_data_key_absent(self, monkeypatch) -> None:
         """若某 (ts_code, signal_date) 无历史数据，history_map 中无此键（而非空 DataFrame）。"""
         signals = [SignalRecord(ts_code="000001.SZ", signal_date="20240110", buy_date="20240111")]
-        cross_rows = [("000001.SZ", "20240110", 10.5, 10.2, 9.8, 0.25, 50000.0)]
+        cross_rows = [("000001.SZ", "20240110", 10.5, 10.2, 9.8, 0.25, -5.3, 50000.0)]
         hist_rows = []  # 无历史数据
         self._patch_engine(monkeypatch, cross_rows, hist_rows)
         _, hist = load_feature_inputs(signals, history_window=5)

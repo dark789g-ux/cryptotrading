@@ -244,7 +244,7 @@ def load_feature_inputs(
 
     cross_section_df — signal_date 单日截面，列：
         ts_code (str), signal_date (str), qfq_close (float), ma5 (float),
-        ma30 (float), atr_14 (float), vol (float)
+        ma30 (float), atr_14 (float), kdj_j (float), vol (float)
       - 每行对应一个 (ts_code, signal_date) 组合（唯一）。
       - 仅包含 raw.daily_indicator 有记录的组合（无记录的信号行被自然滤掉）。
 
@@ -272,7 +272,7 @@ def load_feature_inputs(
     """
     if not signals:
         cross = pd.DataFrame(
-            columns=["ts_code", "signal_date", "qfq_close", "ma5", "ma30", "atr_14", "vol"]
+            columns=["ts_code", "signal_date", "qfq_close", "ma5", "ma30", "atr_14", "kdj_j", "vol"]
         )
         return cross, {}
 
@@ -290,6 +290,7 @@ def load_feature_inputs(
                i.ma5,
                i.ma30,
                i.atr_14,
+               i.kdj_j,
                q.vol
           FROM raw.daily_indicator i
           LEFT JOIN raw.daily_quote q
@@ -302,9 +303,9 @@ def load_feature_inputs(
         rows = conn.execute(sql_cross, {"codes": ts_codes, "dates": signal_dates}).fetchall()
 
     cross_df = pd.DataFrame(
-        rows, columns=["ts_code", "signal_date", "qfq_close", "ma5", "ma30", "atr_14", "vol"]
+        rows, columns=["ts_code", "signal_date", "qfq_close", "ma5", "ma30", "atr_14", "kdj_j", "vol"]
     )
-    for col in ["qfq_close", "ma5", "ma30", "atr_14", "vol"]:
+    for col in ["qfq_close", "ma5", "ma30", "atr_14", "kdj_j", "vol"]:
         cross_df[col] = pd.to_numeric(cross_df[col], errors="coerce")
 
     # ── 2. 历史窗口：按 ts_code 分组批量预取 ─────────────────────────────────
