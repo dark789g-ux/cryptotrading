@@ -85,7 +85,7 @@ Phase 1 是对现有 NestJS simulator 的**受控重实现**，以下口径**必
 | 停牌日 | `hasQuote=false` 跳过、不占额度（`simulator.ts:239`） | 一致 |
 | 次新股 | 上市 < 60 交易日过滤 | 一致 |
 | 一字涨停 | 买入日一字涨停过滤（用未复权 open 判定） | 一致 |
-| 退市 | `delistDate >= calDate` 取上一有效日 qfq_close 强平，`exit_reason='delist'` | 一致 |
+| 退市 | `calDate >= delistDate`（当前交易日已到/过退市日）取上一有效日 qfq_close 强平，`exit_reason='delist'` | 一致 |
 | fixed_n 出场 | 第 N 个可交易日 qfq_close，`exit_reason='max_hold'` | 一致（用于自校验复现） |
 
 **自校验闸**：harness 用 `base=KDJ_J<-10` + `fixed_n(1)` + 全市场 2023-01~2026-05 跑一遍，凯利须 ≈ 0.171、n ≈ 80276（容差内），对齐才信任后续结果——否则先查 T+1 / 复权 / 停牌口径，详见 [05 §1](./05-validation-phase2.md#1-自校验锚点phase-1-内置闸门)。

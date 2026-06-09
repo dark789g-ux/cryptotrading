@@ -93,7 +93,7 @@ class TradeResult:
     """单次交易的完整执行结果。
 
     ret 为算术收益率，口径：(exit_price - buy_price) / buy_price。
-    hold_days 为自然日数（含 buy_date 当日）。
+    hold_days 为可交易持有日数（停牌日不计，对齐 simulator.ts tradableCount）。
 
     exit_reason 取值：
         max_hold  — 到达 max_window 强制平仓
@@ -120,7 +120,7 @@ class TradeResult:
     """算术收益率 = (exit_price - buy_price) / buy_price。"""
 
     hold_days: int
-    """持仓自然日数（含 buy_date 当日）。"""
+    """持仓可交易日数（停牌日不计）。"""
 
     exit_reason: Literal["max_hold", "delist", "tp", "sl", "trailing", "atr"]
     """出场原因；同日双触发时按 SweepConfig.same_day_rule 决定。"""

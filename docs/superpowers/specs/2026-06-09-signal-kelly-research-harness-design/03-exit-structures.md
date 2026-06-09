@@ -77,7 +77,7 @@
 
 - 到 `maxHold` 个可交易日仍未触发任何止盈/止损 → 第 maxHold 日 `qfq_close` 强平，`exit_reason='max_hold'`。
 - 停牌日跳过、不占 maxHold 额度（与 `simulator.ts:239` 一致）。
-- 退市优先：`delistDate >= calDate` 取上一有效日 `qfq_close` 强平，`exit_reason='delist'`。
+- 退市优先：`calDate >= delistDate`（当前交易日已到/过退市日）取上一有效日 `qfq_close` 强平，`exit_reason='delist'`。
 
 ## 9. exit_reason 取值集（Phase 1 扩展）
 
