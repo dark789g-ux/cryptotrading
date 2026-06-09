@@ -16,9 +16,14 @@
 
 --self-check 模式（供 T8 集成测试用）：
     以固定复现配置跑一遍，与锚点对比，打印达标/不达标，不达标时退出码非零。
-    复现配置：base=KDJ_J<-10，exit=fixed_n(1)，全市场，区间 20230101~20260531。
+    复现配置：base=KDJ_J<-10，exit=fixed_n(1)，全市场，信号枚举末端 20260515。
     锚点：Kelly≈0.171, n≈80276, 胜率≈0.5453, b≈1.214。
-    容差：n 偏差 < 1%，Kelly 绝对偏差 < 0.005。
+    容差：n 偏差 < 1%，Kelly 绝对偏差 < 0.005，胜率/b ±0.02。
+
+    信号枚举末端用 20260515（锚点 run 2026-06-08 创建时的有效数据边界），不用更晚的
+    20260531：更晚的 date_end 会纳入锚点跑时尚不存在的尾部真实信号，使 n/Kelly 偏离
+    锚点（非 bug，是数据快照差异）。路径加载 date_end 仍用 20260531，给 buy_date 接近
+    边界的信号留出后向窗口（与锚点 run 行为一致）。
 """
 
 from __future__ import annotations
@@ -57,7 +62,16 @@ _ANCHOR_N = 80276
 _ANCHOR_WIN_RATE = 0.5453
 _ANCHOR_PAYOFF_B = 1.214
 _ANCHOR_DATE_START = "20230101"
-_ANCHOR_DATE_END = "20260531"
+
+# 信号枚举/验证区间末端：用 20260515（锚点 run 2026-06-08 创建时的有效数据边界）。
+# 注意：不要用更晚的 20260531——更晚的 date_end 会把锚点跑时尚不存在的尾部真实信号
+# 纳入枚举，使 n/Kelly 偏离锚点（这是数据快照差异，非 bug）。
+_ANCHOR_DATE_END = "20260515"
+
+# 路径加载截止日：比信号枚举末端略晚，给 buy_date(=signal_date 之后第一个交易日) 接近
+# 20260515 的信号留出后向窗口（fixed_n(1) 需 buy_date 之后至少 1 个可交易日），与锚点
+# run 行为一致。bars 口径已是「buy_date 之后第一个可交易日起」。
+_ANCHOR_PATH_DATE_END = "20260531"
 
 _TOL_N_PCT = 0.01      # n 偏差 < 1%
 _TOL_KELLY_ABS = 0.005  # Kelly 绝对偏差 < 0.005
@@ -166,7 +180,10 @@ def _run_self_check() -> int:
         1 — 不达标
     """
     print("=== self-check: 复现配置 ===")
-    print(f"base=KDJ_J<-10, exit=fixed_n(1), 全市场, 区间 {_ANCHOR_DATE_START}~{_ANCHOR_DATE_END}")
+    print(
+        f"base=KDJ_J<-10, exit=fixed_n(1), 全市场, 信号枚举 {_ANCHOR_DATE_START}~{_ANCHOR_DATE_END}"
+        f"（路径 date_end={_ANCHOR_PATH_DATE_END}）"
+    )
     print(f"锚点: Kelly≈{_ANCHOR_KELLY}, n≈{_ANCHOR_N}, 胜率≈{_ANCHOR_WIN_RATE}, b≈{_ANCHOR_PAYOFF_B}")
     print()
 
@@ -190,7 +207,8 @@ def _run_self_check() -> int:
     print(f"   信号数：{len(signals)}")
 
     print("2. 加载前向路径...")
-    paths = load_forward_paths(signals, config_full.max_window, date_end=_ANCHOR_DATE_END)
+    # 路径 date_end 用 _ANCHOR_PATH_DATE_END（略晚于信号枚举末端），给边界信号留后向窗口。
+    paths = load_forward_paths(signals, config_full.max_window, date_end=_ANCHOR_PATH_DATE_END)
     print(f"   路径数：{len(paths)}")
 
     print("3. 加载特征输入...")
