@@ -6,6 +6,11 @@
 
 ---
 
+## 2026-06-09: Naive n-select 下拉——虚拟滚动藏尾部选项 + 多菜单残留混 option 查询
+**Symptom**: 给条件行 n-select 选新加的字段，下拉只渲染前 ~10 个（KDJ_J…MA60），列表末尾的新字段查不到；且打开第二个 select 后 `document.querySelectorAll('.n-base-select-option')` 把上一个没关的菜单选项也带进来、index 错位。
+**Cause**: Naive n-select 选项数超阈值即虚拟滚动，只渲染可视窗口，末尾选项要滚动才挂 DOM。多个 select 菜单 teleport 到 body 后会共存（旧菜单未即时移除），全局 option 查询会混两个菜单。
+**Lesson**: ① 找不到尾部选项先把菜单滚到底再读：`(menu.querySelector('.v-vl')||menu.querySelector('[class*=scrollbar-container]')).scrollTop=99999`。② option 一律 scope 到**可见**菜单别用全局：`[...document.querySelectorAll('.n-base-select-menu')].filter(m=>m.getClientRects().length>0).pop()` 再在它内部 querySelectorAll option 按 index 点。③ 选完回读对应 `.n-base-selection` 文本确认命中。难填的 n-date-picker daterange 仍直接设 `form.dateRange=[ms,ms]`（本地午夜 ms，减一天 `-86400000`）最稳。
+
 ## 2026-06-09: 图表区空白——数 容器children/canvas/[_echarts_instance_] 区分"没 init"vs"尺寸 0"
 **Symptom**: e2e 验 ECharts 图表，图表区空白。容器 div 存在且 clientWidth/Height 非 0，但里面没图。
 **Cause**: 两种成因要分开——(a) 实例根本没创建 vs (b) 创建了但 0 尺寸/空数据。本例 (a)：组件把图表容器放在 `v-if="loading"` 的互斥分支，init 在 loading 仍 true 时跑→容器不在 DOM→`el` ref undefined→`echarts.init` 被 `if(!el.value)return` 跳过，loading 转 false 后无人重触发。
