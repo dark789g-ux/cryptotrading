@@ -220,4 +220,12 @@ def run_kelly_sweep(job: Job) -> dict[str, Any]:
         summary["n_topk"],
         summary["n_frontier"],
     )
+
+    # 必须 emit progress=100 的 NOTIFY，触发 SSE 终态链：
+    # 后端 SSE controller 仅在收到 progress>=100 的 pg_notify 时回查 status、
+    # 下发 complete 事件；前端 ProgressLine 据此 emit 'done' → 自动加载结果。
+    # dispatcher 在 runner 返回后写 status=success/progress=100 是直接 UPDATE，
+    # **不发 pg_notify**——若 runner 自身最后停在 99（写库），SSE 永远收不到
+    # >=100 事件，ProgressLine 卡在 99、done 不触发、结果不自动加载（真机 e2e 实测）。
+    update_progress(job_id, 100, stage="完成")
     return summary

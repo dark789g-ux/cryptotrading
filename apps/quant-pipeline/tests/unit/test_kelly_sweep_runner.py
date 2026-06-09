@@ -704,3 +704,86 @@ class TestOnProgressEnumerate:
             result = enumerate_signals(config, on_progress=None)
 
         assert result == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. run_kelly_sweep — 完成时必须 emit progress=100（SSE 终态链回归）
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestRunKellySweepCompletionProgress:
+    """回归：runner 跑完必须 emit progress=100 的 NOTIFY（真机 e2e 2026-06-09 发现）。
+
+    后端 SSE controller 仅在收到 progress>=100 的 pg_notify 时回查 status、下发
+    complete 事件；前端 ProgressLine 据此 emit 'done' → 自动加载结果。dispatcher
+    在 runner 返回后写 status=success/progress=100 是直接 UPDATE，**不发 pg_notify**。
+    若 runner 自身最后停在 99（写库），SSE 永收不到 >=100 事件、前端卡 99、done 不
+    触发、结果不自动加载。故 runner 末尾必须显式 emit 100。
+    """
+
+    def _fake_job(self) -> Any:
+        from uuid import uuid4
+
+        from quant_pipeline.worker.poller import Job
+
+        return Job(
+            id=uuid4(),
+            run_type="kelly_sweep",
+            params={"rs_benchmark": ["hs300"]},
+            attempts=1,
+            max_attempts=3,
+        )
+
+    def test_last_emitted_progress_is_100(self) -> None:
+        from quant_pipeline.worker import kelly_sweep_runner as runner_mod
+
+        recorded: list[int] = []
+
+        with (
+            patch.object(
+                runner_mod,
+                "update_progress",
+                side_effect=lambda jid, pct, stage=None: recorded.append(pct),
+            ),
+            patch(
+                "quant_pipeline.research.kelly_sweep.enumerate.enumerate_signals",
+                return_value=["sig"],
+            ),
+            patch(
+                "quant_pipeline.research.kelly_sweep.paths.load_forward_paths",
+                return_value=["path"],
+            ),
+            patch(
+                "quant_pipeline.research.kelly_sweep.paths.load_feature_inputs",
+                return_value=(MagicMock(), {}),
+            ),
+            patch(
+                "quant_pipeline.research.kelly_sweep.paths.load_index_daily",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "quant_pipeline.research.kelly_sweep.sweep.run_sweep",
+                return_value=[_make_row()],
+            ),
+            patch(
+                "quant_pipeline.research.kelly_sweep.report.compute_pareto_frontier",
+                return_value=[],
+            ),
+            patch(
+                "quant_pipeline.research.kelly_sweep.report.rank_top_k",
+                return_value={},
+            ),
+            patch("quant_pipeline.research.kelly_sweep.persist.persist_results"),
+            patch(
+                "quant_pipeline.research.kelly_sweep.persist.build_summary_payload",
+                return_value={"n_rows": 1, "n_topk": 0, "n_frontier": 0},
+            ),
+        ):
+            runner_mod.run_kelly_sweep(self._fake_job())
+
+        assert recorded, "runner 应至少 emit 一次 progress"
+        assert 100 in recorded, f"runner 必须 emit progress=100，实际序列={recorded}"
+        assert recorded[-1] == 100, (
+            "runner 完成时最后一次 progress 必须是 100"
+            f"（否则 SSE 收不到终态、前端卡住），实际最后值={recorded[-1]}，序列={recorded}"
+        )
