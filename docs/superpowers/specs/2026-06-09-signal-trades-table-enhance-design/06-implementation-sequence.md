@@ -5,27 +5,30 @@
 ## 依赖图
 
 ```text
-契约先行 ── F3(API/store 签名) ┐
-            B1(a-shares 后端)  ┼── 并行 ──► F1(K线 Modal,依赖 B1+F3) ┐
-            B2(trades 后端)    ┘            F2(trades 面板,依赖 B2+F3)┼─► 接线 SignalStatsResult ─► 整体 e2e
-                                                                       ┘
+契约先行 ── F3(API/store 签名)        ┐
+            F0(formatters util,纯函数) ┤
+            B1(a-shares 后端)          ┼─ 并行 ─► F1(K线 Modal,依赖 B1+F3+F0) ┐
+            B2(trades 后端)            ┘         F2(trades 面板,依赖 B2+F3+F0+F1)┼► 整体 e2e
+                                                                                  ┘
 ```
 
-- **第一波（可并行，零文件交叠）**：F3、B1、B2。
-- **第二波（依赖第一波契约）**：F1（依赖 B1+F3）、F2（依赖 B2+F3）。F1/F2 文件域不交叠，可并行。
-- **收尾**：F2 内接线 `SignalStatsResult.vue` + `SignalTradeKlineModal`；整体 e2e。
+- **第一波（可并行，零文件交叠）**：F3、F0、B1、B2。
+  - F0 只新建 `signalStatsFormatters.ts`（把 `SignalStatsResult.vue` 的纯函数逻辑**复制**为模块级导出；**不改** `SignalStatsResult.vue`，改文件留给 F2，避免写冲突）。
+- **第二波（依赖第一波契约）**：F1（依赖 B1+F3+F0）、F2（依赖 B2+F3+F0+F1）。
+- **收尾**：F2 内接线 `SignalStatsResult.vue`（删旧逻辑、引面板）+ `SignalTradeKlineModal`；整体 e2e。
 
 ## 任务切分（供 subagent-driven-development，文件域互斥）
 
 | 任务 | 文件域 | 依赖 | 子文档 |
 |------|--------|------|--------|
 | **T-F3** | `api/modules/market/aShares.ts`、`api/modules/strategy/signalStats.ts`、`stores/signalStats.ts` | — | [03](./03-frontend-api-store-contracts.md) |
+| **T-F0** | `components/strategy/signalStatsFormatters.ts`（新，纯函数；不改 SignalStatsResult.vue） | — | [04](./04-frontend-trades-panel.md#组件拆分) |
 | **T-B1** | `market-data/a-shares/a-shares.{service,controller}.ts` + spec | — | [01](./01-backend-a-shares-kline-window.md) |
 | **T-B2** | `strategy-conditions/signal-stats/{service,controller,module}.ts`、`dto/list-trades-query.dto.ts`、`migrations/20260609_signal_test_trade_run_ret_index.{sql,ps1}` + spec | — | [02](./02-backend-trades-sort-filter.md) |
-| **T-F1** | `components/strategy/SignalTradeKlineModal.vue` | T-B1, T-F3 | [05](./05-frontend-kline-detail-modal.md) |
-| **T-F2** | `components/strategy/SignalTradesPanel.vue`、`components/strategy/signalTradeColumns.ts`、`views/strategy/SignalStatsResult.vue` | T-B2, T-F3, T-F1 | [04](./04-frontend-trades-panel.md) |
+| **T-F1** | `components/strategy/SignalTradeKlineModal.vue` | T-B1, T-F3, T-F0 | [05](./05-frontend-kline-detail-modal.md) |
+| **T-F2** | `components/strategy/SignalTradesPanel.vue`、`components/strategy/signalTradeColumns.ts`、`views/strategy/SignalStatsResult.vue`（删除清单见 [04](./04-frontend-trades-panel.md#signalstatsresultvue-删除清单)） | T-B2, T-F3, T-F0, T-F1 | [04](./04-frontend-trades-panel.md) |
 
-> 唯一交叠点：T-F2 在 `SignalStatsResult.vue` 内引用 T-F1 的 `SignalTradeKlineModal`。让 **T-F2 最后做接线**（T-F1 先产出组件），即无写冲突。**不使用 git worktree 隔离**（brainstorming 规范）。
+> 文件域互斥：`signalStatsFormatters.ts` 由 T-F0 独占新建（第一波），F1/F2 只读 import；`SignalStatsResult.vue` 仅 T-F2 改写；T-F2 引用的 `SignalTradeKlineModal` 由 T-F1 先产出。让 **T-F2 最后做接线** 即无写冲突。**不使用 git worktree 隔离**（brainstorming 规范）。
 
 ## 全局约束（实现期必守）
 

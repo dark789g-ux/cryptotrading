@@ -38,9 +38,11 @@ const SORT_COLUMN_MAP = {
 ```ts
 const col = SORT_COLUMN_MAP[opts.sortField as keyof typeof SORT_COLUMN_MAP]
 const dir: 'ASC'|'DESC' = opts.sortOrder === 'desc' ? 'DESC' : 'ASC'
-const order = col
+// computed key 的对象 TS 推断为 Record<string,...>，须断言到 FindOptionsOrder 才过类型检查
+const order = (col
   ? { [col]: dir, id: 'ASC' }              // id 二级序 → 分页确定性（ret 等并列时翻页不串）
   : { signalDate: 'ASC', tsCode: 'ASC' }   // 非法/缺省回落现默认
+) as FindOptionsOrder<SignalTestTradeEntity>
 ```
 
 ### 筛选（TypeORM operators）

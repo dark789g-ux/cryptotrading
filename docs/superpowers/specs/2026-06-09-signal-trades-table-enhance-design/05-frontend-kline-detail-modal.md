@@ -126,7 +126,8 @@ function injectMarkers(raw: KlineChartBar[], t: SignalTestTrade): KlineChartBar[
 }
 ```
 
-- `shares:0`（信号统计不跟踪股数，标记不依赖它）；`reason` 中文取自现有 labelMap。
+- `fmtTradeDate` / `exitReasonLabel` 从 [04 共享 util](./04-frontend-trades-panel.md#组件拆分) `components/strategy/signalStatsFormatters.ts` import（勿在本组件内联，保口径一致）。
+- `shares:0`（信号统计不跟踪股数，标记不依赖它）；`reason` 中文取自 `exitReasonLabel`。
 - 若买/卖日恰逢停牌（窗口内无对应 bar），该标记自然不显示——可接受（窗口仍展示前后行情）。
 
 ## 嵌套 Modal 说明（默认③）
