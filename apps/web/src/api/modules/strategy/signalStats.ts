@@ -43,6 +43,7 @@ export interface SignalTestRun {
   status: 'running' | 'completed' | 'failed'
   progressScanned: number
   progressTotal: number
+  phase: 'scanning' | 'simulating' | 'writing' | null
   errorMessage: string | null
   sampleCount: number | null
   winRate: string | null

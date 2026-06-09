@@ -12,12 +12,57 @@ import type {
 
 export const useSignalStatsStore = defineStore('signalStats', () => {
   const tests = ref<SignalTestWithLatestRun[]>([])
-  const runningId = ref<string | null>(null)
   const loading = ref(false)
   const lastPollError = ref<string | null>(null)
 
   // histogram keyed by runId
   const histogramMap = ref<Record<string, RetHistogramResult>>({})
+
+  // --- 单轮询器状态（模块级，不导出） ---
+  let pollTimer: ReturnType<typeof setInterval> | null = null
+  let consecutiveFailures = 0
+  const POLL_INTERVAL = 2000
+  const MAX_CONSECUTIVE_FAILURES = 5
+
+  const isRunning = (t: SignalTestWithLatestRun) => t.latestRun?.status === 'running'
+
+  async function pollOnce() {
+    const runningTests = tests.value.filter(isRunning)
+    if (runningTests.length === 0) { stopPolling(); return }
+    let anyFail = false
+    for (const t of runningTests) {
+      try {
+        const run = await signalStatsApi.getRunProgress(t.id)
+        patchLatestRun(t.id, run)
+      } catch (err) {
+        anyFail = true
+        lastPollError.value = err instanceof Error ? err.message : '轮询进度失败'
+        // 不 clearInterval：长 run 网络抖动不该永久断轮询，下一轮重试
+      }
+    }
+    if (anyFail) {
+      if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) stopPolling()
+    } else {
+      consecutiveFailures = 0
+      lastPollError.value = null
+    }
+  }
+
+  function ensurePolling() {
+    if (pollTimer) return
+    if (!tests.value.some(isRunning)) return
+    consecutiveFailures = 0
+    pollTimer = setInterval(() => { void pollOnce() }, POLL_INTERVAL)
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  }
+
+  /** 供 View 进页面调用：fetchTests 之后若有 running 就启轮询。 */
+  function resumeAllPolling() { ensurePolling() }
+
+  // --- CRUD ---
 
   async function fetchTests() {
     loading.value = true
@@ -57,50 +102,17 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
   }
 
   async function startRun(id: string) {
-    runningId.value = id
     lastPollError.value = null
     try {
       const { runId } = await signalStatsApi.triggerRun(id)
-
-      const poll = setInterval(async () => {
-        try {
-          // Backend returns the full run entity here; patch it into the matching
-          // test's latestRun so both the table row and an open detail update live.
-          const progressRun = await signalStatsApi.getRunProgress(id)
-          patchLatestRun(id, progressRun)
-
-          if (progressRun.status === 'completed' || progressRun.status === 'failed') {
-            clearInterval(poll)
-            runningId.value = null
-            // The patched run is already the complete finished entity; no extra
-            // fetchTests needed (filteredCount etc. are part of the run entity).
-          }
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : '轮询进度失败'
-          lastPollError.value = msg
-          // eslint-disable-next-line no-console
-          console.warn(`[signalStats] poll progress failed for ${id}: ${msg}`)
-          clearInterval(poll)
-          runningId.value = null
-        }
-      }, 500)
-
-      // 10 min safety timeout (signal stats can take longer than strategy conditions)
-      setTimeout(
-        () => {
-          clearInterval(poll)
-          if (runningId.value === id) {
-            runningId.value = null
-            if (!lastPollError.value) lastPollError.value = '运行轮询超时（10min）'
-          }
-        },
-        10 * 60 * 1000,
-      )
-
+      // 立即拉一次 progress，让 latestRun 立刻变 running（按钮禁用+进度区即时显示），不等下一轮
+      const run = await signalStatsApi.getRunProgress(id)
+      patchLatestRun(id, run)
+      ensurePolling()
       return { runId }
-    } catch {
-      runningId.value = null
-      throw new Error('启动运行失败')
+    } catch (err) {
+      // 透传后端原始信息（如 409「该方案已有运行中的任务」），别统一吞成通用文案
+      throw err instanceof Error ? err : new Error('启动运行失败')
     }
   }
 
@@ -119,7 +131,6 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
 
   return {
     tests,
-    runningId,
     loading,
     lastPollError,
     histogramMap,
@@ -128,6 +139,8 @@ export const useSignalStatsStore = defineStore('signalStats', () => {
     updateTest,
     deleteTest,
     startRun,
+    resumeAllPolling,
+    stopPolling,
     fetchRetHistogram,
     fetchTrades,
   }
