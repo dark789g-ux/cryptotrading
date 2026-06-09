@@ -29,7 +29,6 @@ import {
 const props = defineProps<{
   tests: SignalTestWithLatestRun[]
   loading: boolean
-  runningId: string | null
 }>()
 
 // ── emits ──────────────────────────────────────────────────────────────────
@@ -241,20 +240,19 @@ const columns = computed<DataTableColumns<SignalTestWithLatestRun>>(() => [
     key: 'actions',
     width: 180,
     render(row) {
-      const isThisRunning = props.runningId === row.id
-      const anyRunning = props.runningId !== null
+      const isThisRunning = row.latestRun?.status === 'running'
       const hasResult = row.latestRun !== null
 
       return h(NSpace, { size: 4 }, {
         default: () => [
-          // 运行
+          // 运行（per-test 互斥：只禁正在跑的那一行，允许多 test 并发）
           h(
             NButton,
             {
               size: 'small',
               type: 'primary',
               loading: isThisRunning,
-              disabled: anyRunning,
+              disabled: isThisRunning,
               onClick: () => emit('run', row.id),
             },
             { default: () => isThisRunning ? '运行中' : '运行' },

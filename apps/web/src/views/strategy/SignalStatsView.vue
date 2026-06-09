@@ -8,10 +8,20 @@
         </n-button>
       </template>
 
+      <n-alert
+        v-if="store.lastPollError"
+        type="warning"
+        closable
+        :bordered="false"
+        style="margin-bottom: 12px"
+        @close="store.lastPollError = null"
+      >
+        进度轮询出现问题：{{ store.lastPollError }}
+      </n-alert>
+
       <SignalStatsTable
         :tests="store.tests"
         :loading="store.loading"
-        :running-id="store.runningId"
         @run="handleRun"
         @detail="handleDetail"
         @edit="handleEdit"
@@ -51,8 +61,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { NButton, NIcon, NCard, useMessage } from 'naive-ui'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { NAlert, NButton, NIcon, NCard, useMessage } from 'naive-ui'
 import { Add as AddIcon } from '@vicons/ionicons5'
 import { useSignalStatsStore } from '../../stores/signalStats'
 import type {
@@ -86,8 +96,9 @@ const submitting = ref(false)
 async function handleRun(id: string) {
   try {
     await store.startRun(id)
-  } catch {
-    message.error('启动运行失败')
+  } catch (e: unknown) {
+    const err = e instanceof Error ? e : null
+    message.error(err?.message ?? '启动运行失败')
   }
 }
 
@@ -144,9 +155,12 @@ async function handleFormSubmit(dto: CreateSignalTestDto) {
   }
 }
 
-onMounted(() => {
-  store.fetchTests()
+onMounted(async () => {
+  await store.fetchTests()
+  store.resumeAllPolling()   // fetchTests 后若有 running 就恢复轮询
 })
+
+onUnmounted(() => store.stopPolling())  // 离开页面清 timer 防泄漏
 </script>
 
 <style scoped>

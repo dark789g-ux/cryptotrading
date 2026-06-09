@@ -13,18 +13,7 @@
 
     <template v-if="latestRun">
       <!-- Running progress -->
-      <div v-if="latestRun.status === 'running'" class="progress-section">
-        <n-progress
-          type="line"
-          :percentage="progressPct"
-          :indicator-placement="'inside'"
-          :color="'#2080f0'"
-          :height="20"
-        />
-        <span class="progress-label">
-          扫描中 {{ latestRun.progressScanned }} / {{ latestRun.progressTotal }}
-        </span>
-      </div>
+      <SignalStatsRunProgress v-if="latestRun.status === 'running'" :run="latestRun" />
 
       <!-- Failed -->
       <n-alert
@@ -152,7 +141,6 @@ import {
   NGridItem,
   NStatistic,
   NTooltip,
-  NProgress,
   NAlert,
   NTabs,
   NTabPane,
@@ -161,6 +149,7 @@ import {
 import type { SignalTestWithLatestRun } from '../../api/modules/strategy/signalStats'
 import RetHistogram from '../../components/strategy/RetHistogram.vue'
 import SignalTradesPanel from '../../components/strategy/SignalTradesPanel.vue'
+import SignalStatsRunProgress from './SignalStatsRunProgress.vue'
 import { fmtTradeDate } from '../../components/strategy/signalStatsFormatters'
 
 interface Props {
@@ -193,14 +182,6 @@ const dateRangeLabel = computed(
 const conditionLabel = computed(
   () => `买${props.test.buyConditions.length}/卖${props.test.exitConditions?.length ?? 0}条`,
 )
-
-// ── Progress ────────────────────────────────────────────────────────────────────
-
-const progressPct = computed(() => {
-  const p = latestRun.value
-  if (!p || p.progressTotal === 0) return 0
-  return Math.round((p.progressScanned / p.progressTotal) * 100)
-})
 
 // ── Formatting helpers (metrics cards only) ────────────────────────────────────
 
@@ -262,19 +243,6 @@ const activeTab = ref<'histogram' | 'trades'>('histogram')
 
 .config-summary .dot {
   color: var(--n-text-color-3, #bbb);
-}
-
-.progress-section {
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.progress-label {
-  font-size: 13px;
-  color: var(--n-text-color-2, #666);
-  white-space: nowrap;
 }
 
 .metrics-grid {
