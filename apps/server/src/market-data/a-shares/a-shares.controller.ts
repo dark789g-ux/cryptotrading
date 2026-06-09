@@ -58,8 +58,15 @@ export class ASharesController {
     @Param('tsCode') tsCode: string,
     @Query('limit') limit: string | undefined,
     @Query('priceMode') priceMode: 'qfq' | 'raw' | undefined,
+    @Query('startDate') startDate: string | undefined,
+    @Query('endDate') endDate: string | undefined,
   ) {
-    return this.aSharesService.getKlines(tsCode, Number(limit), priceMode === 'raw' ? 'raw' : 'qfq');
+    return this.aSharesService.getKlines(
+      tsCode,
+      Number(limit),
+      priceMode === 'raw' ? 'raw' : 'qfq',
+      (startDate || endDate) ? { startDate, endDate } : undefined,
+    );
   }
 
   @Post('query')

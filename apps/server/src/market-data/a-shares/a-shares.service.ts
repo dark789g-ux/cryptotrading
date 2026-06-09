@@ -172,11 +172,30 @@ export class ASharesService {
     return rows[0] ?? { min: null, max: null };
   }
 
-  async getKlines(tsCode: string, limit = 300, priceMode: 'qfq' | 'raw' = 'qfq'): Promise<AShareKlineRow[]> {
+  async getKlines(
+    tsCode: string,
+    limit = 300,
+    priceMode: 'qfq' | 'raw' = 'qfq',
+    range?: { startDate?: string; endDate?: string },
+  ): Promise<AShareKlineRow[]> {
     const safeLimit = Math.min(1000, Math.max(30, Number(limit) || 300));
     const priceCols = priceMode === 'raw'
       ? { open: 'q.open', high: 'q.high', low: 'q.low', close: 'q.close', pctChg: 'q.pct_chg' }
       : { open: 'q.qfq_open', high: 'q.qfq_high', low: 'q.qfq_low', close: 'q.qfq_close', pctChg: 'q.qfq_pct_chg' };
+
+    const params: (string | number)[] = [tsCode];
+    let dateWhere = '';
+    if (range?.startDate) {
+      params.push(range.startDate);
+      dateWhere += ` AND q.trade_date >= $${params.length}`;
+    }
+    if (range?.endDate) {
+      params.push(range.endDate);
+      dateWhere += ` AND q.trade_date <= $${params.length}`;
+    }
+    params.push(safeLimit);
+    const limitParam = `$${params.length}`;
+
     const rows = await this.dataSource.query<Array<Record<string, string | number | boolean | null>>>(`
       SELECT *
       FROM (
@@ -226,11 +245,12 @@ export class ASharesService {
           AND ${priceCols.high} IS NOT NULL
           AND ${priceCols.low} IS NOT NULL
           AND ${priceCols.close} IS NOT NULL
+          ${dateWhere}
         ORDER BY q.trade_date DESC
-        LIMIT $2
+        LIMIT ${limitParam}
       ) recent
       ORDER BY "tradeDate" ASC
-    `, [tsCode, safeLimit]);
+    `, params);
 
     return rows.map((row) => {
       const brick = asNullableNumber(row.brick);
