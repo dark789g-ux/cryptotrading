@@ -85,6 +85,8 @@ import { LabelDefinitionEntity } from './entities/ml/label-definition.entity';
 import { StrategyDefinitionEntity } from './entities/ml/strategy-definition.entity';
 import { FeatureSetEntity } from './entities/ml/feature-set.entity';
 import { KellySweepResult } from './entities/ml/kelly-sweep-result.entity';
+import { RegimeStrategyConfigEntity } from './entities/strategy/regime-strategy-config.entity';
+import { RegimeDailyPickEntity } from './entities/strategy/regime-daily-pick.entity';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -173,6 +175,9 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           FeatureSetEntity,
           // research.kelly_sweep_results（凯利网格搜索结果表，spec 2026-06-09-kelly-sweep-web-console-design）
           KellySweepResult,
+          // regime engine（0AMV 四象限每日选股，spec 2026-06-11-regime-engine-design）
+          RegimeStrategyConfigEntity,
+          RegimeDailyPickEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],
