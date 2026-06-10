@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import { OamvDailyEntity } from '../../entities/oamv/oamv-daily.entity'
 import { TushareClientService } from '../a-shares/services/tushare-client.service'
-import { calcMacd } from '../active-mv/amv-formula'
+import { buildIndicatorArrays } from './oamv-indicators'
 import type { OamvCalcResult, TushareIndexDaily } from './oamv.types'
 
 // 0AMV 参数
@@ -220,46 +220,68 @@ export class OamvService {
 
     this.logger.log(`同步完成，保存 ${entities.length} 条数据`)
 
-    // MACD 是递推指标（EMA 无限记忆），增量算会与全历史口径漂移；
-    // 序列总量仅千行级，每次 sync 后全量重算三列，保证整段自洽。
-    await this.recomputeMacdAll()
+    // MACD/MA/KDJ 均为递推或窗口指标，增量算会与全历史口径漂移；
+    // 序列总量仅千行级，每次 sync 后全量重算所有指标列，保证整段自洽。
+    await this.recomputeIndicatorsAll()
 
     return { synced: entities.length }
   }
 
   /**
-   * 从 DB 全量 close 序列重算 0AMV 的通达信式 MACD（12/26/9）并更新 amv_dif/amv_dea/amv_macd。
-   * 口径与个股/行业 AMV 一致（active-mv/amv-formula calcMacd，柱=2×(DIF-DEA)）。
+   * 从 DB 全量序列重算 0AMV 所有技术指标并写库：
+   *   - MACD（amv_dif/amv_dea/amv_macd）：通达信式 tdEma 12/26/9，口径不变；
+   *   - MA5/MA30/MA60/MA120/MA240：严格 SMA，不足期为 null；
+   *   - KDJ K/D/J：9日窗口，初始种子 50。
    */
-  async recomputeMacdAll(): Promise<{ updated: number }> {
+  async recomputeIndicatorsAll(): Promise<{ updated: number }> {
     const rows = await this.repo.find({
-      select: ['tradeDate', 'close'],
+      select: ['tradeDate', 'open', 'high', 'low', 'close'],
       order: { tradeDate: 'ASC' },
     })
     if (rows.length === 0) {
-      this.logger.warn('recomputeMacdAll：oamv_daily 为空，跳过')
+      this.logger.warn('recomputeIndicatorsAll：oamv_daily 为空，跳过')
       return { updated: 0 }
     }
 
-    const closes = rows.map((r) => Number(r.close))
-    const { dif, dea, macd } = calcMacd(closes)
-
-    const toNullable = (v: number): number | null => (Number.isFinite(v) ? v : null)
-    const tradeDates = rows.map((r) => r.tradeDate)
-    const difArr = dif.map(toNullable)
-    const deaArr = dea.map(toNullable)
-    const macdArr = macd.map(toNullable)
+    const {
+      tradeDates,
+      dif: difArr,
+      dea: deaArr,
+      macd: macdArr,
+      ma5: ma5Arr,
+      ma30: ma30Arr,
+      ma60: ma60Arr,
+      ma120: ma120Arr,
+      ma240: ma240Arr,
+      kdjK: kdjKArr,
+      kdjD: kdjDArr,
+      kdjJ: kdjJArr,
+    } = buildIndicatorArrays(rows)
 
     await this.repo.query(
       `UPDATE oamv_daily o
-          SET amv_dif = u.dif, amv_dea = u.dea, amv_macd = u.macd
-         FROM unnest($1::text[], $2::float8[], $3::float8[], $4::float8[])
-              AS u(trade_date, dif, dea, macd)
+          SET amv_dif  = u.dif,
+              amv_dea  = u.dea,
+              amv_macd = u.macd,
+              ma5      = u.ma5,
+              ma30     = u.ma30,
+              ma60     = u.ma60,
+              ma120    = u.ma120,
+              ma240    = u.ma240,
+              kdj_k    = u.kdj_k,
+              kdj_d    = u.kdj_d,
+              kdj_j    = u.kdj_j
+         FROM unnest(
+                $1::text[],
+                $2::float8[], $3::float8[], $4::float8[],
+                $5::float8[], $6::float8[], $7::float8[], $8::float8[], $9::float8[],
+                $10::float8[], $11::float8[], $12::float8[]
+              ) AS u(trade_date, dif, dea, macd, ma5, ma30, ma60, ma120, ma240, kdj_k, kdj_d, kdj_j)
         WHERE o.trade_date = u.trade_date`,
-      [tradeDates, difArr, deaArr, macdArr],
+      [tradeDates, difArr, deaArr, macdArr, ma5Arr, ma30Arr, ma60Arr, ma120Arr, ma240Arr, kdjKArr, kdjDArr, kdjJArr],
     )
 
-    this.logger.log(`recomputeMacdAll：全量重算 MACD 完成，更新 ${rows.length} 行`)
+    this.logger.log(`recomputeIndicatorsAll：全量重算 MACD/MA/KDJ 完成，更新 ${rows.length} 行`)
     return { updated: rows.length }
   }
 

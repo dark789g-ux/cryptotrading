@@ -32,6 +32,38 @@ export class OamvDailyEntity {
   @Column({ name: 'amv_macd', type: 'double precision', nullable: true })
   amvMacd: number | null
 
+  /** MA5（严格 SMA，不足5行为 null） */
+  @Column({ name: 'ma5', type: 'double precision', nullable: true })
+  ma5: number | null
+
+  /** MA30（严格 SMA，不足30行为 null） */
+  @Column({ name: 'ma30', type: 'double precision', nullable: true })
+  ma30: number | null
+
+  /** MA60（严格 SMA，不足60行为 null） */
+  @Column({ name: 'ma60', type: 'double precision', nullable: true })
+  ma60: number | null
+
+  /** MA120（严格 SMA，不足120行为 null） */
+  @Column({ name: 'ma120', type: 'double precision', nullable: true })
+  ma120: number | null
+
+  /** MA240（严格 SMA，不足240行为 null） */
+  @Column({ name: 'ma240', type: 'double precision', nullable: true })
+  ma240: number | null
+
+  /** KDJ K 值（9日周期，初始种子 50） */
+  @Column({ name: 'kdj_k', type: 'double precision', nullable: true })
+  kdjK: number | null
+
+  /** KDJ D 值 */
+  @Column({ name: 'kdj_d', type: 'double precision', nullable: true })
+  kdjD: number | null
+
+  /** KDJ J 值 = 3K - 2D */
+  @Column({ name: 'kdj_j', type: 'double precision', nullable: true })
+  kdjJ: number | null
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date
 }
