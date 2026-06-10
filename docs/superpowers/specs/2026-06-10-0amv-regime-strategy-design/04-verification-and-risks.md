@@ -4,12 +4,12 @@
 
 | # | 核查点 | 影响 | 查法 |
 |---|---|---|---|
-| 1 | strategy 出场模式是否支持大盘 oamv 字段条件 | 出场配置 9（regime 恶化离场）可行性 | 读 simulator 出场求值路径；不支持则配置 9 挪二轮并做小扩展 |
-| 2 | 大样本 run 的 `Math.max(...rets)` 栈溢出是否已修 | 宽锚点 run（可达百万级）能否跑完 | 查 `signal-stats.metrics.ts` 现状 + 相关交接文档；未修先修 |
+| 1 | ~~strategy 出场是否支持大盘 oamv 字段~~ **已核（2026-06-11，T1 调查）** | 出场配置 9 可行，第一轮 18 run 满员 | 出场与买入同走 `buildAShareQuery`（marketCfg 完整传入，`signal-stats.simulator.db.ts:329` → `fetchExitSignalHits` → hitSet）。保险起见：M1 建首个 strategy 出场 run 前先以小窗口 smoke 复验 |
+| 2 | ~~大样本 `Math.max(...rets)` 栈溢出~~ **已修（commit 6a3bd7e，2026-06-09）** | 宽锚点 run（可达百万级）能跑完 | metrics/histogram 两处已改线性扫描，40 万样本真机验证（run 18fab52f sample_count=402257）；signal-stats 目录无残留 spread 模式 |
 | 3 | 单个宽锚点 run 实测耗时 | 18 个 run 的排程（串行/并行） | 跑第一个 run 计时后再定 |
 | 4 | 入选过滤器含大盘细分字段时的映射扩展 | 真机收口可表达性 | 收口前往 `ASHARE_MARKET_AMV_COL_MAP` 加键 + 前端选项 |
 | 5 | ~~条件系统 operator 是否含 `lte`~~ **已核（2026-06-11）** | 象限边界（`amv_macd <= 0`）真机表达 | `lte` 双处确认：`strategy-conditions.query-builder.ts:20`（`lte: '<='`）+ `dto/create-strategy-condition.dto.ts:3`（operator 联合类型含 `lte`）。边界口径四处（01 定义/02 SQL/真机条件/classifyRegime）统一 `<=` 归负侧 |
-| 6 | 04L2 方案标的池配置 | 锚点 run 与基线可比性 | 建 run 前读 test `82f8eb52-…745b` 完整配置并复制 |
+| 6 | ~~04L2 方案标的池配置~~ **已核（2026-06-11，真 DB）** | 锚点 run 与基线可比性 | `universe: {"type":"all"}`，窗口 20220401–20260531，exit trailing_lock 无封顶——锚点 run 直接复制 |
 
 ## 测试矩阵
 
