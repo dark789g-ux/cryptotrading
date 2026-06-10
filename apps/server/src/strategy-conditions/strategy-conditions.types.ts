@@ -50,6 +50,13 @@ export const ASHARE_INDUSTRY_AMV_COL_MAP: Record<string, string> = {
   ind_amv_macd: 'ia.amv_macd',
 };
 
+/** 大盘 0AMV-MACD 字段（oamv_daily 全市场活跃市值指数，按 trade_date 对齐；走 EXISTS 子查询，当日所有票同值——大盘择时闸门） */
+export const ASHARE_MARKET_AMV_COL_MAP: Record<string, string> = {
+  oamv_dif: 'oa.amv_dif',
+  oamv_dea: 'oa.amv_dea',
+  oamv_macd: 'oa.amv_macd',
+};
+
 export const CRYPTO_FIELD_COL_MAP: Record<string, string> = {
   macd_dif: 'k.dif',
   macd_dea: 'k.dea',

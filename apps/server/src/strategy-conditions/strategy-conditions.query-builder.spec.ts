@@ -95,6 +95,75 @@ describe('StrategyConditionsQueryBuilder — AMV-MACD 字段', () => {
     expect(warnSpy).toHaveBeenCalled();
   });
 
+  it('大盘 0AMV 比常量：oamv_macd gt 0 → EXISTS 子查询（oamv_daily 按 trade_date 对齐，无成分股 join）+ oa.amv_macd > $1', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'oamv_macd', operator: 'gt', value: 0 },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    const flat = squash(sql);
+    expect(flat).toContain('EXISTS (');
+    expect(flat).toContain('FROM oamv_daily oa');
+    expect(flat).toContain('oa.trade_date = i.trade_date');
+    expect(flat).toContain('oa.amv_macd > $1');
+    expect(flat).not.toContain('ths_member_stocks');
+    expect(params).toEqual([0]);
+  });
+
+  it('大盘 0AMV 字段对字段：oamv_dif gt oamv_dea → EXISTS 内 oa.amv_dif > oa.amv_dea，无新增 param', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'oamv_dif', operator: 'gt', compareField: 'oamv_dea' },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    const flat = squash(sql);
+    expect(flat).toContain('EXISTS (');
+    expect(flat).toContain('oa.amv_dif > oa.amv_dea');
+    expect(params).toEqual([]);
+  });
+
+  it('大盘 0AMV 与个股字段混比：oamv_dif gt close → warn+skip，sql 为 FALSE', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'oamv_dif', operator: 'gt', compareField: 'close' },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    expect(sql).toBe('FALSE');
+    expect(params).toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('大盘 0AMV 上穿：oamv_dif cross_above oamv_dea → warn+skip，sql 为 FALSE', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'oamv_dif', operator: 'cross_above', compareField: 'oamv_dea' },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    expect(sql).toBe('FALSE');
+    expect(params).toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('crypto 不支持大盘字段：oamv_macd gt 0 → 未知字段 warn+skip，sql 为 FALSE', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'oamv_macd', operator: 'gt', value: 0 },
+    ];
+    const { sql, params } = builder.buildCryptoQuery(conditions);
+    expect(sql).toBe('FALSE');
+    expect(params).toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('混合个股+行业+大盘 value 条件：占位编号与 params 顺序严格对齐（$1/$2/$3，[5,3,0]）', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'amv_dif', operator: 'gt', value: 5 },
+      { field: 'ind_amv_dif', operator: 'gt', value: 3 },
+      { field: 'oamv_macd', operator: 'gt', value: 0 },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    const flat = squash(sql);
+    expect(flat).toContain('sa.amv_dif > $1');
+    expect(flat).toContain('ia.amv_dif > $2');
+    expect(flat).toContain('oa.amv_macd > $3');
+    expect(params).toEqual([5, 3, 0]);
+  });
+
   it('混合个股+行业 value 条件：占位编号与 params 顺序严格对齐（$1/$2，[5,3]）', () => {
     const conditions: StrategyConditionItem[] = [
       { field: 'amv_dif', operator: 'gt', value: 5 },

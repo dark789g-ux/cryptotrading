@@ -4,6 +4,7 @@ import {
   ASHARE_BOOLEAN_COLS,
   ASHARE_FIELD_COL_MAP,
   ASHARE_INDUSTRY_AMV_COL_MAP,
+  ASHARE_MARKET_AMV_COL_MAP,
   CRYPTO_FIELD_COL_MAP,
 } from './strategy-conditions.types';
 
@@ -55,6 +56,16 @@ export class StrategyConditionsQueryBuilder {
         outerCodeRef: 'i.ts_code',
         outerDateRef: 'i.trade_date',
       },
+      // 大盘 0AMV 走 EXISTS（oamv_daily 每交易日一行，按日期对齐即可，无成分股 join）。
+      // 该日 oamv_daily 无行或 MACD 列为 NULL → EXISTS 不成立 → 当日所有信号被排除（fail-closed，
+      // 择时闸门宁缺勿滥）；因此回测/扫描窗口内 oamv_daily 覆盖必须先行核齐。
+      {
+        fieldMap: ASHARE_MARKET_AMV_COL_MAP,
+        amvTable: 'oamv_daily',
+        amvAlias: 'oa',
+        amvDateKey: 'trade_date',
+        outerDateRef: 'i.trade_date',
+      },
     );
   }
 
@@ -96,6 +107,13 @@ export class StrategyConditionsQueryBuilder {
       outerCodeRef: string;
       outerDateRef: string;
     },
+    marketCfg?: {
+      fieldMap: Record<string, string>;
+      amvTable: string;
+      amvAlias: string;
+      amvDateKey: string;
+      outerDateRef: string;
+    },
   ): BuiltWhere {
     const whereClauses: string[] = [];
     const params: unknown[] = [];
@@ -103,6 +121,48 @@ export class StrategyConditionsQueryBuilder {
 
     for (const cond of conditions) {
       const { field, operator, value, compareField } = cond;
+
+      const marketCol = marketCfg?.fieldMap[field];
+      if (marketCfg && marketCol) {
+        if (operator === 'cross_above' || operator === 'cross_below') {
+          this.logger.warn(`[${label}] 大盘字段 "${field}" 不支持上穿/下穿，已跳过`);
+          continue;
+        }
+        const sqlOp = COMPARISON_OPERATORS[operator];
+        if (!sqlOp) {
+          this.logger.warn(`[${label}] 未知操作符 "${operator}"，已跳过`);
+          continue;
+        }
+
+        let predicate: string;
+        if (compareField) {
+          const compareMarketCol = marketCfg.fieldMap[compareField];
+          if (!compareMarketCol) {
+            this.logger.warn(
+              `[${label}] 大盘字段 "${field}" 只能与大盘 0AMV 字段或常量比较，比较字段 "${compareField}" 非法，已跳过`,
+            );
+            continue;
+          }
+          predicate = `${marketCol} ${sqlOp} ${compareMarketCol}`;
+        } else {
+          if (typeof value !== 'number' || !Number.isFinite(value)) {
+            this.logger.warn(`[${label}] 字段 "${field}" 比较值非法（${String(value)}），已跳过`);
+            continue;
+          }
+          params.push(value);
+          predicate = `${marketCol} ${sqlOp} ${ph()}`;
+        }
+
+        whereClauses.push(`
+          EXISTS (
+            SELECT 1
+            FROM ${marketCfg.amvTable} ${marketCfg.amvAlias}
+            WHERE ${marketCfg.amvAlias}.${marketCfg.amvDateKey} = ${marketCfg.outerDateRef}
+              AND ${predicate}
+          )
+        `);
+        continue;
+      }
 
       const industryCol = industryCfg?.fieldMap[field];
       if (industryCfg && industryCol) {
