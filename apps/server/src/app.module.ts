@@ -176,7 +176,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           FeatureSetEntity,
           // research.kelly_sweep_results（凯利网格搜索结果表，spec 2026-06-09-kelly-sweep-web-console-design）
           KellySweepResult,
-          // regime engine（0AMV 四象限每日选股，spec 2026-06-11-regime-engine-design）
+          // regime engine（0AMV 四象限每日选股，spec 2026-06-10-0amv-regime-strategy-design）
           RegimeStrategyConfigEntity,
           RegimeDailyPickEntity,
         ],

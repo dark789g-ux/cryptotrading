@@ -5,8 +5,8 @@
  *
  * 口径与研究侧离线 SQL 完全一致（spec 03-automation-design.md），
  * 边界 `<=` 一律归负侧：
- *   dif>0  且 macd>0  → Q1（多头加速）
- *   dif>0  且 macd<=0 → Q2（多头衰减）
+ *   dif>0  且 macd>0  → Q1（强多头）
+ *   dif>0  且 macd<=0 → Q2（多头回调）
  *   dif<=0 且 macd>0  → Q3（反弹筑底）
  *   dif<=0 且 macd<=0 → Q4（空头）
  *   任一入参 null / 非有限数（NaN/±Infinity/undefined）→ unknown（fail-closed）
