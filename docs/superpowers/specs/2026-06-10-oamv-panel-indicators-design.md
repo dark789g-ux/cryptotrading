@@ -63,18 +63,18 @@ ALTER TABLE oamv_daily ADD COLUMN IF NOT EXISTS kdj_j  double precision;
   1. 读全序列 `tradeDate/open/high/low/close` ASC；
   2. **MACD：继续用既有 `calcMacd`（active-mv/amv-formula，通达信式 tdEma 12/26/9）**——硬约束：不得换成 `calcIndicators` 的等价 EMA 实现。理由：落库 MACD 是择时条件（搬砖-05/05C）的权威源，已与真机 run 对账；换实现引入浮点末位漂移，柱≈0 的边界日可能出现"图上正柱但筛选未开仓"的歧义；
   3. **MA/KDJ：用共享 `calcIndicators`（`apps/server/src/indicators/indicators.ts:117`）**，输入 KlineRow（`volume` 喂 0，open_time 喂 trade_date），取输出 `MA5..MA240`（严格 SMA，不足期 null）与 `'KDJ.K'/'KDJ.D'/'KDJ.J'`（周期 9，初始 K=D=50）。忽略其 MACD 输出。先例：ths-index-daily（行业指数）已用 calcIndicators，指数序列复用无障碍；
-  4. 数组组装抽纯函数 `buildIndicatorArrays(rows)`（输入行数组，输出 `{ tradeDates, dif, dea, macd, ma5..ma240, kdjK, kdjD, kdjJ }` 各数组，NaN→null），便于单测；
+  4. 数组组装抽纯函数 `buildIndicatorArrays(rows)`（输入行数组，输出 `{ tradeDates, dif, dea, macd, ma5..ma240, kdjK, kdjD, kdjJ }` 各数组，NaN→null）。**落点钦定**：oamv 目录新建独立纯函数文件 `apps/server/src/market-data/oamv/oamv-indicators.ts` 并 export（jest 直接 import，不 mock service）；
   5. 一次 `UPDATE oamv_daily o SET ... FROM unnest($1::text[], $2::float8[], ...)` 写 11 列（扩展现有 4 数组 unnest 到 12 数组）。
 - 日志：保留现有"全量重算完成，更新 N 行"格式，文案改为含指标范围。
 - 空表行为不变：warn + 跳过。
 
 ### 4.3 接口
 
-`get0amvData` **零改动**：`repo.find` 全实体自动带新列；250 天窗口里 MA240 有值（因为是全历史落库值，预热在 2022-08 前完成）。
+`get0amvData` **零改动**：`repo.find` 全实体自动带新列；250 天窗口里 MA240 有值（全历史落库值，预热在 2022-09 前完成——真 DB 核验序列第 240 个交易日为 2022-08-29）。
 
 ## 5. 回填
 
-migration 应用后，跑一次**小窗口 overwrite sync**（如 `{startDate:'20260601', syncMode:'overwrite'}`，真实登录会话调 `POST /api/oamv/sync`）→ upsert 数行 → 触发 `recomputeIndicatorsAll()` 全量填满 8 新列历史。
+migration 应用后，跑一次**小窗口 overwrite sync**（如 `{startDate:'20260601', syncMode:'overwrite'}`，真实**管理员**会话调 `POST /api/oamv/sync`——该端点 `@AdminOnly()`）→ upsert 数行 → 触发 `recomputeIndicatorsAll()` 全量填满 8 新列历史。
 
 **注意**：增量模式 0 新行会提前 `return { synced: 0 }` 不触发重算，所以回填必须用 overwrite（哪怕窗口极小）。
 
@@ -95,7 +95,7 @@ kdjK?: number | null;  kdjD?: number | null;  kdjJ?: number | null;
 
 ### 6.2 映射（ActiveMarketValuePanel.vue）
 
-- `chartData` 的逐字段映射抽成纯函数 `mapOamvToChartBar(d: OamvData): KlineChartBar`（可放组件内 export 或同目录工具文件，遵守单文件 ≤500 行）：
+- `chartData` 的逐字段映射抽成纯函数 `mapOamvToChartBar(d: OamvData): KlineChartBar`。**落点钦定**：同目录工具文件 `apps/web/src/components/symbols/oamvChartMapping.ts`（`<script setup>` 不能 export 命名函数，独立 .ts 让 vitest 直接 import）：
   - `MA5: d.ma5 ?? null` …… `MA240: d.ma240 ?? null`
   - `'KDJ.K': d.kdjK ?? null`、`'KDJ.D': d.kdjD ?? null`、`'KDJ.J': d.kdjJ ?? null`
   - `DIF: d.amvDif ?? null`、`DEA: d.amvDea ?? null`、`MACD: d.amvMacd ?? null`
@@ -105,7 +105,7 @@ kdjK?: number | null;  kdjD?: number | null;  kdjJ?: number | null;
 
 ### 6.3 合规标注
 
-模板在图表卡片内加一行 `AMV_CAPTION_BASE`（`@/composables/kline/amvCaption`，"0AMV 为活跃市值指标，信号未回测校准，仅供参考"），参照 `AShareDetailDrawer.vue:41` 的无条件渲染方式与样式类。
+模板在图表卡片内加一行 `AMV_CAPTION_BASE`（`@/composables/kline/amvCaption`，"0AMV 为活跃市值指标，信号未回测校准，仅供参考"），参照 `AShareDetailDrawer.vue:41` 的无条件渲染方式；其 `.amv-caption` 是该组件 **scoped** 样式（同文件 227-232 行），需把这段 CSS 复制进 ActiveMarketValuePanel 自己的 scoped style。
 
 ## 7. 错误处理
 
@@ -116,7 +116,7 @@ kdjK?: number | null;  kdjD?: number | null;  kdjJ?: number | null;
 ## 8. 测试与验证标准
 
 **单测**：
-- 后端 jest（oamv 域新增 spec）：`buildIndicatorArrays` 用 ~10 行已知小序列锚定——KDJ 首行 K=D=50、J=3K-2D；MA5 前 4 行 null 第 5 行等于窗口均值；NaN→null 转换；MACD 数组与 `calcMacd` 直接输出逐位一致。
+- 后端 jest（oamv 域新增 spec）：`buildIndicatorArrays` 用 ~10 行已知小序列锚定——**KDJ 递推种子为 50，但首行输出 K = 50×⅔ + rsv/3 ≠ 50（除非 rsv=50）；fixture 首行构造 high==low 走 rsv=50 分支，从而首行 K=D=50**、J=3K-2D；MA5 前 4 行 null 第 5 行等于窗口均值；NaN→null 转换；MACD 数组与 `calcMacd` 直接输出逐位一致。
 - 前端 vitest：`mapOamvToChartBar` 字段透传、缺字段 `?? null` 兜底、日期 YYYYMMDD→YYYY-MM-DD。
 - 既有门禁：server build、web type-check + vite build 全绿。
 
