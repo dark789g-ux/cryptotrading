@@ -74,9 +74,11 @@ ALTER TABLE oamv_daily ADD COLUMN IF NOT EXISTS kdj_j  double precision;
 
 ## 5. 回填
 
-migration 应用后，跑一次**小窗口 overwrite sync**（如 `{startDate:'20260601', syncMode:'overwrite'}`，真实**管理员**会话调 `POST /api/oamv/sync`——该端点 `@AdminOnly()`）→ upsert 数行 → 触发 `recomputeIndicatorsAll()` 全量填满 8 新列历史。
+migration 应用后，跑一次**全量 overwrite sync**（`{startDate:'20210901', syncMode:'overwrite'}`，真实**管理员**会话调 `POST /api/oamv/sync`——该端点 `@AdminOnly()`）→ 全段 OHLC 同口径重算 upsert → 触发 `recomputeIndicatorsAll()` 填满 8 新列。
 
-**注意**：增量模式 0 新行会提前 `return { synced: 0 }` 不触发重算，所以回填必须用 overwrite（哪怕窗口极小）。
+**注意**：
+1. 增量模式 0 新行会提前 `return { synced: 0 }` 不触发重算，所以回填必须用 overwrite；
+2. **禁止小窗口 overwrite**（实现期实测教训）：sync 的 0AMV 四价合成含 tdSma 递推，仅带 30 天预热——小窗口 overwrite 会用短预热口径**覆盖该窗口的 OHLC**（实测 20260601 起 8 行 close 漂移 ~2%、20260609 amv_macd 从 -5135 漂到 -4390），制造段界不一致。回填/修复一律全量 overwrite（20210901 起，幂等确定，实测恢复后逐位一致）。
 
 ## 6. 前端
 
