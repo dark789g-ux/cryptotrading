@@ -25,6 +25,8 @@
           :available-subplots="oamvAvailableSubplots"
         />
         <n-empty v-else description="暂无数据，请先同步" />
+        <!-- 0AMV 副图合规标注（spec §7/§8）：信号未回测校准 -->
+        <n-text :depth="3" class="amv-caption">{{ AMV_CAPTION_BASE }}</n-text>
       </n-spin>
     </n-card>
   </div>
@@ -34,52 +36,24 @@
 defineOptions({ name: 'ActiveMarketValuePanel' })
 
 import { computed, onActivated, ref } from 'vue'
-import { NButton, NCard, NEmpty, NIcon, NSpin, useMessage } from 'naive-ui'
+import { NButton, NCard, NEmpty, NIcon, NSpin, NText, useMessage } from 'naive-ui'
 import { SyncOutline } from '@vicons/ionicons5'
 import KlineChart from '@/components/kline/KlineChart.vue'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
+import { AMV_CAPTION_BASE } from '@/composables/kline/amvCaption'
 import { oamvApi, type OamvData } from '@/api/modules/market/oamv'
 import type { KlineChartBar } from '@/api/modules/market/symbols'
+import { mapOamvToChartBar } from './oamvChartMapping'
 
 const message = useMessage()
 
-// OAMV 无 moneyFlow 数据源，排除 FLOW 副图
-const oamvAvailableSubplots: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK']
+// 0AMV 面板：仅保留 KDJ / MACD，不含 VOL / BRICK（无成交量 / 砖图概念）
+const oamvAvailableSubplots: SubplotKey[] = ['KDJ', 'MACD']
 const loading = ref(false)
 const syncing = ref(false)
 const oamvData = ref<OamvData[]>([])
 
-/**
- * 将 0AMV 数据转换为 KlineChartBar 格式
- */
-const chartData = computed<KlineChartBar[]>(() => {
-  return oamvData.value.map(d => {
-    // 将 YYYYMMDD 格式转换为 YYYY-MM-DD
-    const date = `${d.tradeDate.slice(0, 4)}-${d.tradeDate.slice(4, 6)}-${d.tradeDate.slice(6, 8)}`
-    return {
-      open_time: date,
-      open: Number(d.open),
-      high: Number(d.high),
-      low: Number(d.low),
-      close: Number(d.close),
-      volume: 0, // 0AMV 无成交量概念
-      // 其他字段设为 null
-      MA5: null,
-      MA30: null,
-      MA60: null,
-      MA120: null,
-      MA240: null,
-      'KDJ.K': null,
-      'KDJ.D': null,
-      'KDJ.J': null,
-      DIF: null,
-      DEA: null,
-      MACD: null,
-      BBI: null,
-      brickChart: undefined,
-    }
-  })
-})
+const chartData = computed<KlineChartBar[]>(() => oamvData.value.map(mapOamvToChartBar))
 
 async function loadData() {
   loading.value = true
@@ -133,5 +107,12 @@ onActivated(() => {
 .panel-subtitle {
   margin: 6px 0 0;
   color: var(--color-text-secondary);
+}
+
+.amv-caption {
+  flex: 0 0 auto;
+  padding: 4px 8px 2px;
+  font-size: 12px;
+  line-height: 1.4;
 }
 </style>
