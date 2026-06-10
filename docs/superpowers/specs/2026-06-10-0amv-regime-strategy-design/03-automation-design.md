@@ -47,6 +47,10 @@ regime_strategy_config
 - `action='flat'` 的象限其余策略字段为 null；`evidence` 仍须填（空仓也是有
   证据的结论）。
 - `evidence` 固化双保险证据链，前端可展示"这条结论凭什么"。
+- `kellyFraction` 取值规则 = 该象限胜者 holdout kelly × 0.5（半凯利折扣）；
+  flat 象限恒为 0。**仅供前端展示仓位建议**，Phase 2 不据此执行任何动作。
+- `exitMode/exitParams` 在 Phase 2 **仅作展示**（evidence 弹窗与人工执行
+  参考），每日流水线只消费 `action` 与 `entryConditions`。
 - migration 走仓库惯例：`apps/server/migrations/*.sql` + 同名 `.ps1`（内置
   `docker exec`）；实体**双注册**（module `forFeature` + `app.module` 根
   entities 数组——已知坑，漏后者编译绿但运行时 EntityMetadataNotFound 500）。
@@ -80,7 +84,7 @@ regime_daily_pick
 ├─ id  uuid PK
 ├─ trade_date      varchar(8)
 ├─ regime          varchar(8)   'Q1'|'Q2'|'Q3'|'Q4'|'unknown'
-├─ config_version  int
+├─ config_version  int NULL     （unknown 记录取当时 active 版本，无 active 则 null）
 ├─ action          varchar(8)   'trade'|'flat'|'unknown'
 ├─ ts_code         varchar(30)  （flat/unknown 行为 null）
 ├─ name            varchar(64)  （响应期注入，落库快照）
@@ -89,7 +93,10 @@ regime_daily_pick
 UNIQUE(trade_date, config_version, ts_code)
 ```
 
-- **幂等**：同 `trade_date + config_version` 重跑先删后插。
+- **幂等**：同 `trade_date` 重跑**按日全量先删后插**（删除该日全部记录后
+  重建，含 NULL 版本行）。注意 UNIQUE 约束不覆盖 `ts_code` 为 NULL 的
+  flat/unknown 行（Postgres 视 NULL 互不相等），这两类行的防重完全由
+  删插语义保证。
 - **不自动下单、不持仓跟踪**（决策 6）；清单供人决策。
 
 ## API 设计（全局 AuthGuard 下，写操作 admin）
