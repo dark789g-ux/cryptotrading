@@ -370,6 +370,35 @@ describe('simulateTradeCore', () => {
       expect(out.kind).toBe('trade');
     });
 
+    it('skipNewListingFilter=true（买入条件显式含 list_days）：daysSinceList < 60 不剔除', () => {
+      const days = [
+        tradingDay('20260102', { qfqOpen: 10 }),
+        tradingDay('20260103', { qfqClose: 11 }),
+      ];
+      const out = simulateTradeCore(
+        baseInput(days, { mode: 'fixed_n', horizonN: 1 }, {
+          daysSinceList: 30,
+          skipNewListingFilter: true,
+        }),
+      );
+      expect(out.kind).toBe('trade');
+    });
+
+    it('skipNewListingFilter=false 显式传：daysSinceList < 60 仍剔除（行为同默认）', () => {
+      const days = [
+        tradingDay('20260102', { qfqOpen: 10 }),
+        tradingDay('20260103', { qfqClose: 11 }),
+      ];
+      const out = simulateTradeCore(
+        baseInput(days, { mode: 'fixed_n', horizonN: 1 }, {
+          daysSinceList: 30,
+          skipNewListingFilter: false,
+        }),
+      );
+      expect(out.kind).toBe('filtered');
+      if (out.kind === 'filtered') expect(out.reason).toBe('new_listing');
+    });
+
     it('过滤优先级：停牌先于涨停（buy_date 既无 quote 又看似涨停 → suspended）', () => {
       // 停牌日所有价 null，先被停牌拦截
       const days = [suspendedDay('20260102'), tradingDay('20260103')];

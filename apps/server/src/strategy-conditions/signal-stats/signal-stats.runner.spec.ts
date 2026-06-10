@@ -272,6 +272,42 @@ describe('SignalStatsRunner', () => {
     });
   });
 
+  describe('skipNewListingFilter 透传（买入条件含 list_days 时跳过次新硬过滤）', () => {
+    it('buyConditions 含 list_days → simulator 收到 skipNewListingFilter=true', async () => {
+      const tradingDays = ['20240102', '20240103'];
+      const signals = [{ signalDate: '20240102', tsCode: '600519.SH' }];
+      const simulator = makeMockSimulator([{ kind: 'filtered', reason: 'insufficient_data' }]);
+      const enumerator = makeMockEnumerator(tradingDays, tradingDays, signals);
+      const runner = buildRunner(enumerator, simulator);
+
+      await runner.executeRun(
+        makeTestEntity({
+          buyConditions: [
+            { field: 'macd_hist', operator: 'gt', value: 0 },
+            { field: 'list_days', operator: 'gt', value: 365 },
+          ],
+        }),
+        'run-ld',
+      );
+
+      const params = simulator.simulateSignalsBatched.mock.calls[0][0] as Record<string, unknown>;
+      expect(params.skipNewListingFilter).toBe(true);
+    });
+
+    it('buyConditions 不含 list_days → skipNewListingFilter=false（默认行为不变）', async () => {
+      const tradingDays = ['20240102', '20240103'];
+      const signals = [{ signalDate: '20240102', tsCode: '600519.SH' }];
+      const simulator = makeMockSimulator([{ kind: 'filtered', reason: 'insufficient_data' }]);
+      const enumerator = makeMockEnumerator(tradingDays, tradingDays, signals);
+      const runner = buildRunner(enumerator, simulator);
+
+      await runner.executeRun(makeTestEntity(), 'run-no-ld');
+
+      const params = simulator.simulateSignalsBatched.mock.calls[0][0] as Record<string, unknown>;
+      expect(params.skipNewListingFilter).toBe(false);
+    });
+  });
+
   describe('落库顺序：插入 trade 必须先于标 completed（reorder 防竞态）', () => {
     it('tradeRepo.save 在 runRepo.update({status:completed}) 之前调用', async () => {
       const runRepo = makeMockRunRepo();

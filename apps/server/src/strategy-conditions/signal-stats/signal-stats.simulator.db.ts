@@ -53,6 +53,8 @@ export interface BatchSimulateParams {
   concurrency?: number;
   /** 每个 tsCode 组模拟完成时回调，参数=该组信号数。用于上报模拟阶段进度（可选）。 */
   onGroupDone?: (groupSize: number) => void;
+  /** 透传给 simulateTradeCore：buyConditions 显式含 list_days 时跳过次新硬过滤。默认 false。 */
+  skipNewListingFilter?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -198,6 +200,7 @@ export class SignalStatsSimulator {
           daysSinceList,
           delistDate,
           signalHigh,
+          skipNewListingFilter: params.skipNewListingFilter,
           exit,
         });
       }

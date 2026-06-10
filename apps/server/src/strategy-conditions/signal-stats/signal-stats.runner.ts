@@ -179,6 +179,8 @@ export class SignalStatsRunner {
         sseCalendar,
         dateEnd,
         onGroupDone: (groupSize) => sim.bump(groupSize),
+        // 买入条件显式含上市时长（list_days）→ 跳过次新硬过滤，以用户条件为准
+        skipNewListingFilter: buyConditions.some((c) => c.field === 'list_days'),
       });
     } finally {
       await sim.stop(); // 清 timer + 最终矫正到 signals.length

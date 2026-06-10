@@ -115,6 +115,11 @@ export interface SimulationInput {
    * 仅 trailing_lock 模式读取；fixed_n / strategy 模式不读（可省略）。
    */
   signalHigh?: number;
+  /**
+   * 跳过次新硬过滤（NEW_LISTING_MIN_TRADING_DAYS）：buyConditions 显式含 list_days（上市时长）
+   * 条件时为 true——以用户条件为准，不再按"上市不足 60 个 SSE 交易日"剔除。默认 false（行为不变）。
+   */
+  skipNewListingFilter?: boolean;
   /** 出场配置。 */
   exit: ExitConfig;
 }
@@ -163,7 +168,9 @@ export function simulateTradeCore(input: SimulationInput): SimulationOutcome {
     return { kind: 'filtered', reason: 'limit_up' };
   }
   //    次新：buy_date 距 list_date < 60 个 SSE 交易日 → 剔除。list_date 缺失(null) → 保留。
+  //    skipNewListingFilter（买入条件显式含 list_days）→ 整条跳过，以用户条件为准。
   if (
+    !input.skipNewListingFilter &&
     daysSinceList !== null &&
     daysSinceList < NEW_LISTING_MIN_TRADING_DAYS
   ) {

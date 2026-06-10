@@ -203,3 +203,59 @@ describe('StrategyConditionsQueryBuilder — AMV-MACD 字段', () => {
     expect(params).toEqual([]);
   });
 });
+
+describe('StrategyConditionsQueryBuilder — 上市时长 list_days 字段', () => {
+  let builder: StrategyConditionsQueryBuilder;
+  let warnSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    builder = new StrategyConditionsQueryBuilder();
+    warnSpy = jest
+      .spyOn((builder as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')
+      .mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  it('list_days gt 365 → a_share_symbols 自包含标量子查询（自然日差）+ $1', () => {
+    const conditions: StrategyConditionItem[] = [{ field: 'list_days', operator: 'gt', value: 365 }];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    const flat = squash(sql);
+    expect(flat).toContain(
+      "(SELECT to_date(i.trade_date, 'YYYYMMDD') - to_date(sym.list_date, 'YYYYMMDD') FROM a_share_symbols sym WHERE sym.ts_code = i.ts_code) > $1",
+    );
+    expect(params).toEqual([365]);
+  });
+
+  it('list_days 上穿：非 i. 前缀字段 → warn+skip，sql 为 FALSE', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'list_days', operator: 'cross_above', compareField: 'ma5' },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    expect(sql).toBe('FALSE');
+    expect(params).toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('crypto 不支持 list_days：未知字段 warn+skip，sql 为 FALSE', () => {
+    const conditions: StrategyConditionItem[] = [{ field: 'list_days', operator: 'gt', value: 365 }];
+    const { sql, params } = builder.buildCryptoQuery(conditions);
+    expect(sql).toBe('FALSE');
+    expect(params).toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('list_days 与个股条件混用：占位编号与 params 顺序对齐', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'kdj_j', operator: 'lt', value: 0 },
+      { field: 'list_days', operator: 'gt', value: 365 },
+    ];
+    const { sql, params } = builder.buildAShareQuery(conditions);
+    const flat = squash(sql);
+    expect(flat).toContain('i.kdj_j < $1');
+    expect(flat).toContain('sym.ts_code = i.ts_code) > $2');
+    expect(params).toEqual([0, 365]);
+  });
+});

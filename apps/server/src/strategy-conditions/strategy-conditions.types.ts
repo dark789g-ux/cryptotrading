@@ -41,6 +41,11 @@ export const ASHARE_FIELD_COL_MAP: Record<string, string> = {
   close_ma60_ratio: 'd.close_ma60_ratio',
   vol_ratio_60:     'd.vol_ratio_60',
   vol_ratio_120:    'd.vol_ratio_120',
+  // 上市时长（自然日）：i.trade_date 距 a_share_symbols.list_date 的日历天数。
+  // 自包含标量子查询，不依赖调用方 FROM 里 join symbols 表（别名 sym 避开主扫描外层的 s）；
+  // list_date 为 NULL / 无 symbol 行 → 表达式 NULL → 条件不命中（fail-closed）。
+  list_days:
+    "(SELECT to_date(i.trade_date, 'YYYYMMDD') - to_date(sym.list_date, 'YYYYMMDD') FROM a_share_symbols sym WHERE sym.ts_code = i.ts_code)",
 };
 
 /** 行业 AMV-MACD 字段（个股所在行业 type='I' 指数；走 EXISTS 子查询） */
