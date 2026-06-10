@@ -101,6 +101,16 @@ interface FieldOption extends SelectOption {
 /** 行业 AMV 字段：只能与行业 AMV 字段或常量比较（后端约束） */
 const INDUSTRY_FIELD_VALUES = new Set(['ind_amv_dif', 'ind_amv_dea', 'ind_amv_macd']);
 
+/** 大盘 0AMV 字段：只能与大盘 0AMV 字段或常量比较（后端约束） */
+const MARKET_FIELD_VALUES = new Set(['oamv_dif', 'oamv_dea', 'oamv_macd']);
+
+/** 字段所属比较组：行业 / 大盘 / 普通（个股），字段引用比较仅限同组互比 */
+function fieldCompareGroup(v: string): 'industry' | 'market' | 'normal' {
+  if (INDUSTRY_FIELD_VALUES.has(v)) return 'industry';
+  if (MARKET_FIELD_VALUES.has(v)) return 'market';
+  return 'normal';
+}
+
 const A_SHARE_FIELDS: FieldOption[] = [
   { label: 'KDJ_J', value: 'kdj_j', supportsCross: true },
   { label: 'KDJ_K', value: 'kdj_k', supportsCross: true },
@@ -142,6 +152,10 @@ const A_SHARE_FIELDS: FieldOption[] = [
   { label: '行业AMV-MACD-DIF', value: 'ind_amv_dif', supportsCross: false },
   { label: '行业AMV-MACD-DEA', value: 'ind_amv_dea', supportsCross: false },
   { label: '行业AMV-MACD-MACD', value: 'ind_amv_macd', supportsCross: false },
+  // 大盘 0AMV-MACD（oamv_daily，按交易日对齐，当日全市场同值——大盘择时闸门）
+  { label: '大盘0AMV-MACD-DIF', value: 'oamv_dif', supportsCross: false },
+  { label: '大盘0AMV-MACD-DEA', value: 'oamv_dea', supportsCross: false },
+  { label: '大盘0AMV-MACD-MACD', value: 'oamv_macd', supportsCross: false },
   // 滚动区间位置 / 量比（跨表，不支持上穿/下穿）
   { label: '120日区间位置', value: 'pos_120', supportsCross: false },
   { label: '60日区间位置', value: 'pos_60', supportsCross: false },
@@ -193,14 +207,13 @@ const fieldOptions = computed<FieldOption[]>(() =>
 // ── Logic helpers ─────────────────────────────────────────────────────────────
 
 /**
- * 比较目标（字段引用模式）的可选字段：按左侧字段是否为行业 AMV 字段过滤。
- * 左侧是行业字段 → 只返回行业字段；左侧非行业字段 → 只返回非行业字段。
- * crypto 无行业字段，leftIsIndustry 恒 false，过滤后等于全部 crypto 字段（行为不变）。
+ * 比较目标（字段引用模式）的可选字段：按左侧字段所属比较组过滤（行业/大盘/普通仅同组互比）。
+ * crypto 无行业/大盘字段，组恒为 normal，过滤后等于全部 crypto 字段（行为不变）。
  */
 function getCompareFieldOptions(fieldValue: string): FieldOption[] {
   const all = props.targetType === 'a-share' ? A_SHARE_FIELDS : CRYPTO_FIELDS;
-  const leftIsIndustry = INDUSTRY_FIELD_VALUES.has(fieldValue);
-  return all.filter((f) => INDUSTRY_FIELD_VALUES.has(f.value as string) === leftIsIndustry);
+  const leftGroup = fieldCompareGroup(fieldValue);
+  return all.filter((f) => fieldCompareGroup(f.value as string) === leftGroup);
 }
 
 function getOperatorOptions(fieldValue: string) {
