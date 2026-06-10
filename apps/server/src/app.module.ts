@@ -87,6 +87,7 @@ import { FeatureSetEntity } from './entities/ml/feature-set.entity';
 import { KellySweepResult } from './entities/ml/kelly-sweep-result.entity';
 import { RegimeStrategyConfigEntity } from './entities/strategy/regime-strategy-config.entity';
 import { RegimeDailyPickEntity } from './entities/strategy/regime-daily-pick.entity';
+import { RegimeEngineModule } from './strategies/regime-engine/regime-engine.module';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -188,6 +189,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     KlinesModule,
     SyncModule,
     StrategiesModule,
+    RegimeEngineModule,
     BacktestModule,
     WatchlistsModule,
     SymbolPresetsModule,

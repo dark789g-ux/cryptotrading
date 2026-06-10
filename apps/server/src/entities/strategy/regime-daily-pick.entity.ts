@@ -4,6 +4,9 @@ import {
   Column,
   CreateDateColumn,
 } from 'typeorm';
+import { RegimeKey } from './regime-strategy-config.entity';
+
+export type RegimePickAction = 'trade' | 'flat' | 'unknown';
 
 @Entity('regime_daily_pick')
 export class RegimeDailyPickEntity {
@@ -13,16 +16,14 @@ export class RegimeDailyPickEntity {
   @Column({ type: 'varchar', length: 8, name: 'trade_date' })
   tradeDate: string;
 
-  /** 'Q1' | 'Q2' | 'Q3' | 'Q4' | 'unknown' */
   @Column({ type: 'varchar', length: 8 })
-  regime: string;
+  regime: RegimeKey | 'unknown';
 
   @Column({ type: 'int', nullable: true, name: 'config_version' })
   configVersion: number | null;
 
-  /** 'trade' | 'flat' | 'unknown' */
   @Column({ type: 'varchar', length: 8 })
-  action: string;
+  action: RegimePickAction;
 
   @Column({ type: 'varchar', length: 30, nullable: true, name: 'ts_code' })
   tsCode: string | null;

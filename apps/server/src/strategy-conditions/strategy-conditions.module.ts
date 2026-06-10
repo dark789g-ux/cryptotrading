@@ -37,6 +37,7 @@ import { SignalStatsSimulator } from './signal-stats/signal-stats.simulator.db';
     SignalStatsEnumerator,
     SignalStatsSimulator,
   ],
-  exports: [StrategyConditionsService],
+  // QueryBuilder 供 regime-engine 模块复用条件→SQL 翻译（不复制查询构建逻辑）
+  exports: [StrategyConditionsService, StrategyConditionsQueryBuilder],
 })
 export class StrategyConditionsModule {}
