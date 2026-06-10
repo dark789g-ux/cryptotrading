@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import { OamvDailyEntity } from '../../entities/oamv/oamv-daily.entity'
 import { TushareClientService } from '../a-shares/services/tushare-client.service'
+import { calcMacd } from '../active-mv/amv-formula'
 import type { OamvCalcResult, TushareIndexDaily } from './oamv.types'
 
 // 0AMV 参数
@@ -218,7 +219,48 @@ export class OamvService {
       .execute()
 
     this.logger.log(`同步完成，保存 ${entities.length} 条数据`)
+
+    // MACD 是递推指标（EMA 无限记忆），增量算会与全历史口径漂移；
+    // 序列总量仅千行级，每次 sync 后全量重算三列，保证整段自洽。
+    await this.recomputeMacdAll()
+
     return { synced: entities.length }
+  }
+
+  /**
+   * 从 DB 全量 close 序列重算 0AMV 的通达信式 MACD（12/26/9）并更新 amv_dif/amv_dea/amv_macd。
+   * 口径与个股/行业 AMV 一致（active-mv/amv-formula calcMacd，柱=2×(DIF-DEA)）。
+   */
+  async recomputeMacdAll(): Promise<{ updated: number }> {
+    const rows = await this.repo.find({
+      select: ['tradeDate', 'close'],
+      order: { tradeDate: 'ASC' },
+    })
+    if (rows.length === 0) {
+      this.logger.warn('recomputeMacdAll：oamv_daily 为空，跳过')
+      return { updated: 0 }
+    }
+
+    const closes = rows.map((r) => Number(r.close))
+    const { dif, dea, macd } = calcMacd(closes)
+
+    const toNullable = (v: number): number | null => (Number.isFinite(v) ? v : null)
+    const tradeDates = rows.map((r) => r.tradeDate)
+    const difArr = dif.map(toNullable)
+    const deaArr = dea.map(toNullable)
+    const macdArr = macd.map(toNullable)
+
+    await this.repo.query(
+      `UPDATE oamv_daily o
+          SET amv_dif = u.dif, amv_dea = u.dea, amv_macd = u.macd
+         FROM unnest($1::text[], $2::float8[], $3::float8[], $4::float8[])
+              AS u(trade_date, dif, dea, macd)
+        WHERE o.trade_date = u.trade_date`,
+      [tradeDates, difArr, deaArr, macdArr],
+    )
+
+    this.logger.log(`recomputeMacdAll：全量重算 MACD 完成，更新 ${rows.length} 行`)
+    return { updated: rows.length }
   }
 
   /**
