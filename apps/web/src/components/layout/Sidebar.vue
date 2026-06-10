@@ -67,7 +67,7 @@ import {
   ChevronBack, ChevronForward,
   TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline, CalculatorOutline,
   LogOutOutline, PersonCircleOutline, AnalyticsOutline, SwapHorizontalOutline, NewspaperOutline,
-  StatsChartOutline, BarChartOutline,
+  StatsChartOutline, BarChartOutline, GridOutline,
 } from '@vicons/ionicons5'
 import { useSidebarCollapsed } from '../../composables/hooks/useSidebarCollapsed'
 import { useAuth } from '../../composables/hooks/useAuth'
@@ -103,6 +103,7 @@ const menuOptions = computed(() => [
   { label: '自选列表', key: 'watchlists', icon: renderIcon(BookmarkOutline) },
   { label: '策略条件', key: 'strategy-conditions', icon: renderIcon(AnalyticsOutline) },
   { label: '信号前向统计', key: 'signal-stats', icon: renderIcon(BarChartOutline) },
+  { label: 'Regime 选股', key: 'regime-picks', icon: renderIcon(GridOutline) },
   { label: '资金流向', key: 'money-flow', icon: renderIcon(SwapHorizontalOutline) },
   { label: '每日复盘', key: 'daily-review', icon: renderIcon(NewspaperOutline) },
   // factor-registry-frontend spec：/quant/* 整树 admin-only，菜单同步隐藏

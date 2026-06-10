@@ -11,6 +11,61 @@
       </n-button>
     </div>
 
+    <!-- 象限状态卡 -->
+    <n-card :bordered="false" class="regime-status-card">
+      <n-spin :show="regimeLoading">
+        <div v-if="regimeData" class="regime-card-body">
+          <div class="regime-card-left">
+            <span class="regime-card-label">当前象限</span>
+            <regime-badge :regime="regimeData.regime" />
+            <n-text v-if="regimeData.regime === 'unknown'" type="warning" class="regime-unknown-hint">
+              数据缺失，无法识别象限
+            </n-text>
+          </div>
+          <div class="regime-card-divider" />
+          <div class="regime-card-right">
+            <template v-if="regimeData.activeConfig">
+              <span class="regime-card-label">生效配置</span>
+              <span class="regime-config-desc">
+                v{{ regimeData.activeConfig.version }}
+                <template v-if="regimeData.activeConfig.note"> · {{ regimeData.activeConfig.note }}</template>
+              </span>
+              <template v-if="regimeData.activeConfig.entry">
+                <span class="regime-card-label regime-card-label--top">象限动作</span>
+                <n-tag
+                  v-if="regimeData.activeConfig.entry.action === 'flat'"
+                  size="small"
+                  type="warning"
+                  :bordered="false"
+                >
+                  空仓
+                </n-tag>
+                <n-tag
+                  v-else
+                  size="small"
+                  type="success"
+                  :bordered="false"
+                >
+                  开仓
+                </n-tag>
+              </template>
+              <template v-else-if="regimeData.regime !== 'unknown'">
+                <span class="regime-card-label regime-card-label--top">象限动作</span>
+                <n-text class="regime-config-desc">该象限无配置条目</n-text>
+              </template>
+            </template>
+            <template v-else>
+              <span class="regime-card-label">生效配置</span>
+              <n-text :depth="3" class="regime-config-desc">无生效配置</n-text>
+            </template>
+          </div>
+        </div>
+        <div v-else-if="!regimeLoading" class="regime-card-empty">
+          <n-text :depth="3">象限数据加载失败</n-text>
+        </div>
+      </n-spin>
+    </n-card>
+
     <n-card :bordered="false">
       <n-spin :show="loading">
         <kline-chart
@@ -36,12 +91,14 @@
 defineOptions({ name: 'ActiveMarketValuePanel' })
 
 import { computed, onActivated, ref } from 'vue'
-import { NButton, NCard, NEmpty, NIcon, NSpin, NText, useMessage } from 'naive-ui'
+import { NButton, NCard, NEmpty, NIcon, NSpin, NTag, NText, useMessage } from 'naive-ui'
 import { SyncOutline } from '@vicons/ionicons5'
 import KlineChart from '@/components/kline/KlineChart.vue'
+import RegimeBadge from '@/components/regime/RegimeBadge.vue'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { AMV_CAPTION_BASE } from '@/composables/kline/amvCaption'
 import { oamvApi, type OamvData } from '@/api/modules/market/oamv'
+import { regimeEngineApi, type RegimeTodaySummary } from '@/api/modules/strategy/regimeEngine'
 import type { KlineChartBar } from '@/api/modules/market/symbols'
 import { mapOamvToChartBar } from './oamvChartMapping'
 
@@ -52,6 +109,9 @@ const oamvAvailableSubplots: SubplotKey[] = ['KDJ', 'MACD']
 const loading = ref(false)
 const syncing = ref(false)
 const oamvData = ref<OamvData[]>([])
+
+const regimeLoading = ref(false)
+const regimeData = ref<RegimeTodaySummary | null>(null)
 
 const chartData = computed<KlineChartBar[]>(() => oamvData.value.map(mapOamvToChartBar))
 
@@ -66,12 +126,23 @@ async function loadData() {
   }
 }
 
+async function loadRegime() {
+  regimeLoading.value = true
+  try {
+    regimeData.value = await regimeEngineApi.getToday()
+  } catch {
+    // 静默：象限卡展示失败态，不打断主图加载
+  } finally {
+    regimeLoading.value = false
+  }
+}
+
 async function handleSync() {
   syncing.value = true
   try {
     const result = await oamvApi.sync()
     message.success(`同步完成，共 ${result.synced} 条数据`)
-    await loadData()
+    await Promise.all([loadData(), loadRegime()])
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : '同步失败')
   } finally {
@@ -81,6 +152,7 @@ async function handleSync() {
 
 onActivated(() => {
   void loadData()
+  void loadRegime()
 })
 </script>
 
@@ -114,5 +186,64 @@ onActivated(() => {
   padding: 4px 8px 2px;
   font-size: 12px;
   line-height: 1.4;
+}
+
+/* 象限状态卡 */
+.regime-status-card {
+  /* compact: don't make card too tall */
+}
+
+.regime-card-body {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-height: 52px;
+}
+
+.regime-card-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.regime-card-divider {
+  width: 1px;
+  height: 36px;
+  background: var(--color-border);
+  margin: 0 24px;
+  flex-shrink: 0;
+}
+
+.regime-card-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.regime-card-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.regime-card-label--top {
+  margin-left: 8px;
+}
+
+.regime-config-desc {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.regime-unknown-hint {
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+.regime-card-empty {
+  padding: 8px 0;
+  font-size: 13px;
 }
 </style>

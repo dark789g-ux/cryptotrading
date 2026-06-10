@@ -70,6 +70,12 @@ const routes: any[] = [
     meta: { title: '信号前向统计' },
   },
   {
+    path: '/regime-picks',
+    name: 'regime-picks',
+    component: () => import('../views/strategy/RegimePicksView.vue'),
+    meta: { title: 'Regime 选股清单' },
+  },
+  {
     path: '/money-flow',
     name: 'money-flow',
     component: () => import('../views/market/MoneyFlowView.vue'),
