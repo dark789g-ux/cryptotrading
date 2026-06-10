@@ -104,10 +104,14 @@ const INDUSTRY_FIELD_VALUES = new Set(['ind_amv_dif', 'ind_amv_dea', 'ind_amv_ma
 /** 大盘 0AMV 字段：只能与大盘 0AMV 字段或常量比较（后端约束） */
 const MARKET_FIELD_VALUES = new Set(['oamv_dif', 'oamv_dea', 'oamv_macd']);
 
-/** 字段所属比较组：行业 / 大盘 / 普通（个股），字段引用比较仅限同组互比 */
-function fieldCompareGroup(v: string): 'industry' | 'market' | 'normal' {
+/** 上市元信息字段（天数量纲）：与价格/指标跨量纲比较无意义，仅常量比较 */
+const LIST_META_FIELD_VALUES = new Set(['list_days']);
+
+/** 字段所属比较组：行业 / 大盘 / 上市元信息 / 普通（个股），字段引用比较仅限同组互比 */
+function fieldCompareGroup(v: string): 'industry' | 'market' | 'listmeta' | 'normal' {
   if (INDUSTRY_FIELD_VALUES.has(v)) return 'industry';
   if (MARKET_FIELD_VALUES.has(v)) return 'market';
+  if (LIST_META_FIELD_VALUES.has(v)) return 'listmeta';
   return 'normal';
 }
 
@@ -137,6 +141,8 @@ const A_SHARE_FIELDS: FieldOption[] = [
   { label: 'PB', value: 'pb' },
   { label: '总市值', value: 'total_mv' },
   { label: '流通市值', value: 'circ_mv' },
+  // 上市时长：信号日距 list_date 的自然日数（a_share_symbols，标量子查询）
+  { label: '上市时长(天)', value: 'list_days' },
   { label: '收盘价', value: 'close' },
   { label: '开盘价', value: 'open' },
   { label: '最高价', value: 'high' },
