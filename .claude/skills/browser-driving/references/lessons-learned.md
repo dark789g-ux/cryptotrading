@@ -6,6 +6,21 @@
 
 ---
 
+## 2026-06-10: 重启 webbridge daemon 后 session→tab 绑定丢失，find_tab 也救不回——直接 navigate newTab
+**Symptom**: daemon 残留 PID 卡死，按既有经验 `stop + rm ~/.kimi-webbridge/daemon.pid + start` 恢复了(running:true、extension 秒重连)；但下一条 `evaluate`(session:"bz-opt") 报 `session "bz-opt" has no tab — navigate or find_tab first`；改用 `find_tab` 又报 `no open tab found matching <url>`。
+**Cause**: daemon 重启会清空 session 与浏览器 tab 的映射；且重启过程往往把原 tab 也关了(或映射彻底失联)，所以 find_tab 按 URL 也匹配不到那个"旧 tab"。
+**Lesson**: daemon 重启/恢复后**别指望 session 还认得旧 tab**，find_tab 也别浪费往返——直接 `navigate {newTab:true}` 重开一个新 tab 重建 session。登录态(cookie)是浏览器级、跨 tab 持久的，新 tab 仍是登录态(fetch /api/auth/me 验一下即可)。配合 [2026-05-27 残留 PID] 那条用：恢复 daemon → navigate newTab → 验 auth → 继续。
+
+## 2026-06-09: 浏览器验证「前端发起的异步后台任务状态机」——Pinia 直取 action + 后台时间线采集
+**Symptom**: 要验证"进度条满了任务却没结束、完成后是否自动切"这类状态机,需在浏览器发起一个长任务(run)并采集 status/progress 随时间的变化;逐次手动 evaluate 太密、foreground sleep 被 harness 禁、webbridge 的嵌套 JSON 响应在 git-bash 难解析(无 python3)。
+**Cause**: ① 业务流入口常是 Pinia store 的 action,从 DOM 上溯组件 setupState 能拿但绕;② 定时轮询前台 sleep 被禁、嵌套 JSON 提取烦。
+**Lesson**: ① **Pinia store 直取**:`document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('<storeId>')`,直接调它的 action(`store.startRun(id)`)发起业务流、读 state——比从后代 DOM 上溯组件实例短(互补 [2026-06-08 从后代往上找实例])。② 轮询 evaluate **返回扁平 ASCII `|` 串**(`[status,scanned,total,...].join('|')`)而非对象,bash 侧 `grep -oE '"value":"[^"]*"'` 一把提取,免嵌套 JSON 解析。③ 定时采集用 **`run_in_background` 的 bash 循环 + `sleep`**(后台不受 foreground sleep 禁制),append 日志文件、Read 看时间线;退出条件 `if echo "$v"|grep -q '^completed|'; then break; fi`(延续 [2026-06-08 break 不跳出 for] 坑)。
+
+## 2026-06-09: 程序化设 Vue 表单字段——被"切模式清字段"的 watcher 异步重置
+**Symptom**: 一个 evaluate 里同步设 `form.exitMode='trailing_lock'` 后再设 `form.maxHold=10`,同步回读 maxHold=10 正常;但隔一次调用再提交,DTO 里 maxHold 变回 null(明明读到过 10)。
+**Cause**: 组件有 `watch(exitMode){ 重置 maxHold=null }`(切出场模式时清理无关字段),Vue watcher 在 **nextTick** flush——在我同步设值之后、点保存之前才跑,把 maxHold 清了。真人先点 radio(exitMode 变)再填 maxHold,填在 watcher 之后所以不受影响;程序化"同一同步块先设触发字段后设依赖字段"恰好撞上异步重置。
+**Lesson**: 程序化整体赋值时,若某字段有 watcher 会因它变化而重置依赖字段(切模式清子字段、切类型清参数),把**触发字段**和**被重置的依赖字段**放进**两次独立 evaluate**(两次 webbridge 调用间隔 >> nextTick,watcher 已 flush 完)——先设触发字段,再单独设依赖字段。提交前 payload 自检务必覆盖这类"可能被 watcher 清掉"的字段(延续 [2026-06-05 提交前先验 payload],并最好用 network detail 看真实出站 DTO,别只信组件内回读)。
+
 ## 2026-06-09: Naive n-select 下拉——虚拟滚动藏尾部选项 + 多菜单残留混 option 查询
 **Symptom**: 给条件行 n-select 选新加的字段，下拉只渲染前 ~10 个（KDJ_J…MA60），列表末尾的新字段查不到；且打开第二个 select 后 `document.querySelectorAll('.n-base-select-option')` 把上一个没关的菜单选项也带进来、index 错位。
 **Cause**: Naive n-select 选项数超阈值即虚拟滚动，只渲染可视窗口，末尾选项要滚动才挂 DOM。多个 select 菜单 teleport 到 body 后会共存（旧菜单未即时移除），全局 option 查询会混两个菜单。
@@ -159,3 +174,13 @@
 1. 后端 server 日志（NestJS / Django / Rails 常会打印解析后的 body 或至少路由）。
 2. 在 `evaluate` 里改写 fetch，发送前 `console.log(JSON.stringify(body))`。
 3. 反向核对响应形态：如果筛选结果正确收窄，body 大概就是对的。
+
+---
+
+## 2026-06-10: 页面在 evaluate 进行中被销毁 → daemon 永久挂起，后续命令排队
+
+**Symptom**：之前一直正常的 `evaluate` 突然永不返回（curl 被迫转后台/超时），再发的 evaluate 也卡；但 `list_tabs` 等不触碰页面的命令秒回。
+
+**Cause**：evaluate 在页面上下文执行期间页面被销毁/刷新（如 dev server 重启后 vite 重连触发 reload），回调永远不会回来；daemon 对该 session 的后续页面命令排在悬空命令之后。
+
+**Lesson**：dev server 重启后，先 `navigate`（同 session 复用 tab）强制重载一次页面再继续 evaluate。已卡住时同样用 `navigate` 复位页面上下文（list_tabs 可用来确认 daemon 本身活着），然后用 `1+1` 试探 evaluate 恢复后再发正式命令；对有副作用的命令（POST 创建等），复位后先查目标状态防止重复执行。
