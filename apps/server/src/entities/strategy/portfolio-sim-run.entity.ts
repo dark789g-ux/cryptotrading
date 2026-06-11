@@ -5,15 +5,13 @@ import {
   CreateDateColumn,
 } from 'typeorm';
 
-/** 组合模拟 config 快照：完整 sources / 初始资金 / 解析后费率 / 锚点模式 */
-export interface PortfolioSimConfig {
-  sources: unknown[];
-  initialCapital: number;
-  /** 解析后费率（commission / slippage / stampDuty 等的归一化快照） */
-  fees: Record<string, unknown>;
-  anchorMode: string;
-  [key: string]: unknown;
-}
+/**
+ * 组合模拟 config 快照。运行时权威定义在
+ * strategy-conditions/portfolio-sim/portfolio-sim.types.ts 的 PortfolioSimConfig
+ * （sources[] / initialCapital / cost 五费率 / anchorMode:boolean），
+ * 此处仅作 jsonb 列的宽类型占位，避免实体层反向依赖业务模块。
+ */
+export type PortfolioSimConfigSnapshot = Record<string, unknown>;
 
 /** 锚点自校验结果（官方 vs 重放 Kelly / 胜率 / 样本数对齐） */
 export interface PortfolioSimAnchorCheck {
@@ -38,7 +36,7 @@ export class PortfolioSimRunEntity {
   note: string | null;
 
   @Column({ type: 'jsonb' })
-  config: PortfolioSimConfig;
+  config: PortfolioSimConfigSnapshot;
 
   @Column({ type: 'varchar', length: 16, default: 'pending' })
   status: 'pending' | 'running' | 'success' | 'failed';
