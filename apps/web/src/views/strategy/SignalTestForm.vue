@@ -130,6 +130,7 @@ import ConditionRows from '../../components/strategy-conditions/ConditionRows.vu
 
 interface Props {
   initialData?: SignalTest
+  prefillData?: SignalTest
 }
 
 const props = defineProps<Props>()
@@ -195,6 +196,24 @@ watch(
     }
   },
   { immediate: true },
+)
+
+watch(
+  () => props.prefillData,
+  (data) => {
+    if (!data || props.initialData) return
+    form.value.name = data.name.replace(/\s*\(副本\)\s*$/, '') + ' (副本)'
+    form.value.buyConditions = data.buyConditions.map((c) => ({ ...c }))
+    form.value.exitMode = data.exitMode
+    form.value.horizonN = data.horizonN
+    form.value.exitConditions = (data.exitConditions ?? []).map((c) => ({ ...c }))
+    form.value.maxHold = data.maxHold
+    form.value.universeType = data.universe.type
+    form.value.tsCodesText = (data.universe.tsCodes ?? []).join('\n')
+    if (data.dateStart && data.dateEnd) {
+      form.value.dateRange = [parseDateStr(data.dateStart), parseDateStr(data.dateEnd)]
+    }
+  },
 )
 
 // 切换出场模式时复位 maxHold：trailing_lock 默认空=不封顶（spec 03 §1.3）；

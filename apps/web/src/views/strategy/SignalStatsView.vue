@@ -2,6 +2,21 @@
   <div class="signal-stats-view">
     <n-card title="信号前向统计" :bordered="false">
       <template #header-extra>
+        <n-popover trigger="click" placement="bottom-end" :show="showImportPopover" @update:show="showImportPopover = $event">
+          <template #trigger>
+            <n-button :disabled="store.tests.length === 0" @click="showImportPopover = true">
+              <template #icon><n-icon><download-icon /></n-icon></template>
+              导入方案
+            </n-button>
+          </template>
+          <n-select
+            placeholder="选择已有方案..."
+            :options="importOptions"
+            style="width: 280px"
+            filterable
+            @update:value="onImportSelect"
+          />
+        </n-popover>
         <n-button type="primary" @click="handleNewTest">
           <template #icon><n-icon><add-icon /></n-icon></template>
           新建方案
@@ -50,10 +65,11 @@
       <SignalTestForm
         ref="formRef"
         :initial-data="editingTest ?? undefined"
+        :prefill-data="importSource ?? undefined"
         @submit="handleFormSubmit"
       />
       <template #actions>
-        <n-button @click="showForm = false">取消</n-button>
+        <n-button @click="importSource = null; showForm = false">取消</n-button>
         <n-button type="primary" :loading="submitting" @click="handleFormSave">保存</n-button>
       </template>
     </AppModal>
@@ -62,8 +78,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { NAlert, NButton, NIcon, NCard, useMessage } from 'naive-ui'
-import { Add as AddIcon } from '@vicons/ionicons5'
+import { NAlert, NButton, NCard, NIcon, NPopover, NSelect, useMessage } from 'naive-ui'
+import { Add as AddIcon, DownloadOutline as DownloadIcon } from '@vicons/ionicons5'
 import { useSignalStatsStore } from '../../stores/signalStats'
 import type {
   SignalTest,
@@ -91,6 +107,31 @@ const showForm = ref(false)
 const editingTest = ref<SignalTest | null>(null)
 const formRef = ref<InstanceType<typeof SignalTestForm> | null>(null)
 const submitting = ref(false)
+
+// ── Import ────────────────────────────────────────────────────────────────────
+const importSource = ref<SignalTest | null>(null)
+const showImportPopover = ref(false)
+
+function exitModeLabel(mode: string): string {
+  const map: Record<string, string> = { fixed_n: '固定天数', strategy: '策略条件', trailing_lock: '移动止损' }
+  return map[mode] ?? mode
+}
+
+const importOptions = computed(() =>
+  store.tests.map((t) => ({
+    label: `${t.name}（${exitModeLabel(t.exitMode)} / ${t.universe.type === 'all' ? '全市场' : '指定标的'}）`,
+    value: t.id,
+  }))
+)
+
+function onImportSelect(testId: string) {
+  const test = store.tests.find((t) => t.id === testId)
+  if (!test) return
+  importSource.value = test
+  editingTest.value = null
+  showImportPopover.value = false
+  showForm.value = true
+}
 
 // ── Table handlers ──────────────────────────────────────────────────────────
 async function handleRun(id: string) {
@@ -128,6 +169,7 @@ async function handleDelete(id: string) {
 
 function handleNewTest() {
   editingTest.value = null
+  importSource.value = null
   showForm.value = true
 }
 
@@ -148,6 +190,7 @@ async function handleFormSubmit(dto: CreateSignalTestDto) {
     }
     showForm.value = false
     editingTest.value = null
+    importSource.value = null
   } catch {
     message.error(editingTest.value ? '更新失败' : '创建失败')
   } finally {
