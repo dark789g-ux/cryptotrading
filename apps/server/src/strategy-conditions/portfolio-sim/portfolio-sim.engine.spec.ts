@@ -776,18 +776,19 @@ describe('11. 汇总指标手算', () => {
 // anchorMode 恒等 + 约束停用
 // ─────────────────────────────────────────────────────────────────────────────
 describe('anchorMode 恒等性', () => {
-  it('anchorMode：约束停用（maxPositions/exposureCap/already_held），每笔必 taken', () => {
-    // positionRatio=0.3：3 笔 alloc 合计 0.9e6 ≤ 现金 1e6（cash_short 在 anchorMode 仍生效，不可超）。
+  it('anchorMode：约束全停用（maxPositions/exposureCap/already_held/cash_short），每笔必 taken', () => {
+    // positionRatio=0.6：3 笔 alloc 各 0.6e6（按 NAV_ref 算），合计 1.8e6 > 现金 1e6。
+    //   anchorMode 旁路 cash_short（资金无限语义）→ 三笔仍全 taken、cash 允许变负。
     const src = source({
-      positionRatio: 0.3,
+      positionRatio: 0.6,
       maxPositions: 1, // 应被忽略
       exposureCap: 0.1, // 应被忽略
     });
-    // 同票两笔（非 anchor 会 already_held）+ 超 maxPositions + 超 exposureCap
+    // 同票两笔（非 anchor 会 already_held）+ 超 maxPositions + 超 exposureCap + 现金不足
     const trades = [
-      trade({ tsCode: 'X', buyDate: '20260102', exitDate: '20260110' }),
-      trade({ tsCode: 'X', buyDate: '20260102', exitDate: '20260110' }),
-      trade({ tsCode: 'Y', buyDate: '20260102', exitDate: '20260110' }),
+      trade({ tsCode: 'X', buyDate: '20260102', exitDate: '20260110', ret: 0.1 }),
+      trade({ tsCode: 'X', buyDate: '20260102', exitDate: '20260110', ret: 0.1 }),
+      trade({ tsCode: 'Y', buyDate: '20260102', exitDate: '20260110', ret: -0.2 }),
     ];
     const quotes = buildQuotes({
       X: { '20260102': [10, 10] },
@@ -801,9 +802,77 @@ describe('anchorMode 恒等性', () => {
         calendar: ['20260102'],
       }),
     );
-    // 全部 taken（约束停用）
+    // 全部 taken（含 cash_short 旁路）
     expect(res.fills.every((f) => f.status === 'taken')).toBe(true);
     expect(res.summary.nTaken).toBe(3);
+    // 现金耗尽后仍开仓 → 当日收盘现金为负（3 笔各 alloc 0.6e6、零成本，未出场）。
+    expect(res.dailyRows[0].cash).toBeCloseTo(1_000_000 - 3 * 600_000, 4);
+    expect(res.dailyRows[0].cash).toBeLessThan(0);
+  });
+
+  it('anchorMode：现金耗尽后信号仍全 taken、cash 可为负、每笔 realizedRetNet ≡ ret', () => {
+    // 同日开仓且当日出场（round-trip）→ 收口回填 realizedRetNet，验证 ≡ ret。
+    // positionRatio=0.6、3 笔同日 → 入场瞬间 cash 一度为负（资金无限语义），收口后回正。
+    const src = source({ positionRatio: 0.6, rankField: 'none' });
+    const rets = [0.1, -0.07, 0.25];
+    const trades = rets.map((r, i) =>
+      trade({
+        tsCode: `T${i}`,
+        buyDate: '20260102',
+        exitDate: '20260103',
+        ret: r,
+      }),
+    );
+    const bars: Record<string, Record<string, [number, number]>> = {};
+    for (let i = 0; i < rets.length; i++) {
+      bars[`T${i}`] = { '20260102': [10, 13], '20260103': [13, 7] }; // 任意盯市路径
+    }
+    const res = runPortfolioSim(
+      input({
+        config: config([src], { anchorMode: true }),
+        trades,
+        quotes: buildQuotes(bars),
+        calendar: ['20260102', '20260103'],
+      }),
+    );
+    // 全部 taken（cash_short 旁路）
+    expect(res.fills.every((f) => f.status === 'taken')).toBe(true);
+    expect(res.summary.nTaken).toBe(3);
+    // 入场日（20260102）现金为负：1e6 - 3*0.6e6 = -0.8e6（未出场）。
+    expect(res.dailyRows[0].cash).toBeCloseTo(-800_000, 4);
+    expect(res.dailyRows[0].cash).toBeLessThan(0);
+    // 每笔 realizedRetNet ≡ ret（零成本恒等）。
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    rets.forEach((r, i) => {
+      expect(byTs.get(`T${i}`)!.realizedRetNet).toBeCloseTo(r, 12);
+    });
+    expect(res.summary.totalCosts).toBe(0);
+  });
+
+  it('回归：单日候选数 × positionRatio 远超 1（5 信号 × 0.5）anchorMode 全 taken', () => {
+    // 直击本缺陷：源 run 单日峰值大量信号、positionRatio 偏大时，
+    //   非 anchorMode 现金早早耗尽会大批 cash_short；anchorMode 必须每笔成交（对账要求全成交）。
+    const src = source({ positionRatio: 0.5, rankField: 'none' });
+    const trades: EngineTrade[] = [];
+    const bars: Record<string, Record<string, [number, number]>> = {};
+    for (let i = 0; i < 5; i++) {
+      const ts = `T${i}`;
+      trades.push(trade({ tsCode: ts, buyDate: '20260102', exitDate: '20260110' }));
+      bars[ts] = { '20260102': [10, 10] };
+    }
+    const res = runPortfolioSim(
+      input({
+        config: config([src], { anchorMode: true }),
+        trades,
+        quotes: buildQuotes(bars),
+        calendar: ['20260102'],
+      }),
+    );
+    // 5 笔 × 0.5 = 2.5 倍资金需求，但 anchorMode 旁路 cash_short → 5 笔全 taken。
+    expect(res.fills.filter((f) => f.status === 'taken').length).toBe(5);
+    expect(res.fills.some((f) => f.skipReason === 'cash_short')).toBe(false);
+    // 现金 = 1e6 - 5*0.5e6 = -1.5e6（深度为负，证明 cash_short 确被旁路）。
+    expect(res.dailyRows[0].cash).toBeCloseTo(-1_500_000, 4);
   });
 
   it('anchorMode：realizedRetNet ≡ ret（代数恒等，多笔不同 ret）', () => {

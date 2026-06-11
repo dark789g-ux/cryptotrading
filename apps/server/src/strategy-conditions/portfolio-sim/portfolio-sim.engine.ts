@@ -11,8 +11,9 @@
  *   - 开仓 alloc = positionRatio × NAV_ref(d)；NAV_ref(d) = 上一交易日收盘 NAV（首日 = initialCapital）。
  *   - 盯市 mv *= close(d)/上一盯市价（入场首日 = close(d)/open(d)）；停牌（无行情）mv 不变。
  *
- * anchorMode：maxPositions/exposureCap 视为 null、already_held 停用、费率全 0；
- *   此时每笔信号必 taken 且 realizedRetNet ≡ ret（代数恒等，测试守住）。
+ * anchorMode：资金无限 + 无成本——全部约束停用（maxPositions/exposureCap 视为 null、
+ *   already_held 停用、cash_short 旁路、费率全 0），现金允许变负；此时每笔信号必 taken 且
+ *   realizedRetNet ≡ ret（代数恒等，测试守住）。组合现金/净值指标无意义，仅用于逐笔对账。
  *
  * 汇总指标公式见 §汇总 与 02 引擎设计。
  */
@@ -112,7 +113,7 @@ export function runPortfolioSim(
   const { initialCapital, anchorMode } = config;
   const totalDays = calendar.length;
 
-  // anchorMode：费率全 0、约束停用、already_held 停用。
+  // anchorMode：费率全 0、全部约束停用（already_held / slots_full / exposure_cap / cash_short）。
   const costRates = anchorMode
     ? {
         commissionPerSide: 0,
@@ -309,7 +310,8 @@ function closePosition(
  * 按固定顺序检查开仓约束，返回首个 skipReason 或 null（可开仓）。
  *
  * 顺序：already_held → slots_full → exposure_cap → cash_short。
- * anchorMode：already_held 停用、maxPositions/exposureCap 视为 null（仅 cash_short 仍生效）。
+ * anchorMode：全部约束停用（already_held 停用、maxPositions/exposureCap 视为 null、cash_short 旁路）。
+ *   语义为「资金无限 + 无成本」，现金允许变负——锚点 run 仅用于逐笔对账，组合指标无意义。
  *
  * exposure_cap：(该策略持仓市值合计 + alloc)/NAV_ref > cap 才 skip（严格 >；恰好 == cap 放行）。
  */
@@ -352,8 +354,9 @@ export function checkSkip(
     }
   }
 
-  // ④ cash_short：现金不足整笔跳过（不部分成交）。
-  if (cash < alloc + buyCost) {
+  // ④ cash_short（anchorMode 停用：资金无限语义，现金允许变负）。
+  //    非 anchorMode：现金不足整笔跳过（不部分成交）。
+  if (!anchorMode && cash < alloc + buyCost) {
     return 'cash_short';
   }
 

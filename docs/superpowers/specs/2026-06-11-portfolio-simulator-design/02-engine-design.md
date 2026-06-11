@@ -103,9 +103,12 @@ NAV_ref(d) = 上一交易日收盘 NAV（首日 = initialCapital）
 
 ## 锚点模式（自校验硬门禁）
 
-`anchorMode=true` 时引擎强制：全部约束关闭（maxPositions/exposureCap=null、
-already_held 规则停用）、费率全 0。此时每笔信号都 taken，逐笔
-`realized_ret_net ≡ ret`（由收口构造保证，非浮点巧合）。
+`anchorMode=true` 时引擎强制：**资金无限语义**——全部约束关闭（maxPositions/
+exposureCap=null、already_held 规则停用、**cash_short 同样旁路**，cash 允许变负）、
+费率全 0。此时每笔信号都 taken，逐笔 `realized_ret_net ≡ ret`（由收口构造保证，
+非浮点巧合）；锚点 run 的组合级指标（净值/回撤等）无意义，仅逐笔统计用于对账。
+（2026-06-11 真机 e2e 教训：初版仅停用三项保留 cash_short，单日 1818 信号聚簇下
+12,847 笔被现金弃单、对账失败——"每笔必 taken"必须连现金一起旁路才成立。）
 **锚点模式强制单源**（DTO 校验 sources.length===1）——对账目标是单个官方 run，
 anchor_check 平铺结构也以此为前提；多源组合验证不属于锚点门禁的职责。
 
