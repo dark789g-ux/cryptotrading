@@ -1,0 +1,10 @@
+window_group,variant_desc,exit_desc,n_train,kelly_is,n_valid,win_rate_valid,payoff_b_valid,profit_factor_valid,kelly_oos,ci_low,ci_high,is_frontier
+no_rs,base,"trailing(z=0.05, mh=20)",99,-0.0578,113,0.6195,4.1698,6.7881,0.5282,0.4149,0.6358,True
+no_rs,base,"trailing(z=0.08, mh=20)",99,-0.0419,113,0.6018,4.9019,7.4073,0.5205,0.4011,0.6306,False
+no_rs,base,"trailing(z=0.08, mh=10)",99,-0.0932,113,0.5841,3.7480,5.2631,0.4731,0.3558,0.5807,False
+no_rs,base,"trailing(z=0.05, mh=10)",99,-0.1240,113,0.5752,3.2698,4.4279,0.4453,0.3028,0.5680,False
+no_rs,base,"trailing(z=0.03, mh=20)",99,-0.0855,113,0.4602,4.4603,3.8022,0.3391,0.2040,0.4553,False
+no_rs,base,"trailing(z=0.03, mh=10)",99,-0.1121,113,0.4602,3.7280,3.1780,0.3154,0.1802,0.4394,False
+no_rs,base,"{'type': 'band_lock', 'max_hold': None}",99,0.0790,113,0.3009,6.2126,2.6738,0.1884,0.0260,0.2925,False
+no_rs,base,"{'type': 'band_lock', 'max_hold': 20}",99,0.0790,113,0.3009,6.2126,2.6738,0.1884,0.0212,0.2923,False
+no_rs,base,"{'type': 'band_lock', 'max_hold': 10}",99,0.0854,113,0.3009,5.9511,2.5612,0.1834,0.0102,0.2919,False

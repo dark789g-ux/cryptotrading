@@ -1,0 +1,10 @@
+window_group,n_valid,kelly_valid,is_frontier,variant_desc,exit_desc
+no_rs,113,0.3154,False,base,"trailing(z=0.03, mh=10)"
+no_rs,113,0.3391,False,base,"trailing(z=0.03, mh=20)"
+no_rs,113,0.4453,False,base,"trailing(z=0.05, mh=10)"
+no_rs,113,0.5282,True,base,"trailing(z=0.05, mh=20)"
+no_rs,113,0.4731,False,base,"trailing(z=0.08, mh=10)"
+no_rs,113,0.5205,False,base,"trailing(z=0.08, mh=20)"
+no_rs,113,0.1884,False,base,"{'type': 'band_lock', 'max_hold': None}"
+no_rs,113,0.1834,False,base,"{'type': 'band_lock', 'max_hold': 10}"
+no_rs,113,0.1884,False,base,"{'type': 'band_lock', 'max_hold': 20}"
