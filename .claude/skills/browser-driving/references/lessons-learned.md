@@ -189,3 +189,8 @@
 **Cause**：evaluate 在页面上下文执行期间页面被销毁/刷新（如 dev server 重启后 vite 重连触发 reload），回调永远不会回来；daemon 对该 session 的后续页面命令排在悬空命令之后。
 
 **Lesson**：dev server 重启后，先 `navigate`（同 session 复用 tab）强制重载一次页面再继续 evaluate。已卡住时同样用 `navigate` 复位页面上下文（list_tabs 可用来确认 daemon 本身活着），然后用 `1+1` 试探 evaluate 恢复后再发正式命令；对有副作用的命令（POST 创建等），复位后先查目标状态防止重复执行。
+
+## 2026-06-11: bash 轮询循环里 grep 嵌套转义 JSON 终态失配致空转
+**Symptom**: 用 bash for 循环轮询 webbridge evaluate 返回的 JSON，`grep -qE '\\\\"status\\\\":\\\\"success'` 永不命中，任务早已 success 仍空转满 60 轮（浪费 5 分钟）。
+**Cause**: webbridge 返回体是双层 JSON（外层 daemon 包裹+内层 evaluate 字符串），引号转义层数在 bash 单引号/双引号/JSON 三层嵌套下极易数错。
+**Lesson**: 轮询终态判定不要精确匹配转义引号——用宽松子串（`grep -qE 'success|failed'` 匹配裸词）或先 sed 提取 value 字段再比较；写完先手测一轮 grep 是否真能命中样本输出。
