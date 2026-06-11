@@ -6,6 +6,11 @@
 
 ---
 
+## 2026-06-11: 多小时无人值守批量触发——session tab 被用户浏览占用两次卡死批次，终解=专用 newTab+触发前 navigate 复位+curl 超时+DB 防重 adopt
+**Symptom**: 后台 bash 循环经 webbridge evaluate 串行触发 18 个长任务，跑到第 3/15 个时 TRIGGER 调用永不返回（批次静默挂 6 小时）；恢复后又在第 11 个复现（响应空+extension_error "Inspected target navigated or closed"）。
+**Cause**: 自动化 session 绑定的 tab 是用户浏览器里可见的普通 tab，用户拿它看页面/导航，恰逢 evaluate 在途→页面销毁回调丢失（同 2026-06-10 条根因），但**长批次把碰撞概率放大到必然**。
+**Lesson**: 无人值守批量驱动一律：① `navigate {newTab:true, group_title:"xxx-AUTO-勿动"}` 开专用 tab 并明示用户勿动；② 每次触发前先 navigate 复位页面上下文（1-2s 成本买回调可靠性）；③ 触发 curl 必带 `-m 60`；④ 响应丢失≠未执行——fetch 可能已落服务端（本例 POST 已建任务），恢复前先查 DB 按"最近 N 分钟新行"adopt，防重复触发；⑤ 循环对已有 running/completed 任务一律 adopt 跳过触发，脚本可安全重启续跑。
+
 ## 2026-06-10: 重启 webbridge daemon 后 session→tab 绑定丢失，find_tab 也救不回——直接 navigate newTab
 **Symptom**: daemon 残留 PID 卡死，按既有经验 `stop + rm ~/.kimi-webbridge/daemon.pid + start` 恢复了(running:true、extension 秒重连)；但下一条 `evaluate`(session:"bz-opt") 报 `session "bz-opt" has no tab — navigate or find_tab first`；改用 `find_tab` 又报 `no open tab found matching <url>`。
 **Cause**: daemon 重启会清空 session 与浏览器 tab 的映射；且重启过程往往把原 tab 也关了(或映射彻底失联)，所以 find_tab 按 URL 也匹配不到那个"旧 tab"。
