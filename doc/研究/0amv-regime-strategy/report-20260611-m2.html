@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0AMV 分阶段策略研究 · M2 离线搜索报告 2026-06-11</title>
+<style>
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; margin: 0; padding: 16px; background: #f5f6f8; color: #222; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 8px 0 4px; }
+  h2 { font-size: 17px; margin: 28px 0 8px; border-left: 4px solid #2962ff; padding-left: 8px; }
+  h3 { font-size: 14px; margin: 16px 0 6px; }
+  .meta { color: #666; font-size: 13px; margin-bottom: 16px; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .tldr { background: #e8f0fe; border-radius: 10px; padding: 14px 16px; font-size: 14px; line-height: 1.7; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: center; }
+  th { background: #f0f2f5; }
+  td.l { text-align: left; }
+  .small { font-size: 12px; color: #666; }
+  .warn { background: #fff8e1; border-left: 4px solid #f9a825; padding: 10px 14px; border-radius: 6px; font-size: 13px; line-height: 1.6; margin: 10px 0; }
+  .kill { background: #fce4ec; border-left: 4px solid #c62828; padding: 10px 14px; border-radius: 6px; font-size: 13px; line-height: 1.6; margin: 10px 0; }
+  .gate { background: #ede7f6; border-left: 4px solid #5e35b1; padding: 10px 14px; border-radius: 6px; font-size: 13px; line-height: 1.7; margin: 10px 0; }
+  .ok { color: #1a7f37; font-weight: 600; }
+  .bad { color: #c62828; font-weight: 600; }
+  ul { line-height: 1.7; font-size: 14px; }
+  code { background: #f0f2f5; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>0AMV 分阶段策略研究 · M2 离线搜索报告</h1>
+<div class="meta">2026-06-11 · 续前报（M1 收官+M2-1 矩阵）· 当前状态：<b>预登记完成，站在 holdout 闸门前等待执行确认</b></div>
+
+<div class="tldr">
+<b>TL;DR</b>：M2 三步全部完成。①按年一致性把 72 格杀到只剩 3 格存活（Q3 双冠军 + Q1 待拯救）；②过滤器搜索发现 Q3 的统一经济故事——<b>反弹 regime 抬升的是跌得最惨的票</b>，并把 train kelly 推到 0.7+；③纪律三次击杀（train 冠军被 holdout 地板淘汰、PE 数据断层陷阱、Q1"修 2023 即毁 2022"）。最终<b>预登记 4 个候选</b>（Q3×3 + Q1×1），Q2/Q4 判空仓。下一步是不可逆的 holdout 单次评估（烧 4/12 额度），等待确认。
+</div>
+
+<h2>一、M2 流程与各步杀伤统计</h2>
+<div class="card">
+<table>
+<tr><th>步骤</th><th>输入</th><th>过滤逻辑</th><th>输出</th></tr>
+<tr><td>M2-1 基础矩阵</td><td>18 配置 × 4 象限 = 72 格</td><td class="l">train 窗（2022.4–2024.12）聚合 kelly</td><td>exit9 双族冠军浮现</td></tr>
+<tr><td>M2-2 按年一致性</td><td>72 格</td><td class="l">三年（22/23/24）单年 kelly&lt;-0.05 即深亏失格 + 成本敏感性（双边 0.2~0.3%）</td><td><b>3 格存活</b>：Q3×A9、Q3×B9、Q1×A4（待救）；Q2/Q4 全灭</td></tr>
+<tr><td>M2-3 过滤搜索</td><td>3 格 × 32 字段</td><td class="l">四分位梯度扫 → 固定阈值按年检验 → ≤3 深度组合 → holdout 信号数地板（仅 count）</td><td><b>4 候选预登记</b></td></tr>
+</table>
+</div>
+
+<h2>二、M2-2 按年一致性：72 格的生死簿</h2>
+<div class="card">
+<table>
+<tr><th>象限</th><th>M2-1 表面冠军</th><th>按年+成本双检后的判定</th></tr>
+<tr><td>Q1 强多头</td><td>B-exit4（0.322）</td><td class="l"><span class="bad">击落</span>——2023 深亏 -0.136。唯一三年非负的 A-exit4（0.072/0.023/0.477）2023 单笔仅 0.115%，<b>税后转负</b> → 进入"拯救"流程</td></tr>
+<tr><td>Q2 多头回调</td><td>B-exit9（0.081）</td><td class="l"><span class="bad">实质死刑</span>——无任何配置三年全正；最优者持仓 1~2 天、单笔 0.15%/-0.06%/0.76%，税后双年负 → <b>空仓</b></td></tr>
+<tr><td>Q3 反弹筑底</td><td>B-exit9（0.481）</td><td class="l"><span class="ok">真金</span>——A-exit9 三年 0.466/0.287/0.362、B-exit9 三年 0.361/0.515/0.488，单笔均收 2~7.5%（持仓 10~16 天），成本免疫 → <b>双格晋级</b></td></tr>
+<tr><td>Q4 空头</td><td>B-exit9（0.097）</td><td class="l"><span class="bad">税敏边缘</span>——三年虽全正但单笔仅 0.13~0.65%、持仓 1~3 天，扣 0.3% 后 2022 转负 → <b>空仓</b></td></tr>
+</table>
+<p class="small">机制注记：exit9 在 Q2/Q4 退化为"次日收盘卖"（入场时大盘 MACD 已≤0，出场条件即时为真）——与 Q1/Q3 中"持有至大盘动能转折"是两种不同机制，其微利属隔日反抽，过不了成本关。</p>
+</div>
+
+<h2>三、M2-3 过滤搜索：Q3 的统一经济故事</h2>
+<div class="card">
+<p>对 Q3 两个存活格各扫 32 个字段（四分位梯度），两格给出<b>同一个方向</b>：</p>
+<table>
+<tr><th>字段（按值四桶）</th><th>B9 最低桶→最高桶</th><th>A9 最低桶→最高桶</th><th>读法</th></tr>
+<tr><td class="l">pos_120（120日区间位置）</td><td>0.719 → 0.138</td><td>0.500 → 0.045</td><td class="l">位置越低越好</td></tr>
+<tr><td class="l">close/ma60</td><td>0.687 → 0.145</td><td>0.524 → 0.137</td><td class="l">贴线越深越好</td></tr>
+<tr><td class="l">大盘 close/ma240</td><td>中段最好，高段 0.249</td><td>高段 <b>-0.017</b></td><td class="l">大盘远超年线是毒区</td></tr>
+<tr><td class="l">ma30&gt;ma60（均线多头）</td><td>否 0.589 / 是 0.301</td><td>否 0.447 / 是 0.184</td><td class="l">Q3 里反而要均线空头</td></tr>
+<tr><td class="l">量比</td><td>0.324 → 0.604</td><td>0.313 → 0.410</td><td class="l">放量更好</td></tr>
+</table>
+<p><b>一句话</b>：反弹筑底 regime 里，弹得最猛的是<b>跌得最惨、位置最低、刚开始放量</b>的票——连搬砖族（本是追突破的打法）在 Q3 都"不要均线多头"，与历史上"DIF&gt;0 有害"的教训同构。</p>
+<p>固定阈值组合（train，全部三年正）：</p>
+<table>
+<tr><th>组合</th><th>train kelly</th><th>按年</th><th>train n</th></tr>
+<tr><td class="l">B族 + pos_120≤0.05 + 大盘&lt;年线</td><td>0.728</td><td>0.898 / 0.756 / 0.687</td><td>13,996</td></tr>
+<tr><td class="l">B族 + pos_120≤0.05（最简形）</td><td>0.715</td><td>0.762 / 0.737 / 0.684</td><td>15,788</td></tr>
+<tr><td class="l">A族 + close/ma60≤0.91 + ma30≤ma60</td><td>0.530</td><td>0.780 / 0.410 / 0.455</td><td>20,988</td></tr>
+<tr><td class="l">（Q1 拯救）A族 + 流通市值≤20.8亿 | 持5日</td><td>0.372</td><td>0.106 / 0.147 / 0.631</td><td>18,593</td></tr>
+</table>
+</div>
+
+<h2>四、纪律击杀记录（防过拟合机制实际咬人的证据）</h2>
+<div class="kill">
+<b>① train 冠军阵亡</b>：三元组合（train 0.766，三年 0.885/0.735/0.763）在 holdout 信号数地板被淘汰——2025-26 牛市里"深度低位×大盘年线下"近乎绝迹，仅 117 个信号 &lt; 200 下限。<b>train 上最华丽的恰是时代特化产物</b>，地板拦住了它。
+</div>
+<div class="kill">
+<b>② PE 过滤是数据陷阱</b>：pe_ttm 过滤的样本 100% 落在 2022（daily_basic 的 PE 在 2023+ 存在覆盖断层），过滤效果实为"变相选年份"。按年 n 列暴露了它，弃用。同类弃用：dea/dif 绝对值过滤（价格量纲，池化阈值经济含义浑浊）。
+</div>
+<div class="kill">
+<b>③ Q1 的跷跷板</b>：所有能把 2023 修正的过滤组合（大盘低位类、大盘 KDJ 类）全部把 2022 打成深亏（-0.09~-0.15）。唯一三年全正的是纯小市值过滤——如实标注：水位仍靠 2024、带容量/流动性约束、2023 税后利润不厚。
+</div>
+
+<h2>五、预登记名单（已锁死入档，拟烧 holdout 额度 4/12）</h2>
+<div class="card">
+<table>
+<tr><th>#</th><th>象限</th><th>完整定义</th><th>train kelly（按年）</th><th>holdout 信号数</th></tr>
+<tr><td>Q3-1</td><td>Q3</td><td class="l">买：J&lt;0 + pos_120≤0.05 + 大盘close&lt;ma240 ｜ 卖：大盘MACD柱转负（兜底20天）</td><td>0.728（0.90/0.76/0.69）</td><td>368 ✓</td></tr>
+<tr><td>Q3-2</td><td>Q3</td><td class="l">买：砖型信号 + delta&gt;0.5 + close/ma60≤0.91 + ma30≤ma60 ｜ 卖：同上</td><td>0.530（0.78/0.41/0.46）</td><td>4,135 ✓</td></tr>
+<tr><td>Q3-3</td><td>Q3</td><td class="l">买：J&lt;0 + pos_120≤0.05 ｜ 卖：同上（最简形，鲁棒性优先）</td><td>0.715（0.76/0.74/0.68）</td><td>2,435 ✓</td></tr>
+<tr><td>Q1-1</td><td>Q1</td><td class="l">买：砖型信号 + delta&gt;0.5 + 流通市值≤20.8亿 ｜ 卖：持5日无脑卖</td><td>0.372（0.11/0.15/0.63）</td><td>9,439 ✓</td></tr>
+</table>
+<p class="small">Q2/Q4：判空仓，不消耗额度。达标线已随预登记锁死：holdout kelly ≥0.02 且 ≥同象限基线+0.03；按年 ≥4/5 非深亏且 ≥3/5 为正；剔除最佳单年后全期仍&gt;0；holdout n≥200。</p>
+</div>
+
+<h2>六、为什么 holdout 评估"不可逆"（拆封逻辑）</h2>
+<div class="gate">
+holdout 在技术上只是几条只读 SQL，可逆；<b>不可逆的是信息状态</b>——它是一张密封的考卷，拆封看过答案后，"复习一下重考同一张卷"的分数就是假的。具体污染路径：看过结果后再改任何参数（哪怕名义上在 train 上重选），"要改"这个决定本身已被 holdout 反馈触发——这就是<b>用测试集改参数</b>（data snooping），重复几轮等价于用人脑在 holdout 上做梯度下降，0.118→打平的旧伤正源于此。三道焊缝：额度制（全局 12 次跨轮共享）、预登记钉死参数、达标线前置锁定。烧完之后唯一新鲜数据 = config 上线后的影子期。
+</div>
+
+<h2>七、口径限界（终态结论必须携带）</h2>
+<div class="warn">
+① <b>逐笔 kelly ≠ 组合 kelly</b>：Q3 反弹日数千信号同日聚簇、收益高度相关，0.7 量级的逐笔 kelly 是<b>配置筛选量纲</b>；实际仓位须半凯利+聚簇折扣，影子期以组合日收益口径复核。<br>
+② 交易成本未建模（已在 M2-2 用敏感性折算拦掉短持仓配置，长持仓候选受影响小）。<br>
+③ holdout 为弱保护（象限轴凭全周期选定、预验表暴露过 2025-26 各象限 kelly）——终极验证靠影子期。
+</div>
+
+<h2>八、下一步（等待确认）</h2>
+<div class="card"><ul>
+<li><b>待确认</b>：执行 holdout 单次评估（4 候选 × 各一次，照实入档，烧 4/12 额度，不可重来）；</li>
+<li>过线者 → M4 真机收口 run + 逐位对账 → 映射表 + 边界声明 + config v1（Q3-1 需先给字段映射加 oamv_close/oamv_ma240 两个键）；</li>
+<li>Phase 2 激活：重启后端 → 激活 config → 每日识别+选股清单 → 影子期 ≥8 周 walk-forward。</li>
+</ul></div>
+
+<div class="meta" style="margin-top:24px">研究产物：doc/研究/0amv-regime-strategy/（runs-manifest / results / preregistration）· 本报告由 Claude 生成于 2026-06-11</div>
+</div>
+</body>
+</html>
