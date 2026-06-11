@@ -100,11 +100,17 @@ export function sortCandidates(
  * 逐日组合回放。
  *
  * @param input 配置 + 逐笔交易 + 行情 + 日历
+ * @param onProgress 可选回放进度回调；每回放完一个交易日调一次 (doneDays, totalDays)。
+ *   纯增量，不改任何既有回放逻辑（W2 runner 用于 replaying 阶段进度上报）。
  * @returns 每日净值 + 逐信号判定 + 汇总指标
  */
-export function runPortfolioSim(input: EngineInput): EngineResult {
+export function runPortfolioSim(
+  input: EngineInput,
+  onProgress?: (done: number, total: number) => void,
+): EngineResult {
   const { config, trades, quotes, calendar } = input;
   const { initialCapital, anchorMode } = config;
+  const totalDays = calendar.length;
 
   // anchorMode：费率全 0、约束停用、already_held 停用。
   const costRates = anchorMode
@@ -141,6 +147,7 @@ export function runPortfolioSim(input: EngineInput): EngineResult {
   let cash = initialCapital;
   let prevNav = initialCapital; // NAV(d-1)，首日 = initialCapital
   let totalCosts = 0;
+  let doneDays = 0;
 
   for (const d of calendar) {
     const navRef = prevNav; // NAV_ref(d) = 上一交易日收盘 NAV
@@ -248,6 +255,8 @@ export function runPortfolioSim(input: EngineInput): EngineResult {
       strategyExposure,
     });
     prevNav = nav;
+    doneDays += 1;
+    onProgress?.(doneDays, totalDays);
   }
 
   const summary = computeSummary(

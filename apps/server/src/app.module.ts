@@ -91,6 +91,7 @@ import { PortfolioSimRunEntity } from './entities/strategy/portfolio-sim-run.ent
 import { PortfolioSimDailyEntity } from './entities/strategy/portfolio-sim-daily.entity';
 import { PortfolioSimFillEntity } from './entities/strategy/portfolio-sim-fill.entity';
 import { RegimeEngineModule } from './strategies/regime-engine/regime-engine.module';
+import { PortfolioSimModule } from './strategy-conditions/portfolio-sim/portfolio-sim.module';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -206,6 +207,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     AuthModule,
     UsersModule,
     StrategyConditionsModule,
+    PortfolioSimModule,
     MoneyFlowModule,
     IndexCatalogModule,
     ThsIndexDailyModule,
