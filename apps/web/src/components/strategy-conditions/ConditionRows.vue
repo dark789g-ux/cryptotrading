@@ -102,7 +102,7 @@ interface FieldOption extends SelectOption {
 const INDUSTRY_FIELD_VALUES = new Set(['ind_amv_dif', 'ind_amv_dea', 'ind_amv_macd']);
 
 /** 大盘 0AMV 字段：只能与大盘 0AMV 字段或常量比较（后端约束） */
-const MARKET_FIELD_VALUES = new Set(['oamv_dif', 'oamv_dea', 'oamv_macd']);
+const MARKET_FIELD_VALUES = new Set(['oamv_dif', 'oamv_dea', 'oamv_macd', 'oamv_close', 'oamv_ma240']);
 
 /** 上市元信息字段（天数量纲）：与价格/指标跨量纲比较无意义，仅常量比较 */
 const LIST_META_FIELD_VALUES = new Set(['list_days']);
@@ -162,6 +162,9 @@ const A_SHARE_FIELDS: FieldOption[] = [
   { label: '大盘0AMV-MACD-DIF', value: 'oamv_dif', supportsCross: false },
   { label: '大盘0AMV-MACD-DEA', value: 'oamv_dea', supportsCross: false },
   { label: '大盘0AMV-MACD-MACD', value: 'oamv_macd', supportsCross: false },
+  // 大盘年线闸门（regime 研究）：oamv_close 与 oamv_ma240 互比；ma240 预热段 NULL fail-closed
+  { label: '大盘0AMV-收盘', value: 'oamv_close', supportsCross: false },
+  { label: '大盘0AMV-MA240', value: 'oamv_ma240', supportsCross: false },
   // 滚动区间位置 / 量比（跨表，不支持上穿/下穿）
   { label: '120日区间位置', value: 'pos_120', supportsCross: false },
   { label: '60日区间位置', value: 'pos_60', supportsCross: false },

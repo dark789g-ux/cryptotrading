@@ -60,6 +60,10 @@ export const ASHARE_MARKET_AMV_COL_MAP: Record<string, string> = {
   oamv_dif: 'oa.amv_dif',
   oamv_dea: 'oa.amv_dea',
   oamv_macd: 'oa.amv_macd',
+  // 0AMV regime 研究（spec 2026-06-10-0amv-regime-strategy-design）：大盘年线闸门
+  // 用 field 比较表达 oamv_close lt oamv_ma240；ma240 预热段 NULL → EXISTS 不成立（fail-closed）
+  oamv_close: 'oa.close',
+  oamv_ma240: 'oa.ma240',
 };
 
 export const CRYPTO_FIELD_COL_MAP: Record<string, string> = {
