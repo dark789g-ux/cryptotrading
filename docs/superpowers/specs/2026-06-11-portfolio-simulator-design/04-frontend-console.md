@@ -41,7 +41,7 @@ apps/web/src/
 
 ```text
 ① 源策略（1~N，可增删行）
-   每行：方案选择器（GET /api/signal-tests，解析最新 success run）
+   每行：方案选择器（GET /api/signal-tests，解析最新 completed run）
          或 [高级] 直接粘 run id
          + positionRatio（n-slider+输入框，% 后缀，仿 StrategyCapitalSection）
          + maxPositions（n-input-number，可空=不限）

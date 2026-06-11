@@ -82,13 +82,14 @@ UNIQUE (run_id, trade_date)。
 | GET `/portfolio-sims/:id/fills` | 服务端分页+筛选（status / sourceLabel / 日期段 / skip_reason），排序白名单 |
 | DELETE `/portfolio-sims/:id` | 运行中拒绝（409）；级联清 daily/fills |
 
-**触发与幂等**：POST :id/run 时①核 sources 各 runId 存在且 status='success' 且
+**触发与幂等**：POST :id/run 时①核 sources 各 runId 存在且 status='completed'（源
+signal_test_run 的真实成功态，非 'success'）且
 trades>0（fail-fast，错误中文）；②置 running 后异步执行；③执行起点**事务内**删除该
 run_id 旧 daily/fills 再写（重跑幂等，对齐 regime replaceDayPicks 先例）。
 runner 完成时必须把 progress 推到终态（吸取 kelly_sweep "完成未发 100 卡 99" 教训）。
 
 **源 run 的选择**：前端选 signal-stats **方案**（GET `/api/signal-tests` 既有接口），
-服务端解析该方案最新 success run id 冻入 config；高级模式允许直接粘 run id
+服务端解析该方案最新 completed run id 冻入 config；高级模式允许直接粘 run id
 （从 runs-manifest.md 台账复制）。两种来源最终都以解析后的 run id 落快照。
 
 ## 模块结构（apps/server/src/strategy-conditions/portfolio-sim/）
