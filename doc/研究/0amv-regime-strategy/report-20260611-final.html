@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0AMV 分阶段策略研究 · 终态报告 2026-06-11</title>
+<style>
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; margin: 0; padding: 16px; background: #f5f6f8; color: #222; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 8px 0 4px; }
+  h2 { font-size: 17px; margin: 28px 0 8px; border-left: 4px solid #2962ff; padding-left: 8px; }
+  .meta { color: #666; font-size: 13px; margin-bottom: 16px; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .tldr { background: #e8f5e9; border-left: 4px solid #1a7f37; border-radius: 10px; padding: 14px 16px; font-size: 14px; line-height: 1.7; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: center; }
+  th { background: #f0f2f5; }
+  td.l { text-align: left; }
+  .small { font-size: 12px; color: #666; }
+  .warn { background: #fff8e1; border-left: 4px solid #f9a825; padding: 10px 14px; border-radius: 6px; font-size: 13px; line-height: 1.7; margin: 10px 0; }
+  .flat { color: #999; }
+  .win { background: #e8f5e9; font-weight: 600; }
+  ul, ol { line-height: 1.7; font-size: 14px; }
+  code { background: #f0f2f5; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .legend td { font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>0AMV 分阶段策略研究 · 终态报告</h1>
+<div class="meta">2026-06-11 · 一日全程：spec → 工程 → 18 锚点 run → 离线搜索 → holdout → 真机收口 → config v1 激活 · 影子期开钟</div>
+
+<div class="tldr">
+<b>终态结论</b>：大盘四象限中，<b>只有 Q3（反弹筑底）和 Q1（强多头）值得出手，Q2/Q4 空仓</b>。Q3 策略（超跌+低位+大盘年线下，大盘动能转折离场）官方全周期 kelly <b>0.7245</b>、holdout 0.66；Q1 策略（搬砖+小市值，持5日）官方 0.3538、holdout 0.30。全部结论经按年一致性、成本敏感性、holdout 单次评估（额度 4/12）、真机逐位对账四道关。<b>config v1 已激活，每日识别+选股清单已可用，影子期（≥8 周零接触验证）自今日起算。</b>
+</div>
+
+<h2>一、象限图例（Q1~Q4 是什么）</h2>
+<div class="card">
+<p class="small">每个交易日按大盘 0AMV 指数 MACD 的两个读数分入四格（边界=0 归负侧）。DIF=中期趋势在水上/水下；MACD 柱=近期动能在增强/衰减。</p>
+<table class="legend">
+<tr><th></th><th>动能增强（柱&gt;0）</th><th>动能衰减（柱≤0）</th></tr>
+<tr><th>趋势水上（DIF&gt;0）</th><td><b>Q1 强多头</b>——状态好且越来越好</td><td><b>Q2 多头回调</b>——还行但开始泄劲</td></tr>
+<tr><th>趋势水下（DIF≤0）</th><td><b>Q3 反弹筑底</b>★——还在水下但劲头回来了</td><td><b>Q4 空头</b>——又弱又没劲</td></tr>
+</table>
+</div>
+
+<h2>二、终态映射表（config v1，已激活）</h2>
+<div class="card">
+<table>
+<tr><th>象限</th><th>策略（白话）</th><th>官方 kelly<br>(全周期)</th><th>holdout<br>kelly</th><th>按年 kelly (22/23/24/25/26)</th><th>建议仓位<br>(半凯利)</th></tr>
+<tr class="win"><td>Q3<br>反弹筑底</td><td class="l">买：个股 J&lt;0 超卖 + 处于 120 日区间最底部 5% + 大盘还在年线下方；<br>卖：大盘 MACD 柱转负当日收盘（最多拿 20 天）。<br><b>大盘升破年线后自动静默</b>（2026 实证零信号自保护）</td><td><b>0.7245</b></td><td>0.660</td><td>0.90 / 0.76 / 0.69 / 0.66 / 自闸门</td><td>0.33</td></tr>
+<tr><td>Q3 备选</td><td class="l">买：砖型信号 + delta&gt;0.5 + 贴 60 日线下 + 均线空头；卖：同上。信号量约 30 倍于主选，五年全正（2026 +0.10）</td><td>0.5359</td><td>0.580</td><td>0.78 / 0.41 / 0.46 / 0.73 / 0.10</td><td>—</td></tr>
+<tr class="win"><td>Q1<br>强多头</td><td class="l">买：砖型信号 + delta&gt;0.5 + 流通市值≤20.8 亿；<br>卖：持 5 个交易日收盘无脑卖</td><td><b>0.3538</b></td><td>0.301</td><td>0.11 / 0.15 / 0.63 / 0.38 / 0.06</td><td>0.15</td></tr>
+<tr class="flat"><td>Q2 多头回调</td><td class="l">空仓——72 配置无一三年一致，最优者税后双年负</td><td>—</td><td>—</td><td>—</td><td>0</td></tr>
+<tr class="flat"><td>Q4 空头</td><td class="l">空仓——唯一三年正的形态是持仓 1~3 天微利，税后蒸发</td><td>—</td><td>—</td><td>—</td><td>0</td></tr>
+</table>
+<p class="small">证据链：官方 run Q3=52d2a2c8 / Q3备选=8988e4ec / Q1=800c3732；config id 6c5e9323（version 1, active）；全部对账 n/win 逐位一致，kelly ≤0.004 微差已源头解释（avgLoss 口径）。</p>
+</div>
+
+<h2>三、一日全程时间线</h2>
+<div class="card">
+<table>
+<tr><th style="width:130px">阶段</th><th>产出</th></tr>
+<tr><td>spec + 自审</td><td class="l">两轮审定；独立审阅者修 3 个方法学漏洞（达标线放行 Q1 形态/holdout 旋转门/弱保护声明）</td></tr>
+<tr><td>M0+M5 工程</td><td class="l">核查点全清；regime-engine 模块（2 表+6 API+前端两处，61 单测）SDD 全审合入 main</td></tr>
+<tr><td>M1 锚点</td><td class="l">2 入场族×9 出场=18 个真机 run（60万/50万信号级），n+filtered 与预检全数逐位对账</td></tr>
+<tr><td>M2 离线搜索</td><td class="l">72 格→按年+成本双检剩 3 格→梯度扫 32 字段→组合搜索→预登记 4 候选（地板淘汰 train 冠军等纪律击杀 4 起）</td></tr>
+<tr><td>M3 holdout</td><td class="l">单次评估烧 4/12：3 过线 1 弃用（Q3-3 因 2026 深亏——其与 Q3-1 的对照把"大盘&lt;年线"实证为自闸门）</td></tr>
+<tr><td>M4 收口+激活</td><td class="l">oamv_close/ma240 映射扩展→后端重启→3 官方 run 对账闭合→config v1 激活→每日流水线双路径 e2e→影子期开钟</td></tr>
+</table>
+</div>
+
+<h2>四、核心洞见（这次研究真正学到的）</h2>
+<div class="card"><ul>
+<li><b>出场比入场重要</b>：同一入场下，出场方式让象限 kelly 差 3~7 倍；"个股负责选、大盘负责跑"（大盘 MACD 转负离场）是双入场族通用的最优出场。</li>
+<li><b>反弹行情抬升跌得最惨的票</b>：Q3 中位置最低、贴线最深、刚放量的票弹性最大——连追突破的搬砖族在 Q3 都该放弃均线多头要求。</li>
+<li><b>"大盘&lt;年线"是 regime 自闸门</b>：唯一的样本外对照实验（Q3-3 vs Q3-1 仅差此条件）显示，2026 大盘年线上方时无此条件深亏 -0.45，有此条件自动静默。</li>
+<li><b>纪律比聪明值钱</b>：train 最华丽的组合（0.766）恰是时代特化产物，被 holdout 信号数地板拦下；PE 过滤实为数据断层伪装的"选年份"。没有这些闸门，今天交付的就是下一个 0.118。</li>
+</ul></div>
+
+<h2>五、诚实边界声明</h2>
+<div class="warn">
+① holdout（2025.1–2026.5）为<b>牛市偏置窗口且属弱保护</b>（象限轴凭全周期选定、预验表早暴露过各象限 holdout 期表现）——影子期才是真考卷。<br>
+② <b>逐笔 kelly ≠ 组合仓位 kelly</b>：Q3 信号日聚簇、收益相关，0.7 是筛选量纲；config 已按半凯利折扣（0.33/0.15），实际仓位待影子期以组合日收益口径复核。<br>
+③ Q1 策略 2022/2023/2026 为正但薄，水位靠 2024-25；小市值过滤带容量/流动性约束。<br>
+④ 交易成本未建模（两 trade 策略持仓 5~14 天、单笔 1.7~6.9%，敏感性低；短持仓形态已在 M2-2 被成本关拦下）。<br>
+⑤ Q3 主选信号稀（全周期 1.4 万笔，约 14 笔/Q3 交易日）；嫌稀可用备选（量 30 倍，水位略低）。
+</div>
+
+<h2>六、影子期操作手册（自 2026-06-11 起，≥8 周）</h2>
+<div class="card"><ol>
+<li><b>每日例程</b>：0AMV 数据同步完成后 → 前端「Regime 选股」页点「跑当日」（或 <code>POST /api/regime-engine/run-daily</code>）→ 0AMV 面板看当前象限，清单页看候选股。</li>
+<li><b>预期行为</b>：Q2/Q4 日显示空仓及理由；Q1/Q3 日出清单（Q3 在大盘年线上方时可能零命中，属自闸门特性）；数据缺失日亮黄牌不扫描。</li>
+<li><b>复核（8 周后）</b>：以组合日收益口径统计影子期实际表现，对照 config evidence，决定保留/降级；降级动作=建 config v2 并激活（v1 自动归档，证据链保留）。</li>
+<li><b>纪律延续</b>：影子期内<b>不调参数</b>；剩余 holdout 额度 8/12 留给未来新候选（须重走预登记）。</li>
+</ol></div>
+
+<h2>七、运营注意</h2>
+<div class="card"><ul>
+<li><b>后端进程</b>：当前 server 由研究会话临时托管，会话结束即停——请用 <code>pnpm dev</code> 按习惯重启接管（代码已是最新本地 main，含 regime-engine 与新字段映射）。</li>
+<li>全日 12+ commits 在<b>本地 main，未推 origin</b>。</li>
+<li>研究临时表 <code>tmp_m23_*</code> / <code>tmp_ho_*</code>（UNLOGGED）仍在库中，复用或 DROP 均可。</li>
+<li>研究档案：<code>doc/研究/0amv-regime-strategy/</code>（台账/结果/预登记/三份报告）；spec：<code>docs/superpowers/specs/2026-06-10-0amv-regime-strategy-design/</code>。</li>
+</ul></div>
+
+<div class="meta" style="margin-top:24px">本报告由 Claude 生成于 2026-06-11 · 全部数字可由档案中 run id 与 SQL 复算</div>
+</div>
+</body>
+</html>
