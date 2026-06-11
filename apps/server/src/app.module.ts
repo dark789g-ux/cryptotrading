@@ -87,6 +87,9 @@ import { FeatureSetEntity } from './entities/ml/feature-set.entity';
 import { KellySweepResult } from './entities/ml/kelly-sweep-result.entity';
 import { RegimeStrategyConfigEntity } from './entities/strategy/regime-strategy-config.entity';
 import { RegimeDailyPickEntity } from './entities/strategy/regime-daily-pick.entity';
+import { PortfolioSimRunEntity } from './entities/strategy/portfolio-sim-run.entity';
+import { PortfolioSimDailyEntity } from './entities/strategy/portfolio-sim-daily.entity';
+import { PortfolioSimFillEntity } from './entities/strategy/portfolio-sim-fill.entity';
 import { RegimeEngineModule } from './strategies/regime-engine/regime-engine.module';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
@@ -179,6 +182,10 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           // regime engine（0AMV 四象限每日选股，spec 2026-06-10-0amv-regime-strategy-design）
           RegimeStrategyConfigEntity,
           RegimeDailyPickEntity,
+          // portfolio-level simulator（组合级模拟器数据层，spec portfolio-sim 03-data-model）
+          PortfolioSimRunEntity,
+          PortfolioSimDailyEntity,
+          PortfolioSimFillEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],
