@@ -36,9 +36,13 @@ entities 数组，缺一编译绿但运行时 EntityMetadataNotFound）。
 | id | bigserial PK |
 | run_id | uuid NOT NULL FK→portfolio_sim_run(id) ON DELETE CASCADE |
 | trade_date | varchar(8) NOT NULL |
-| nav / cash / daily_ret / exposure | numeric NOT NULL |
+| nav / cash / daily_ret / exposure | numeric NOT NULL（exposure = Σ持仓市值/NAV(d)，收盘口径比率） |
 | position_count | int NOT NULL |
-| strategy_exposure | jsonb NOT NULL（{label: 当日敞口} 审计 exposureCap 用） |
+| strategy_exposure | jsonb NOT NULL（{label: Σ该策略市值/NAV(d)}，收盘口径） |
+
+注意口径区分：exposureCap 是**开仓时点**约束（分母 NAV_ref(d)，见 02）；本表两个
+敞口列是**收盘口径**快照——持仓市值漂移可使收盘敞口轻微越过 cap，属正常现象非违规，
+审计时以开仓时点判定为准（fill 行已存判定结果）。
 
 UNIQUE (run_id, trade_date)。
 
