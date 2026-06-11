@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>组合级模拟器上线 + 组合口径复核 · 2026-06-11</title>
+<style>
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; margin: 0; padding: 16px; background: #f5f6f8; color: #222; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 8px 0 4px; }
+  h2 { font-size: 17px; margin: 28px 0 8px; border-left: 4px solid #2962ff; padding-left: 8px; }
+  .meta { color: #666; font-size: 13px; margin-bottom: 16px; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .tldr { background: #e8f5e9; border-left: 4px solid #1a7f37; border-radius: 10px; padding: 14px 16px; font-size: 14px; line-height: 1.7; }
+  .alert { background: #ffebee; border-left: 4px solid #c62828; border-radius: 10px; padding: 14px 16px; font-size: 14px; line-height: 1.7; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: center; }
+  th { background: #f0f2f5; }
+  td.l { text-align: left; }
+  .small { font-size: 12px; color: #666; }
+  .warn { background: #fff8e1; border-left: 4px solid #f9a825; padding: 10px 14px; border-radius: 6px; font-size: 13px; line-height: 1.7; margin: 10px 0; }
+  .good { color: #1a7f37; font-weight: 600; }
+  .bad { color: #c62828; font-weight: 600; }
+  ul, ol { line-height: 1.7; font-size: 14px; }
+  code { background: #f0f2f5; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>组合级模拟器上线 + 组合口径首批复核</h1>
+<div class="meta">2026-06-11 · spec → SDD 四批次 → 锚点门禁 → 真机 e2e → 11 个真实 run · 分支 feat/portfolio-sim（10 commits）</div>
+
+<div class="tldr">
+<b>工程</b>：组合级模拟器全栈交付（逐日回放引擎+成本时变模型+三表+8 API+Web 操作台），后端 1157 测试/前端 213 测试全绿，<b>锚点门禁双过</b>（Q3/Q1 官方 run 的 n/胜率逐位复现、kelly 差 ≤9e-16）。<br>
+<b>研究</b>：组合口径揭开了逐笔统计的真面目——<span class="bad">Q3 逐笔 kelly 0.72 在组合约束下崩塌为 ≈0</span>（容量收割不到信号聚簇日），<span class="good">Q1 小市值排序是真 edge</span>（现实成本 +32.5%、年化 7.4%、Sharpe 1.22、2022 熊市仅 -1.3%）。影子期复核基线就此立起。
+</div>
+
+<h2>一、锚点门禁（基础设施可信度证明）</h2>
+<div class="card">
+<table>
+<tr><th>对账对象</th><th>样本数</th><th>胜率</th><th>kelly</th><th>结论</th></tr>
+<tr><td class="l">Q3-winner 52d2a2c8</td><td>14364 = 14364</td><td>0.78529657…逐位相等</td><td>差 2e-16</td><td class="good">✓ 通过</td></tr>
+<tr><td class="l">Q1-winner 800c3732</td><td>28032 = 28032</td><td>0.56906392…逐位相等</td><td>差 9e-16</td><td class="good">✓ 通过</td></tr>
+</table>
+<p class="small">e2e 还抓出并修复了一个 spec 级缺陷：锚点模式初版保留现金检查，单日 1818 信号聚簇下 12,847 笔被现金弃单（复现 1517≠14364）。修复=锚点连现金一起旁路（资金无限语义），这正是门禁存在的意义。</p>
+</div>
+
+<h2>二、9 run 组合矩阵（统一参数：100 万本金 / 单票 5% / 上限 10 仓 / 敞口=config v1 半凯利）</h2>
+<div class="card">
+<table>
+<tr><th>组合</th><th>档位</th><th>总收益</th><th>年化</th><th>最大回撤</th><th>Sharpe</th><th>成交</th></tr>
+<tr><td rowspan="3">Q3 单独<br>(至2025.8)</td><td>乐观</td><td class="bad">-0.5%</td><td>-0.2%</td><td>-19.1%</td><td>0.02</td><td>103</td></tr>
+<tr><td>现实</td><td class="bad">-1.0%</td><td>-0.4%</td><td>-19.4%</td><td>-0.01</td><td>103</td></tr>
+<tr><td>保守</td><td class="bad">-1.5%</td><td>-0.6%</td><td>-19.7%</td><td>-0.03</td><td>103</td></tr>
+<tr><td rowspan="3">Q1 单独</td><td>乐观</td><td class="good">+26.5%</td><td>+6.1%</td><td>-6.3%</td><td>0.94</td><td>152</td></tr>
+<tr><td>现实</td><td class="good">+32.5%</td><td>+7.4%</td><td>-5.2%</td><td>1.22</td><td>155</td></tr>
+<tr><td>保守</td><td class="good">+31.0%</td><td>+7.1%</td><td>-6.3%</td><td>1.06</td><td>149</td></tr>
+<tr><td rowspan="3">Q3+Q1 联合<br>(共享资金池)</td><td>乐观</td><td>+14.6%</td><td>+3.5%</td><td>-16.2%</td><td>0.40</td><td>253</td></tr>
+<tr><td>现实</td><td>+17.4%</td><td>+4.2%</td><td>-16.4%</td><td>0.44</td><td>257</td></tr>
+<tr><td>保守</td><td>+17.5%</td><td>+4.2%</td><td>-16.6%</td><td>0.46</td><td>254</td></tr>
+</table>
+<p class="small">分年（现实档）：Q1 = -1.3 / +20.4 / +10.0 / +2.3 / -1.0%；联合 = +0.7 / +9.5 / +7.3 / +2.7 / -3.4%；Q3 = +2.8 / -4.8 / -2.0 / +3.1%。成本影响 ≤6pp（持仓 5~20 天低换手），但约束路径依赖使档位间小差异不可过度解读（n≈150 小样本）。</p>
+</div>
+
+<h2>三、核心发现（对照实验已分离两种效应）</h2>
+<div class="alert">
+<b>① Q3 的崩塌与选股规则无关——是容量问题。</b>无排序对照 run 同样 -1.1%。官方逐笔 kelly 0.72 的主要贡献者是单日上千信号的反弹底部聚簇日（每笔等权计入），而 6 个仓位槽只能收割其中 6 笔；被选中的 103 笔平均收益 +0.17%、胜率 38.8%（池子 78.5%）。<b>逐笔 kelly 是筛选量纲的纸面富贵——本项目立项时的怀疑，现在是实证。</b>
+</div>
+<div class="card"><ul>
+<li><b>② Q1 的小市值排序是真 edge</b>：circ_mv 升序 +32.5% vs 无排序对照 +3.3%——超额几乎全部来自排序，且组合口径三档全正、回撤 ≤6.3%、熊市年仅 -1.3%。生产清单"按流通市值从小到大买"这条规则经受住了组合检验。</li>
+<li><b>③ 持仓日口径 kelly（影子期复核基线）</b>：Q1≈0.21、Q3≈0.00、联合≈0.07。Q1 的 kellyFraction 0.15 有证据支撑（&lt;0.21）；<b>Q3 的 0.33 没有</b>。</li>
+<li><b>④ 联合组合被 Q3 拖累</b>：年化 4.2% vs Q1 单独 7.4%，回撤被 Q3 的 -19% 段主导。</li>
+</ul></div>
+
+<h2>四、对影子期的直接建议</h2>
+<div class="card"><ol>
+<li><b>Q1 照常</b>：每日清单按 circ_mv 升序取前 3（敞口 0.15/单票 5%），组合证据完整。</li>
+<li><b>Q3 降级为只观察</b>：组合口径不支持 0.33 敞口投真钱。如要救 Q3，下一步是<b>容量曲线扫描</b>（positionRatio×maxPositions 网格找产能拐点）——操作台已能跑，建多个 run 即可，不用写代码。</li>
+<li>8 周后复核：picks 以 ts_code IN 列表建 signal-stats 方案 → 喂组合模拟器（现实档）→ 与本报告基线对照（已写入 results.md）。</li>
+</ol></div>
+
+<h2>五、工程交付清单</h2>
+<div class="card"><ul>
+<li><b>后端</b>：纯函数逐日回放引擎（出场收口与盯市路径解耦保证逐笔精确）+ 成本时变模型（印花税 2023-08-28 减半按卖出日切换）+ 三表 + 8 API（AdminOnly），96+ 引擎单测。</li>
+<li><b>前端</b>：/portfolio-sim 操作台——新建三节表单（信号源带象限预设/成本档带费率预览/锚点开关）、三阶段进度步骤条、刷新恢复轮询、锚点对账徽章、净值曲线、逐信号明细（服务端分页筛选，弃单原因可查"那天为什么没买这只"）。</li>
+<li><b>真机 e2e 六项全过</b>：建→跑→三阶段→success；锚点徽章绿；详情渲染；运行中刷新恢复；409 双触发+运行中删除拒绝（中文原文）；重跑幂等。</li>
+<li><b>门禁</b>：后端 build+1157 测试、前端 type-check+vite build+213 测试全绿；SDD 四批次每任务 implementer+独立审查者（opus）双签，外加最终整体集成审查。</li>
+<li class="small">已知小瑕疵（非阻塞）：装载阶段进度显示 "n/0"（total 未设）；锚点 run 的组合指标显示无意义大数（设计内，徽章才是该看的）。</li>
+</ul></div>
+
+<h2>六、运营注意</h2>
+<div class="warn">
+① 后端当前由本会话后台任务托管（已跑修复后最新代码），会话结束即停——请按习惯 <code>pnpm dev</code> 重启接管。<br>
+② 全部 10 commits 在分支 <code>feat/portfolio-sim</code>（基于本地 main），等你选择合入方式。<br>
+③ 11 个真实 run（2 锚点+9 报告+2 诊断）保留在库，操作台可复查；spec 在 <code>docs/superpowers/specs/2026-06-11-portfolio-simulator-design/</code>。
+</div>
+
+<div class="meta" style="margin-top:24px">本报告由 Claude 生成于 2026-06-11 · 全部数字可由 run id 与 portfolio_sim_* 表复算</div>
+</div>
+</body>
+</html>
