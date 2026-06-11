@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0AMV 分阶段策略研究 · 进度报告 2026-06-11</title>
+<style>
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; margin: 0; padding: 16px; background: #f5f6f8; color: #222; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 8px 0 4px; }
+  h2 { font-size: 17px; margin: 28px 0 8px; border-left: 4px solid #2962ff; padding-left: 8px; }
+  .meta { color: #666; font-size: 13px; margin-bottom: 16px; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .tldr { background: #e8f0fe; border-radius: 10px; padding: 14px 16px; font-size: 14px; line-height: 1.7; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: center; }
+  th { background: #f0f2f5; }
+  td.l { text-align: left; }
+  .small { font-size: 12px; color: #666; }
+  .warn { background: #fff8e1; border-left: 4px solid #f9a825; padding: 10px 14px; border-radius: 6px; font-size: 13px; line-height: 1.6; }
+  .ok { color: #1a7f37; font-weight: 600; }
+  .star { font-weight: 700; }
+  ul { line-height: 1.7; font-size: 14px; }
+  .timeline td { text-align: left; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>0AMV 分阶段策略研究 · 进度报告</h1>
+<div class="meta">2026-06-11 · cryptotrading · spec: docs/superpowers/specs/2026-06-10-0amv-regime-strategy-design/</div>
+
+<div class="tldr">
+<b>TL;DR</b>：① 工程侧（regime-engine 数据层/后端/前端）已全部完成并合入本地 main；② 研究侧 M1 的 <b>18 个宽锚点 run 全部跑完</b>，每个 run 的信号数与离线预检<b>逐位对账一致</b>；③ M2 第一刀（train 窗 18配置×4象限矩阵）显示：<b>出场方式是第一可调维度</b>，「大盘 MACD 转负即离场」（exit9）是双入场族通用冠军，Q3×超跌族+exit9 train kelly 达 <b>0.481</b>。下一步：train 内按年一致性检查（M2-2）。
+</div>
+
+<h2>一、研究链路与今日时间线</h2>
+<div class="card">
+<table class="timeline">
+<tr><th style="width:120px">节点</th><th>内容</th></tr>
+<tr><td>spec</td><td class="l">两轮审定（独立审阅者修 3 个方法学漏洞：达标线放行 Q1 形态 / holdout 跨轮预算旋转门 / holdout 弱保护声明），含双保险验证纪律与影子期终验</td></tr>
+<tr><td>M0 核查点</td><td class="l">全清：strategy 出场原生支持大盘字段（smoke 0 违例实证）；大样本栈溢出已修；04L2 标的池 type=all；operator lte 双处核实</td></tr>
+<tr><td>M5 工程</td><td class="l">regime_strategy_config / regime_daily_pick 两表 + regime-engine 模块（61 单测）+ 前端两处，SDD 三轮审查+终审全过，FF 合入本地 main（ba0e09f）</td></tr>
+<tr><td>M1 锚点 run</td><td class="l">count 预检 → 18 run 串行（单 run 8~10 分钟）→ 全部 completed，n+filtered 全数=预检值。中途两次撞「自动化 tab 被浏览占用」卡死，v2/v3 加固（专用 tab+超时+DB 防重）后收尾，零数据损失</td></tr>
+<tr><td>M2-1 矩阵</td><td class="l">train 窗（2022.4–2024.12）18配置×4象限 kelly 矩阵落盘（见下）</td></tr>
+</table>
+</div>
+
+<h2>二、M1 锚点 run 设计与全周期预览</h2>
+<div class="card">
+<p class="small">两个入场族 × 9 种出场 = 18 个 run，窗口 20220401–20260531，全市场，不带任何大盘条件（象限离线切）。族 A 搬砖突破：brick_xg≥1 + brick_delta&gt;0.5（600,369 信号）；族 B 超跌反抽：kdj_j&lt;0（500,915 信号）。</p>
+<table>
+<tr><th>出场</th><th colspan="2">族 A 搬砖（全周期 kelly / hold）</th><th colspan="2">族 B 超跌（全周期 kelly / hold）</th></tr>
+<tr><td class="l">1-3 trailing_lock（∞/10/20）</td><td>0.039~0.040</td><td>2.4d</td><td>0.049~0.052</td><td>2.4d</td></tr>
+<tr><td class="l">4 持 5 日</td><td>0.075</td><td>5d</td><td>0.098</td><td>5d</td></tr>
+<tr><td class="l">5 持 10 日</td><td>0.094</td><td>10d</td><td>0.080</td><td>10d</td></tr>
+<tr><td class="l">6 持 20 日</td><td>0.132</td><td>20d</td><td>0.144</td><td>20d</td></tr>
+<tr><td class="l">7 KDJ&gt;90 离场</td><td>0.100</td><td>10.6d</td><td>0.101</td><td>12.9d</td></tr>
+<tr><td class="l">8 跌破 BBI 离场</td><td>0.064</td><td>9.6d</td><td>0.091</td><td>6.8d</td></tr>
+<tr><td class="l">9 大盘恶化离场（oamv_macd&lt;0）</td><td class="star">0.214</td><td>6.7d</td><td class="star">0.255</td><td>4.8d</td></tr>
+</table>
+<p class="small">对账：18/18 个 run 的 n+filtered 精确等于 count 预检值（A=600,369；B=500,915）。run id 台账见 doc/研究/0amv-regime-strategy/runs-manifest.md。</p>
+</div>
+
+<h2>三、M2-1 核心矩阵：train 窗（2022.4–2024.12）象限 × 配置 kelly</h2>
+<div class="card">
+<table>
+<tr><th>配置</th><th>Q1 强多头</th><th>Q2 多头回调</th><th>Q3 反弹筑底</th><th>Q4 空头</th></tr>
+<tr><td class="l">A1 搬砖+trailing∞</td><td style="background:#a5d6a7">0.101</td><td style="background:#ffebee">-0.020</td><td style="background:#a5d6a7">0.131</td><td style="background:#ef9a9a">-0.061</td></tr>
+<tr><td class="l">A2 搬砖+trailing10</td><td style="background:#a5d6a7">0.101</td><td style="background:#ffebee">-0.010</td><td style="background:#a5d6a7">0.125</td><td style="background:#ef9a9a">-0.058</td></tr>
+<tr><td class="l">A3 搬砖+trailing20</td><td style="background:#a5d6a7">0.102</td><td style="background:#ffebee">-0.019</td><td style="background:#a5d6a7">0.131</td><td style="background:#ef9a9a">-0.061</td></tr>
+<tr><td class="l">A4 搬砖+持5日</td><td style="background:#4caf50;color:#fff">0.230</td><td style="background:#ffebee">-0.034</td><td style="background:#4caf50;color:#fff">0.205</td><td style="background:#ef9a9a">-0.141</td></tr>
+<tr><td class="l">A5 搬砖+持10日</td><td style="background:#4caf50;color:#fff">0.214</td><td style="background:#ef9a9a">-0.083</td><td style="background:#4caf50;color:#fff">0.293</td><td style="background:#c62828;color:#fff">-0.169</td></tr>
+<tr><td class="l">A6 搬砖+持20日</td><td style="background:#a5d6a7">0.133</td><td style="background:#ef9a9a">-0.126</td><td style="background:#1a7f37;color:#fff">0.382</td><td style="background:#ef9a9a">-0.092</td></tr>
+<tr><td class="l">A7 搬砖+KDJ&gt;90</td><td style="background:#4caf50;color:#fff">0.200</td><td style="background:#ef9a9a">-0.069</td><td style="background:#4caf50;color:#fff">0.291</td><td style="background:#c62828;color:#fff">-0.229</td></tr>
+<tr><td class="l">A8 搬砖+跌破BBI</td><td style="background:#a5d6a7">0.095</td><td style="background:#ef9a9a">-0.084</td><td style="background:#4caf50;color:#fff">0.258</td><td style="background:#ef9a9a">-0.096</td></tr>
+<tr><td class="l">A9 搬砖+大盘恶化</td><td style="background:#4caf50;color:#fff">0.183</td><td style="background:#e8f5e9">0.043</td><td style="background:#1a7f37;color:#fff">0.372</td><td style="background:#e8f5e9">0.033</td></tr>
+<tr><td class="l">B1 超跌+trailing∞</td><td style="background:#4caf50;color:#fff">0.230</td><td style="background:#e8f5e9">0.046</td><td style="background:#a5d6a7">0.067</td><td style="background:#ffebee">-0.030</td></tr>
+<tr><td class="l">B2 超跌+trailing10</td><td style="background:#4caf50;color:#fff">0.228</td><td style="background:#e8f5e9">0.049</td><td style="background:#a5d6a7">0.059</td><td style="background:#ffebee">-0.031</td></tr>
+<tr><td class="l">B3 超跌+trailing20</td><td style="background:#4caf50;color:#fff">0.231</td><td style="background:#e8f5e9">0.046</td><td style="background:#a5d6a7">0.066</td><td style="background:#ffebee">-0.031</td></tr>
+<tr><td class="l">B4 超跌+持5日</td><td style="background:#1a7f37;color:#fff">0.322</td><td style="background:#ffebee">-0.012</td><td style="background:#4caf50;color:#fff">0.283</td><td style="background:#ffebee">-0.048</td></tr>
+<tr><td class="l">B5 超跌+持10日</td><td style="background:#4caf50;color:#fff">0.232</td><td style="background:#ffebee">-0.036</td><td style="background:#1a7f37;color:#fff">0.398</td><td style="background:#ef9a9a">-0.143</td></tr>
+<tr><td class="l">B6 超跌+持20日</td><td style="background:#4caf50;color:#fff">0.155</td><td style="background:#a5d6a7">0.061</td><td style="background:#1a7f37;color:#fff">0.394</td><td style="background:#ffebee">-0.047</td></tr>
+<tr><td class="l">B7 超跌+KDJ&gt;90</td><td style="background:#4caf50;color:#fff">0.177</td><td style="background:#a5d6a7">0.077</td><td style="background:#1a7f37;color:#fff">0.347</td><td style="background:#c62828;color:#fff">-0.161</td></tr>
+<tr><td class="l">B8 超跌+跌破BBI</td><td style="background:#4caf50;color:#fff">0.216</td><td style="background:#e8f5e9">0.047</td><td style="background:#4caf50;color:#fff">0.195</td><td style="background:#ffebee">-0.019</td></tr>
+<tr><td class="l">B9 超跌+大盘恶化</td><td style="background:#4caf50;color:#fff">0.257</td><td style="background:#a5d6a7">0.081</td><td style="background:#1a7f37;color:#fff">0.481 ★</td><td style="background:#a5d6a7">0.097</td></tr>
+</table>
+<p class="small">色阶：深绿 ≥0.3 ｜ 绿 0.15~0.3 ｜ 浅绿 0.05~0.15 ｜ 极浅 0~0.05 ｜ 浅红 -0.05~0 ｜ 红 -0.15~-0.05 ｜ 深红 &lt;-0.15</p>
+</div>
+
+<h2>四、结构性结论（train 窗，未过按年一致性与 holdout，不是最终结论）</h2>
+<div class="card"><ul>
+<li><b>出场是第一可调维度</b>：同一入场族内，trailing_lock 与 持20日/大盘恶化离场 的象限 kelly 差 3~7 倍。复盘那句「得改出场」被数据坐实。</li>
+<li><b>exit9（大盘 MACD 转负即离场）是双族冠军出场</b>，且是唯一让 Q2/Q4 转正的出场——「入场看个股、出场看大盘」初步成立。</li>
+<li><b>族 B（超跌反抽）在 Q1 显著强于族 A</b>（0.32 vs 0.23）；Q3 两族都肥（0.48 / 0.38）——不同象限确实偏好不同打法，分治假设成立。</li>
+<li><b>Q2 仍是全场最贫瘠象限</b>（最高 0.081），大概率终态结论为空仓/薄仓。</li>
+</ul></div>
+
+<h2>五、口径警告（评估时必须带着）</h2>
+<div class="warn">
+① <b>交易成本未建模</b>：ret 为价格收益，未扣佣金/印花税/滑点。Q4×exit9 这类持仓≈1 日的形态会被成本侵蚀最重，下结论前须做成本敏感性折算。<br>
+② 本矩阵为 <b>train 窗聚合</b>：尚未做 train 内按年一致性（M2-2 必做）、未碰 holdout（预登记前禁查，全局 12 次评估预算未消耗）。<br>
+③ holdout 为弱保护（象限轴凭全周期选定等三点已写入 spec），最终零接触验证靠 config v1 激活后的影子期 walk-forward。
+</div>
+
+<h2>六、下一步</h2>
+<div class="card"><ul>
+<li><b>M2-2</b>：train 内按年（2022/2023/2024）一致性分解，淘汰被单年行情主导的格子；</li>
+<li><b>M2-3</b>：对存活格子做入场过滤单变量筛（~45 个股字段 + 大盘 ma/kdj 细分 + 行业 AMV）→ 贪心组合；</li>
+<li><b>M3</b>：预登记每象限 top-3 → holdout 单次评估 → 达标判定；</li>
+<li><b>M4</b>：真机收口 run + 逐位对账 → 映射表 + 边界声明 + regime_strategy_config v1；</li>
+<li><b>Phase 2 激活</b>：重启后端 → 激活 config → 每日识别+选股清单上线 → 影子期 ≥8 周。</li>
+</ul></div>
+
+<div class="meta" style="margin-top:24px">研究产物：doc/研究/0amv-regime-strategy/（runs-manifest / results / preregistration）· 本报告由 Claude 生成于 2026-06-11</div>
+</div>
+</body>
+</html>
