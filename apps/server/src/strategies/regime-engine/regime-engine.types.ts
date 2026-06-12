@@ -21,6 +21,13 @@ export interface CreateRegimeConfigDto {
   config: unknown;
 }
 
+/** PATCH /regime-engine/configs/:id 请求体 */
+export interface UpdateRegimeConfigDto {
+  version?: number;
+  note?: string | null;
+  config?: unknown;
+}
+
 /** POST /regime-engine/run-daily 响应 */
 export interface RunDailyResult {
   tradeDate: string;

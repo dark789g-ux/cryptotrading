@@ -214,6 +214,7 @@ watch(
       form.value.dateRange = [parseDateStr(data.dateStart), parseDateStr(data.dateEnd)]
     }
   },
+  { immediate: true },
 )
 
 // 切换出场模式时复位 maxHold：trailing_lock 默认空=不封顶（spec 03 §1.3）；

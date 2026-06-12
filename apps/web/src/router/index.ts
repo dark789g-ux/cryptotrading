@@ -76,6 +76,12 @@ const routes: any[] = [
     meta: { title: 'Regime 选股清单' },
   },
   {
+    path: '/regime-config',
+    name: 'regime-config',
+    component: () => import('../views/strategy/RegimeConfigView.vue'),
+    meta: { title: 'Regime 配置管理', adminOnly: true },
+  },
+  {
     path: '/portfolio-sim',
     name: 'portfolio-sim',
     component: () => import('../views/strategy/PortfolioSimView.vue'),

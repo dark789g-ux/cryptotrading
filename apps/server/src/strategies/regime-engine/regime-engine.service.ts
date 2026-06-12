@@ -23,6 +23,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import {
   RegimeConfigEntry,
+  RegimeConfigMap,
   RegimeStrategyConfigEntity,
 } from '../../entities/strategy/regime-strategy-config.entity';
 import { RegimeDailyPickEntity } from '../../entities/strategy/regime-daily-pick.entity';
@@ -37,6 +38,7 @@ import {
   CreateRegimeConfigDto,
   RegimeTodaySummary,
   RunDailyResult,
+  UpdateRegimeConfigDto,
 } from './regime-engine.types';
 
 const TRADE_DATE_RE = /^\d{8}$/;
@@ -247,6 +249,39 @@ export class RegimeEngineService {
       target.status = 'active';
       return target;
     });
+  }
+
+  /** 更新 draft 配置（仅 draft 状态可更新；config 传入时做 fail-fast 校验）。 */
+  async updateConfig(id: string, dto: UpdateRegimeConfigDto): Promise<RegimeStrategyConfigEntity> {
+    const entity = await this.configRepo.findOne({ where: { id } });
+    if (!entity) {
+      throw new NotFoundException(`配置 ${id} 不存在`);
+    }
+    if (entity.status !== 'draft') {
+      throw new ConflictException(`仅 draft 状态可编辑，当前状态为 ${entity.status}`);
+    }
+
+    if (dto.config !== undefined) {
+      validateRegimeConfig(dto.config);
+      entity.config = dto.config as RegimeConfigMap;
+    }
+    if (dto.version !== undefined && dto.version !== null) {
+      if (!Number.isInteger(dto.version) || dto.version <= 0) {
+        throw new BadRequestException('version 须为正整数');
+      }
+      if (dto.version !== entity.version) {
+        const dup = await this.configRepo.findOne({ where: { version: dto.version } });
+        if (dup) {
+          throw new ConflictException(`版本 ${dto.version} 已存在`);
+        }
+        entity.version = dto.version;
+      }
+    }
+    if (dto.note !== undefined) {
+      entity.note = dto.note ?? null;
+    }
+
+    return this.configRepo.save(entity);
   }
 
   // ── 内部 ──────────────────────────────────────────────────────────────────

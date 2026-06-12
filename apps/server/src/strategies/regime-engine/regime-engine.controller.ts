@@ -6,10 +6,10 @@
  * 鉴权：AuthGuard 已全局注册（APP_GUARD），不再重复加 @UseGuards；
  * 写操作（建配置/激活/触发流水线）用 @AdminOnly() 元数据走全局守卫的 admin 检查。
  */
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { AdminOnly } from '../../auth/decorators/admin-only.decorator';
 import { RegimeEngineService } from './regime-engine.service';
-import { CreateRegimeConfigDto } from './regime-engine.types';
+import { CreateRegimeConfigDto, UpdateRegimeConfigDto } from './regime-engine.types';
 
 @Controller('regime-engine')
 export class RegimeEngineController {
@@ -45,6 +45,13 @@ export class RegimeEngineController {
   @AdminOnly()
   activateConfig(@Param('id') id: string) {
     return this.service.activateConfig(id);
+  }
+
+  /** PATCH /api/regime-engine/configs/:id 更新 draft 配置（admin） */
+  @Patch('configs/:id')
+  @AdminOnly()
+  updateConfig(@Param('id') id: string, @Body() dto: UpdateRegimeConfigDto) {
+    return this.service.updateConfig(id, dto);
   }
 
   /** POST /api/regime-engine/run-daily 触发当日流水线（admin；body 可带 tradeDate 回算历史日） */

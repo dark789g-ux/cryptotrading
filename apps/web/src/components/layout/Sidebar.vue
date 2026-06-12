@@ -104,6 +104,7 @@ const menuOptions = computed(() => [
   { label: '策略条件', key: 'strategy-conditions', icon: renderIcon(AnalyticsOutline) },
   { label: '信号前向统计', key: 'signal-stats', icon: renderIcon(BarChartOutline) },
   { label: 'Regime 选股', key: 'regime-picks', icon: renderIcon(GridOutline) },
+  { label: 'Regime 配置', key: 'regime-config', icon: renderIcon(SettingsOutline) },
   ...(auth.isAdmin.value
     ? [{ label: '组合模拟', key: 'portfolio-sim', icon: renderIcon(LayersOutline) }]
     : []),
