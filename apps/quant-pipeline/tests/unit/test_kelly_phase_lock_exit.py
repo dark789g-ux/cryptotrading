@@ -20,15 +20,30 @@
   - simulate_phase_lock_exit 喂核序列 = [buy_bar(T+1)] + bars(T+2, T+3, ...)。
   - 核 exit_index 是 core_bars 下标（0=持仓首日 T+1 从不出场），映射回 kelly：
         core exit_index = k  →  path.bars[k-1]（= 第 k 个持有日）。
-  - recent_lows 在 kelly 侧只有 buy_bar.qfq_low 一根（path 无 T+1 之前历史）；
-        init_stop = floor2(buy_bar.qfq_low × init_factor)，T+2 起盘中生效。
+  - recent_lows（D7 起 lookback 真生效）：load_forward_paths 预收集「含 buy_date(T+1) 的最近
+        max(lookback) 个非停牌复权 low（升序）」到 path.recent_lows_window；simulate_phase_lock_exit
+        按本 cfg 的 lookback 切末尾片段 recent_lows_window[-lookback:]，init_stop =
+        floor2(min(切片) × init_factor)，T+2 起盘中生效。recent_lows_window 为空（旧缓存/防御）
+        → 回退历史单元素 [buy_bar.qfq_low]。多数本文件用例**不**填 recent_lows_window（用默认空），
+        故走回退、init_stop = floor2(buy_bar.qfq_low × init_factor)（守旧期望，零回归）；专门验证
+        lookback 生效的用例（TestLookbackEffective）显式填多元素 recent_lows_window。
 """
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
+from quant_pipeline.research.kelly_sweep.enumerate import SignalRecord
 from quant_pipeline.research.kelly_sweep.exits import simulate_phase_lock_exit
+from quant_pipeline.research.kelly_sweep import paths as paths_mod
+from quant_pipeline.research.kelly_sweep.paths import (
+    _load_paths_from_parquet,
+    _make_cache_key,
+    _save_paths_to_parquet,
+    load_forward_paths,
+)
 from quant_pipeline.research.kelly_sweep.sweep import (
     _exit_id,
     _run_exit,
@@ -44,6 +59,7 @@ from quant_pipeline.strategy.phase_lock_exit import (
 from quant_pipeline.worker.kelly_sweep_runner import (
     _build_exit_grid_from_params,
     _normalize_phase_lock_candidates,
+    _required_recent_lows_window,
 )
 
 
@@ -93,11 +109,14 @@ def make_path(
     ts_code: str = "000001.SZ",
     signal_date: str = "20260101",
     buy_date: str = "20260102",
+    recent_lows_window: list[float] | None = None,
 ) -> ForwardPath:
     """构造 phase_lock 用 ForwardPath。
 
     phase_lock 不需要 signal_bar_high（与 band_lock 不同），但 ForwardPath 字段保留默认 None。
     buy_price 默认取 buy_bar.qfq_open（与 load_forward_paths 口径一致）。
+    recent_lows_window 默认空列表（→ simulate_phase_lock_exit 回退 [buy_bar.qfq_low] 单元素，
+    守旧期望、零回归）；专门验证 lookback 生效的用例显式传升序多元素列表。
     """
     bp = buy_price if buy_price is not None else (buy_bar.qfq_open if buy_bar else 10.0)
     return ForwardPath(
@@ -110,6 +129,7 @@ def make_path(
         atr14_at_signal=None,
         signal_bar_high=None,  # phase_lock 不读
         buy_bar=buy_bar,
+        recent_lows_window=recent_lows_window if recent_lows_window is not None else [],
     )
 
 
@@ -120,7 +140,7 @@ def make_path(
 
 class TestInitialStop:
     def test_initial_stop_intraday(self) -> None:
-        """初始止损来自 recent_lows（kelly 侧仅 buy_bar.qfq_low）：
+        """初始止损来自 recent_lows（此用例未填 recent_lows_window → 回退 buy_bar.qfq_low 单元素）：
         buy_bar T+1 low=9.7 → init_stop=floor2(9.7×0.999)=floor2(9.6903)=9.69（T+2 起生效）。
         bars[0]=T+2 low=9.6≤9.69 → 盘中止损 @min(9.69, open=9.65)=9.65。
         core exit_index=1 → path.bars[0]=T+2。hold_days=1。
@@ -575,3 +595,335 @@ class TestRunnerPhaseLockCandidates:
         assert len([e for e in grid if e["type"] == "fixed_n"]) == 5
         assert len([e for e in grid if e["type"] == "band_lock"]) == 1
         assert len([e for e in grid if e["type"] == "phase_lock"]) == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. D7：lookback 在 kelly 真生效（recent_lows_window 切片）
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestLookbackEffective:
+    """D7 核心：填多元素 recent_lows_window 后，不同 lookback 产出不同 init_stop / ret。
+
+    历史退化（恒 [buy_bar.qfq_low]）下 lookback 对 ret 无影响；本类锁定修复后的新行为。
+    """
+
+    def test_lookback_changes_init_stop(self) -> None:
+        """不同 lookback 取不同回看根数 → 不同 min(recent_lows) → 不同 init_stop → 不同 ret。
+
+        recent_lows_window=[8.0, 9.0, 10.0]（升序，末=T+1 low=10.0）。
+          - lookback=1 → 切片 [10.0] → init_stop=floor2(10.0×0.999)=floor2(9.99)=9.99。
+          - lookback=3 → 切片 [8.0,9.0,10.0] → min=8.0 → init_stop=floor2(8.0×0.999)=floor2(7.992)=7.99。
+        bars[0]=T+2 low=8.5：
+          - lookback=1：8.5 ≤ 9.99 → 止损 @min(9.99, open 8.7)=8.7。
+          - lookback=3：8.5 > 7.99 → 不止损 → 窗口耗尽 max_hold @close 8.6。
+        证 lookback 真生效（两条 ret 不同）。
+        """
+        buy_bar = make_bar("20260102", o=10.0, h=10.5, low=10.0, c=10.3)
+        bars = [make_bar("20260103", o=8.7, h=8.8, low=8.5, c=8.6)]
+        path = make_path(buy_bar, bars, recent_lows_window=[8.0, 9.0, 10.0])
+
+        r1 = simulate_phase_lock_exit(path, lookback=1)
+        r3 = simulate_phase_lock_exit(path, lookback=3)
+        assert r1 is not None and r3 is not None
+
+        # lookback=1：init_stop=9.99，T+2 low 8.5≤9.99 → 止损 @min(9.99, open 8.7)=8.7
+        assert r1.exit_reason == "stop"
+        assert r1.exit_price == pytest.approx(8.7)
+
+        # lookback=3：init_stop=floor2(8.0×0.999)=7.99，T+2 low 8.5>7.99 → 不止损 → max_hold @close 8.6
+        assert r3.exit_reason == "max_hold"
+        assert r3.exit_price == pytest.approx(8.6)
+
+        # 关键：ret 不同（修复前会相同）
+        assert r1.ret != pytest.approx(r3.ret)
+
+    def test_lookback_slice_takes_tail(self) -> None:
+        """lookback 取末尾 lookback 个（最近的），不是头部。
+
+        recent_lows_window=[5.0, 6.0, 7.0, 20.0]（升序）。lookback=2 → 切片 [7.0, 20.0]（末两个）→
+        min=7.0 → init_stop=floor2(7.0×0.999)=6.99。若错取头部 [5.0,6.0] → min=5.0 → 4.99，期望不同。
+        bars[0] low=6.5≤6.99 → 止损（证取的是末尾片段 min=7.0，非头部 5.0 的 4.99）。
+        """
+        buy_bar = make_bar("20260102", o=20.0, h=21.0, low=20.0, c=20.5)
+        bars = [make_bar("20260103", o=6.6, h=6.7, low=6.5, c=6.6)]
+        path = make_path(buy_bar, bars, recent_lows_window=[5.0, 6.0, 7.0, 20.0])
+        r = simulate_phase_lock_exit(path, lookback=2)
+        assert r is not None
+        assert r.exit_reason == "stop"
+        # init_stop=floor2(7.0×0.999)=6.99；open 6.6<6.99 → @min(6.99, 6.6)=6.6
+        assert r.exit_price == pytest.approx(6.6)
+
+    def test_lookback_exceeds_window_uses_all(self) -> None:
+        """lookback 超过 recent_lows_window 长度 → 用全部（切片不越界，等价取全窗 min）。"""
+        buy_bar = make_bar("20260102", o=10.0, h=10.5, low=10.0, c=10.3)
+        bars = [make_bar("20260103", o=8.0, h=8.1, low=7.9, c=8.0)]
+        path = make_path(buy_bar, bars, recent_lows_window=[8.5, 9.0, 10.0])
+        # lookback=250 → 切片仍是全 3 个 → min=8.5 → init_stop=floor2(8.5×0.999)=8.49
+        r = simulate_phase_lock_exit(path, lookback=250)
+        assert r is not None
+        # T+2 low 7.9≤8.49 → 止损 @min(8.49, open 8.0)=8.0
+        assert r.exit_reason == "stop"
+        assert r.exit_price == pytest.approx(8.0)
+
+    def test_empty_window_falls_back_to_buy_bar_low(self) -> None:
+        """recent_lows_window 为空（旧缓存/防御）→ 回退 [buy_bar.qfq_low]，lookback 不影响（仅 1 根）。"""
+        buy_bar = make_bar("20260102", o=10.0, h=10.1, low=9.7, c=9.9)
+        bars = [make_bar("20260103", o=9.65, h=9.8, low=9.6, c=9.7)]
+        path = make_path(buy_bar, bars, recent_lows_window=[])  # 显式空 → 回退
+        r1 = simulate_phase_lock_exit(path, lookback=1)
+        r10 = simulate_phase_lock_exit(path, lookback=10)
+        assert r1 is not None and r10 is not None
+        # 回退后 recent_lows=[9.7]，init_stop=floor2(9.7×0.999)=9.69，与 lookback 无关
+        assert r1.exit_price == pytest.approx(9.65)  # min(9.69, open 9.65)
+        assert r1 == r10  # 回退单元素 → lookback 不改变结果
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. D7：load_forward_paths 的 recent_lows_window 收集
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _quote_row(low: float, *, o: float | None = None) -> dict:
+    """构造 _fetch_quotes_for_ts 风格的行情 dict。o 缺省 = low+0.5（保证 qfq_open 非空可成交）。"""
+    op = o if o is not None else low + 0.5
+    return {
+        "qfq_open": op,
+        "qfq_high": low + 1.0,
+        "qfq_low": low,
+        "qfq_close": low + 0.3,
+        "raw_open": op,
+        "raw_high": low + 1.0,
+        "ma5": None,
+        "up_limit": None,
+        "down_limit": None,
+    }
+
+
+class TestLoadForwardPathsRecentLows:
+    """用 mock DB 辅助函数（不连真 DB）跑 load_forward_paths 的纯收集逻辑。
+
+    构造一段连续 SSE 日历 + quote_map（含停牌洞），验证：升序、含 buy_date、停牌跳过、不足降级。
+    """
+
+    # 连续日历：signal=20260108, buy=20260109（次日）。向前回溯收 recent_lows_window。
+    _CALENDAR = [
+        "20260101", "20260102", "20260105", "20260106", "20260107",
+        "20260108", "20260109", "20260112", "20260113",
+    ]
+
+    def _run(self, quote_map: dict, recent_lows_window: int) -> ForwardPath:
+        """跑 load_forward_paths（mock 全部 DB 辅助），返回唯一一条 ForwardPath。"""
+        sig = SignalRecord(ts_code="000001.SZ", signal_date="20260108", buy_date="20260109")
+        with (
+            patch.object(paths_mod, "load_sse_calendar", return_value=list(self._CALENDAR)),
+            patch.object(
+                paths_mod, "_prefetch_symbol_meta", return_value={"000001.SZ": {"delist_date": None}}
+            ),
+            patch.object(paths_mod, "_prefetch_atr14", return_value={}),
+            patch.object(paths_mod, "_fetch_quotes_for_ts", return_value=quote_map),
+        ):
+            out = load_forward_paths(
+                [sig],
+                max_window=5,
+                date_end="20260113",
+                use_cache=False,
+                recent_lows_window=recent_lows_window,
+            )
+        assert len(out) == 1
+        return out[0]
+
+    def test_collect_ascending_includes_buy_date(self) -> None:
+        """收集升序、末元素 = buy_date(T+1) low、含回看根数。
+
+        日历回看顺序（从 buy=20260109 向前）：09(low=9.0), 08(8.0), 07(7.0), 06(6.0), 05(5.0)...
+        recent_lows_window=3 → 收 [09,08,07] 的 low → reversed 升序 = [7.0, 8.0, 9.0]，末=buy 9.0。
+        """
+        qm = {
+            "20260105": _quote_row(5.0),
+            "20260106": _quote_row(6.0),
+            "20260107": _quote_row(7.0),
+            "20260108": _quote_row(8.0),
+            "20260109": _quote_row(9.0),  # buy_date
+            "20260112": _quote_row(12.0),
+            "20260113": _quote_row(13.0),
+        }
+        fp = self._run(qm, recent_lows_window=3)
+        assert fp.recent_lows_window == [7.0, 8.0, 9.0]
+        assert fp.recent_lows_window[-1] == 9.0  # 末元素 = buy_date low
+
+    def test_collect_skips_suspended(self) -> None:
+        """停牌日（quote 缺行 / qfq_low 为 None）跳过、不占额度，继续向前收满。
+
+        20260108、20260106 停牌（缺行）：从 buy 09 向前收 W=3 → [09, 07, 05]（跳 08/06）。
+        升序 = [5.0, 7.0, 9.0]。
+        """
+        qm = {
+            "20260101": _quote_row(1.0),
+            "20260102": _quote_row(2.0),
+            "20260105": _quote_row(5.0),
+            # 20260106 缺行（停牌）
+            "20260107": _quote_row(7.0),
+            # 20260108 缺行（停牌）
+            "20260109": _quote_row(9.0),  # buy_date
+            "20260112": _quote_row(12.0),
+        }
+        fp = self._run(qm, recent_lows_window=3)
+        assert fp.recent_lows_window == [5.0, 7.0, 9.0]
+
+    def test_collect_insufficient_degrades(self) -> None:
+        """回看素材不足 recent_lows_window 根 → 用现有可用根数（降级、不报错）。
+
+        buy=09，向前仅 08、09 有行（更早全停牌/无行），W=5 → 仅收 [08, 09] → 升序 [8.0, 9.0]。
+        """
+        qm = {
+            "20260108": _quote_row(8.0),
+            "20260109": _quote_row(9.0),  # buy_date
+            "20260112": _quote_row(12.0),
+        }
+        fp = self._run(qm, recent_lows_window=5)
+        assert fp.recent_lows_window == [8.0, 9.0]
+
+    def test_default_window_1_is_buy_date_only(self) -> None:
+        """默认 recent_lows_window=1 → 仅 buy_date low（= 现状行为，非 phase_lock 零改动）。"""
+        qm = {
+            "20260107": _quote_row(7.0),
+            "20260108": _quote_row(8.0),
+            "20260109": _quote_row(9.0),  # buy_date
+            "20260112": _quote_row(12.0),
+        }
+        fp = self._run(qm, recent_lows_window=1)  # 显式 1 = 默认
+        assert fp.recent_lows_window == [9.0]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. D7：parquet cache round-trip（JSON 列）+ cache_key 随 W 变化
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestCacheRoundTrip:
+    def _sample_path(self, rlw: list[float]) -> ForwardPath:
+        buy_bar = make_bar("20260109", o=9.5, h=10.0, low=9.0, c=9.8)
+        bars = [make_bar("20260112", o=9.8, h=10.2, low=9.6, c=10.0)]
+        return ForwardPath(
+            ts_code="000001.SZ",
+            signal_date="20260108",
+            buy_date="20260109",
+            buy_price=9.5,
+            bars=bars,
+            delist_date=None,
+            atr14_at_signal=None,
+            signal_bar_high=None,
+            buy_bar=buy_bar,
+            recent_lows_window=rlw,
+        )
+
+    def test_round_trip_preserves_recent_lows_window(self, tmp_path) -> None:
+        """写 parquet（JSON 列）→ 读回，recent_lows_window 逐元素保真。"""
+        fp = self._sample_path([7.0, 8.0, 9.0])
+        cache_file = tmp_path / "paths_test.parquet"
+        _save_paths_to_parquet([fp], cache_file)
+        loaded = _load_paths_from_parquet(cache_file)
+        assert len(loaded) == 1
+        assert loaded[0].recent_lows_window == [7.0, 8.0, 9.0]
+
+    def test_round_trip_empty_window(self, tmp_path) -> None:
+        """空 recent_lows_window 写读 round-trip 仍为空列表（json.dumps([]) → json.loads → []）。"""
+        fp = self._sample_path([])
+        cache_file = tmp_path / "paths_empty.parquet"
+        _save_paths_to_parquet([fp], cache_file)
+        loaded = _load_paths_from_parquet(cache_file)
+        assert loaded[0].recent_lows_window == []
+
+    def test_missing_column_falls_back_to_empty(self, tmp_path) -> None:
+        """旧缓存无 recent_lows_window 列（防御）→ 还原为空列表（不 KeyError）。"""
+        import pandas as pd
+
+        # 手工写一份**不含** recent_lows_window 列的 parquet（模拟旧 v3 schema 残留）。
+        df = pd.DataFrame(
+            [
+                {
+                    "ts_code": "000001.SZ",
+                    "signal_date": "20260108",
+                    "buy_date": "20260109",
+                    "buy_price": 9.5,
+                    "delist_date": None,
+                    "atr14_at_signal": None,
+                    "signal_bar_high": None,
+                    "buy_bar_trade_date": None,
+                    "bar_index": 0,
+                    "trade_date": "20260112",
+                    "qfq_open": 9.8,
+                    "qfq_high": 10.2,
+                    "qfq_low": 9.6,
+                    "qfq_close": 10.0,
+                    "ma5": None,
+                    "raw_open": 9.8,
+                    "raw_high": 10.2,
+                    "up_limit": None,
+                    "down_limit": None,
+                }
+            ]
+        )
+        cache_file = tmp_path / "paths_old.parquet"
+        df.to_parquet(cache_file, index=False)
+        loaded = _load_paths_from_parquet(cache_file)
+        assert len(loaded) == 1
+        assert loaded[0].recent_lows_window == []
+
+    def test_cache_key_varies_with_window(self) -> None:
+        """_make_cache_key 纳入 recent_lows_window：不同 W → 不同 key（缓存不互串）。"""
+        sigs = [SignalRecord(ts_code="000001.SZ", signal_date="20260108", buy_date="20260109")]
+        k1 = _make_cache_key(sigs, max_window=5, date_end="20260113", recent_lows_window=1)
+        k20 = _make_cache_key(sigs, max_window=5, date_end="20260113", recent_lows_window=20)
+        assert k1 != k20
+
+    def test_cache_key_stable_same_window(self) -> None:
+        """同输入（含同 W）→ 同 key（确定性）。"""
+        sigs = [SignalRecord(ts_code="000001.SZ", signal_date="20260108", buy_date="20260109")]
+        k_a = _make_cache_key(sigs, max_window=5, date_end="20260113", recent_lows_window=10)
+        k_b = _make_cache_key(sigs, max_window=5, date_end="20260113", recent_lows_window=10)
+        assert k_a == k_b
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. D7：runner._required_recent_lows_window（max lookback 计算）
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestRequiredRecentLowsWindow:
+    def test_no_phase_lock_grid_returns_1(self) -> None:
+        """无 phase_lock_grid → 1（现状，非 phase_lock 调用零改动）。"""
+        assert _required_recent_lows_window({"exit_families": ["fixed_n"]}) == 1
+
+    def test_band_lock_only_returns_1(self) -> None:
+        """仅 band_lock_grid（无 phase_lock_grid）→ 1（band_lock 不读 recent_lows_window）。"""
+        params = {"exit_families": ["fixed_n"], "band_lock_grid": {"max_hold_list": [10, 20]}}
+        assert _required_recent_lows_window(params) == 1
+
+    def test_phase_lock_default_grid_returns_20(self) -> None:
+        """phase_lock_grid={} → 默认 48 组 lookback{5,10,15,20} → max=20。"""
+        params = {"exit_families": ["fixed_n"], "phase_lock_grid": {}}
+        assert _required_recent_lows_window(params) == 20
+
+    def test_phase_lock_custom_lookbacks_returns_max(self) -> None:
+        """自定义 lookback_list → 取 max。"""
+        params = {
+            "exit_families": ["fixed_n"],
+            "phase_lock_grid": {"lookback_list": [3, 7, 50], "init_factor_list": [0.99], "lock_factor_list": [0.999]},
+        }
+        assert _required_recent_lows_window(params) == 50
+
+    def test_phase_lock_and_band_lock_coexist_uses_phase_max(self) -> None:
+        """band_lock + phase_lock 共存 → 取 phase_lock 的 max lookback（band_lock 需求为 1）。"""
+        params = {
+            "exit_families": ["fixed_n"],
+            "band_lock_grid": {"max_hold_list": [10]},
+            "phase_lock_grid": {"lookback_list": [15], "init_factor_list": [0.99], "lock_factor_list": [0.999]},
+        }
+        assert _required_recent_lows_window(params) == 15
+
+    def test_phase_lock_non_dict_raises(self) -> None:
+        """phase_lock_grid 非 dict → ValueError（与 _build_exit_grid_from_params 同口径）。"""
+        with pytest.raises(ValueError, match="phase_lock_grid 必须是各维度候选集 dict"):
+            _required_recent_lows_window({"phase_lock_grid": [1, 2, 3]})

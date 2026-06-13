@@ -152,6 +152,44 @@ def _normalize_band_lock_candidates(raw: dict[str, Any]) -> dict[str, list]:
     return out
 
 
+def _required_recent_lows_window(params: dict[str, Any]) -> int:
+    """计算 load_forward_paths 需携带的 recent_lows_window（= 各出场族所需左扩的最大值）。
+
+    phase_lock 初始止损按「含 T+1 的最近 lookback 个非停牌复权 low」算，故须让 ForwardPath
+    携带 max(phase_lock 网格的所有 lookback 候选) 个 recent low（simulate_phase_lock_exit 再
+    按各 cfg 的 lookback 切末尾片段）。其它出场族（band_lock/fixed_n/tp_sl/trailing/atr_stop）
+    不读 recent_lows_window，所需为 1（现状）。取所有族的最大，故：
+
+      - 无 phase_lock_grid → 1（现状；非 phase_lock 调用方零改动）。
+      - 有 phase_lock_grid → max(规范化后 phase_lock 网格的 lookback)；与 build_phase_lock_grid
+        同一构造路径（含默认 48 组的 lookback{5,10,15,20} → max=20），保证扫描用的 lookback
+        集合与携带的 recent low 长度一致、不漏不冗。
+
+    Args:
+        params: job.params（可能含 phase_lock_grid）。
+
+    Returns:
+        recent_lows_window（>=1）。
+    """
+    from quant_pipeline.research.kelly_sweep.sweep import build_phase_lock_grid
+
+    phase_lock_grid_raw = params.get("phase_lock_grid")
+    if phase_lock_grid_raw is None:
+        return 1
+
+    if not isinstance(phase_lock_grid_raw, dict):
+        raise ValueError(
+            f"kelly_sweep params.phase_lock_grid 必须是各维度候选集 dict，"
+            f"got {phase_lock_grid_raw!r}"
+        )
+
+    # 复用 build_phase_lock_grid（同 _build_exit_grid_from_params 的构造路径），取量化后 cfg 的
+    # 最大 lookback。空 dict → 默认 48 组 → max(lookback)=20，与默认网格一致。
+    grid = build_phase_lock_grid(**_normalize_phase_lock_candidates(phase_lock_grid_raw))
+    lookbacks = [int(e["lookback"]) for e in grid]
+    return max(1, max(lookbacks)) if lookbacks else 1
+
+
 def _normalize_phase_lock_candidates(raw: dict[str, Any]) -> dict[str, list]:
     """phase_lock_grid job param（各维度候选集 dict）→ build_phase_lock_grid 的 kwargs。
 
@@ -266,14 +304,22 @@ def run_kelly_sweep(job: Job) -> dict[str, Any]:
         raise ValueError("kelly_sweep enumerate_signals 返回空，无可用信号")
 
     # ── 3. 加载前向路径（15-35%）──────────────────────────────────────────────
+    # recent_lows_window：phase_lock 初始止损需携带「含 T+1 的最近 max(lookback) 个非停牌复权 low」；
+    # 无 phase_lock_grid → 1（现状，其它族不读、零改动）。
+    recent_lows_window = _required_recent_lows_window(params)
     update_progress(job_id, 15, stage="paths 开始")
     paths = load_forward_paths(
         signals,
         cfg.max_window,
         date_end=cfg.valid_range[1],
         on_progress=_make_stage_progress(job_id, "paths"),
+        recent_lows_window=recent_lows_window,
     )
-    logger.info("load_forward_paths 完成：%d 条路径", len(paths))
+    logger.info(
+        "load_forward_paths 完成：%d 条路径（recent_lows_window=%d）",
+        len(paths),
+        recent_lows_window,
+    )
 
     # ── 4. 加载特征输入（35-50%）──────────────────────────────────────────────
     update_progress(job_id, 35, stage="features 开始")

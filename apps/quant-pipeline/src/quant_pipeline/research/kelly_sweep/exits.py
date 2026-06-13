@@ -496,11 +496,15 @@ def simulate_phase_lock_exit(
       - 核约定 bars[0] = 持仓首日 T+1、cost=adj_open(T+1)；而 kelly_sweep 的 path.bars[0] 是
         buy_date **之后**第一日（不含 buy_date），buy_date(T+1) 本身存于 path.buy_bar。故喂核序列
         = [buy_bar] + path.bars（把持仓首日拼回开头），与 band_lock 同。
-      - recent_lows = 含 T+1 的最近 lookback 个**非停牌复权 low（升序）**。kelly 的 path 不含 T+1
-        **之前**的历史行情（ForwardPath.bars 从 buy_date 之后起、buy_bar 即 T+1），故路径里
-        trade_date<=T+1 的非停牌复权 low 只有 buy_bar 一根 → recent_lows 实际恒为 [buy_bar.qfq_low]
-        （lookback 在 kelly 侧无更多回看素材可截，slicing 仍照 labels 口径取末尾 lookback 个以保正确）。
-        **这是 kelly 与 labels 数据层的固有差异**：labels 有左扩 head 行可回看 lookback 根，kelly 路径无。
+      - recent_lows = 含 T+1 的最近 lookback 个**非停牌复权 low（升序）**，由 load_forward_paths
+        预先收集到 path.recent_lows_window（含 buy_date(T+1) 及之前、沿日历向前回溯、跳停牌，
+        长度 = 本次扫描请求的 max(lookback)）。此处按本 cfg 的 lookback 切末尾片段
+        `recent_lows_window[-lookback:]`，使 **lookback 在 kelly 侧真正生效**（不同 lookback 取到
+        不同回看根数 → 不同 min → 不同初始止损 → 不同 ret）。
+      - 数据边界降级：path.recent_lows_window 为空（旧 v3 缓存命中 / 防御）→ 回退
+        `[buy_bar.qfq_low]`（恢复历史单元素口径，保证健壮、不崩）；次新 / 长停牌导致收不满
+        lookback 根时由 load_forward_paths 用现有可用根数（核只做 min×init_factor，不报错）。
+      - PIT 安全：recent_lows_window 只含 buy_date 及之前的非停牌 low，绝不含未来数据。
       - 出场价直接用核给的复权价（已是 qfq），ret = exit_price/buy_price - 1（buy_price=path.buy_price）。
 
     same_day_rule：phase_lock 核内盘中止损全程优先、无「同日双触发」歧义（与 band_lock 同），
@@ -551,10 +555,11 @@ def simulate_phase_lock_exit(
     ]
 
     # ── recent_lows：含 T+1（buy_bar）的最近 lookback 个非停牌复权 low（升序）──────
-    # kelly 路径里 trade_date<=T+1 的非停牌复权 low 只有 buy_bar.qfq_low 一根（path 无 T+1
-    # 之前的历史）。照 labels 口径取末尾 lookback 个（此处至多 1 个），核只做 min × init_factor。
-    recent_lows = [path.buy_bar.qfq_low]
-    recent_lows = recent_lows[-lookback:] if lookback > 0 else []
+    # 优先用 load_forward_paths 预收集的 path.recent_lows_window（含 buy_date 及之前、跳停牌、
+    # 升序、长度=扫描请求的 max(lookback)），按本 cfg 的 lookback 切末尾片段 → lookback 真生效。
+    # 为空（旧 v3 缓存 / 防御）→ 回退历史单元素口径 [buy_bar.qfq_low]，保证健壮。
+    window = path.recent_lows_window if path.recent_lows_window else [path.buy_bar.qfq_low]
+    recent_lows = window[-lookback:] if lookback > 0 else []
 
     outcome = simulate_phase_lock(
         core_bars,

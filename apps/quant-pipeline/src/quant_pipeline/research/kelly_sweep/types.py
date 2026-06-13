@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 
@@ -128,6 +128,22 @@ class ForwardPath:
     要求 bars[0] = 持仓首日 T+1、cost=adj_open(T+1)、方案由 adj_close(T+1) 判定。故 band_lock
     适配时须把 buy_bar 拼回序列开头（[buy_bar] + bars）喂核。其它出场族不读此字段（它们用
     path.buy_price 表达入场价、bars 表达持有日，口径独立、不受影响）。无数据则 None。
+    """
+
+    # ── phase_lock 出场族专用（其它族不读；默认空列表保证旧构造点零改动）──────────
+    recent_lows_window: list[float] = field(default_factory=list)
+    """含 T+1（buy_bar）的最近 W 个**非停牌**复权 qfq_low，**按时间升序**（末元素 = buy_date 的 low）。
+
+    W = 本次扫描请求的最大 lookback（load_forward_paths 的 recent_lows_window 参数）。
+    phase_lock 初始止损 = floor2(min(含 T+1 的最近 lookback 个非停牌复权 low) × init_factor)，
+    需 buy_date(T+1) **及之前**的历史 low；而 path.bars 从 buy_date 之后起、不含 T+1 前的历史行，
+    故由 load_forward_paths 单独沿日历向前回溯（含 buy_date、跳停牌）收集这 W 个 low 存于此。
+    simulate_phase_lock_exit 取末尾 lookback 个（recent_lows_window[-lookback:]）喂核，使 kelly 侧
+    lookback 真正生效（区别于历史「kelly 路径无 T+1 前历史 → lookback 失效」的退化行为）。
+
+    其它出场族（fixed_n/tp_sl/trailing/atr_stop/band_lock）完全不读此字段，默认空列表，
+    保证既有 ForwardPath 构造点（含测试 make_path）无需改动、零回归。
+    PIT 安全：只含 buy_date 及之前的行，绝不含 buy_date 之后的未来数据。
     """
 
 

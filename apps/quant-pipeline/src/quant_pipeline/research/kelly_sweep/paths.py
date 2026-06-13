@@ -22,6 +22,7 @@ ma5/ma30/atr_14 复权口径确认（2026-06-09 DB 样本）：
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 from pathlib import Path
@@ -62,19 +63,29 @@ def _parquet_cache_path(cache_key: str) -> Path:
 # bars 语义版本：bars 改为「buy_date 之后第一个可交易日起」（不含 buy_date 当日）。
 # v3：Bar 增 ma5/raw_open/raw_high/up_limit/down_limit；ForwardPath 增 signal_bar_high/buy_bar
 #     （band_lock 出场族需）。新增列改变缓存 schema → bump 使旧 v2 parquet 自动失效重建。
+# v4：ForwardPath 增 recent_lows_window（phase_lock 初始止损用，含 T+1 的最近 W 个非停牌复权 low
+#     升序，path 级 JSON 列）。新增列改变缓存 schema → bump 使旧 v3 parquet 自动失效重建。
 # 任何会改变缓存内容含义的口径调整都应 bump 此字面量，使旧缓存自动失效。
-_CACHE_SEMANTIC_VERSION = "v3_band_lock_fields"
+_CACHE_SEMANTIC_VERSION = "v4_recent_lows_window"
+
+# 停牌缓冲：停牌日会跳过、不占 recent_lows_window 额度，故向前回溯须留缓冲日历日，
+# 才能在含停牌的区间内仍收满「最近 recent_lows_window-1 个非停牌前置交易日」。
+# 取 20（约 4 周交易日）足够覆盖常规停牌；极端长停牌时收不满 → recent_lows_window 不足，降级（不报错）。
+_SUSPEND_BUFFER = 20
 
 
 def _make_cache_key(
     signals: list[SignalRecord],
     max_window: int,
     date_end: str,
+    recent_lows_window: int,
 ) -> str:
-    """缓存 key：sha256(语义版本 + 信号列表内容 + max_window + date_end)。
+    """缓存 key：sha256(语义版本 + 信号列表内容 + max_window + date_end + recent_lows_window)。
 
     信号列表内容 = 排序后的 (ts_code, signal_date, buy_date) 三元组序列。
     语义版本 = _CACHE_SEMANTIC_VERSION；bars 口径变更后 bump 它即可自动失效旧缓存。
+    recent_lows_window 纳入 key：不同 W 携带的 recent_lows 长度不同（phase_lock lookback 网格），
+    不纳入会让不同 W 的缓存互串、读到截短/缺失的 recent_lows → 初始止损错误。
     """
     sorted_sigs = sorted(
         (f"{s.ts_code}|{s.signal_date}|{s.buy_date}" for s in signals)
@@ -83,6 +94,7 @@ def _make_cache_key(
         f"version={_CACHE_SEMANTIC_VERSION}\n"
         + "\n".join(sorted_sigs)
         + f"\nmax_window={max_window}\ndate_end={date_end}"
+        + f"\nrecent_lows_window={recent_lows_window}"
     )
     return hashlib.sha256(blob.encode()).hexdigest()
 
@@ -93,6 +105,7 @@ def load_forward_paths(
     date_end: str,
     use_cache: bool = True,
     on_progress: Optional[Callable[[int, int], None]] = None,
+    recent_lows_window: int = 1,
 ) -> list[ForwardPath]:
     """取每个信号 buy_date **之后**第一个可交易日起未来 ≤max_window 个可交易日的 qfq 路径。
 
@@ -120,6 +133,11 @@ def load_forward_paths(
         use_cache: 是否使用 parquet 缓存（默认 True）。
         on_progress: 可选进度回调 `(done: int, total: int) -> None`；
                      按已处理 ts_code 数 emit。默认 None → 不回调。
+        recent_lows_window: 要携带的「含 buy_date(T+1) 的最近非停牌复权 low」个数（升序），
+                     供 phase_lock 初始止损（min(最近 lookback 个 low)×init_factor）。默认 1
+                     → 仅含 buy_date 当日 low（= 现状行为）；非 phase_lock 调用方不传 → 零改动。
+                     phase_lock 扫描时由 runner 传所有 phase_lock_grid 候选的 max(lookback)，
+                     simulate_phase_lock_exit 再按各 cfg 的 lookback 切末尾片段，使 lookback 真生效。
 
     Returns:
         ForwardPath 列表（过滤 buy_date 当日无 qfq_open、或 buy_date 之后无可交易日的条目）。
@@ -127,8 +145,8 @@ def load_forward_paths(
     if not signals:
         return []
 
-    # 缓存
-    cache_key = _make_cache_key(signals, max_window, date_end)
+    # 缓存（recent_lows_window 纳入 key，不同 W 携带的 recent_lows 不同，缓存不可互串）
+    cache_key = _make_cache_key(signals, max_window, date_end, recent_lows_window)
     cache_path = _parquet_cache_path(cache_key)
 
     if use_cache and cache_path.exists():
@@ -182,7 +200,15 @@ def load_forward_paths(
         # 各信号 signal_date 的最早者 = min_buy_date 的前一交易日，故 union 左端左扩 1 个交易日即覆盖
         # 所有 signal_date。daily_indicator.ma5 是 DB 现成的滚动均值（已含历史预热），故 MA5 无需再
         # 左扩取历史现算（区别于 spec 03 §三"qfq_close 滚动现算需左扩"的二手描述，见汇报）。
-        fetch_start_idx = max(0, union_window_start_idx - 1)
+        #
+        # phase_lock 初始止损需「含 buy_date(T+1) 的最近 recent_lows_window 个非停牌复权 low」，
+        # 须向前预取 recent_lows_window-1 个**非停牌**前置交易日；因停牌会跳过，再留 _SUSPEND_BUFFER
+        # 缓冲日历日。left_pad ≥1 仍保留 signal_date 预取（band_lock signal_high）。
+        # recent_lows_window=1（默认/非 phase_lock）时 left_pad=max(1, 0+20)=20——多预取的 signal_date
+        # 之前历史行不进 bars（bars 从 buy_date 之后起）、不进 buy_bar/signal_bar_high，故对旧行为零影响，
+        # 只是 recent_lows_window 收集到该 W=1 时恰为 [buy_date low]（= 现状）。
+        left_pad = max(1, (recent_lows_window - 1) + _SUSPEND_BUFFER)
+        fetch_start_idx = max(0, union_window_start_idx - left_pad)
 
         # 取 [signal_date, date_end] 的全部日历日作为 union_dates（持有窗口语义仍从 buy_date 起，
         # 仅多预取 signal_date 一行供 signal_high；口径：simulator.db.ts:131 的左扩版）。
@@ -217,6 +243,22 @@ def load_forward_paths(
             # signal_bar_high = signal_date(T) 的 qfq_high；signal_date 已在左扩 union 内预取。
             sig_q = quote_map.get(sig.signal_date)
             signal_bar_high = sig_q["qfq_high"] if sig_q is not None else None
+
+            # phase_lock 专用：含 buy_date(T+1) 的最近 recent_lows_window 个**非停牌**复权 low（升序）。
+            # 从 buy_idx 起沿 all_calendar 向**前**回溯（含 buy_date），对每个日期查 quote_map，
+            # 非停牌（quote 存在且 qfq_low 非 None）才计入，收满 recent_lows_window 个即止；
+            # 再反转为升序（末元素 = buy_date low）。不足（次新/数据边界/超 _SUSPEND_BUFFER 长停牌）
+            # → 用现有可用根数，降级不报错。PIT 安全：只回溯 buy_date 及之前，绝不取未来行。
+            recent_lows_desc: list[float] = []
+            for back_idx in range(buy_idx, -1, -1):
+                d = all_calendar[back_idx]
+                qb = quote_map.get(d)
+                if qb is None or qb["qfq_low"] is None:
+                    continue  # 停牌日：无行 / qfq_low 为空，跳过、不占额度
+                recent_lows_desc.append(qb["qfq_low"])
+                if len(recent_lows_desc) >= recent_lows_window:
+                    break
+            recent_lows_window_list = list(reversed(recent_lows_desc))  # 升序，末元素=buy_date low
 
             # bars 从 buy_date **之后**第一个可交易日起收集 ≤max_window 个有效可交易日
             # （不含 buy_date 当日）。口径对齐 NestJS fixed_n（见 docstring）。
@@ -256,6 +298,7 @@ def load_forward_paths(
                     atr14_at_signal=atr_map.get((ts_code, sig.signal_date)),
                     signal_bar_high=signal_bar_high,
                     buy_bar=buy_bar,
+                    recent_lows_window=recent_lows_window_list,
                 )
             )
 
@@ -524,6 +567,8 @@ def _save_paths_to_parquet(paths: list[ForwardPath], cache_path: Path) -> None:
                     "buy_price": fp.buy_price,
                     "delist_date": fp.delist_date,
                     "atr14_at_signal": fp.atr14_at_signal,
+                    # ── phase_lock path 级字段（变长 list → JSON 字符串列，每行冗余存，还原取首行）──
+                    "recent_lows_window": json.dumps(fp.recent_lows_window),
                     # ── band_lock path 级字段（每行冗余存，还原时取首行）──────────
                     "signal_bar_high": fp.signal_bar_high,
                     "buy_bar_trade_date": bb.trade_date if bb is not None else None,
@@ -591,6 +636,14 @@ def _load_paths_from_parquet(cache_path: Path) -> list[ForwardPath]:
             for _, row in grp.iterrows()
         ]
 
+        # ── phase_lock path 级字段还原（recent_lows_window JSON 列）──────────────
+        # 列缺失（旧 v3 缓存已 bump 失效，防御）或值缺失 → 空列表（phase_lock 退回单元素口径）。
+        recent_lows_window: list[float] = []
+        if "recent_lows_window" in first:
+            rlw_raw = first["recent_lows_window"]
+            if rlw_raw is not None and pd.notna(rlw_raw):
+                recent_lows_window = [float(x) for x in json.loads(rlw_raw)]
+
         # ── band_lock path 级字段还原（buy_bar / signal_bar_high）────────────────
         buy_bar: Bar | None = None
         bb_td = first["buy_bar_trade_date"] if "buy_bar_trade_date" in first else None
@@ -623,6 +676,7 @@ def _load_paths_from_parquet(cache_path: Path) -> list[ForwardPath]:
                 ),
                 signal_bar_high=_opt_f(first, "signal_bar_high"),
                 buy_bar=buy_bar,
+                recent_lows_window=recent_lows_window,
             )
         )
     return paths
