@@ -1,0 +1,34 @@
+# 对 4 个已实现交接(枚举守门/孤儿回收/kelly cancel/worker 文档)补真机 e2e 收口
+
+> 本文自包含，可整段贴给全新会话接手。
+
+## 一句话目标
+4 个交接(原 `add-exit-mode-enum-render-guard-test` / `add-orphaned-running-job-reclaim` / `fix-kelly-sweep-cancel-granularity` / `fix-worker-startup-docs`，均已实现+单测/构建级验证+提交，现归档于 `prompts/archive/`)，唯独**有状态/串行的真机 e2e** 未做——本任务补做收口。
+
+## 现状(已实现并合入本地 main，未推 origin)
+- `a66b074` feat(web) #1 枚举守门：type-check/vitest(237)/vite build 全绿，注入故障实测穷尽校验生效。
+- `223b03d` feat(quant) #2 孤儿回收：阈值进 config + 孤儿 error_text；**PG 集成测已真 DB 验过"过期回收/新鲜不误杀"两场景**，现存孤儿 `5b1e0d90` 已被新 reaper 自动回收为 failed。
+- `3ce5654` feat(quant) #3 kelly cancel：exit_cfg 级 cancel + 细化进度，纯旁路零碰计算；单测 322 passed。
+- `dc8c123` feat(quant) #4 worker 入口：`__main__.py:main`(setup_logging+run_worker_loop) + console script `quant-worker` 指向它，三入口日志对齐；import/entry-point/ruff/mypy 全过。
+- 未做真机 e2e 的原因：单 worker 串行队列，易被 stale running / 前序会话 worker 占用干扰(参 memory `project_phase_lock_exit` kelly/labels e2e 跳过同因)。
+
+## 待做 e2e(逐任务，file:line 见 archive/ 下对应交接)
+1. **#4 worker 启动**(`apps/server/src/modules/quant/realtime/README.md:76`)：
+   - `cd apps/quant-pipeline ; uv run quant-worker` → 另一终端插 `ml.jobs` 一行 `run_type='noop'` → 确认被置 running→success；
+   - 验 `uv run python -m quant_pipeline.worker` 等价启动；
+   - **重点验本次修的运维坑**：`quant-worker` 入口现在应能看到 INFO 日志(worker_started / poll …)，不再静默。
+2. **#2 孤儿回收**：起一个长 job(如 kelly_sweep) → 杀 worker → 重启 worker → 阈值(默认 600s，e2e 可临时把 `WORKER_STALE_RUNNING_THRESHOLD_SECONDS` 调小加速)后被回收(attempts<max 应重 pending 被领走重跑、结果幂等)；另验一个心跳正常(每 30s)的活 job 在 reaper 周期触发时**不被**误回收。
+3. **#3 kelly cancel**：起一个大 kelly job(默认网格 + `bootstrap_iters=1000`) 运行中 `UPDATE ml.jobs SET cancel_requested=true …` → **数秒内** status 转 cancelled；观察 sweep 段(55–90%) progress **持续递增**(非整段不动)；再跑一个改前已有结果的 job，确认 `research.kelly_sweep_results` 与改前**逐字一致**(零漂移)。
+4. **#1 前端**：浏览器点开 signal-stats 列表/结果页摘要/详情配置面板/导入方案下拉，确认 `phase_lock`/`trailing_lock` 等在四处均显示正确中文标签(含参格式 `N=`/`≤maxHold` 一致)，无原始串/兜底误显。
+
+## 硬约束 / 项目规范
+- worker **非热加载**，改 worker 代码后须重启 worker 进程才生效。
+- 单 worker 串行：开跑前先确认无 stale running job、无前序会话 worker 占用。
+- cancel/进度仅旁路，**不得影响量化 kelly/ret/bootstrap 结果**。
+- 时间列 timestamptz、SQL 比对用 `now()`；源文件 UTF-8。
+
+## 验证标准
+各任务交接原"验证标准"的真机部分(见 `prompts/archive/` 下对应 4 个交接文档)。
+
+## 前序进度 / 待续
+全新任务，未动手。实现已提交本地 main(`a66b074`/`223b03d`/`3ce5654`/`dc8c123`，未推 origin)，单测/集成测/构建全绿；本任务只补真机串行 e2e。
