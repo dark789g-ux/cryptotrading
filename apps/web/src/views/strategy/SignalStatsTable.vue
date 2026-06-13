@@ -45,6 +45,8 @@ const columns = computed<DataTableColumns<SignalTestWithLatestRun>>(() => [
   {
     title: '方案名称',
     key: 'name',
+    minWidth: 180,
+    ellipsis: { lineClamp: 3, tooltip: true },
     render(row) {
       return h(
         'span',
