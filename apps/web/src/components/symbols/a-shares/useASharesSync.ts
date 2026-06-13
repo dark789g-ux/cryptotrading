@@ -1,7 +1,7 @@
-import { computed, ref } from 'vue'
-import { aSharesApi, type AShareDateRange, type AShareSyncMode, type AShareSyncResult } from '@/api'
+import { ref } from 'vue'
+import { aSharesApi, type AShareSyncMode, type AShareSyncResult } from '@/api'
 import { useSSE } from '../../../composables/hooks/useSSE'
-import { buildDefaultDateRange, formatDisplayDate, formatTradeDate, formatTushareDate } from './aSharesFormatters'
+import { buildDefaultDateRange, formatTushareDate } from './aSharesFormatters'
 
 export function useASharesSync(
   message: {
@@ -12,66 +12,8 @@ export function useASharesSync(
 ) {
   const syncSse = useSSE()
   const syncing = ref(false)
-  const showSyncModal = ref(false)
   const syncMode = ref<AShareSyncMode>('incremental')
   const syncDateRange = ref<[number, number] | null>(buildDefaultDateRange())
-  const dataDateRange = ref<AShareDateRange | null>(null)
-  const dataDateRangeLoading = ref(false)
-  const dataDateRangeLoadFailed = ref(false)
-
-  const syncProgressVisible = computed(() => syncSse.status.value !== 'idle')
-  const syncStatusLabel = computed(() => {
-    if (syncSse.status.value === 'done') return '同步完成'
-    if (syncSse.status.value === 'error') return '同步失败'
-    if (syncSse.status.value === 'running') return '同步中'
-    return '等待同步'
-  })
-  const syncProgressCountLabel = computed(() => {
-    const current = syncSse.current.value
-    const total = syncSse.total.value
-    if (!total) return ''
-    return `${current}/${total} ${getSyncProgressUnit(syncSse.phase.value)}`
-  })
-
-  const canConfirmSync = computed(() => {
-    const range = syncDateRange.value
-    return Boolean(range && range[0] && range[1])
-  })
-
-  const syncRangeLabel = computed(() => {
-    const range = syncDateRange.value
-    return {
-      start: range ? formatDisplayDate(range[0]) : '未选择',
-      end: range ? formatDisplayDate(range[1]) : '未选择',
-    }
-  })
-
-  const dataDateRangeLabel = computed(() => {
-    if (dataDateRangeLoading.value) return '读取中'
-    if (dataDateRangeLoadFailed.value) return '读取失败'
-    const range = dataDateRange.value
-    if (!range?.min || !range.max) return '暂无本地数据'
-    return `${formatTradeDate(range.min)} 至 ${formatTradeDate(range.max)}`
-  })
-
-  async function loadDataDateRange() {
-    dataDateRangeLoading.value = true
-    dataDateRangeLoadFailed.value = false
-    try {
-      dataDateRange.value = await aSharesApi.getDateRange()
-    } catch {
-      dataDateRangeLoadFailed.value = true
-    } finally {
-      dataDateRangeLoading.value = false
-    }
-  }
-
-  function openSyncModal() {
-    if (!syncDateRange.value) syncDateRange.value = buildDefaultDateRange()
-    if (!syncing.value) syncSse.reset()
-    showSyncModal.value = true
-    void loadDataDateRange()
-  }
 
   async function syncAShares() {
     if (!syncDateRange.value) return
@@ -108,9 +50,7 @@ export function useASharesSync(
       message.success('同步完成')
     }
     try {
-      showSyncModal.value = false
       await reload()
-      await loadDataDateRange()
     } catch (err: unknown) {
       message.error(err instanceof Error ? err.message : String(err))
     } finally {
@@ -120,21 +60,12 @@ export function useASharesSync(
 
   return {
     syncing,
-    showSyncModal,
     syncMode,
     syncDateRange,
-    syncProgressVisible,
-    syncStatusLabel,
-    syncProgressCountLabel,
-    canConfirmSync,
-    syncRangeLabel,
     syncPhase: syncSse.phase,
     syncPercent: syncSse.percent,
     syncStatus: syncSse.status,
     syncMessage: syncSse.message,
-    dataDateRangeLabel,
-    dataDateRangeLoading,
-    openSyncModal,
     syncAShares,
   }
 }
@@ -191,14 +122,4 @@ function buildSyncResultMessage(res: AShareSyncResult, title: string): string {
     ? `；失败 ${res.failedCount} 项，首项 ${firstFailure.tradeDate ? `${firstFailure.tradeDate} ` : ''}${firstFailure.apiName}`
     : `；失败 ${res.failedCount} 项`
   return `${base}${detail}`
-}
-
-function getSyncProgressUnit(phase: string): string {
-  if (['同步日线行情', '同步每日指标', '同步复权因子', '同步交易日'].includes(phase)) {
-    return '个交易日'
-  }
-  if (['标记脏区间', '增量计算前复权', '增量计算技术指标'].includes(phase)) {
-    return '只股票'
-  }
-  return '项'
 }
