@@ -6,11 +6,12 @@
       <n-space align="center" wrap>
         <n-select
           :value="condition.field"
-          :options="fieldOptions"
+          :options="fieldSelectOptions"
           placeholder="选择指标"
-          style="width: 180px"
+          class="field-select"
           @update:value="handleFieldChange(index, $event)"
         />
+        <field-help-tip :field="condition.field" />
         <n-select
           :value="condition.operator"
           :options="getOperatorOptions(condition.field)"
@@ -31,16 +32,18 @@
             :value="condition.compareField"
             :options="getCompareFieldOptions(condition.field)"
             placeholder="比较指标"
-            style="width: 180px"
+            class="field-select"
             @update:value="handleCompareFieldChange(index, $event)"
           />
         </template>
         <template v-else>
+          <!-- 绑定 display 值；emit 前 fieldValueToStorage 写回 DB 原始量纲，父组件与 API 无感知 -->
           <n-input-number
-            :value="condition.value"
-            placeholder="数值"
+            :value="fieldValueToDisplay(condition.field, targetType, condition.value)"
+            :placeholder="getValuePlaceholder(condition.field)"
+            :precision="getValuePrecision(condition.field)"
             style="width: 120px"
-            @update:value="handleValueChange(index, $event)"
+            @update:value="handleDisplayValueChange(index, $event)"
           />
         </template>
         <n-button type="error" text @click="removeCondition(index)">
@@ -67,9 +70,19 @@ import {
   NRadioGroup,
   NRadioButton,
 } from 'naive-ui';
-import type { SelectOption } from 'naive-ui';
 import { Add as AddIcon, Trash as TrashIcon } from '@vicons/ionicons5';
+import FieldHelpTip from '../common/FieldHelpTip.vue';
 import type { StrategyConditionItem } from '../../api/modules/strategy/strategyConditions';
+import {
+  A_SHARE_FIELDS,
+  CRYPTO_FIELDS,
+  BASE_OPERATOR_OPTIONS,
+  formatFieldSelectLabel,
+  fieldValueToDisplay,
+  fieldValueToStorage,
+  getFieldValueToStorageFactor,
+  type FieldOption,
+} from './conditionFieldMeta';
 
 // ── Props & emits ─────────────────────────────────────────────────────────────
 
@@ -91,12 +104,7 @@ const emit = defineEmits<{
   'update:conditions': [conditions: StrategyConditionItem[]];
 }>();
 
-// ── Field definitions (唯一真源) ──────────────────────────────────────────────
-
-interface FieldOption extends SelectOption {
-  /** 是否支持上穿/下穿（仅单表指标字段可用） */
-  supportsCross?: boolean;
-}
+// ── Field compare groups (editor-only) ────────────────────────────────────────
 
 /** 行业 AMV 字段：只能与行业 AMV 字段或常量比较（后端约束） */
 const INDUSTRY_FIELD_VALUES = new Set(['ind_amv_dif', 'ind_amv_dea', 'ind_amv_macd']);
@@ -115,103 +123,25 @@ function fieldCompareGroup(v: string): 'industry' | 'market' | 'listmeta' | 'nor
   return 'normal';
 }
 
-const A_SHARE_FIELDS: FieldOption[] = [
-  { label: 'KDJ_J', value: 'kdj_j', supportsCross: true },
-  { label: 'KDJ_K', value: 'kdj_k', supportsCross: true },
-  { label: 'KDJ_D', value: 'kdj_d', supportsCross: true },
-  { label: 'MACD_DIF', value: 'macd_dif', supportsCross: true },
-  { label: 'MACD_DEA', value: 'macd_dea', supportsCross: true },
-  { label: 'MACD_HIST', value: 'macd_hist', supportsCross: true },
-  { label: 'BBI', value: 'bbi', supportsCross: true },
-  { label: 'MA5', value: 'ma5', supportsCross: true },
-  { label: 'MA30', value: 'ma30', supportsCross: true },
-  { label: 'MA60', value: 'ma60', supportsCross: true },
-  { label: 'MA120', value: 'ma120', supportsCross: true },
-  { label: 'MA240', value: 'ma240', supportsCross: true },
-  { label: 'ATR14', value: 'atr14', supportsCross: true },
-  { label: '盈亏比', value: 'profit_loss_ratio', supportsCross: true },
-  { label: '砖形图', value: 'brick', supportsCross: true },
-  { label: '砖形图变动', value: 'brick_delta', supportsCross: true },
-  { label: '砖形图信号', value: 'brick_xg' },
-  // 行情 / 估值字段（跨表，不支持上穿/下穿）
-  { label: '换手率', value: 'turnover_rate' },
-  { label: '量比', value: 'volume_ratio' },
-  { label: 'PE', value: 'pe' },
-  { label: 'PE_TTM', value: 'pe_ttm' },
-  { label: 'PB', value: 'pb' },
-  { label: '总市值', value: 'total_mv' },
-  { label: '流通市值', value: 'circ_mv' },
-  // 上市时长：信号日距 list_date 的自然日数（a_share_symbols，标量子查询）
-  { label: '上市时长(天)', value: 'list_days' },
-  { label: '收盘价', value: 'close' },
-  { label: '开盘价', value: 'open' },
-  { label: '最高价', value: 'high' },
-  { label: '最低价', value: 'low' },
-  { label: '成交量', value: 'volume' },
-  { label: '成交额', value: 'amount' },
-  { label: '涨跌幅', value: 'pct_chg' },
-  // 个股 AMV-MACD（stock_amv_daily）
-  { label: 'AMV-MACD-DIF', value: 'amv_dif', supportsCross: false },
-  { label: 'AMV-MACD-DEA', value: 'amv_dea', supportsCross: false },
-  { label: 'AMV-MACD-MACD', value: 'amv_macd', supportsCross: false },
-  // 个股所在行业 AMV-MACD（industry_amv_daily，任一行业达标即命中）
-  { label: '行业AMV-MACD-DIF', value: 'ind_amv_dif', supportsCross: false },
-  { label: '行业AMV-MACD-DEA', value: 'ind_amv_dea', supportsCross: false },
-  { label: '行业AMV-MACD-MACD', value: 'ind_amv_macd', supportsCross: false },
-  // 大盘 0AMV-MACD（oamv_daily，按交易日对齐，当日全市场同值——大盘择时闸门）
-  { label: '大盘0AMV-MACD-DIF', value: 'oamv_dif', supportsCross: false },
-  { label: '大盘0AMV-MACD-DEA', value: 'oamv_dea', supportsCross: false },
-  { label: '大盘0AMV-MACD-MACD', value: 'oamv_macd', supportsCross: false },
-  // 大盘年线闸门（regime 研究）：oamv_close 与 oamv_ma240 互比；ma240 预热段 NULL fail-closed
-  { label: '大盘0AMV-收盘', value: 'oamv_close', supportsCross: false },
-  { label: '大盘0AMV-MA240', value: 'oamv_ma240', supportsCross: false },
-  // 滚动区间位置 / 量比（跨表，不支持上穿/下穿）
-  { label: '120日区间位置', value: 'pos_120', supportsCross: false },
-  { label: '60日区间位置', value: 'pos_60', supportsCross: false },
-  { label: '收盘/MA60', value: 'close_ma60_ratio', supportsCross: false },
-  { label: '量比(60日均量)', value: 'vol_ratio_60', supportsCross: false },
-  { label: '量比(120日均量)', value: 'vol_ratio_120', supportsCross: false },
-];
-
-const CRYPTO_FIELDS: FieldOption[] = [
-  { label: 'KDJ_J', value: 'kdj_j', supportsCross: true },
-  { label: 'KDJ_K', value: 'kdj_k', supportsCross: true },
-  { label: 'KDJ_D', value: 'kdj_d', supportsCross: true },
-  { label: 'MACD_DIF', value: 'macd_dif', supportsCross: true },
-  { label: 'MACD_DEA', value: 'macd_dea', supportsCross: true },
-  { label: 'MACD_HIST', value: 'macd_hist', supportsCross: true },
-  { label: 'BBI', value: 'bbi', supportsCross: true },
-  { label: 'MA5', value: 'ma5', supportsCross: true },
-  { label: 'MA30', value: 'ma30', supportsCross: true },
-  { label: 'MA60', value: 'ma60', supportsCross: true },
-  { label: 'MA120', value: 'ma120', supportsCross: true },
-  { label: 'MA240', value: 'ma240', supportsCross: true },
-  { label: 'ATR14', value: 'atr14', supportsCross: true },
-  { label: '盈亏比', value: 'profit_loss_ratio', supportsCross: true },
-  { label: '收盘价', value: 'close', supportsCross: true },
-  { label: '开盘价', value: 'open', supportsCross: true },
-  { label: '最高价', value: 'high', supportsCross: true },
-  { label: '最低价', value: 'low', supportsCross: true },
-  { label: '成交量', value: 'volume', supportsCross: true },
-  { label: '成交额', value: 'amount', supportsCross: true },
-];
-
-const BASE_OPERATOR_OPTIONS = [
-  { label: '大于', value: 'gt' },
-  { label: '大于等于', value: 'gte' },
-  { label: '小于', value: 'lt' },
-  { label: '小于等于', value: 'lte' },
-  { label: '等于', value: 'eq' },
-  { label: '不等于', value: 'neq' },
-  { label: '上穿', value: 'cross_above' },
-  { label: '下穿', value: 'cross_below' },
-];
-
 // ── Computed field options ────────────────────────────────────────────────────
 
 const fieldOptions = computed<FieldOption[]>(() =>
   props.targetType === 'a-share' ? A_SHARE_FIELDS : CRYPTO_FIELDS,
 );
+
+const fieldSelectOptions = computed(() =>
+  fieldOptions.value.map((f) => ({
+    ...f,
+    label: formatFieldSelectLabel(f),
+  })),
+);
+
+function toFieldSelectOptions(fields: FieldOption[]) {
+  return fields.map((f) => ({
+    ...f,
+    label: formatFieldSelectLabel(f),
+  }));
+}
 
 // ── Logic helpers ─────────────────────────────────────────────────────────────
 
@@ -219,10 +149,12 @@ const fieldOptions = computed<FieldOption[]>(() =>
  * 比较目标（字段引用模式）的可选字段：按左侧字段所属比较组过滤（行业/大盘/普通仅同组互比）。
  * crypto 无行业/大盘字段，组恒为 normal，过滤后等于全部 crypto 字段（行为不变）。
  */
-function getCompareFieldOptions(fieldValue: string): FieldOption[] {
+function getCompareFieldOptions(fieldValue: string) {
   const all = props.targetType === 'a-share' ? A_SHARE_FIELDS : CRYPTO_FIELDS;
   const leftGroup = fieldCompareGroup(fieldValue);
-  return all.filter((f) => fieldCompareGroup(f.value as string) === leftGroup);
+  return toFieldSelectOptions(
+    all.filter((f) => fieldCompareGroup(f.value as string) === leftGroup),
+  );
 }
 
 function getOperatorOptions(fieldValue: string) {
@@ -241,10 +173,29 @@ function cloneConditions(): StrategyConditionItem[] {
   return props.conditions.map((c) => ({ ...c }));
 }
 
+function getValuePlaceholder(fieldValue: string): string {
+  if (getFieldValueToStorageFactor(fieldValue, props.targetType) != null) {
+    return '如 20.8';
+  }
+  return '数值';
+}
+
+function getValuePrecision(fieldValue: string): number | undefined {
+  if (getFieldValueToStorageFactor(fieldValue, props.targetType) != null) {
+    return 2;
+  }
+  return undefined;
+}
+
 function handleFieldChange(index: number, newField: string) {
   const copy = cloneConditions();
   const cond = copy[index];
+  const oldField = cond.field;
   cond.field = newField;
+  if (getFieldValueToStorageFactor(oldField, props.targetType)
+    !== getFieldValueToStorageFactor(newField, props.targetType)) {
+    cond.value = undefined;
+  }
   // 切字段时，若当前算子为 cross 且新字段不支持，重置为 defaultOperator
   if (
     (cond.operator === 'cross_above' || cond.operator === 'cross_below') &&
@@ -279,9 +230,10 @@ function handleCompareModeChange(index: number, mode: 'field' | 'value') {
   emit('update:conditions', copy);
 }
 
-function handleValueChange(index: number, value: number | null) {
+function handleDisplayValueChange(index: number, display: number | null) {
   const copy = cloneConditions();
-  copy[index].value = value ?? undefined;
+  const field = copy[index].field;
+  copy[index].value = fieldValueToStorage(field, props.targetType, display);
   emit('update:conditions', copy);
 }
 
@@ -325,5 +277,9 @@ function removeCondition(index: number) {
 
 .add-btn {
   margin-top: 8px;
+}
+
+.field-select {
+  width: 240px;
 }
 </style>
