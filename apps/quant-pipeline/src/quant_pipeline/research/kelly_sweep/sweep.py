@@ -34,6 +34,7 @@ from quant_pipeline.labels.band_lock_scheme import (
     DEFAULT_STOP_RATIO,
     quantize_band_lock_params,
 )
+from quant_pipeline.labels.phase_lock_scheme import quantize_phase_lock_params
 from quant_pipeline.research.kelly_sweep.config import SweepConfig
 from quant_pipeline.research.kelly_sweep.entry_features import (
     apply_threshold,
@@ -47,11 +48,21 @@ from quant_pipeline.research.kelly_sweep.exits import (
     simulate_atr_stop,
     simulate_band_lock_exit,
     simulate_fixed_n,
+    simulate_phase_lock_exit,
     simulate_tp_sl,
     simulate_trailing,
 )
 from quant_pipeline.research.kelly_sweep.metrics import compute_metrics
 from quant_pipeline.research.kelly_sweep.types import ForwardPath, MetricResult
+from quant_pipeline.strategy.phase_lock_exit import (
+    DEFAULT_INIT_FACTOR as DEFAULT_INIT_FACTOR_PL,
+)
+from quant_pipeline.strategy.phase_lock_exit import (
+    DEFAULT_LOCK_FACTOR as DEFAULT_LOCK_FACTOR_PL,
+)
+from quant_pipeline.strategy.phase_lock_exit import (
+    DEFAULT_LOOKBACK as DEFAULT_LOOKBACK_PL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -135,9 +146,21 @@ _COMBO_WARN_THRESHOLD = 5000
 # 不拒绝、不截断（data-integrity「no silent caps」，尊重用户意图）。
 _BAND_LOCK_GRID_WARN_THRESHOLD = 200
 
-# 合法出场族名称（与 DEFAULT_EXIT_GRID 的 type 字段一一对应）
+# phase_lock 族网格爆炸护栏阈值（spec 02 §kelly 默认网格）：对齐 band_lock 的 200。
+_PHASE_LOCK_GRID_WARN_THRESHOLD = 200
+
+# phase_lock 默认候选集（spec 02 §kelly 默认网格 → 4×4×3=48）。
+_PHASE_LOCK_DEFAULT_LOOKBACKS: list[int] = [5, 10, 15, 20]
+_PHASE_LOCK_DEFAULT_INIT_FACTORS: list[float] = [0.97, 0.98, 0.99, 1.00]
+_PHASE_LOCK_DEFAULT_LOCK_FACTORS: list[float] = [0.99, 0.999, 1.005]
+
+# 合法出场族名称（与 DEFAULT_EXIT_GRID 的 type 字段一一对应 + presence-driven 的 phase_lock）。
+# 注：band_lock/phase_lock 在 kelly **不进** exit_families 白名单（presence-driven by
+# band_lock_grid / phase_lock_grid），但 _KNOWN_EXIT_FAMILIES 是 _exit_id/_run_exit 的全集合法性
+# 校验源，故仍登记（build_exit_grid 可显式取 band_lock 子集；phase_lock 无 DEFAULT 子集，
+# build_exit_grid 取它得空列表，正常）。
 _KNOWN_EXIT_FAMILIES: frozenset[str] = frozenset(
-    ["fixed_n", "tp_sl", "trailing", "atr_stop", "band_lock"]
+    ["fixed_n", "tp_sl", "trailing", "atr_stop", "band_lock", "phase_lock"]
 )
 
 
@@ -261,6 +284,95 @@ def build_band_lock_grid(
             len(quant_floor),
             len(quant_floor_enabled),
             len(quant_ma5),
+            len(grid),
+        )
+
+    return grid
+
+
+def build_phase_lock_grid(
+    *,
+    lookback_list: Optional[list[int]] = None,
+    init_factor_list: Optional[list[float]] = None,
+    lock_factor_list: Optional[list[float]] = None,
+) -> list[dict[str, Any]]:
+    """phase_lock 出场族候选集 → 笛卡尔积 + 去重 → ExitConfig 字典列表（spec 02/04）。
+
+    **逐结构镜像 build_band_lock_grid**，差异仅参数集（lookback/init_factor/lock_factor，
+    无 floor/ma5 依赖坍缩）。phase_lock 网格 = lookback × init_factor × lock_factor。
+
+    默认候选集（不传参 / 传 None）= spec 02 §kelly 默认网格：
+      lookback{5,10,15,20} × init_factor{0.97,0.98,0.99,1.00}
+      × lock_factor{0.99,0.999,1.005} = 48 组。
+
+    各候选进笛卡尔积前经 `quantize_phase_lock_params` 量化（千分位 round-half-up + lookback
+    正整数校验，单一源，与 scheme 编码 / labels / TS 同一量化算法）。量化后去重保稳定顺序。
+
+    网格爆炸护栏（spec 02 §kelly 默认网格）：cfg 数 > 200（对齐 band_lock）→ logger.warning
+    （含各维度候选数），**不拒绝、不截断**（data-integrity「no silent caps」）。
+
+    Args:
+        lookback_list:     lookback 候选（正整数 [1,250]）；None → 默认 {5,10,15,20}。
+        init_factor_list:  init_factor 候选（量化前原始 ratio）；None → 默认 {0.97,0.98,0.99,1.00}。
+        lock_factor_list:  lock_factor 候选（量化前原始 ratio）；None → 默认 {0.99,0.999,1.005}。
+
+    Returns:
+        [{type:'phase_lock', lookback, init_factor, lock_factor}, ...]，去重后顺序稳定。
+
+    Raises:
+        ValueError: 任一候选量化 / 校验失败（透传 quantize_phase_lock_params）。
+    """
+    if lookback_list is None:
+        lookback_list = list(_PHASE_LOCK_DEFAULT_LOOKBACKS)
+    if init_factor_list is None:
+        init_factor_list = list(_PHASE_LOCK_DEFAULT_INIT_FACTORS)
+    if lock_factor_list is None:
+        lock_factor_list = list(_PHASE_LOCK_DEFAULT_LOCK_FACTORS)
+
+    # ── 各候选预量化（单一源 quantize_phase_lock_params），去重保稳定顺序 ──────────
+    quant_lookback: list[int] = _dedup_keep_order(
+        [quantize_phase_lock_params({"lookback": lb})["lookback"] for lb in lookback_list]
+    )
+    quant_init: list[float] = _dedup_keep_order(
+        [
+            quantize_phase_lock_params({"init_factor": r})["init_factor"]
+            for r in init_factor_list
+        ]
+    )
+    quant_lock: list[float] = _dedup_keep_order(
+        [
+            quantize_phase_lock_params({"lock_factor": r})["lock_factor"]
+            for r in lock_factor_list
+        ]
+    )
+
+    grid: list[dict[str, Any]] = []
+    seen: set[tuple] = set()  # 量化后参数指纹（去重）
+
+    for lb, if_, lf in itertools.product(quant_lookback, quant_init, quant_lock):
+        fingerprint = (lb, if_, lf)
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        grid.append(
+            {
+                "type": "phase_lock",
+                "lookback": lb,
+                "init_factor": if_,
+                "lock_factor": lf,
+            }
+        )
+
+    if len(grid) > _PHASE_LOCK_GRID_WARN_THRESHOLD:
+        logger.warning(
+            "phase_lock 出场族生成 %d 个配置，超过软阈值 %d（"
+            "lookback=%d × init_factor=%d × lock_factor=%d，去重后 %d）。"
+            "不截断，但多重检验过拟合风险高，请谨慎解读。",
+            len(grid),
+            _PHASE_LOCK_GRID_WARN_THRESHOLD,
+            len(quant_lookback),
+            len(quant_init),
+            len(quant_lock),
             len(grid),
         )
 
@@ -402,6 +514,8 @@ def _exit_id(exit_cfg: dict[str, Any]) -> str:
         return f"atr_stop(k={exit_cfg['k']},mh={exit_cfg['max_hold']})"
     if t == "band_lock":
         return _band_lock_exit_id(exit_cfg)
+    if t == "phase_lock":
+        return _phase_lock_exit_id(exit_cfg)
     raise ValueError(f"未知出场类型 type={t!r}")
 
 
@@ -434,6 +548,26 @@ def _band_lock_exit_id(exit_cfg: dict[str, Any]) -> str:
         parts.append("md=0")  # 仅 False（非默认）出现
 
     return f"band_lock({','.join(parts)})"
+
+
+def _phase_lock_exit_id(exit_cfg: dict[str, Any]) -> str:
+    """phase_lock 出场配置 → 唯一可读 _exit_id（spec 02/04，格式镜像 _band_lock_exit_id）。
+
+    格式：`phase_lock(lb={N},if={ratio},lf={ratio})`。
+      - lookback（lb）**始终写出**（spec 02 §_exit_id 格式：lookback 始终写出）。
+      - init_factor（if）/ lock_factor（lf）用 `_fmt_ratio` 格式化（千分位量化值去尾零，
+        如 0.99→'0.99'、0.999→'0.999'、1.005→'1.005'、1.00→'1'），与 band_lock ratio 同款。
+    phase_lock 全 3 参数都进 id（与 band_lock「非默认才追加」不同——phase_lock 是全新族、无
+    DEFAULT_EXIT_GRID 既存条目要守哈希，全写出更直观且保证同量化值产出同 id）。
+    """
+    lookback = exit_cfg.get("lookback", DEFAULT_LOOKBACK_PL)
+    init_factor = exit_cfg.get("init_factor", DEFAULT_INIT_FACTOR_PL)
+    lock_factor = exit_cfg.get("lock_factor", DEFAULT_LOCK_FACTOR_PL)
+    return (
+        f"phase_lock(lb={int(lookback)},"
+        f"if={_fmt_ratio(init_factor)},"
+        f"lf={_fmt_ratio(lock_factor)})"
+    )
 
 
 def _fmt_ratio(ratio: float) -> str:
@@ -483,6 +617,18 @@ def _run_exit(path: ForwardPath, exit_cfg: dict[str, Any], same_day_rule: str) -
             if band_trade is None:
                 return None
             return band_trade.ret
+        elif t == "phase_lock":
+            # 3 参数缺省 .get 兜底核默认；simulate_phase_lock_exit 无交易时返回 None。
+            phase_trade = simulate_phase_lock_exit(
+                path,
+                init_factor=exit_cfg.get("init_factor", DEFAULT_INIT_FACTOR_PL),
+                lock_factor=exit_cfg.get("lock_factor", DEFAULT_LOCK_FACTOR_PL),
+                lookback=exit_cfg.get("lookback", DEFAULT_LOOKBACK_PL),
+                same_day_rule=same_day_rule,
+            )
+            if phase_trade is None:
+                return None
+            return phase_trade.ret
         else:
             raise ValueError(f"未知出场类型 type={t!r}")
     except ValueError:

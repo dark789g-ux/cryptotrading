@@ -55,25 +55,33 @@ def _make_stage_progress(job_id: UUID, stage_name: str) -> Any:
 
 
 def _build_exit_grid_from_params(params: dict[str, Any]) -> list[dict[str, Any]]:
-    """从 job.params 构造 exit_grid（spec 05§四）。
+    """从 job.params 构造 exit_grid（spec 05§四 + spec 04 §D4 phase_lock）。
 
-    - exit_families（默认四族不含 band_lock）→ build_exit_grid 取各族 DEFAULT 子集。
+    - exit_families（默认四族不含 band_lock/phase_lock）→ build_exit_grid 取各族 DEFAULT 子集。
     - 若 params 含 band_lock_grid（各维度候选集 dict）→ build_band_lock_grid(**candidates)
       生成 band_lock 部分，**替代** build_exit_grid 的 band_lock 段（避免 DEFAULT 3 个与自定义
       重复 / 漂移），再与其它族合并。
+    - 若 params 含 phase_lock_grid（各维度候选集 dict）→ build_phase_lock_grid(**candidates)
+      生成 phase_lock 部分附后（phase_lock 无 DEFAULT_EXIT_GRID 条目，presence-driven）。
     - 若未提供 band_lock_grid 但 families 含 band_lock → 用 DEFAULT 的 3 个（现状零漂移）。
 
+    band_lock 与 phase_lock 均 presence-driven、互不影响：两者可同时提供，各自附加自己的段。
+
     Args:
-        params: job.params（含 exit_families / band_lock_grid）。
+        params: job.params（含 exit_families / band_lock_grid / phase_lock_grid）。
 
     Returns:
-        合并后的 exit_grid（其它族 build_exit_grid 顺序 + band_lock 自定义段附后）。
+        合并后的 exit_grid（其它族 build_exit_grid 顺序 + band_lock 自定义段 + phase_lock 段）。
 
     Raises:
         ValueError: exit_families 非数组 / 含未知族 / 空（透传 build_exit_grid）；
-                    band_lock_grid 非 dict；候选集量化校验失败（透传 build_band_lock_grid）。
+                    band_lock_grid / phase_lock_grid 非 dict；候选集校验失败（透传 build_*_grid）。
     """
-    from quant_pipeline.research.kelly_sweep.sweep import build_band_lock_grid, build_exit_grid
+    from quant_pipeline.research.kelly_sweep.sweep import (
+        build_band_lock_grid,
+        build_exit_grid,
+        build_phase_lock_grid,
+    )
 
     families_raw = params.get("exit_families", ["fixed_n", "tp_sl", "trailing", "atr_stop"])
     if not isinstance(families_raw, list):
@@ -83,22 +91,37 @@ def _build_exit_grid_from_params(params: dict[str, Any]) -> list[dict[str, Any]]
     families = [str(f) for f in families_raw]
 
     band_lock_grid_raw = params.get("band_lock_grid")
-    if band_lock_grid_raw is None:
-        # 现状：band_lock 走 DEFAULT 3 个（若 families 含 band_lock）。
-        return build_exit_grid(families)
+    phase_lock_grid_raw = params.get("phase_lock_grid")
 
-    if not isinstance(band_lock_grid_raw, dict):
-        raise ValueError(
-            f"kelly_sweep params.band_lock_grid 必须是各维度候选集 dict，got {band_lock_grid_raw!r}"
-        )
+    # 自定义 band_lock_grid 提供时，从 build_exit_grid 族集合剔除 band_lock（防 DEFAULT 3 个重复）。
+    # phase_lock 不在 DEFAULT_EXIT_GRID，无需从 families 剔除（build_exit_grid 取它得空）。
+    other_families = list(families)
+    if band_lock_grid_raw is not None:
+        other_families = [f for f in other_families if f != "band_lock"]
 
-    # 自定义 band_lock_grid：band_lock 段由 build_band_lock_grid 生成，
-    # 从 build_exit_grid 的族集合中剔除 band_lock（防 DEFAULT 3 个与自定义重复）。
-    other_families = [f for f in families if f != "band_lock"]
     other_grid = build_exit_grid(other_families) if other_families else []
 
-    band_lock_part = build_band_lock_grid(**_normalize_band_lock_candidates(band_lock_grid_raw))
-    return other_grid + band_lock_part
+    grid = list(other_grid)
+
+    if band_lock_grid_raw is not None:
+        if not isinstance(band_lock_grid_raw, dict):
+            raise ValueError(
+                f"kelly_sweep params.band_lock_grid 必须是各维度候选集 dict，"
+                f"got {band_lock_grid_raw!r}"
+            )
+        grid = grid + build_band_lock_grid(**_normalize_band_lock_candidates(band_lock_grid_raw))
+
+    if phase_lock_grid_raw is not None:
+        if not isinstance(phase_lock_grid_raw, dict):
+            raise ValueError(
+                f"kelly_sweep params.phase_lock_grid 必须是各维度候选集 dict，"
+                f"got {phase_lock_grid_raw!r}"
+            )
+        grid = grid + build_phase_lock_grid(
+            **_normalize_phase_lock_candidates(phase_lock_grid_raw)
+        )
+
+    return grid
 
 
 def _normalize_band_lock_candidates(raw: dict[str, Any]) -> dict[str, list]:
@@ -124,6 +147,33 @@ def _normalize_band_lock_candidates(raw: dict[str, Any]) -> dict[str, list]:
         if not isinstance(value, list):
             raise ValueError(
                 f"kelly_sweep band_lock_grid.{key} 必须是候选集数组，got {value!r}"
+            )
+        out[key] = value
+    return out
+
+
+def _normalize_phase_lock_candidates(raw: dict[str, Any]) -> dict[str, list]:
+    """phase_lock_grid job param（各维度候选集 dict）→ build_phase_lock_grid 的 kwargs。
+
+    仅透传 build_phase_lock_grid 支持的 3 个候选集键（与前端 D5 PhaseLockGrid 契约一致）；
+    未提供的键交给函数默认（退化成 spec 02 §kelly 默认网格 48 组）。
+    每个值必须是 list（候选集）；非 list → ValueError（fail-fast，防前端误传标量）。
+    """
+    allowed = {
+        "lookback_list",
+        "init_factor_list",
+        "lock_factor_list",
+    }
+    out: dict[str, list] = {}
+    for key, value in raw.items():
+        if key not in allowed:
+            raise ValueError(
+                f"kelly_sweep phase_lock_grid 含未知候选集键 {key!r}，"
+                f"合法键为 {sorted(allowed)!r}"
+            )
+        if not isinstance(value, list):
+            raise ValueError(
+                f"kelly_sweep phase_lock_grid.{key} 必须是候选集数组，got {value!r}"
             )
         out[key] = value
     return out
