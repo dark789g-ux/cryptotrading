@@ -8,8 +8,6 @@
         clearable
         size="small"
         style="width: 120px"
-        @input="onTsCodeInput"
-        @clear="applyFilters"
       />
       <n-select
         v-model:value="fExitReason"
@@ -18,7 +16,6 @@
         placeholder="出场原因"
         size="small"
         style="width: 120px"
-        @update:value="applyFilters"
       />
       <span class="filter-label">收益%</span>
       <n-input-number
@@ -28,7 +25,6 @@
         clearable
         size="small"
         style="width: 80px"
-        @update:value="applyFilters"
       />
       <span class="filter-sep">~</span>
       <n-input-number
@@ -38,7 +34,6 @@
         clearable
         size="small"
         style="width: 80px"
-        @update:value="applyFilters"
       />
       <span class="filter-label">持仓天</span>
       <n-input-number
@@ -48,7 +43,6 @@
         clearable
         size="small"
         style="width: 72px"
-        @update:value="applyFilters"
       />
       <span class="filter-sep">~</span>
       <n-input-number
@@ -58,8 +52,8 @@
         clearable
         size="small"
         style="width: 72px"
-        @update:value="applyFilters"
       />
+      <n-button type="primary" size="small" @click="applyFilters">搜索</n-button>
       <n-button size="small" @click="resetFilters">重置</n-button>
     </div>
 
@@ -127,7 +121,7 @@ const exitReasonOptions = [
 const sortField = ref<ListTradesParams['sortField']>(undefined)
 const sortOrder = ref<'asc' | 'desc' | undefined>(undefined)
 const page = ref(1)
-const pageSize = ref(50)
+const pageSize = ref(10)
 
 // ── Display state ───────────────────────────────────────────────────────────
 
@@ -156,7 +150,7 @@ const pagination = computed(() => ({
   pageSize: pageSize.value,
   itemCount: total.value,
   showSizePicker: true,
-  pageSizes: [20, 50, 100],
+  pageSizes: [10, 20, 50, 100],
   prefix: () => `共 ${total.value} 条`,
 }))
 
@@ -207,16 +201,6 @@ function resetFilters() {
   fHoldMax.value = null
   page.value = 1
   void load()
-}
-
-// Debounce for tsCode input (~300ms)
-let tsCodeTimer: ReturnType<typeof setTimeout> | null = null
-function onTsCodeInput() {
-  if (tsCodeTimer !== null) clearTimeout(tsCodeTimer)
-  tsCodeTimer = setTimeout(() => {
-    tsCodeTimer = null
-    applyFilters()
-  }, 300)
 }
 
 const SORT_ALLOWED = [

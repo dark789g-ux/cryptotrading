@@ -59,7 +59,8 @@
       v-model:show="showForm"
       :title="editingTest ? '编辑方案' : '新建方案'"
       :description="editingTest ? '修改信号前向统计方案配置' : '配置买入条件与出场规则，统计历史胜率与盈亏比'"
-      width="min(860px, 96vw)"
+      width="min(1100px, 96vw)"
+      maximizable
       :mask-closable="false"
     >
       <SignalTestForm

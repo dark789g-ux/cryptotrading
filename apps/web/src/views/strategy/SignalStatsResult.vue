@@ -26,108 +26,29 @@
         {{ latestRun.errorMessage ?? '未知错误' }}
       </n-alert>
 
-      <!-- Completed: metrics + tabs -->
-      <template v-if="latestRun.status === 'completed'">
-        <n-grid :cols="5" :x-gap="12" :y-gap="12" class="metrics-grid">
-          <n-grid-item>
-            <n-statistic label="样本数">
-              <span>{{ latestRun.sampleCount ?? '—' }}</span>
-            </n-statistic>
-          </n-grid-item>
-          <n-grid-item>
-            <n-statistic label="胜率">
-              <n-tooltip v-if="latestRun.winRate !== null" trigger="hover">
-                <template #trigger>
-                  <span>{{ fmtPct(latestRun.winRate) }}</span>
-                </template>
-                盈利笔数 / 总样本数
-              </n-tooltip>
-              <span v-else>—</span>
-            </n-statistic>
-          </n-grid-item>
-          <n-grid-item>
-            <n-statistic label="赔率 b">
-              <n-tooltip trigger="hover">
-                <template #trigger>
-                  <span>{{ fmtNullable(latestRun.payoffRatio) }}</span>
-                </template>
-                <span v-if="latestRun.payoffRatio !== null">均盈 / |均亏|</span>
-                <span v-else>无亏损样本，赔率无法计算</span>
-              </n-tooltip>
-            </n-statistic>
-          </n-grid-item>
-          <n-grid-item>
-            <n-statistic label="盈亏比 PF">
-              <n-tooltip trigger="hover">
-                <template #trigger>
-                  <span>{{ fmtNullable(latestRun.profitFactor) }}</span>
-                </template>
-                <span v-if="latestRun.profitFactor !== null">总盈利 / |总亏损|</span>
-                <span v-else>无亏损样本，PF 无法计算</span>
-              </n-tooltip>
-            </n-statistic>
-          </n-grid-item>
-          <n-grid-item>
-            <n-statistic label="凯利 f*">
-              <n-tooltip trigger="hover">
-                <template #trigger>
-                  <span>{{ fmtNullable(latestRun.kellyF) }}</span>
-                </template>
-                <span v-if="latestRun.kellyF !== null">Kelly 最优仓位比例</span>
-                <span v-else>无亏损样本，凯利无法计算</span>
-              </n-tooltip>
-            </n-statistic>
-          </n-grid-item>
-          <n-grid-item>
-            <n-statistic label="均持仓天数">
-              <span>{{ fmtNullable(latestRun.avgHoldDays) }}</span>
-            </n-statistic>
-          </n-grid-item>
-          <n-grid-item>
-            <n-statistic label="均盈">
-              <span>{{ fmtPctNullable(latestRun.avgWin) }}</span>
-            </n-statistic>
-          </n-grid-item>
-          <n-grid-item>
-            <n-statistic label="均亏">
-              <span>{{ fmtPctNullable(latestRun.avgLoss) }}</span>
-            </n-statistic>
-          </n-grid-item>
-          <n-grid-item>
-            <n-statistic label="最差单笔收益">
-              <n-tooltip trigger="hover">
-                <template #trigger>
-                  <span :style="worstStyle(latestRun.worstTradeRet)">
-                    {{ fmtPctNullable(latestRun.worstTradeRet) }}
-                  </span>
-                </template>
-                历史最差单笔收益（min ret），全胜时可为正
-              </n-tooltip>
-            </n-statistic>
-          </n-grid-item>
-          <n-grid-item>
-            <n-statistic label="最佳单笔收益">
-              <n-tooltip trigger="hover">
-                <template #trigger>
-                  <span :style="bestStyle(latestRun.bestTradeRet)">
-                    {{ fmtPctNullable(latestRun.bestTradeRet) }}
-                  </span>
-                </template>
-                历史最佳单笔收益（max ret）
-              </n-tooltip>
-            </n-statistic>
-          </n-grid-item>
-        </n-grid>
-
-        <n-tabs v-model:value="activeTab" display-directive="show:lazy" type="line">
-          <n-tab-pane name="histogram" tab="收益率分布">
-            <RetHistogram :run-id="latestRun.id" />
-          </n-tab-pane>
-          <n-tab-pane name="trades" tab="逐笔明细">
-            <SignalTradesPanel :run-id="latestRun.id" />
-          </n-tab-pane>
-        </n-tabs>
-      </template>
+      <n-tabs v-model:value="activeTab" display-directive="show:lazy" type="line">
+        <n-tab-pane name="config" tab="方案配置">
+          <SignalTestConfigPanel :test="test" />
+        </n-tab-pane>
+        <n-tab-pane
+          name="histogram"
+          tab="收益率分布"
+          :disabled="latestRun.status !== 'completed'"
+        >
+          <SignalStatsMetricsGrid
+            v-if="latestRun.status === 'completed'"
+            :run="latestRun"
+          />
+          <RetHistogram v-if="latestRun.status === 'completed'" :run-id="latestRun.id" />
+        </n-tab-pane>
+        <n-tab-pane
+          name="trades"
+          tab="逐笔明细"
+          :disabled="latestRun.status !== 'completed'"
+        >
+          <SignalTradesPanel v-if="latestRun.status === 'completed'" :run-id="latestRun.id" />
+        </n-tab-pane>
+      </n-tabs>
     </template>
 
     <n-empty v-else description="尚无运行结果" />
@@ -135,20 +56,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import {
-  NGrid,
-  NGridItem,
-  NStatistic,
-  NTooltip,
-  NAlert,
-  NTabs,
-  NTabPane,
-  NEmpty,
-} from 'naive-ui'
+import { ref, computed, watch } from 'vue'
+import { NAlert, NTabs, NTabPane, NEmpty } from 'naive-ui'
 import type { SignalTestWithLatestRun } from '../../api/modules/strategy/signalStats'
 import RetHistogram from '../../components/strategy/RetHistogram.vue'
+import SignalStatsMetricsGrid from '../../components/strategy/SignalStatsMetricsGrid.vue'
 import SignalTradesPanel from '../../components/strategy/SignalTradesPanel.vue'
+import SignalTestConfigPanel from '../../components/strategy/SignalTestConfigPanel.vue'
 import SignalStatsRunProgress from './SignalStatsRunProgress.vue'
 import { fmtTradeDate } from '../../components/strategy/signalStatsFormatters'
 
@@ -183,44 +97,19 @@ const conditionLabel = computed(
   () => `买${props.test.buyConditions.length}/卖${props.test.exitConditions?.length ?? 0}条`,
 )
 
-// ── Formatting helpers (metrics cards only) ────────────────────────────────────
-
-function fmtNullable(v: string | null | undefined): string {
-  if (v === null || v === undefined) return '—'
-  const n = parseFloat(v)
-  if (isNaN(n)) return '—'
-  return n.toFixed(3)
-}
-
-function fmtPct(v: string | null | undefined): string {
-  if (v === null || v === undefined) return '—'
-  const n = parseFloat(v)
-  if (isNaN(n)) return '—'
-  return (n * 100).toFixed(1) + '%'
-}
-
-function fmtPctNullable(v: string | null | undefined): string {
-  if (v === null || v === undefined) return '—'
-  return fmtPct(v)
-}
-
-function worstStyle(v: string | null | undefined): Record<string, string> {
-  if (v === null || v === undefined) return {}
-  const n = parseFloat(v)
-  if (isNaN(n)) return {}
-  return n < 0 ? { color: '#d03050' } : {}
-}
-
-function bestStyle(v: string | null | undefined): Record<string, string> {
-  if (v === null || v === undefined) return {}
-  const n = parseFloat(v)
-  if (isNaN(n)) return {}
-  return n > 0 ? { color: '#18a058' } : {}
-}
-
 // ── Tabs ────────────────────────────────────────────────────────────────────────
 
-const activeTab = ref<'histogram' | 'trades'>('histogram')
+const activeTab = ref<'config' | 'histogram' | 'trades'>('histogram')
+
+watch(
+  () => latestRun.value?.status,
+  (status) => {
+    if (status !== 'completed' && (activeTab.value === 'histogram' || activeTab.value === 'trades')) {
+      activeTab.value = 'config'
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
@@ -243,9 +132,5 @@ const activeTab = ref<'histogram' | 'trades'>('histogram')
 
 .config-summary .dot {
   color: var(--n-text-color-3, #bbb);
-}
-
-.metrics-grid {
-  margin-bottom: 16px;
 }
 </style>
