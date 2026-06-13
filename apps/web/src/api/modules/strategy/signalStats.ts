@@ -8,6 +8,14 @@ export interface SignalTestUniverse {
 
 export type SignalTestExitMode = 'fixed_n' | 'strategy' | 'trailing_lock'
 
+/** 波段跟踪止损额外参数；null = 全默认（与后端 entity band_lock_params jsonb 对齐）。 */
+export interface BandLockParams {
+  stopRatio: number
+  floorRatio: number
+  floorEnabled: boolean
+  ma5RequireDown: boolean
+}
+
 export interface SignalTest {
   id: string
   name: string
@@ -16,6 +24,7 @@ export interface SignalTest {
   horizonN: number | null
   exitConditions: StrategyConditionItem[] | null
   maxHold: number | null
+  bandLockParams: BandLockParams | null
   universe: SignalTestUniverse
   dateStart: string
   dateEnd: string
@@ -30,6 +39,11 @@ export interface CreateSignalTestDto {
   horizonN?: number
   exitConditions?: StrategyConditionItem[]
   maxHold?: number
+  // trailing_lock 专属，全默认时不送（后端存 null → 零漂移）
+  stopRatio?: number
+  floorRatio?: number
+  floorEnabled?: boolean
+  ma5RequireDown?: boolean
   universe: SignalTestUniverse
   dateStart: string
   dateEnd: string

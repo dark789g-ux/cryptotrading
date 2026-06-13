@@ -51,6 +51,7 @@
 
     <template v-else>
       <!-- trailing_lock：波段跟踪止损，无卖出条件编辑器，maxHold 可选 -->
+      <n-divider dashed>波段跟踪止损参数</n-divider>
       <n-form-item
         label="最长持有天数（可选，留空不封顶）"
         path="maxHold"
@@ -64,6 +65,59 @@
           placeholder="留空不封顶"
           style="width: 200px"
         />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          <label-with-tip label="止损缓冲系数" :max-width="300">
+            止损价 = 跟踪低点 × 该系数。留空走默认 0.999；范围 (0,1]，量化到 0.001。
+            越小止损越宽松，越接近 1 越贴近跟踪低点。
+          </label-with-tip>
+        </template>
+        <n-input-number
+          v-model:value="form.stopRatio"
+          :min="0.001"
+          :max="1"
+          :step="0.001"
+          :precision="3"
+          style="width: 200px"
+        />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          <label-with-tip label="启用成本地板" :max-width="300">
+            开启后止损价不低于「成本价 × 地板系数」，可在回暖前锁住本金/锁盈。关闭则仅按跟踪低点止损。
+          </label-with-tip>
+        </template>
+        <n-switch v-model:value="form.floorEnabled" />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          <label-with-tip label="成本地板系数" :max-width="300">
+            成本地板 = 成本价 × 该系数。留空走默认 0.999；范围 [0.001,9.999]，允许 &gt; 1（锁盈）。
+            量化到 0.001。仅在「启用成本地板」开启时生效。
+          </label-with-tip>
+        </template>
+        <n-input-number
+          v-model:value="form.floorRatio"
+          :min="0.001"
+          :step="0.001"
+          :precision="3"
+          :disabled="!form.floorEnabled"
+          style="width: 200px"
+        />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          <label-with-tip label="MA5 需下行才离场" :max-width="300">
+            锁定后触发 MA5 离场时，是否要求 MA5 同时下行才离场。留空走默认开启；
+            关闭则收盘价跌破 MA5 即离场（更敏感）。
+          </label-with-tip>
+        </template>
+        <n-switch v-model:value="form.ma5RequireDown" />
       </n-form-item>
     </template>
 
@@ -113,6 +167,7 @@ import {
   NInputNumber,
   NRadioGroup,
   NRadio,
+  NSwitch,
   NDatePicker,
   useMessage,
   type FormInst,
@@ -125,6 +180,7 @@ import type {
   SignalTestExitMode,
 } from '../../api/modules/strategy/signalStats'
 import ConditionRows from '../../components/strategy-conditions/ConditionRows.vue'
+import LabelWithTip from '../../components/backtest/strategy/LabelWithTip.vue'
 
 // ── Main form ─────────────────────────────────────────────────────────────────
 
@@ -167,6 +223,14 @@ function buildDefaultRange(): [number, number] {
   return [start.getTime(), end.getTime()]
 }
 
+// trailing_lock 专属参数默认值（与后端 DTO/spec 一致）
+const BAND_LOCK_DEFAULTS = {
+  stopRatio: 0.999,
+  floorRatio: 0.999,
+  floorEnabled: true,
+  ma5RequireDown: true,
+}
+
 const form = ref({
   name: '',
   buyConditions: [] as StrategyConditionItem[],
@@ -174,6 +238,11 @@ const form = ref({
   horizonN: 5 as number | null,
   exitConditions: [] as StrategyConditionItem[],
   maxHold: 20 as number | null,
+  // trailing_lock 专属（全默认时提交不上送 → 后端存 null）
+  stopRatio: BAND_LOCK_DEFAULTS.stopRatio,
+  floorRatio: BAND_LOCK_DEFAULTS.floorRatio,
+  floorEnabled: BAND_LOCK_DEFAULTS.floorEnabled,
+  ma5RequireDown: BAND_LOCK_DEFAULTS.ma5RequireDown,
   dateRange: buildDefaultRange() as [number, number] | null,
   universeType: 'all' as 'all' | 'list',
   tsCodesText: '',
@@ -189,6 +258,7 @@ watch(
     form.value.horizonN = data.horizonN
     form.value.exitConditions = (data.exitConditions ?? []).map((c) => ({ ...c }))
     form.value.maxHold = data.maxHold
+    applyBandLockParams(data.bandLockParams)
     form.value.universeType = data.universe.type
     form.value.tsCodesText = (data.universe.tsCodes ?? []).join('\n')
     if (data.dateStart && data.dateEnd) {
@@ -208,6 +278,7 @@ watch(
     form.value.horizonN = data.horizonN
     form.value.exitConditions = (data.exitConditions ?? []).map((c) => ({ ...c }))
     form.value.maxHold = data.maxHold
+    applyBandLockParams(data.bandLockParams)
     form.value.universeType = data.universe.type
     form.value.tsCodesText = (data.universe.tsCodes ?? []).join('\n')
     if (data.dateStart && data.dateEnd) {
@@ -216,6 +287,14 @@ watch(
   },
   { immediate: true },
 )
+
+/** 回填 trailing_lock 参数：null → 全默认（与后端 band_lock_params=null 语义一致）。 */
+function applyBandLockParams(p: SignalTest['bandLockParams']) {
+  form.value.stopRatio = p?.stopRatio ?? BAND_LOCK_DEFAULTS.stopRatio
+  form.value.floorRatio = p?.floorRatio ?? BAND_LOCK_DEFAULTS.floorRatio
+  form.value.floorEnabled = p?.floorEnabled ?? BAND_LOCK_DEFAULTS.floorEnabled
+  form.value.ma5RequireDown = p?.ma5RequireDown ?? BAND_LOCK_DEFAULTS.ma5RequireDown
+}
 
 // 切换出场模式时复位 maxHold：trailing_lock 默认空=不封顶（spec 03 §1.3）；
 // strategy maxHold 必填，从空切回时回填默认 20 避免立刻校验报错。
@@ -301,6 +380,15 @@ async function handleSubmit() {
   } else {
     // trailing_lock: 无 exitConditions、无 horizonN，maxHold 可选（留空不封顶）
     dto.maxHold = form.value.maxHold ?? undefined
+    // 只上送非默认字段，4 个全默认则一个都不送 → 后端存 band_lock_params=null（零漂移）
+    if (form.value.stopRatio !== BAND_LOCK_DEFAULTS.stopRatio)
+      dto.stopRatio = form.value.stopRatio
+    if (form.value.floorRatio !== BAND_LOCK_DEFAULTS.floorRatio)
+      dto.floorRatio = form.value.floorRatio
+    if (form.value.floorEnabled !== BAND_LOCK_DEFAULTS.floorEnabled)
+      dto.floorEnabled = form.value.floorEnabled
+    if (form.value.ma5RequireDown !== BAND_LOCK_DEFAULTS.ma5RequireDown)
+      dto.ma5RequireDown = form.value.ma5RequireDown
   }
 
   emit('submit', dto)
