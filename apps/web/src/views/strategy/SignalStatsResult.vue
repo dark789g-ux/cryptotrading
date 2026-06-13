@@ -64,7 +64,7 @@ import SignalStatsMetricsGrid from '../../components/strategy/SignalStatsMetrics
 import SignalTradesPanel from '../../components/strategy/SignalTradesPanel.vue'
 import SignalTestConfigPanel from '../../components/strategy/SignalTestConfigPanel.vue'
 import SignalStatsRunProgress from './SignalStatsRunProgress.vue'
-import { fmtTradeDate } from '../../components/strategy/signalStatsFormatters'
+import { fmtTradeDate, exitModeSummary } from '../../components/strategy/signalStatsFormatters'
 
 interface Props {
   test: SignalTestWithLatestRun
@@ -76,14 +76,8 @@ const latestRun = computed(() => props.test.latestRun)
 
 // ── Config summary ─────────────────────────────────────────────────────────────
 
-const exitModeLabel = computed(() => {
-  const t = props.test
-  if (t.exitMode === 'fixed_n') return `固定${t.horizonN}日`
-  if (t.exitMode === 'trailing_lock')
-    return t.maxHold == null ? '波段跟踪止损' : `波段跟踪止损(≤${t.maxHold})`
-  if (t.exitMode === 'phase_lock') return '两阶段锁定止损'
-  return `条件出场(≤${t.maxHold})`
-})
+// 出场方式摘要标签统一收敛到 signalStatsFormatters，禁止此处硬编码副本
+const exitModeLabel = computed(() => exitModeSummary(props.test))
 
 const universeLabel = computed(() => {
   const u = props.test.universe

@@ -95,7 +95,7 @@
 import { computed, ref } from 'vue';
 import { NInput, NTabs, NTabPane } from 'naive-ui';
 import type { SignalTest } from '../../api/modules/strategy/signalStats';
-import { fmtTradeDate } from './signalStatsFormatters';
+import { fmtTradeDate, exitModeText as exitModeTextLabel } from './signalStatsFormatters';
 import { formatConditionItem } from '../strategy-conditions/conditionFieldMeta';
 import FieldHelpTip from '../common/FieldHelpTip.vue';
 
@@ -110,13 +110,8 @@ const activeTab = ref<'buy' | 'exit' | 'range' | 'universe'>('buy');
 /** 信号前向统计当前仅支持 A 股 */
 const targetType = 'a-share' as const;
 
-const exitModeText = computed(() => {
-  const t = props.test;
-  if (t.exitMode === 'fixed_n') return '固定 N 个交易日';
-  if (t.exitMode === 'trailing_lock') return '波段跟踪止损';
-  if (t.exitMode === 'phase_lock') return '两阶段锁定止损';
-  return '卖出条件命中';
-});
+// 出场模式描述标签统一收敛到 signalStatsFormatters，禁止此处硬编码副本
+const exitModeText = computed(() => exitModeTextLabel(props.test.exitMode));
 
 const dateRangeText = computed(
   () => `${fmtTradeDate(props.test.dateStart)} ~ ${fmtTradeDate(props.test.dateEnd)}`,

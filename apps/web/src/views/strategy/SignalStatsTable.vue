@@ -24,6 +24,7 @@ import {
   formatTradeDate,
   formatUTCDateTime,
 } from '../../components/symbols/a-shares/aSharesFormatters'
+import { exitModeTag } from '../../components/strategy/signalStatsFormatters'
 
 // ── props ──────────────────────────────────────────────────────────────────
 const props = defineProps<{
@@ -75,33 +76,9 @@ const columns = computed<DataTableColumns<SignalTestWithLatestRun>>(() => [
     key: 'exitMode',
     width: 160,
     render(row) {
-      if (row.exitMode === 'fixed_n') {
-        return h(
-          NTag,
-          { type: 'info', size: 'small' },
-          { default: () => `固定N日(N=${row.horizonN ?? '?'})` },
-        )
-      }
-      if (row.exitMode === 'trailing_lock') {
-        const cap = row.maxHold == null ? '不封顶' : `≤${row.maxHold}`
-        return h(
-          NTag,
-          { type: 'success', size: 'small' },
-          { default: () => `波段跟踪止损(${cap})` },
-        )
-      }
-      if (row.exitMode === 'phase_lock') {
-        return h(
-          NTag,
-          { type: 'success', size: 'small' },
-          { default: () => '两阶段锁定止损' },
-        )
-      }
-      return h(
-        NTag,
-        { type: 'warning', size: 'small' },
-        { default: () => `条件出场(≤${row.maxHold ?? '?'})` },
-      )
+      // 出场方式标签/颜色统一收敛到 signalStatsFormatters，禁止此处硬编码副本
+      const { type, label } = exitModeTag(row)
+      return h(NTag, { type, size: 'small' }, { default: () => label })
     },
   },
 

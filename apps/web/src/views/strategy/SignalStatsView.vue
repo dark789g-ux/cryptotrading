@@ -87,6 +87,7 @@ import type {
   CreateSignalTestDto,
   SignalTestWithLatestRun,
 } from '../../api/modules/strategy/signalStats'
+import { exitModeShortLabel } from '../../components/strategy/signalStatsFormatters'
 import AppModal from '../../components/common/AppModal.vue'
 import SignalTestForm from './SignalTestForm.vue'
 import SignalStatsResult from './SignalStatsResult.vue'
@@ -113,14 +114,10 @@ const submitting = ref(false)
 const importSource = ref<SignalTest | null>(null)
 const showImportPopover = ref(false)
 
-function exitModeLabel(mode: string): string {
-  const map: Record<string, string> = { fixed_n: '固定天数', strategy: '策略条件', trailing_lock: '移动止损', phase_lock: '两阶段锁定止损' }
-  return map[mode] ?? mode
-}
-
+// 出场方式精简标签统一收敛到 signalStatsFormatters，禁止此处硬编码副本
 const importOptions = computed(() =>
   store.tests.map((t) => ({
-    label: `${t.name}（${exitModeLabel(t.exitMode)} / ${t.universe.type === 'all' ? '全市场' : '指定标的'}）`,
+    label: `${t.name}（${exitModeShortLabel(t.exitMode)} / ${t.universe.type === 'all' ? '全市场' : '指定标的'}）`,
     value: t.id,
   }))
 )
