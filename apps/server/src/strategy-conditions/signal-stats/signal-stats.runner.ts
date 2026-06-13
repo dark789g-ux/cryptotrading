@@ -108,7 +108,7 @@ export class SignalStatsRunner {
   }
 
   private async doExecute(test: SignalTestEntity, runId: string): Promise<void> {
-    const { buyConditions, exitMode, horizonN, exitConditions, maxHold, universe, dateStart, dateEnd } = test;
+    const { buyConditions, exitMode, horizonN, exitConditions, maxHold, bandLockParams, universe, dateStart, dateEnd } = test;
 
     // ── 1. 初始化 progressTotal（区间 SSE 交易日数）
     const tradingDays = await this.enumerator.listSseTradingDays(dateStart, dateEnd);
@@ -161,7 +161,15 @@ export class SignalStatsRunner {
       exit = { mode: 'fixed_n', horizonN: horizonN! };
     } else if (exitMode === 'trailing_lock') {
       // maxHold 可选（留空=无硬上限）；null/undefined 统一收敛为 undefined。
-      exit = { mode: 'trailing_lock', maxHold: maxHold ?? undefined };
+      // band_lock 4 参数从 bandLockParams（已是量化后的网格点 ratio）透传；null → 各自默认。
+      exit = {
+        mode: 'trailing_lock',
+        maxHold: maxHold ?? undefined,
+        stopRatio: bandLockParams?.stopRatio ?? 0.999,
+        floorRatio: bandLockParams?.floorRatio ?? 0.999,
+        floorEnabled: bandLockParams?.floorEnabled ?? true,
+        ma5RequireDown: bandLockParams?.ma5RequireDown ?? true,
+      };
     } else {
       exit = { mode: 'strategy', maxHold: maxHold! };
     }

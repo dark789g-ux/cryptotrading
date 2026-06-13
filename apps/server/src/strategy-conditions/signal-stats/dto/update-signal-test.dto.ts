@@ -14,6 +14,11 @@ export interface UpdateSignalTestDto {
   horizonN?: number;
   exitConditions?: StrategyConditionItem[];
   maxHold?: number;
+  // 波段跟踪止损专属参数（仅 trailing_lock）；语义见 create-signal-test.dto.ts。
+  stopRatio?: number;
+  floorRatio?: number;
+  floorEnabled?: boolean;
+  ma5RequireDown?: boolean;
   universe?: SignalTestUniverse;
   dateStart?: string;
   dateEnd?: string;

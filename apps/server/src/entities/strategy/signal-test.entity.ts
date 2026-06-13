@@ -36,6 +36,18 @@ export class SignalTestEntity {
   @Column({ type: 'int', nullable: true, name: 'max_hold' })
   maxHold: number | null;
 
+  /**
+   * 波段跟踪止损额外参数（仅 trailing_lock）；null = 全默认（存量行零漂移）。
+   * 存入的是已量化（round-half-up 到 0.001）的网格点 ratio——runner 直接透传给核，核不再量化。
+   */
+  @Column({ type: 'jsonb', nullable: true, name: 'band_lock_params' })
+  bandLockParams: {
+    stopRatio: number;
+    floorRatio: number;
+    floorEnabled: boolean;
+    ma5RequireDown: boolean;
+  } | null;
+
   @Column({ type: 'jsonb' })
   universe: SignalTestUniverse;
 

@@ -74,6 +74,7 @@ function makeTestEntity(overrides: Partial<SignalTestEntity> = {}): SignalTestEn
     horizonN: 5,
     exitConditions: null,
     maxHold: null,
+    bandLockParams: null,
     universe: { type: 'all' },
     dateStart: '20240101',
     dateEnd: '20240131',
@@ -234,9 +235,17 @@ describe('SignalStatsRunner', () => {
       );
 
       // 1) simulator 收到的 exit 配置正确 + exitConditions=null（trailing_lock 不传卖出条件）
+      //    bandLockParams=null → 4 个 band_lock 字段回落默认（0.999/0.999/true/true）。
       expect(simulator.simulateSignalsBatched).toHaveBeenCalledTimes(1);
       const params = simulator.simulateSignalsBatched.mock.calls[0][0] as Record<string, unknown>;
-      expect(params.exit).toEqual({ mode: 'trailing_lock', maxHold: 10 });
+      expect(params.exit).toEqual({
+        mode: 'trailing_lock',
+        maxHold: 10,
+        stopRatio: 0.999,
+        floorRatio: 0.999,
+        floorEnabled: true,
+        ma5RequireDown: true,
+      });
       expect(params.exitConditions).toBeNull();
 
       // 2) 两条 trade 落库（含 stop / ma5_exit reason 透传）
@@ -268,7 +277,50 @@ describe('SignalStatsRunner', () => {
       );
 
       const params = simulator.simulateSignalsBatched.mock.calls[0][0] as Record<string, unknown>;
-      expect(params.exit).toEqual({ mode: 'trailing_lock', maxHold: undefined });
+      expect(params.exit).toEqual({
+        mode: 'trailing_lock',
+        maxHold: undefined,
+        stopRatio: 0.999,
+        floorRatio: 0.999,
+        floorEnabled: true,
+        ma5RequireDown: true,
+      });
+    });
+
+    it('bandLockParams 非默认 → 透传量化值进 ExitConfig（不回落默认）', async () => {
+      const runRepo = makeMockRunRepo();
+      const tradingDays = ['20240102', '20240103'];
+      const signals = [{ signalDate: '20240102', tsCode: '600519.SH' }];
+      const simulator = makeMockSimulator([{ kind: 'filtered', reason: 'insufficient_data' }]);
+      const enumerator = makeMockEnumerator(tradingDays, tradingDays, signals);
+      const runner = buildRunner(enumerator, simulator, runRepo);
+
+      await runner.executeRun(
+        makeTestEntity({
+          exitMode: 'trailing_lock',
+          horizonN: null,
+          exitConditions: null,
+          maxHold: null,
+          // 已是量化后的网格点值（service 落库时量化，runner 直接透传，核不再量化）
+          bandLockParams: {
+            stopRatio: 0.951,
+            floorRatio: 1.5,
+            floorEnabled: false,
+            ma5RequireDown: false,
+          },
+        }),
+        'run-tl-params',
+      );
+
+      const params = simulator.simulateSignalsBatched.mock.calls[0][0] as Record<string, unknown>;
+      expect(params.exit).toEqual({
+        mode: 'trailing_lock',
+        maxHold: undefined,
+        stopRatio: 0.951,
+        floorRatio: 1.5,
+        floorEnabled: false,
+        ma5RequireDown: false,
+      });
     });
   });
 
