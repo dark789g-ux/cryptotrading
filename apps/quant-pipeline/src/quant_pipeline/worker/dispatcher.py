@@ -618,21 +618,46 @@ class Dispatcher:
 # Reaper（02-quant-pipeline.md §4 + 00-index.md §3）
 # ----------------------------------------------------------------------
 
-def reap_stale_running_jobs(stale_minutes: float = 3) -> int:
-    """回收 heartbeat 超时的 running 行；返回被回收的行数。
+# 孤儿 running job 回收的 error_text 标记（决策 3）：worker 崩溃/被杀后卡 running
+# 的行，heartbeat_at 早于阈值 → reaper 回收。无论重 pending 还是置 failed，都把
+# error_text 标成本前缀，便于事后区分「孤儿回收」与「runner 主动失败」（后者由
+# dispatcher 写完整 traceback）。
+_ORPHAN_ERROR_TEXT = "orphaned: stale heartbeat (worker likely crashed/killed)"
 
-    规则：status='running' AND heartbeat_at < now() - interval '<stale> min'
-      - attempts < max_attempts → 重置为 pending
-      - 否则 → status='failed' + error_text='heartbeat_timeout'
+
+def reap_stale_running_jobs(stale_seconds: float = 600.0) -> int:
+    """回收 heartbeat 超时的孤儿 running 行；返回被回收的行数。
+
+    判据（决策 2）：status='running' AND heartbeat_at < now() - <stale_seconds> 秒。
+    阈值由调用方（worker/loop.py）从 settings.worker_stale_running_threshold_seconds
+    透传，默认 600s（10 分钟），远大于心跳周期（默认 30s），**绝不误杀活 job**：
+    存活的 running job 由 _HeartbeatThread 每 ~30s 刷新 heartbeat_at，永远不会落到
+    now() - 10min 之前。
+
+    处置（决策 3，与 dispatcher 正常失败路径 dispatcher.dispatch 同款重试语义）：
+      - attempts < max_attempts → 重置为 pending（由下一次 poll 重新领取并自增
+        attempts）。kelly_sweep / labels 重跑均幂等，故重试安全：
+          · kelly_sweep：persist_results 写前 DELETE WHERE job_id=? 再 INSERT
+            （persist.py），半成品被本 job 重跑覆盖、无残留；
+          · labels：增量缺口检测 + INSERT ... ON CONFLICT DO UPDATE 行级 upsert
+            （labels/runner.py），重跑只补缺口 / 覆盖同 PK，幂等。
+        error_text 标 _ORPHAN_ERROR_TEXT，供事后追溯本次孤儿回收。
+      - 否则（attempts 已耗尽）→ status='failed' + error_text=_ORPHAN_ERROR_TEXT
+        + finished_at=now()（终态，不再重试）。
 
     attempts 自增语义见 _finalize_job 上方注释：reaper 重置 pending 时
     **不动 attempts**，由下一次 poll 统一自增。`s.attempts < s.max_attempts`
     读的是本次运行所用的 attempts 值。
+
+    并发安全（决策 4）：stale CTE 用 FOR UPDATE SKIP LOCKED 取行（与 poll_one 同款），
+    多 worker 同时 reaper 时各取互斥子集、不重复回收。
+
+    Args:
+        stale_seconds: 孤儿判定阈值（秒）。默认 600（与 settings 默认对齐）。
     """
 
-    # 问题 6：interval 改用 make_interval + 绑定参数，与项目其它处一致。
-    # make_interval(mins =>) 仅收整数，故以 secs（double precision）传入，
-    # 支持浮点分钟。
+    # interval 用 make_interval(secs => ...) + 绑定参数（与项目其它处一致）；
+    # 时间列 timestamptz、比对 now()（项目 datetime 规范）。
     sql = text(
         """
         WITH stale AS (
@@ -646,6 +671,7 @@ def reap_stale_running_jobs(stale_minutes: float = 3) -> int:
             UPDATE ml.jobs j
             SET status       = 'pending',
                 progress     = 0,
+                error_text   = :orphan_text,
                 heartbeat_at = NULL,
                 started_at   = NULL,
                 finished_at  = NULL
@@ -657,7 +683,7 @@ def reap_stale_running_jobs(stale_minutes: float = 3) -> int:
         giveup AS (
             UPDATE ml.jobs j
             SET status      = 'failed',
-                error_text  = 'heartbeat_timeout',
+                error_text  = :orphan_text,
                 finished_at = now()
             FROM stale s
             WHERE j.id = s.id
@@ -668,10 +694,13 @@ def reap_stale_running_jobs(stale_minutes: float = 3) -> int:
         """
     )
     with session_scope() as session:
-        row = session.execute(sql, {"stale_secs": float(stale_minutes) * 60.0}).first()
+        row = session.execute(
+            sql,
+            {"stale_secs": float(stale_seconds), "orphan_text": _ORPHAN_ERROR_TEXT},
+        ).first()
         count = int(row[0]) if row else 0
     if count:
-        logger.warning("reaper_reaped", extra={"reaped": count})
+        logger.warning("reaper_reaped", extra={"reaped": count, "stale_seconds": stale_seconds})
     return count
 
 

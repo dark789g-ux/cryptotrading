@@ -50,6 +50,20 @@ class Settings(BaseSettings):  # type: ignore[misc]  # 缺 pydantic-settings stu
     worker_reaper_interval_seconds: float = Field(
         default=60.0, alias="WORKER_REAPER_INTERVAL_SECONDS"
     )
+    # 孤儿 running job 回收阈值：status='running' 且 heartbeat_at 早于
+    # now() - 本阈值 的行视为「worker 崩溃/被杀后卡 running 的孤儿」，由 reaper
+    # 回收（attempts < max_attempts → 重 pending 重试；否则 → failed）。
+    #
+    # 取值远大于心跳周期，确保**绝不误杀活 job**：
+    #   - 心跳周期 worker_heartbeat_interval_seconds 默认 30s（后台守护线程每 30s
+    #     刷一次 heartbeat_at，长任务不再被误判超时）；
+    #   - 默认 600s = 10 分钟 ≈ 心跳周期 20 倍，留足 DB 抖动 / GC 卡顿 / 单次心跳
+    #     失败重试的容差（_HeartbeatThread 单次失败仅 warning，不立即重刷）。
+    # 单位秒；reaper 内部以 make_interval(secs => ...) 比对 now()（项目 datetime
+    # 规范：时间列 timestamptz、SQL 比对用 now()）。
+    worker_stale_running_threshold_seconds: float = Field(
+        default=600.0, alias="WORKER_STALE_RUNNING_THRESHOLD_SECONDS"
+    )
 
 
 @lru_cache(maxsize=1)

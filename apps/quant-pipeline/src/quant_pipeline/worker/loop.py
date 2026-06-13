@@ -54,9 +54,12 @@ def run_worker_loop() -> None:
         pass
 
     logger.info("worker_started")
-    # 启动时回收一次
+    # 孤儿回收阈值：worker 崩溃/被杀后卡 running 的行，heartbeat_at 超此阈值即回收。
+    # 远大于心跳周期，绝不误杀活 job（见 settings.worker_stale_running_threshold_seconds）。
+    stale_threshold = settings.worker_stale_running_threshold_seconds
+    # 启动时回收一次（worker 上一轮被杀留下的孤儿）。
     try:
-        reap_stale_running_jobs()
+        reap_stale_running_jobs(stale_threshold)
     except Exception as exc:  # noqa: BLE001
         logger.error("reaper_startup_failed", extra={"err": str(exc)})
 
@@ -74,10 +77,13 @@ def run_worker_loop() -> None:
         else:
             dispatcher.dispatch(job)
 
-        # reaper 周期触发
+        # reaper 周期触发（每 worker_reaper_interval_seconds 一次，集成进循环、
+        # 非独立 cron 守护进程）。staleness 阈值远大于此 cadence，故按 cadence 周期
+        # 回收与「每轮 poll 前回收」在功能上等价（孤儿只在超阈值后才可回收），但 DB
+        # 开销低一个量级，故沿用既有周期触发而非每轮 poll 都跑。
         if time.monotonic() - last_reap > settings.worker_reaper_interval_seconds:
             try:
-                reap_stale_running_jobs()
+                reap_stale_running_jobs(stale_threshold)
             except Exception as exc:  # noqa: BLE001
                 logger.error("reaper_failed", extra={"err": str(exc)})
             last_reap = time.monotonic()
