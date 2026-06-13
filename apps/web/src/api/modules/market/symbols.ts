@@ -86,7 +86,43 @@ export interface SymbolQueryBody {
 
 export interface SymbolRow extends Record<string, unknown> {
   symbol: string
+  name?: string | null
   tags?: { id: string; name: string }[]
+}
+
+/** 自选表 quotes 行（camelCase 字段与 watchlistColumnDefs 对齐） */
+export interface WatchlistQuoteRow extends SymbolRow {
+  market?: string | null
+  industry?: string | null
+  pctChg?: string | number | null
+  amount?: string | number | null
+  turnoverRate?: string | number | null
+  pe?: string | number | null
+  peTtm?: string | number | null
+  pb?: string | number | null
+  circMv?: string | number | null
+  tradeDate?: string | null
+  close?: string | number | null
+  ma5?: number | null
+  ma30?: number | null
+  ma60?: number | null
+  ma120?: number | null
+  ma240?: number | null
+  kdjJ?: number | null
+  kdjK?: number | null
+  kdjD?: number | null
+  dif?: number | null
+  dea?: number | null
+  macd?: number | null
+  bbi?: number | null
+  quoteVolume10?: number | null
+  atr14?: number | null
+  lossAtr14?: number | null
+  low9?: number | null
+  high9?: number | null
+  riskRewardRatio?: number | null
+  stopLossPct?: number | null
+  openTime?: string | number | Date | null
 }
 
 export interface SymbolQueryResult {

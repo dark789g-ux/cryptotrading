@@ -253,6 +253,13 @@ export class WatchlistsService {
     return { ok: true };
   }
 
+  private async resolveProdModelVersion(): Promise<string | null> {
+    const rows = await this.dataSource.query<Array<{ model_version: string }>>(
+      `SELECT model_version FROM ml.model_runs WHERE status = 'prod' ORDER BY created_at DESC LIMIT 1`,
+    );
+    return rows[0]?.model_version ?? null;
+  }
+
   async getWatchlistQuotes(
     userId: string,
     id: string,
@@ -272,6 +279,22 @@ export class WatchlistsService {
     const offset = (page - 1) * pageSize;
     const pageSymbols = symbols.slice(offset, offset + pageSize);
 
+    const scoreModelVersion =
+      sort?.field === 'modelScore' ? await this.resolveProdModelVersion() : null;
+
+    const params: Array<string | number | string[]> = [interval, pageSymbols];
+    let scoreJoin = '';
+    if (scoreModelVersion) {
+      scoreJoin = `
+        LEFT JOIN ml.scores_daily sd
+          ON sd.ts_code = q.ts_code
+          AND sd.trade_date = q.trade_date
+          AND sd.model_version = $3`;
+      params.push(scoreModelVersion);
+    }
+
+    const aShareScoreSelect = scoreModelVersion ? 'sd.score AS "sortScore"' : 'NULL::numeric AS "sortScore"';
+
     let sql = `
       WITH page_symbols AS (
         SELECT symbol, ord::int
@@ -287,6 +310,18 @@ export class WatchlistsService {
         SELECT
           ps.ord,
           k.symbol,
+          sym.base_asset AS name,
+          NULL::text AS market,
+          NULL::text AS industry,
+          NULL::numeric AS "pctChg",
+          NULL::numeric AS amount,
+          NULL::numeric AS "turnoverRate",
+          NULL::numeric AS pe,
+          NULL::numeric AS "peTtm",
+          NULL::numeric AS pb,
+          NULL::numeric AS "circMv",
+          NULL::text AS "tradeDate",
+          NULL::jsonb AS tags,
           k.close,
           k.ma5,
           k.ma30,
@@ -294,10 +329,25 @@ export class WatchlistsService {
           k.kdj_j AS "kdjJ",
           k.risk_reward_ratio AS "riskRewardRatio",
           k.stop_loss_pct AS "stopLossPct",
-          k.open_time AS "openTime"
+          k.open_time AS "openTime",
+          k.dif,
+          k.dea,
+          k.macd,
+          k.kdj_k AS "kdjK",
+          k.kdj_d AS "kdjD",
+          k.bbi,
+          k.ma120,
+          k.ma240,
+          k.quote_volume_10 AS "quoteVolume10",
+          k.atr_14 AS "atr14",
+          k.loss_atr_14 AS "lossAtr14",
+          k.low_9 AS "low9",
+          k.high_9 AS "high9",
+          NULL::numeric AS "sortScore"
         FROM page_symbols ps
         JOIN crypto_latest latest ON latest.symbol = ps.symbol
         JOIN klines k ON k.symbol = latest.symbol AND k.open_time = latest.max_time AND k.interval = $1
+        LEFT JOIN symbols sym ON sym.symbol = ps.symbol
       ),
       a_share_latest AS (
         SELECT q.ts_code, MAX(q.trade_date) AS trade_date
@@ -309,6 +359,24 @@ export class WatchlistsService {
         SELECT
           ps.ord,
           q.ts_code AS symbol,
+          s.name AS name,
+          s.market,
+          s.industry,
+          COALESCE(q.qfq_pct_chg, q.pct_chg) AS "pctChg",
+          q.amount,
+          m.turnover_rate AS "turnoverRate",
+          m.pe,
+          m.pe_ttm AS "peTtm",
+          m.pb,
+          m.circ_mv AS "circMv",
+          q.trade_date AS "tradeDate",
+          COALESCE(
+            (SELECT jsonb_agg(DISTINCT jsonb_build_object('id', w.id::text, 'name', w.name))
+             FROM watchlist_items wi
+             JOIN watchlists w ON w.id = wi.watchlist_id
+             WHERE wi.symbol = ps.symbol),
+            '[]'::jsonb
+          ) AS tags,
           COALESCE(q.qfq_close, q.close) AS close,
           i.ma5,
           i.ma30,
@@ -316,11 +384,27 @@ export class WatchlistsService {
           i.kdj_j AS "kdjJ",
           i.risk_reward_ratio AS "riskRewardRatio",
           i.stop_loss_pct AS "stopLossPct",
-          to_date(q.trade_date, 'YYYYMMDD')::timestamp AS "openTime"
+          to_date(q.trade_date, 'YYYYMMDD')::timestamp AS "openTime",
+          i.dif,
+          i.dea,
+          i.macd,
+          i.kdj_k AS "kdjK",
+          i.kdj_d AS "kdjD",
+          i.bbi,
+          i.ma120,
+          i.ma240,
+          i.quote_volume_10 AS "quoteVolume10",
+          i.atr_14 AS "atr14",
+          i.loss_atr_14 AS "lossAtr14",
+          i.low_9 AS "low9",
+          i.high_9 AS "high9",
+          ${aShareScoreSelect}
         FROM page_symbols ps
         JOIN a_share_latest latest ON latest.ts_code = ps.symbol
         JOIN raw.daily_quote q ON q.ts_code = latest.ts_code AND q.trade_date = latest.trade_date
+        LEFT JOIN raw.daily_basic m ON m.ts_code = q.ts_code AND m.trade_date = q.trade_date
         LEFT JOIN raw.daily_indicator i ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
+        LEFT JOIN a_share_symbols s ON s.ts_code = ps.symbol${scoreJoin}
       ),
       rows AS (
         SELECT * FROM crypto_rows
@@ -329,6 +413,18 @@ export class WatchlistsService {
       )
       SELECT
         symbol,
+        name,
+        market,
+        industry,
+        "pctChg",
+        amount,
+        "turnoverRate",
+        pe,
+        "peTtm",
+        pb,
+        "circMv",
+        "tradeDate",
+        tags,
         close,
         ma5,
         ma30,
@@ -336,14 +432,36 @@ export class WatchlistsService {
         "kdjJ",
         "riskRewardRatio",
         "stopLossPct",
-        "openTime"
+        "openTime",
+        dif,
+        dea,
+        macd,
+        "kdjK",
+        "kdjD",
+        bbi,
+        ma120,
+        ma240,
+        "quoteVolume10",
+        "atr14",
+        "lossAtr14",
+        "low9",
+        "high9"
       FROM rows
     `;
 
-    const params: Array<string | number | string[]> = [interval, pageSymbols];
-
     const SORT_COL_MAP: Record<string, string> = {
       symbol: 'symbol',
+      name: 'name',
+      market: 'market',
+      industry: 'industry',
+      pctChg: '"pctChg"',
+      amount: 'amount',
+      turnoverRate: '"turnoverRate"',
+      pe: 'pe',
+      peTtm: '"peTtm"',
+      pb: 'pb',
+      circMv: '"circMv"',
+      tradeDate: '"tradeDate"',
       close: 'close',
       ma5: 'ma5',
       ma30: 'ma30',
@@ -352,9 +470,26 @@ export class WatchlistsService {
       riskRewardRatio: '"riskRewardRatio"',
       stopLossPct: '"stopLossPct"',
       openTime: '"openTime"',
+      dif: 'dif',
+      dea: 'dea',
+      macd: 'macd',
+      kdjK: '"kdjK"',
+      kdjD: '"kdjD"',
+      bbi: 'bbi',
+      ma120: 'ma120',
+      ma240: 'ma240',
+      quoteVolume10: '"quoteVolume10"',
+      atr14: '"atr14"',
+      lossAtr14: '"lossAtr14"',
+      low9: '"low9"',
+      high9: '"high9"',
+      modelScore: '"sortScore"',
     };
 
-    if (sort?.field && SORT_COL_MAP[sort.field]) {
+    if (sort?.field === 'modelScore' && scoreModelVersion) {
+      const dir = sort.order === 'descend' ? 'DESC' : 'ASC';
+      sql += ` ORDER BY "sortScore" ${dir} NULLS LAST, symbol ASC`;
+    } else if (sort?.field && SORT_COL_MAP[sort.field] && sort.field !== 'modelScore') {
       const dir = sort.order === 'descend' ? 'DESC' : 'ASC';
       sql += ` ORDER BY ${SORT_COL_MAP[sort.field]} ${dir} NULLS LAST`;
     } else {

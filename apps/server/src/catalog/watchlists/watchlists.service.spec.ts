@@ -12,7 +12,7 @@ describe('WatchlistsService', () => {
   let watchlistRepo: jest.Mocked<Repository<WatchlistEntity>>;
   let itemRepo: jest.Mocked<Repository<WatchlistItemEntity>>;
   let tushareClient: jest.Mocked<TushareClientService>;
-  let dataSource: { transaction: jest.Mock };
+  let dataSource: { transaction: jest.Mock; query: jest.Mock };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -52,6 +52,7 @@ describe('WatchlistsService', () => {
               create: jest.fn((_, data) => data),
               save: jest.fn(),
             })),
+            query: jest.fn(),
           },
         },
       ],
@@ -105,13 +106,39 @@ describe('WatchlistsService', () => {
       watchlistRepo.query.mockResolvedValue([
         {
           symbol: '000001.SZ',
+          name: '平安银行',
+          market: '主板',
+          industry: '银行',
+          pctChg: '1.2300',
+          amount: '123456.78',
+          turnoverRate: '0.85',
+          pe: 5.6,
+          peTtm: 5.8,
+          pb: 0.65,
+          circMv: '2500000',
+          tradeDate: '20260430',
+          tags: [{ id: 'wl-1', name: '我的自选' }],
           close: '12.3400000000',
           ma5: 12.1,
           ma30: 11.8,
+          ma60: 11.5,
           kdjJ: 72.5,
           riskRewardRatio: 2.1,
           stopLossPct: 6.2,
-          openTime: '20260430',
+          openTime: '2026-04-30T00:00:00.000Z',
+          dif: 0.12,
+          dea: 0.08,
+          macd: 0.04,
+          kdjK: 65.2,
+          kdjD: 58.1,
+          bbi: 12.0,
+          ma120: 11.2,
+          ma240: 10.8,
+          quoteVolume10: 1000000,
+          atr14: 0.35,
+          lossAtr14: 0.28,
+          low9: 11.5,
+          high9: 13.2,
         },
       ]);
 
@@ -121,13 +148,39 @@ describe('WatchlistsService', () => {
         items: [
           {
             symbol: '000001.SZ',
+            name: '平安银行',
+            market: '主板',
+            industry: '银行',
+            pctChg: '1.2300',
+            amount: '123456.78',
+            turnoverRate: '0.85',
+            pe: 5.6,
+            peTtm: 5.8,
+            pb: 0.65,
+            circMv: '2500000',
+            tradeDate: '20260430',
+            tags: [{ id: 'wl-1', name: '我的自选' }],
             close: '12.3400000000',
             ma5: 12.1,
             ma30: 11.8,
+            ma60: 11.5,
             kdjJ: 72.5,
             riskRewardRatio: 2.1,
             stopLossPct: 6.2,
-            openTime: '20260430',
+            openTime: '2026-04-30T00:00:00.000Z',
+            dif: 0.12,
+            dea: 0.08,
+            macd: 0.04,
+            kdjK: 65.2,
+            kdjD: 58.1,
+            bbi: 12.0,
+            ma120: 11.2,
+            ma240: 10.8,
+            quoteVolume10: 1000000,
+            atr14: 0.35,
+            lossAtr14: 0.28,
+            low9: 11.5,
+            high9: 13.2,
           },
         ],
         total: 2,
@@ -137,7 +190,37 @@ describe('WatchlistsService', () => {
       const [sql, params] = watchlistRepo.query.mock.calls[0];
       expect(sql).toContain('raw.daily_quote');
       expect(sql).toContain('raw.daily_indicator');
+      expect(sql).toContain('raw.daily_basic');
+      expect(sql).toContain('a_share_symbols');
+      expect(sql).toContain('"pctChg"');
+      expect(sql).toContain('watchlist_items');
+      expect(sql).toContain('"quoteVolume10"');
+      expect(sql).toContain('"atr14"');
+      expect(sql).toMatch(/\bname\b/);
       expect(params).toEqual(['1d', ['000001.SZ', '000002.SZ']]);
+    });
+
+    it('should JOIN ml.scores_daily when sorting by modelScore', async () => {
+      watchlistRepo.findOne.mockResolvedValue({
+        id: 'wl-1',
+        userId: 'user-1',
+        items: [{ symbol: '000001.SZ' }],
+      } as WatchlistEntity);
+      dataSource.query = jest.fn().mockResolvedValue([{ model_version: 'm3-v1' }]);
+      watchlistRepo.query.mockResolvedValue([]);
+
+      await service.getWatchlistQuotes('user-1', 'wl-1', '1d', 1, 20, {
+        field: 'modelScore',
+        order: 'descend',
+      });
+
+      expect(dataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining("ml.model_runs"),
+      );
+      const [sql, params] = watchlistRepo.query.mock.calls[0];
+      expect(sql).toContain('ml.scores_daily');
+      expect(sql).toContain('ORDER BY "sortScore" DESC NULLS LAST');
+      expect(params).toEqual(['1d', ['000001.SZ'], 'm3-v1']);
     });
   });
 

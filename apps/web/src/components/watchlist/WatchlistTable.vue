@@ -2,7 +2,17 @@
   <div class="watchlist-table">
     <!-- 工具栏 -->
     <div class="table-toolbar">
-      <n-button @click="store.loadQuotes">
+      <n-button
+        v-if="store.currentId"
+        type="primary"
+        @click="showAddModal = true"
+      >
+        <template #icon>
+          <n-icon><add-outline /></n-icon>
+        </template>
+        添加
+      </n-button>
+      <n-button @click="refreshQuotes">
         <template #icon>
           <n-icon><refresh-outline /></n-icon>
         </template>
@@ -28,8 +38,17 @@
       @update:sorter="handleSort"
     />
 
-    <!-- 列设置抽屉 -->
+    <!-- 列设置 -->
     <watchlist-table-settings :show="showSettings" @update:show="showSettings = $event" />
+
+    <!-- 添加标的弹窗 -->
+    <watchlist-add-symbols-modal
+      v-if="store.currentId"
+      :show="showAddModal"
+      :watchlist="store.currentWatchlist"
+      @update:show="showAddModal = $event"
+      @added="onSymbolsAdded"
+    />
 
     <!-- K 线抽屉 -->
     <n-drawer
@@ -74,43 +93,58 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   NButton, NDataTable, NDrawer, NDrawerContent, NEmpty, NIcon, NSpin, NTag,
-  type DataTableColumns, type DataTableSortState,
+  type DataTableSortState,
 } from 'naive-ui'
-import { RefreshOutline, SettingsOutline, TrendingUpOutline } from '@vicons/ionicons5'
+import { AddOutline, RefreshOutline, SettingsOutline } from '@vicons/ionicons5'
 import { useWatchlistStore } from '@/stores/watchlist'
-import { aSharesApi, klinesApi, watchlistApi, type KlineChartBar } from '@/api'
+import { useStrategyConditionsStore } from '@/stores/strategyConditions'
+import {
+  aSharesApi,
+  klinesApi,
+  quantApi,
+  watchlistApi,
+  type KlineChartBar,
+  type WatchlistQuoteRow,
+} from '@/api'
+import { strategyConditionsApi } from '@/api/modules/strategy/strategyConditions'
+import WatchlistAddSymbolsModal from './WatchlistAddSymbolsModal.vue'
 import WatchlistTableSettings from './WatchlistTableSettings.vue'
 import KlineChart from '@/components/kline/KlineChart.vue'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
-
-function formatUTCDate(input: string | number | Date | null | undefined): string {
-  if (input == null) return '-'
-  const d = input instanceof Date ? input : new Date(input)
-  if (isNaN(d.getTime())) return '-'
-  const y = d.getUTCFullYear()
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(d.getUTCDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
+import { createWatchlistColumnDefs, isWatchlistAShare } from './watchlistColumnDefs'
+import { useWatchlistColumnPreferences } from '@/composables/watchlist/useWatchlistColumnPreferences'
 
 const store = useWatchlistStore()
+const strategyStore = useStrategyConditionsStore()
 const showSettings = ref(false)
+const showAddModal = ref(false)
 const showChartDrawer = ref(false)
 const selectedSymbol = ref('')
 const klineData = ref<KlineChartBar[]>([])
 const loadingKline = ref(false)
+const scoresMap = ref(new Map<string, number>())
+const scoresLoading = ref(false)
+const hitLookup = ref(new Map<string, Set<string>>())
 
-// 自选 K 线抽屉无 moneyFlow merge，排除 FLOW 副图（A 股 + 加密共享同一个 drawer）
 const watchlistAvailableSubplots: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK']
-// granularity 跟随当前选中 symbol 类型：A 股恒为 date；加密按 store.interval 派生
 const watchlistGranularity = computed<'date' | 'hour' | 'minute'>(() => {
   if (!selectedSymbol.value) return 'date'
-  if (isAShareSymbol(selectedSymbol.value)) return 'date'
+  if (isWatchlistAShare(selectedSymbol.value)) return 'date'
   return store.interval === '1d' ? 'date' : 'hour'
 })
+
+const columnDefs = computed(() => createWatchlistColumnDefs({
+  scoresMap,
+  scoresLoading,
+  hitLookup,
+  onViewChart: openChart,
+  onRemove: removeSymbol,
+}))
+
+const { columns } = useWatchlistColumnPreferences(columnDefs)
 
 const paginationState = computed(() => ({
   page: store.page,
@@ -120,6 +154,90 @@ const paginationState = computed(() => ({
   pageSizes: [10, 20, 50],
   prefix: () => `Total ${store.total}`,
 }))
+
+function resolveTradeDate(row: WatchlistQuoteRow): string | null {
+  if (row.tradeDate && row.tradeDate.length === 8) return row.tradeDate
+  if (row.openTime == null) return null
+  const d = row.openTime instanceof Date ? row.openTime : new Date(row.openTime)
+  if (isNaN(d.getTime())) return null
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}${m}${day}`
+}
+
+async function loadScores(currentRows: WatchlistQuoteRow[]) {
+  const groups = new Map<string, string[]>()
+  for (const row of currentRows) {
+    if (!isWatchlistAShare(row.symbol)) continue
+    const tradeDate = resolveTradeDate(row)
+    if (!tradeDate) continue
+    const list = groups.get(tradeDate) ?? []
+    list.push(row.symbol)
+    groups.set(tradeDate, list)
+  }
+  if (groups.size === 0) {
+    scoresMap.value = new Map()
+    return
+  }
+  scoresLoading.value = true
+  try {
+    const next = new Map<string, number>()
+    await Promise.all(
+      [...groups.entries()].map(async ([tradeDate, tsCodes]) => {
+        const res = await quantApi.getScoresByTsCodes({ trade_date: tradeDate, ts_codes: tsCodes })
+        for (const item of res.items) next.set(item.ts_code, item.score)
+      }),
+    )
+    scoresMap.value = next
+  } catch (err: unknown) {
+    console.warn('[watchlist] 加载评分失败（不影响主表）:', err)
+    scoresMap.value = new Map()
+  } finally {
+    scoresLoading.value = false
+  }
+}
+
+async function loadHitLookup() {
+  const newLookup = new Map<string, Set<string>>()
+  for (const condition of strategyStore.conditions) {
+    if (condition.targetType !== 'a-share') continue
+    const status = strategyStore.runStatuses.get(condition.id)
+    if (!status || status.freshness !== 'fresh') continue
+    try {
+      const result = await strategyConditionsApi.getRunResult(condition.id)
+      for (const hit of result.hits) {
+        const names = newLookup.get(hit.tsCode) ?? new Set<string>()
+        names.add(condition.name)
+        newLookup.set(hit.tsCode, names)
+      }
+    } catch { /* ignore */ }
+  }
+  hitLookup.value = newLookup
+}
+
+async function refreshQuotes() {
+  await store.loadQuotes()
+  void loadScores(store.quotes)
+}
+
+watch(
+  () => store.quotes,
+  (rows) => {
+    void loadScores(rows)
+  },
+  { immediate: true },
+)
+
+watch(
+  () => store.currentId,
+  async () => {
+    await strategyStore.fetchConditions('a-share')
+    await strategyStore.fetchLastRunStatus()
+    await loadHitLookup()
+  },
+  { immediate: true },
+)
 
 function handlePageChange(nextPage: number) {
   store.page = nextPage
@@ -146,18 +264,19 @@ async function openChart(symbol: string) {
   loadingKline.value = true
   klineData.value = []
   try {
-    klineData.value = isAShareSymbol(symbol)
+    klineData.value = isWatchlistAShare(symbol)
       ? await aSharesApi.getKlines(symbol, 360, 'qfq')
       : await klinesApi.getKlines(symbol, store.interval)
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error(err)
   } finally {
     loadingKline.value = false
   }
 }
 
-function isAShareSymbol(symbol: string) {
-  return /^\d{6}\.(SZ|SH|BJ)$/.test(symbol)
+async function onSymbolsAdded() {
+  await store.loadWatchlists()
+  await store.loadQuotes()
 }
 
 async function removeSymbol(symbol: string) {
@@ -171,68 +290,6 @@ async function removeSymbol(symbol: string) {
     store.quotes = old
   }
 }
-
-const formatFixed = (value: number | null | undefined, digits: number) =>
-  value == null ? '-' : value.toFixed(digits)
-
-const columns = computed<DataTableColumns<any>>(() => {
-  const base: DataTableColumns<any> = [
-    {
-      title: 'Symbol',
-      key: 'symbol',
-      width: 160,
-      fixed: 'left',
-      sorter: true,
-      render: (row) =>
-        h('span', {
-            style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
-          }, row.symbol),
-    },
-  ]
-
-  const colMap: Record<string, any> = {
-    close: { title: 'Close', key: 'close', width: 120, sorter: true, render: (row: any) => (row.close == null ? '-' : Number(row.close).toPrecision(6)) },
-    ma5: { title: 'MA5', key: 'ma5', width: 110, sorter: true, render: (row: any) => formatFixed(row.ma5, 4) },
-    ma30: { title: 'MA30', key: 'ma30', width: 110, sorter: true, render: (row: any) => formatFixed(row.ma30, 4) },
-    ma60: { title: 'MA60', key: 'ma60', width: 110, sorter: true, render: (row: any) => formatFixed(row.ma60, 4) },
-    kdjJ: { title: 'KDJ.J', key: 'kdjJ', width: 90, sorter: true, render: (row: any) => formatFixed(row.kdjJ, 2) },
-    riskRewardRatio: { title: 'RR', key: 'riskRewardRatio', width: 90, sorter: true, render: (row: any) => formatFixed(row.riskRewardRatio, 2) },
-    stopLossPct: { title: 'Stop %', key: 'stopLossPct', width: 90, sorter: true, render: (row: any) => (row.stopLossPct == null ? '-' : `${row.stopLossPct.toFixed(2)}%`) },
-    openTime: { title: 'Updated', key: 'openTime', width: 110, sorter: true, render: (row: any) => formatUTCDate(row.openTime) },
-  }
-
-  for (const key of store.columns) {
-    if (colMap[key]) base.push(colMap[key])
-  }
-
-  base.push({
-    title: 'Action',
-    key: 'actions',
-    width: 180,
-    fixed: 'right',
-    render: (row) =>
-      h('div', { style: 'display:flex;gap:8px;align-items:center' }, [
-        h(NButton, {
-          size: 'small',
-          tertiary: true,
-          onClick: () => openChart(row.symbol),
-        }, {
-          icon: () => h(NIcon, null, { default: () => h(TrendingUpOutline) }),
-          default: () => '查看K线',
-        }),
-        h(NButton, {
-          size: 'small',
-          type: 'error',
-          ghost: true,
-          onClick: () => removeSymbol(row.symbol),
-        }, {
-          default: () => '移除',
-        }),
-      ]),
-  })
-
-  return base
-})
 </script>
 
 <style scoped>

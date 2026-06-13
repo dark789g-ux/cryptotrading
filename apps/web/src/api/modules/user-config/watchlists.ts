@@ -1,5 +1,5 @@
 import { API_BASE, del, post, put, request } from '../../client'
-import type { SymbolRow } from '../market/symbols'
+import type { WatchlistQuoteRow } from '../market/symbols'
 
 export interface WatchlistItem {
   symbol: string
@@ -18,7 +18,7 @@ export interface WatchlistPayload {
 }
 
 export interface WatchlistQuotesResult {
-  items: SymbolRow[]
+  items: WatchlistQuoteRow[]
   total: number
   page: number
   page_size: number
