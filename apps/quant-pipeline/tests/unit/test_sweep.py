@@ -1166,3 +1166,185 @@ class TestRunSweepWithRsE2E:
         # 不传 same_day_rule → 使用 row.same_day_rule
         rets = valid_rets_for(row, paths)
         assert len(rets) == row.n_valid
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. on_progress 细化到 (变体 × 出场) 粒度 + check_cancel 旁路
+#     （fix-kelly-sweep-cancel-granularity：sweep 阶段持续推进度 + 数秒内响应取消）
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestProgressGranularity:
+    """on_progress 细化到 exit_cfg 级：done 单调递增、total = n_variants × n_exits。"""
+
+    def test_single_variant_progress_per_exit_cfg(self) -> None:
+        """单变体（max_entry_filters=0）+ 3 个出场配置 → on_progress 被调 3 次，
+        done 序列 = [1, 2, 3]，total 恒为 3（此前整段只在最末 emit 一次）。"""
+        config, sig, paths, cs_df, hist_map, _ = _make_minimal_sweep_inputs(
+            max_entry_filters=0
+        )
+        exit_grid = [
+            {"type": "fixed_n", "n": 1},
+            {"type": "fixed_n", "n": 2},
+            {"type": "fixed_n", "n": 3},
+        ]
+        calls: list[tuple[int, int]] = []
+        run_sweep(
+            config=config, signals_raw=sig, paths=paths,
+            cross_section_df=cs_df, history_map=hist_map,
+            exit_grid=exit_grid,
+            on_progress=lambda done, total: calls.append((done, total)),
+        )
+        # 3 个出场配置 → 3 次 emit，done=1,2,3；total 恒 = 1 变体 × 3 出场 = 3
+        assert [c[0] for c in calls] == [1, 2, 3]
+        assert all(c[1] == 3 for c in calls)
+
+    def test_done_monotonic_and_total_is_combos(self) -> None:
+        """多变体 + 多出场：done 严格单调递增，total = n_variants × n_exits，
+        末次 done == total（不漏不冗）。"""
+        # 2 候选 + max_entry_filters=1 → base + C(2,1) = 3 变体
+        config = make_default_config(max_entry_filters=1, min_samples=1)
+        filter_candidates = [("dev_ma5", "lt", -0.99), ("down_streak", "gte", 99.0)]
+        # 两个候选都极端 → 过滤变体子集为空（走 subset_df.empty 一次性补齐分支），
+        # 验证空子集变体也按 n_exits 计入 done、保持单调且末次命中 total。
+        exit_grid = [
+            {"type": "fixed_n", "n": 1},
+            {"type": "fixed_n", "n": 2},
+        ]
+        paths = [
+            ForwardPath(
+                ts_code="A.SZ", signal_date="20250601", buy_date="20250602",
+                buy_price=10.0, bars=[make_bar("20250602", close=11.0)],
+                delist_date=None, atr14_at_signal=None,
+            ),
+        ]
+        cross_df = pd.DataFrame([make_cross_section_row("A.SZ", "20250601")])
+        hist_map = {("A.SZ", "20250601"): make_history_df([-1.0, -0.5, -0.3, -0.2, -0.1, 0.3])}
+
+        calls: list[tuple[int, int]] = []
+        run_sweep(
+            config=config, signals_raw=[], paths=paths,
+            cross_section_df=cross_df, history_map=hist_map,
+            exit_grid=exit_grid,
+            entry_filter_candidates=filter_candidates,
+            on_progress=lambda done, total: calls.append((done, total)),
+        )
+        n_variants = 3  # base + 2 单特征变体
+        n_exits = 2
+        expected_total = n_variants * n_exits  # 6
+        dones = [c[0] for c in calls]
+        totals = [c[1] for c in calls]
+        # total 恒为组合数
+        assert all(t == expected_total for t in totals)
+        # done 严格单调递增
+        assert all(b > a for a, b in zip(dones, dones[1:]))
+        # 末次 done 恰好等于 total（不漏不冗）
+        assert dones[-1] == expected_total
+
+    def test_no_progress_callback_is_noop(self) -> None:
+        """on_progress=None（默认）→ 不回调、正常产出，对现有 CLI/单测路径零影响。"""
+        config, sig, paths, cs_df, hist_map, exit_grid = _make_minimal_sweep_inputs(
+            max_entry_filters=0
+        )
+        rows = run_sweep(
+            config=config, signals_raw=sig, paths=paths,
+            cross_section_df=cs_df, history_map=hist_map, exit_grid=exit_grid,
+        )
+        assert len(rows) == 1
+
+
+class TestCheckCancel:
+    """check_cancel 旁路：命中即抛 JobCancelled 向上传播；不命中时结果逐字不变。"""
+
+    def test_cancel_on_nth_exit_cfg_raises(self) -> None:
+        """传入第 2 个 exit_cfg 处理完后抛 JobCancelled 的假 check_cancel →
+        run_sweep 抛 JobCancelled（不吞错、向上传播）。"""
+        from quant_pipeline.worker.progress import JobCancelled
+
+        config, sig, paths, cs_df, hist_map, _ = _make_minimal_sweep_inputs(
+            max_entry_filters=0
+        )
+        exit_grid = [
+            {"type": "fixed_n", "n": 1},
+            {"type": "fixed_n", "n": 2},
+            {"type": "fixed_n", "n": 3},
+        ]
+
+        state = {"count": 0}
+
+        def fake_check_cancel() -> None:
+            # 第 2 次调用（即第 2 个 exit_cfg 处理完后）模拟用户已请求取消
+            state["count"] += 1
+            if state["count"] >= 2:
+                raise JobCancelled
+
+        with pytest.raises(JobCancelled):
+            run_sweep(
+                config=config, signals_raw=sig, paths=paths,
+                cross_section_df=cs_df, history_map=hist_map,
+                exit_grid=exit_grid,
+                check_cancel=fake_check_cancel,
+            )
+
+    def test_progress_done_monotonic_before_cancel(self) -> None:
+        """取消前 on_progress 的 done 序列仍单调递增（前端步骤条依赖单调）。"""
+        from quant_pipeline.worker.progress import JobCancelled
+
+        config, sig, paths, cs_df, hist_map, _ = _make_minimal_sweep_inputs(
+            max_entry_filters=0
+        )
+        exit_grid = [
+            {"type": "fixed_n", "n": 1},
+            {"type": "fixed_n", "n": 2},
+            {"type": "fixed_n", "n": 3},
+        ]
+
+        dones: list[int] = []
+        state = {"count": 0}
+
+        def fake_check_cancel() -> None:
+            state["count"] += 1
+            if state["count"] >= 3:
+                raise JobCancelled
+
+        with pytest.raises(JobCancelled):
+            run_sweep(
+                config=config, signals_raw=sig, paths=paths,
+                cross_section_df=cs_df, history_map=hist_map,
+                exit_grid=exit_grid,
+                on_progress=lambda done, total: dones.append(done),
+                check_cancel=fake_check_cancel,
+            )
+        # 取消发生在第 3 个 cfg 后，前 3 次 progress emit 已发生，done=[1,2,3] 单调
+        assert dones == [1, 2, 3]
+        assert all(b > a for a, b in zip(dones, dones[1:]))
+
+    def test_no_cancel_result_unchanged(self) -> None:
+        """check_cancel 永不抛（恒 no-op）→ 结果与不传 check_cancel 逐字一致（纯旁路证明）。"""
+        config, sig, paths, cs_df, hist_map, exit_grid = _make_minimal_sweep_inputs(
+            n_train=4, n_valid=3, max_entry_filters=0
+        )
+        rows_baseline = run_sweep(
+            config=config, signals_raw=sig, paths=paths,
+            cross_section_df=cs_df, history_map=hist_map, exit_grid=exit_grid,
+        )
+        # 重新构造同样输入（run_sweep 不修改入参，但稳妥起见独立构造）
+        config2, sig2, paths2, cs_df2, hist_map2, exit_grid2 = _make_minimal_sweep_inputs(
+            n_train=4, n_valid=3, max_entry_filters=0
+        )
+        rows_with_cb = run_sweep(
+            config=config2, signals_raw=sig2, paths=paths2,
+            cross_section_df=cs_df2, history_map=hist_map2, exit_grid=exit_grid2,
+            check_cancel=lambda: None,  # 永不抛
+            on_progress=lambda done, total: None,
+        )
+        assert len(rows_baseline) == len(rows_with_cb) == 1
+        a, b = rows_baseline[0], rows_with_cb[0]
+        # 关键计算字段逐字一致
+        assert a.kelly_valid == b.kelly_valid
+        assert a.win_rate_valid == b.win_rate_valid
+        assert a.payoff_b_valid == b.payoff_b_valid
+        assert a.profit_factor_valid == b.profit_factor_valid
+        assert a.n_train == b.n_train
+        assert a.n_valid == b.n_valid
+        assert a.below_floor == b.below_floor

@@ -950,6 +950,7 @@ def run_sweep(
     entry_filter_candidates: Optional[list[tuple[str, str, float]]] = None,
     exit_grid: Optional[list[dict[str, Any]]] = None,
     on_progress: Optional[Callable[[int, int], None]] = None,
+    check_cancel: Optional[Callable[[], None]] = None,
 ) -> list[ResultRow]:
     """网格扫描主入口。
 
@@ -964,11 +965,24 @@ def run_sweep(
         entry_filter_candidates: 附加特征阈值候选列表（None 时用默认值）。
         exit_grid:            出场参数网格（None 时用默认值）。
         on_progress:          可选进度回调 `(done: int, total: int) -> None`；
-                              外层 for variant 循环每完成一个变体后 emit (i+1, n_variants)。
+                              **细化到 (variant × exit_cfg) 粒度**：每处理完一个出场配置
+                              emit (done, total)，其中 done = 已完成的 (变体 × 出场) 组合数、
+                              total = n_variants × len(exit_grid)，保证 done 单调递增
+                              （前端步骤条依赖单调；空子集变体一次性补齐其全部 cfg 计数）。
                               默认 None → 不回调，对现有 CLI/单测路径零影响。
+        check_cancel:         可选取消检查回调 `() -> None`；在内层 for exit_cfg 每个配置
+                              处理完后调用一次。约定：若用户已请求取消，回调内部直接抛
+                              JobCancelled（与 worker/progress.check_cancel_requested_or_cancel
+                              同契约），run_sweep 不捕获、令其向上传播走既有取消路径。
+                              **纯旁路**：只读 cancel 标志，绝不触碰 kelly/ret/bootstrap 计算，
+                              结果逐字不变。默认 None → 不检查，对现有 CLI/单测路径零影响。
 
     Returns:
         ResultRow 列表（每行 = 一个 (variant, exit) 组合的结果）。
+
+    Raises:
+        JobCancelled:         check_cancel 命中取消请求时由其抛出并向上传播
+                              （dispatcher 捕获后写 status='cancelled'）。
     """
     if entry_filter_candidates is None:
         entry_filter_candidates = DEFAULT_ENTRY_FILTER_CANDIDATES
@@ -1036,13 +1050,21 @@ def run_sweep(
     # ── 4. 扫描 ────────────────────────────────────────────────────────────
     results: list[ResultRow] = []
 
+    # 进度按 (变体 × 出场) 组合计数：done 单调递增到 progress_total = n_variants × n_exits。
+    # 细化到 exit_cfg 级，使单变体 job（max_entry_filters=0）也能在 sweep 阶段持续推进度，
+    # 而非整段只在最末 emit 一次（修 fix-kelly-sweep-cancel-granularity 现状）。
+    progress_total = n_combos  # = n_variants * n_exits
+    done_combos = 0
+
     for _variant_i, variant in enumerate(variants):
         # 4a. 掩码取变体子集
         subset_df = _apply_variant_mask(feature_df, variant)
         if subset_df.empty:
-            # 变体被跳过，但仍 emit 进度（保持 done/total 单调递增）
+            # 变体被跳过：该变体的全部 n_exits 个组合一次性计入 done，保持 done 单调递增、
+            # 且最终累加恰好等于 progress_total（不漏不冗）。
+            done_combos += n_exits
             if on_progress is not None:
-                on_progress(_variant_i + 1, n_variants)
+                on_progress(done_combos, progress_total)
             continue
 
         # 4b. 按 signal_date 切 train/valid（含 RS clamp 逻辑）
@@ -1126,9 +1148,15 @@ def run_sweep(
                 )
             )
 
-        # 每完成一个变体（所有出场配置）后 emit 进度
-        if on_progress is not None:
-            on_progress(_variant_i + 1, n_variants)
+            # ── 旁路：进度细化到 exit_cfg 级 + 取消检查（纯旁路，不碰上面任何计算）──
+            # 计算与落库均已完成后再推进度 / 查取消，保证 done 计数对应"已产出的组合"。
+            done_combos += 1
+            if on_progress is not None:
+                on_progress(done_combos, progress_total)
+            # check_cancel 命中取消时内部抛 JobCancelled，向上传播走既有取消路径
+            # （dispatcher 写 status='cancelled'）；此处不捕获、不吞错。
+            if check_cancel is not None:
+                check_cancel()
 
     logger.info(
         "run_sweep 完成：%d ResultRow（变体=%d，出场=%d）",

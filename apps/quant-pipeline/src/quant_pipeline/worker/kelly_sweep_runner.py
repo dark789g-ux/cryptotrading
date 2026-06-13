@@ -17,7 +17,11 @@ from typing import Any
 from uuid import UUID
 
 from quant_pipeline.worker.poller import Job
-from quant_pipeline.worker.progress import update_progress
+from quant_pipeline.worker.progress import (
+    JobCancelled,
+    check_cancel_requested,
+    update_progress,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +56,24 @@ def _make_stage_progress(job_id: UUID, stage_name: str) -> Any:
         update_progress(job_id, pct, stage=f"{stage_name} {done}/{total}")
 
     return _cb
+
+
+def _make_check_cancel(job_id: UUID) -> Any:
+    """构造供 run_sweep 内层 for exit_cfg 调用的取消检查回调。
+
+    返回值签名：`() -> None`。约定：若 ml.jobs.cancel_requested 为真，直接抛 JobCancelled
+    （与 prepare_runner.check_cancel_requested_or_cancel 同契约），令异常向上传播到
+    dispatcher，由其写 status='cancelled'。run_sweep 自身不感知 cancel 机制、不吞错。
+
+    每次调用读一次 DB（轻量 SELECT cancel_requested）；run_sweep 在每个出场配置处理完后
+    调一次 → 取消粒度 = 单个 exit_cfg，长 sweep 阶段可在数秒内响应取消。
+    """
+
+    def _check() -> None:
+        if check_cancel_requested(job_id):
+            raise JobCancelled
+
+    return _check
 
 
 def _build_exit_grid_from_params(params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -355,6 +377,9 @@ def run_kelly_sweep(job: Job) -> dict[str, Any]:
         index_daily_df=index_daily_df,
         exit_grid=exit_grid,
         on_progress=_make_stage_progress(job_id, "sweep"),
+        # 取消检查接进 run_sweep 内层：长 sweep 阶段也能在数秒内响应 cancel_requested
+        # （此前 run_sweep 全程不查取消，置 cancel 被忽略数分钟阻塞单 worker 队列）。
+        check_cancel=_make_check_cancel(job_id),
     )
     logger.info("run_sweep 完成：%d ResultRow", len(rows))
 
