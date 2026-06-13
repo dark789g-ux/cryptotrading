@@ -20,7 +20,7 @@
    - 收尾：worker 进程已 kill(按命令行精确过滤,无误伤/无残留)、2 条测试 noop 已删、DB 复原(`running/pending=0`)。
 2. **#2 孤儿回收**：起一个长 job(如 kelly_sweep) → 杀 worker → 重启 worker → 阈值(默认 600s，e2e 可临时把 `WORKER_STALE_RUNNING_THRESHOLD_SECONDS` 调小加速)后被回收(attempts<max 应重 pending 被领走重跑、结果幂等)；另验一个心跳正常(每 30s)的活 job 在 reaper 周期触发时**不被**误回收。
 3. **#3 kelly cancel**：起一个大 kelly job(默认网格 + `bootstrap_iters=1000`) 运行中 `UPDATE ml.jobs SET cancel_requested=true …` → **数秒内** status 转 cancelled；观察 sweep 段(55–90%) progress **持续递增**(非整段不动)；再跑一个改前已有结果的 job，确认 `research.kelly_sweep_results` 与改前**逐字一致**(零漂移)。
-4. **#1 前端**：浏览器点开 signal-stats 列表/结果页摘要/详情配置面板/导入方案下拉，确认 `phase_lock`/`trailing_lock` 等在四处均显示正确中文标签(含参格式 `N=`/`≤maxHold` 一致)，无原始串/兜底误显。
+4. ✅ **#1 前端 —— 2026-06-14 已验通过**：preview(:5173,登录态 admin,路由 `/signal-stats`)。四渲染点全过——列表出场方式列(exitModeTag:临时造 phase_lock 方案验得「两阶段锁定止损」)/导入下拉(exitModeShortLabel:phase_lock→两阶段锁定止损)/结果摘要(exitModeSummary:波段跟踪止损)/配置面板(exitModeText:出场模式=波段跟踪止损)均正确中文含参、零 fallback、控制台零 error;临时 phase_lock 方案已删、DB 复原。
 
 ## 硬约束 / 项目规范
 - worker **非热加载**，改 worker 代码后须重启 worker 进程才生效。
@@ -34,4 +34,5 @@
 ## 前序进度 / 待续
 实现已提交本地 main(`a66b074`/`223b03d`/`3ce5654`/`dc8c123`，未推 origin)，单测/集成测/构建全绿。
 - **2026-06-14：#4 worker 启动 e2e 已验通过**(两命令 + INFO 日志 + noop success，DB 已复原)。
-- **待续：#1 前端浏览器渲染 / #2 杀 worker 验回收 / #3 大 kelly job cancel** 三项真机 e2e 仍未做。
+- **2026-06-14：#1 前端 signal-stats 渲染 e2e 已验通过**(四渲染点全过，phase_lock 标签正确，DB 已复原)。
+- **待续：#2 杀 worker 验回收 / #3 大 kelly job cancel** 两项真机 e2e 仍未做。

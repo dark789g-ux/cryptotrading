@@ -6,6 +6,11 @@
 
 ---
 
+## 2026-06-14: 验「标签渲染为中文/没落 fallback」——别扫整页找原始枚举 token，name/id 列含字面量是假阳性
+**Symptom**: e2e 验出场模式标签是否中文，扫 `main.innerText` 找原始 token `phase_lock`/`trailing_lock`，命中数 >0，疑似 fallback bug。
+**Cause**: 命中全在 name 列——方案/运行名字本身含这些字面量（如 `trailing_lock_e2e_full`、自造的测试方案名「E2E phase_lock…」），不是标签 fallback。
+**Lesson**: 验 fallback 别扫整页原始 token。① 用 TreeWalker 定位每个命中的 `closest('td').getAttribute('data-col-key')`，排除 name/id 列；或 ② **正面断言**目标列 distinct 文本全是中文（读 `col-key=exitMode` 单元格去重，看到 `两阶段锁定止损`/`固定N日(N=x)` 才算过）。附：`querySelectorAll('*')` 遍历时 SVG 等节点 `el.innerText` 是 undefined，比较前一律 `(el.innerText||'')` 否则 `.trim()` 抛错。preview_* (Claude_Preview MCP) 经 MCP JSON 传输，eval 里中文字面量不被破坏（无 PowerShell→webbridge 的 GBK 问题），可放心在 eval 内匹配中文。
+
 ## 2026-06-11: 多小时无人值守批量触发——session tab 被用户浏览占用两次卡死批次，终解=专用 newTab+触发前 navigate 复位+curl 超时+DB 防重 adopt
 **Symptom**: 后台 bash 循环经 webbridge evaluate 串行触发 18 个长任务，跑到第 3/15 个时 TRIGGER 调用永不返回（批次静默挂 6 小时）；恢复后又在第 11 个复现（响应空+extension_error "Inspected target navigated or closed"）。
 **Cause**: 自动化 session 绑定的 tab 是用户浏览器里可见的普通 tab，用户拿它看页面/导航，恰逢 evaluate 在途→页面销毁回调丢失（同 2026-06-10 条根因），但**长批次把碰撞概率放大到必然**。
