@@ -6,7 +6,7 @@ export interface SignalTestUniverse {
   tsCodes?: string[]
 }
 
-export type SignalTestExitMode = 'fixed_n' | 'strategy' | 'trailing_lock'
+export type SignalTestExitMode = 'fixed_n' | 'strategy' | 'trailing_lock' | 'phase_lock'
 
 /** 波段跟踪止损额外参数；null = 全默认（与后端 entity band_lock_params jsonb 对齐）。 */
 export interface BandLockParams {
@@ -14,6 +14,13 @@ export interface BandLockParams {
   floorRatio: number
   floorEnabled: boolean
   ma5RequireDown: boolean
+}
+
+/** 阶段锁定额外参数；null = 全默认（与后端 entity phase_lock_params jsonb 对齐）。 */
+export interface PhaseLockParams {
+  initFactor: number
+  lockFactor: number
+  lookback: number
 }
 
 export interface SignalTest {
@@ -25,6 +32,7 @@ export interface SignalTest {
   exitConditions: StrategyConditionItem[] | null
   maxHold: number | null
   bandLockParams: BandLockParams | null
+  phaseLockParams: PhaseLockParams | null
   universe: SignalTestUniverse
   dateStart: string
   dateEnd: string
@@ -44,6 +52,10 @@ export interface CreateSignalTestDto {
   floorRatio?: number
   floorEnabled?: boolean
   ma5RequireDown?: boolean
+  // phase_lock 专属，全默认时不送（后端存 null → 零漂移）
+  initFactor?: number
+  lockFactor?: number
+  lookback?: number
   universe: SignalTestUniverse
   dateStart: string
   dateEnd: string
@@ -102,7 +114,14 @@ export interface SignalTestTrade {
   exitPrice: string
   ret: string
   holdDays: number
-  exitReason: 'max_hold' | 'signal' | 'delist' | 'stop' | 'ma5_exit'
+  exitReason:
+    | 'max_hold'
+    | 'signal'
+    | 'delist'
+    | 'stop'
+    | 'ma5_exit'
+    | 'phase_lock_stop'
+    | 'phase_lock_ma5'
 }
 
 export interface TradesPage {

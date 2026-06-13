@@ -40,10 +40,26 @@
           </div>
         </template>
 
-        <template v-else>
+        <template v-else-if="test.exitMode === 'trailing_lock'">
           <div class="field-group">
             <div class="field-label">最长持有天数（可选，留空不封顶）</div>
             <div class="field-value">{{ test.maxHold == null ? '不封顶' : test.maxHold }}</div>
+          </div>
+        </template>
+
+        <template v-else>
+          <!-- phase_lock：两阶段锁定止损，3 参数（null=全默认 0.999/0.999/10） -->
+          <div class="field-group">
+            <div class="field-label">初始止损系数</div>
+            <div class="field-value">{{ test.phaseLockParams?.initFactor ?? '0.999（默认）' }}</div>
+          </div>
+          <div class="field-group">
+            <div class="field-label">锁定止损系数</div>
+            <div class="field-value">{{ test.phaseLockParams?.lockFactor ?? '0.999（默认）' }}</div>
+          </div>
+          <div class="field-group">
+            <div class="field-label">初始止损回看根数</div>
+            <div class="field-value">{{ test.phaseLockParams?.lookback ?? '10（默认）' }}</div>
           </div>
         </template>
       </n-tab-pane>
@@ -98,6 +114,7 @@ const exitModeText = computed(() => {
   const t = props.test;
   if (t.exitMode === 'fixed_n') return '固定 N 个交易日';
   if (t.exitMode === 'trailing_lock') return '波段跟踪止损';
+  if (t.exitMode === 'phase_lock') return '两阶段锁定止损';
   return '卖出条件命中';
 });
 

@@ -20,6 +20,7 @@
         <n-radio value="fixed_n">固定 N 个交易日</n-radio>
         <n-radio value="strategy">卖出条件命中</n-radio>
         <n-radio value="trailing_lock">波段跟踪止损</n-radio>
+        <n-radio value="phase_lock">两阶段锁定止损</n-radio>
       </n-radio-group>
     </n-form-item>
 
@@ -49,7 +50,7 @@
       </n-form-item>
     </template>
 
-    <template v-else>
+    <template v-else-if="form.exitMode === 'trailing_lock'">
       <!-- trailing_lock：波段跟踪止损，无卖出条件编辑器，maxHold 可选 -->
       <n-divider dashed>波段跟踪止损参数</n-divider>
       <n-form-item
@@ -118,6 +119,62 @@
           </label-with-tip>
         </template>
         <n-switch v-model:value="form.ma5RequireDown" />
+      </n-form-item>
+    </template>
+
+    <template v-else-if="form.exitMode === 'phase_lock'">
+      <!-- phase_lock：两阶段锁定止损，无卖出条件编辑器、无 maxHold -->
+      <n-divider dashed>两阶段锁定止损参数</n-divider>
+      <n-form-item>
+        <template #label>
+          <label-with-tip label="初始止损系数" :max-width="320">
+            初始止损价 = min(回看低点) × 该系数，阶段 A 固定不上移。留空走默认 0.999；
+            范围 (0,2]，量化到 0.001。越小止损越宽松。
+          </label-with-tip>
+        </template>
+        <n-input-number
+          v-model:value="form.initFactor"
+          :min="0.001"
+          :max="2"
+          :step="0.001"
+          :precision="3"
+          placeholder="0.999"
+          style="width: 200px"
+        />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          <label-with-tip label="锁定止损系数" :max-width="320">
+            锁定止损价 = max(成本价, 当日低点) × 该系数（收盘站上 MA5↑ 后冻结）。留空走默认 0.999；
+            范围 (0,2]，允许 &gt; 1（锁盈），量化到 0.001。
+          </label-with-tip>
+        </template>
+        <n-input-number
+          v-model:value="form.lockFactor"
+          :min="0.001"
+          :max="2"
+          :step="0.001"
+          :precision="3"
+          placeholder="0.999"
+          style="width: 200px"
+        />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          <label-with-tip label="初始止损回看根数" :max-width="320">
+            初始止损取「含 T+1 的最近 N 个非停牌交易日」最低点。留空走默认 10；正整数，范围 [1,250]。
+          </label-with-tip>
+        </template>
+        <n-input-number
+          v-model:value="form.lookback"
+          :min="1"
+          :max="250"
+          :precision="0"
+          placeholder="10"
+          style="width: 200px"
+        />
       </n-form-item>
     </template>
 
@@ -231,6 +288,13 @@ const BAND_LOCK_DEFAULTS = {
   ma5RequireDown: true,
 }
 
+// phase_lock 专属参数默认值（与后端 DTO/spec 一致）
+const PHASE_LOCK_DEFAULTS = {
+  initFactor: 0.999,
+  lockFactor: 0.999,
+  lookback: 10,
+}
+
 const form = ref({
   name: '',
   buyConditions: [] as StrategyConditionItem[],
@@ -243,6 +307,10 @@ const form = ref({
   floorRatio: BAND_LOCK_DEFAULTS.floorRatio,
   floorEnabled: BAND_LOCK_DEFAULTS.floorEnabled,
   ma5RequireDown: BAND_LOCK_DEFAULTS.ma5RequireDown,
+  // phase_lock 专属（全默认时提交不上送 → 后端存 null）
+  initFactor: PHASE_LOCK_DEFAULTS.initFactor,
+  lockFactor: PHASE_LOCK_DEFAULTS.lockFactor,
+  lookback: PHASE_LOCK_DEFAULTS.lookback as number | null,
   dateRange: buildDefaultRange() as [number, number] | null,
   universeType: 'all' as 'all' | 'list',
   tsCodesText: '',
@@ -259,6 +327,7 @@ watch(
     form.value.exitConditions = (data.exitConditions ?? []).map((c) => ({ ...c }))
     form.value.maxHold = data.maxHold
     applyBandLockParams(data.bandLockParams)
+    applyPhaseLockParams(data.phaseLockParams)
     form.value.universeType = data.universe.type
     form.value.tsCodesText = (data.universe.tsCodes ?? []).join('\n')
     if (data.dateStart && data.dateEnd) {
@@ -279,6 +348,7 @@ watch(
     form.value.exitConditions = (data.exitConditions ?? []).map((c) => ({ ...c }))
     form.value.maxHold = data.maxHold
     applyBandLockParams(data.bandLockParams)
+    applyPhaseLockParams(data.phaseLockParams)
     form.value.universeType = data.universe.type
     form.value.tsCodesText = (data.universe.tsCodes ?? []).join('\n')
     if (data.dateStart && data.dateEnd) {
@@ -296,13 +366,21 @@ function applyBandLockParams(p: SignalTest['bandLockParams']) {
   form.value.ma5RequireDown = p?.ma5RequireDown ?? BAND_LOCK_DEFAULTS.ma5RequireDown
 }
 
+/** 回填 phase_lock 参数：null → 全默认（与后端 phase_lock_params=null 语义一致）。 */
+function applyPhaseLockParams(p: SignalTest['phaseLockParams']) {
+  form.value.initFactor = p?.initFactor ?? PHASE_LOCK_DEFAULTS.initFactor
+  form.value.lockFactor = p?.lockFactor ?? PHASE_LOCK_DEFAULTS.lockFactor
+  form.value.lookback = p?.lookback ?? PHASE_LOCK_DEFAULTS.lookback
+}
+
 // 切换出场模式时复位 maxHold：trailing_lock 默认空=不封顶（spec 03 §1.3）；
 // strategy maxHold 必填，从空切回时回填默认 20 避免立刻校验报错。
 // 默认懒执行（不 immediate）——只响应用户切换动作，不冲掉初始化回填的 initialData.maxHold。
 watch(
   () => form.value.exitMode,
   (mode) => {
-    if (mode === 'trailing_lock') {
+    // trailing_lock / phase_lock 默认空=不封顶（phase_lock 无 maxHold 概念）。
+    if (mode === 'trailing_lock' || mode === 'phase_lock') {
       form.value.maxHold = null
     } else if (mode === 'strategy' && form.value.maxHold == null) {
       form.value.maxHold = 20
@@ -377,7 +455,7 @@ async function handleSubmit() {
   } else if (form.value.exitMode === 'strategy') {
     dto.exitConditions = form.value.exitConditions
     dto.maxHold = form.value.maxHold ?? undefined
-  } else {
+  } else if (form.value.exitMode === 'trailing_lock') {
     // trailing_lock: 无 exitConditions、无 horizonN，maxHold 可选（留空不封顶）
     dto.maxHold = form.value.maxHold ?? undefined
     // 只上送非默认字段，4 个全默认则一个都不送 → 后端存 band_lock_params=null（零漂移）
@@ -389,6 +467,15 @@ async function handleSubmit() {
       dto.floorEnabled = form.value.floorEnabled
     if (form.value.ma5RequireDown !== BAND_LOCK_DEFAULTS.ma5RequireDown)
       dto.ma5RequireDown = form.value.ma5RequireDown
+  } else {
+    // phase_lock: 无 exitConditions、无 horizonN、无 maxHold
+    // 只上送非默认字段，3 个全默认则一个都不送 → 后端存 phase_lock_params=null（零漂移）
+    if (form.value.initFactor !== PHASE_LOCK_DEFAULTS.initFactor)
+      dto.initFactor = form.value.initFactor
+    if (form.value.lockFactor !== PHASE_LOCK_DEFAULTS.lockFactor)
+      dto.lockFactor = form.value.lockFactor
+    if (form.value.lookback != null && form.value.lookback !== PHASE_LOCK_DEFAULTS.lookback)
+      dto.lookback = form.value.lookback
   }
 
   emit('submit', dto)

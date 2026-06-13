@@ -114,6 +114,8 @@ const exitReasonOptions = [
   { label: '退市', value: 'delist' },
   { label: '止损', value: 'stop' },
   { label: 'MA5离场', value: 'ma5_exit' },
+  { label: '阶段止损', value: 'phase_lock_stop' },
+  { label: '阶段MA5离场', value: 'phase_lock_ma5' },
 ]
 
 // ── Sort / pagination ───────────────────────────────────────────────────────

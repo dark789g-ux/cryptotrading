@@ -18,6 +18,8 @@ export function exitReasonLabel(reason: string): string {
     delist: '退市',
     stop: '止损',
     ma5_exit: 'MA5离场',
+    phase_lock_stop: '阶段止损',
+    phase_lock_ma5: '阶段MA5离场',
   }
   return labelMap[reason] ?? reason
 }
