@@ -114,7 +114,7 @@ const importSource = ref<SignalTest | null>(null)
 const showImportPopover = ref(false)
 
 function exitModeLabel(mode: string): string {
-  const map: Record<string, string> = { fixed_n: '固定天数', strategy: '策略条件', trailing_lock: '移动止损' }
+  const map: Record<string, string> = { fixed_n: '固定天数', strategy: '策略条件', trailing_lock: '移动止损', phase_lock: '两阶段锁定止损' }
   return map[mode] ?? mode
 }
 
