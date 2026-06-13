@@ -19,9 +19,13 @@
 import Sidebar from './Sidebar.vue'
 import { useAuth } from '../../composables/hooks/useAuth'
 import { useSidebarCollapsed } from '../../composables/hooks/useSidebarCollapsed'
+import { useShiftWheelHScroll } from '../../composables/hooks/useShiftWheelHScroll'
 
 const { isCollapsed } = useSidebarCollapsed()
 const auth = useAuth()
+
+// Shift+滚轮在数据表上横向滚动（全站宽表统一生效）
+useShiftWheelHScroll()
 </script>
 
 <style scoped>
@@ -33,6 +37,7 @@ const auth = useAuth()
 
 .main-shell {
   flex: 1;
+  min-width: 0;
   min-height: 100vh;
   margin-left: 228px;
   padding: 16px 16px 16px 0;
@@ -47,7 +52,7 @@ const auth = useAuth()
 
 .main-content {
   height: calc(100vh - 32px);
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   scrollbar-gutter: stable;
   width: 100%;
