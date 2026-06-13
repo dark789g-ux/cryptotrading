@@ -234,6 +234,173 @@ def test_compute_labels_unknown_scheme_raises() -> None:
 
 
 # ----------------------------------------------------------------------
+# compute_labels：band_lock scheme 参数透传 + 零漂移（params-config spec 05 §一）
+# ----------------------------------------------------------------------
+
+def _band_lock_quotes() -> pd.DataFrame:
+    """band_lock 所需 quotes：含 raw open/high + hfq open_adj/high_adj/low_adj/close_adj。
+
+    单只票，方案一跟踪止损可复算样例（adj_factor=1 → hfq==raw）。
+    """
+
+    rows = [
+        {"trade_date": "20240102", "open": 9.9, "high": 10.0, "low": 9.7, "close": 9.95},
+        {"trade_date": "20240103", "open": 10.0, "high": 10.3, "low": 9.8, "close": 10.2},
+        {"trade_date": "20240104", "open": 10.4, "high": 10.6, "low": 10.5, "close": 10.5},
+        {"trade_date": "20240105", "open": 10.45, "high": 10.5, "low": 10.40, "close": 10.42},
+        {"trade_date": "20240108", "open": 10.4, "high": 10.5, "low": 10.3, "close": 10.4},
+    ]
+    df = pd.DataFrame(rows)
+    df["ts_code"] = "X"
+    df["adj_factor"] = 1.0
+    for raw_col, adj_col in (
+        ("open", "open_adj"), ("high", "high_adj"),
+        ("low", "low_adj"), ("close", "close_adj"),
+    ):
+        df[adj_col] = df[raw_col]
+    return df
+
+
+def test_compute_labels_band_lock_legacy_scheme_zero_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """scheme='band_lock'（全默认）→ 透传给核的 4 个出场参数 == 共享核默认（零漂移硬门）。
+
+    spy compute_band_lock_labels，断言 stop_ratio/floor_ratio/floor_enabled/
+    ma5_require_down == 现状默认 (0.999/0.999/True/True)、max_hold=None。
+    """
+
+    quotes = _band_lock_quotes()
+    _patch_loaders(monkeypatch, quotes=quotes)
+
+    captured: dict[str, Any] = {}
+    real = labels_runner.compute_band_lock_labels
+
+    def _spy(inputs: Any, progress_callback: Any = None, **kw: Any) -> pd.DataFrame:
+        captured.update(kw)
+        return real(inputs, progress_callback, **kw)
+
+    monkeypatch.setattr(labels_runner, "compute_band_lock_labels", _spy)
+    monkeypatch.setattr(labels_runner, "_upsert_labels", lambda rows: len(rows))
+
+    n = labels_runner.compute_labels(
+        scheme="band_lock", date_range="20240102:20240108"
+    )
+    assert n > 0
+    assert captured["scheme"] == "band_lock"
+    assert captured["max_hold"] is None
+    assert captured["stop_ratio"] == 0.999
+    assert captured["floor_ratio"] == 0.999
+    assert captured["floor_enabled"] is True
+    assert captured["ma5_require_down"] is True
+
+
+def test_compute_labels_band_lock_mh_scheme_parses_max_hold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """scheme='band_lock__mh10' → max_hold=10 从 scheme 串 parse，其余默认（现状不变）。"""
+
+    quotes = _band_lock_quotes()
+    _patch_loaders(monkeypatch, quotes=quotes)
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_band_lock_labels",
+        lambda inputs, progress_callback=None, **kw: (
+            captured.update(kw) or _nonempty_band_lock_frame()
+        ),
+    )
+    monkeypatch.setattr(labels_runner, "_upsert_labels", lambda rows: len(rows))
+
+    labels_runner.compute_labels(
+        scheme="band_lock__mh10", date_range="20240102:20240108"
+    )
+    assert captured["max_hold"] == 10
+    assert captured["stop_ratio"] == 0.999
+    assert captured["floor_enabled"] is True
+
+
+def test_compute_labels_band_lock_full_param_scheme_parses_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """带 4 个出场参数的 scheme 串 → 全部 parse 并透传到核。
+
+    'band_lock__mh10__sr0997__fr1020__fl0__md0' →
+        max_hold=10, stop_ratio=0.997, floor_ratio=1.020, floor_enabled=False,
+        ma5_require_down=False。
+    """
+
+    quotes = _band_lock_quotes()
+    _patch_loaders(monkeypatch, quotes=quotes)
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_band_lock_labels",
+        lambda inputs, progress_callback=None, **kw: (
+            captured.update(kw) or _nonempty_band_lock_frame()
+        ),
+    )
+    monkeypatch.setattr(labels_runner, "_upsert_labels", lambda rows: len(rows))
+
+    labels_runner.compute_labels(
+        scheme="band_lock__mh10__sr0997__fr1020__fl0__md0",
+        date_range="20240102:20240108",
+    )
+    assert captured["max_hold"] == 10
+    assert captured["stop_ratio"] == 0.997
+    assert captured["floor_ratio"] == 1.020
+    assert captured["floor_enabled"] is False
+    assert captured["ma5_require_down"] is False
+
+
+def test_compute_labels_band_lock_explicit_max_hold_overrides_scheme(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """向后兼容：显式 band_lock_max_hold 入参覆盖 scheme parse 出的 max_hold。
+
+    scheme='band_lock'（parse max_hold=None）+ band_lock_max_hold=7 → 核收到 max_hold=7。
+    保留 runner_entrypoint legacy 直传路径行为不变。
+    """
+
+    quotes = _band_lock_quotes()
+    _patch_loaders(monkeypatch, quotes=quotes)
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_band_lock_labels",
+        lambda inputs, progress_callback=None, **kw: (
+            captured.update(kw) or _nonempty_band_lock_frame()
+        ),
+    )
+    monkeypatch.setattr(labels_runner, "_upsert_labels", lambda rows: len(rows))
+
+    labels_runner.compute_labels(
+        scheme="band_lock",
+        date_range="20240102:20240108",
+        band_lock_max_hold=7,
+    )
+    assert captured["max_hold"] == 7
+
+
+def test_compute_labels_malformed_band_lock_scheme_raises() -> None:
+    """畸形 band_lock scheme（如 sr 越界）→ is_band_lock_scheme False → NotImplementedError。"""
+
+    with pytest.raises(NotImplementedError):
+        labels_runner.compute_labels(
+            scheme="band_lock__sr9999",  # stop_ratio NNNN>1000 越界 → 畸形
+            date_range="20240102:20240108",
+        )
+
+
+def _nonempty_band_lock_frame() -> pd.DataFrame:
+    """band_lock spy 替身返回的非空标签帧（让 compute_labels 不因空表 raise）。"""
+
+    return pd.DataFrame(
+        [
+            {"trade_date": "20240102", "ts_code": "X", "scheme": "band_lock",
+             "value": 0.01, "exit_reason": "stop", "hold_days": 1},
+        ]
+    )
+
+
+# ----------------------------------------------------------------------
 # helper：_resolve_ma_window（头部 padding 所需 ma_window 解析）
 # ----------------------------------------------------------------------
 
@@ -1072,3 +1239,120 @@ def test_runner_entrypoint_no_scheme_no_strategy_no_base_type_raises(
     job = _FakeJob({"date_range": "20240102:20240131"})
     with pytest.raises(ValueError, match="missing required params"):
         labels_runner.runner_entrypoint(job)
+
+
+# ----------------------------------------------------------------------
+# runner_entrypoint：base_type='band_lock' → 参数并入 base_params 经 codec 进 scheme
+# ----------------------------------------------------------------------
+
+def test_runner_entrypoint_base_type_band_lock_default_scheme(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """base_type='band_lock', base_params={} → scheme='band_lock'（全默认，守哈希）。
+
+    max_hold 不再单独透传（已折进 scheme 串）→ band_lock_max_hold kwarg=None。
+    """
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_labels",
+        lambda **kw: captured.update(kw) or 1,
+    )
+    job = _FakeJob(
+        {
+            "date_range": "20240102:20240131",
+            "base_type": "band_lock",
+            "base_params": {},
+        }
+    )
+    labels_runner.runner_entrypoint(job)
+    assert captured["scheme"] == "band_lock"
+    assert captured["band_lock_max_hold"] is None
+    assert captured["exit_rules"] is None
+
+
+def test_runner_entrypoint_base_type_band_lock_full_params_encoded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """base_type='band_lock' + 4 个出场参数 → 全部经 codec 编进 scheme 串（单一真值）。
+
+    base_params={max_hold:10, stop_ratio:0.997, floor_ratio:1.02, floor_enabled:False,
+    ma5_require_down:False} → scheme='band_lock__mh10__sr0997__fr1020__fl0__md0'；
+    max_hold 已进 scheme，band_lock_max_hold kwarg 不再单独透传（=None）。
+    """
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_labels",
+        lambda **kw: captured.update(kw) or 1,
+    )
+    job = _FakeJob(
+        {
+            "date_range": "20240102:20240131",
+            "base_type": "band_lock",
+            "base_params": {
+                "max_hold": 10,
+                "stop_ratio": 0.997,
+                "floor_ratio": 1.02,
+                "floor_enabled": False,
+                "ma5_require_down": False,
+            },
+        }
+    )
+    labels_runner.runner_entrypoint(job)
+    assert captured["scheme"] == "band_lock__mh10__sr0997__fr1020__fl0__md0"
+    # max_hold 折进 scheme 串 → 不再单独透传 kwarg（消除双路径）。
+    assert captured["band_lock_max_hold"] is None
+
+
+def test_runner_entrypoint_base_type_band_lock_legacy_max_hold_folds_into_scheme(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """向后兼容：base_type='band_lock' + top-level band_lock_max_hold → 折进 scheme。
+
+    旧 job 把 max_hold 放 top-level band_lock_max_hold（非 base_params）→ 折进
+    base_params 经 codec → scheme='band_lock__mh15'；kwarg 不再单独透传。
+    """
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_labels",
+        lambda **kw: captured.update(kw) or 1,
+    )
+    job = _FakeJob(
+        {
+            "date_range": "20240102:20240131",
+            "base_type": "band_lock",
+            "base_params": {},
+            "band_lock_max_hold": 15,
+        }
+    )
+    labels_runner.runner_entrypoint(job)
+    assert captured["scheme"] == "band_lock__mh15"
+    assert captured["band_lock_max_hold"] is None
+
+
+def test_runner_entrypoint_explicit_band_lock_scheme_with_legacy_max_hold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """向后兼容：显式 scheme='band_lock' + top-level band_lock_max_hold → kwarg 透传。
+
+    legacy 直传路径（显式 scheme，不走 base_type）→ band_lock_max_hold kwarg 仍生效，
+    compute_labels 内覆盖 scheme parse 出的 max_hold（行为不变）。
+    """
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        labels_runner, "compute_labels",
+        lambda **kw: captured.update(kw) or 1,
+    )
+    job = _FakeJob(
+        {
+            "scheme": "band_lock",
+            "date_range": "20240102:20240131",
+            "band_lock_max_hold": 12,
+        }
+    )
+    labels_runner.runner_entrypoint(job)
+    assert captured["scheme"] == "band_lock"
+    assert captured["band_lock_max_hold"] == 12

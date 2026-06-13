@@ -36,6 +36,10 @@ from quant_pipeline.labels._common import (
     derive_suspended_set,
 )
 from quant_pipeline.labels.band_lock_labels import compute_band_lock_labels
+from quant_pipeline.labels.band_lock_scheme import (
+    is_band_lock_scheme,
+    parse_band_lock_scheme,
+)
 from quant_pipeline.labels.fallback import (
     SCHEME_FWD_5D_RET,
     FallbackInputs,
@@ -66,14 +70,12 @@ _FWD_RET_HN_RE: re.Pattern[str] = re.compile(r"^fwd_ret_h(\d+)(__.+)?$")
 # strategy-aware 系串正则（spec 03 §2）：legacy 'strategy-aware' 与多策略
 # 'strategy-aware__{id}_{ver}' 都走 strategy_aware 分支。
 _STRATEGY_AWARE_RE: re.Pattern[str] = re.compile(r"^strategy-aware(__.+)?$")
-# band_lock 系串正则（trailing-lock-exit-design spec 03 §二）：legacy 'band_lock'
-# 与变体 'band_lock__{variant}' 都走 band_lock 独立有状态分支（共享核
-# simulate_band_lock，绕开 strategy_aware 的 first-match build_exit_rules）。
-_BAND_LOCK_RE: re.Pattern[str] = re.compile(r"^band_lock(__.+)?$")
-# band_lock__mh{N} 变体：max_hold 硬上限编进 scheme 串（与 fwd_ret_h{N} 对称，
-# 由 dir3_scheme.base_scheme_codec 决定性生成）。从 scheme 解析 max_hold，使
-# scheme 串自描述、增量重算决定性（同 scheme → 同 max_hold → 同标签）。
-_BAND_LOCK_MH_RE: re.Pattern[str] = re.compile(r"^band_lock__mh(\d+)$")
+# band_lock 系串判定 + 解析（params-config-design spec 02/05）：legacy 'band_lock'
+# 与合法变体 'band_lock__mh{N}__sr{NNNN}__fr{NNNN}__fl{0|1}__md{0|1}' 都走 band_lock
+# 独立有状态分支（共享核 simulate_band_lock，绕开 strategy_aware 的 first-match
+# build_exit_rules）。判定与解析的**单一源**是 band_lock_scheme.py（三件套），
+# 不再手写正则；4 个出场参数（stop/floor/floor_enabled/ma5_require_down）+ max_hold
+# 全部从 scheme 串 parse（同 scheme → 同参数 → 同标签，决定性、scheme 自描述）。
 
 logger = logging.getLogger(__name__)
 
@@ -501,9 +503,14 @@ def compute_labels(
                                （list[dict]，见 strategy.exit_rules.build_exit_rules）。
                                None → 走 default_rules()（止损-8%/跌破MA5/最大持仓20日），
                                与 default_exit@v1 逐行等价；其它 scheme 忽略。
-        band_lock_max_hold:    仅 band_lock 系生效（trailing-lock-exit spec 03 §二）。
-                               透传给 simulate_band_lock 的 max_hold 硬上限（已走过
-                               可交易持有日数）。None → 不设硬上限；其它 scheme 忽略。
+        band_lock_max_hold:    仅 band_lock 系生效，**向后兼容入参**（params-config
+                               spec 05 §一改造后，max_hold 与 4 个出场参数统一从
+                               scheme 串 parse —— scheme 串 = 单一真值）。本入参保留
+                               以兼容 runner_entrypoint 的 legacy 直传路径：非 None 时
+                               **覆盖** scheme parse 出的 max_hold；None → 完全以 scheme
+                               串为准。stop_ratio/floor_ratio/floor_enabled/
+                               ma5_require_down 一律从 scheme 串 parse（无独立入参）。
+                               其它 scheme 忽略。
         label_winsorize:       spec 02 §「只截一次」：标签截尾**统一在 features.builder
                                执行**（features 层 winsorize_label_value），本函数
                                不在标签阶段再截一次（避免双重 winsorize）。此入参仅
@@ -532,13 +539,27 @@ def compute_labels(
     # dir3_band / dir3_tercile 路径已移除（历史数据在 DB，不靠重跑老代码路径）
     fwd_ret_hn_match = _FWD_RET_HN_RE.match(scheme)
     is_strategy_aware = _STRATEGY_AWARE_RE.match(scheme) is not None
-    is_band_lock = _BAND_LOCK_RE.match(scheme) is not None
-    # band_lock__mh{N} 把 max_hold 编进 scheme（决定性、scheme 自描述）。显式
-    # band_lock_max_hold 入参优先；未给则从 scheme 串解析（同 scheme → 同 max_hold）。
-    if is_band_lock and band_lock_max_hold is None:
-        mh_match = _BAND_LOCK_MH_RE.match(scheme)
-        if mh_match is not None:
-            band_lock_max_hold = int(mh_match.group(1))
+    # band_lock 家族判定 + 全参数解析的单一源 = band_lock_scheme.py（畸形 scheme
+    # → is_band_lock=False，落入下方「未知 scheme」NotImplementedError）。
+    is_band_lock = is_band_lock_scheme(scheme)
+    # band_lock 出场参数（max_hold + 4 个出场参数）全部从 scheme 串 parse —— scheme
+    # 串 = 单一真值。parse 返回含默认回填的完整 dict（'band_lock' → 全默认；
+    # 'band_lock__mh10' → 仅 max_hold=10，其余默认 → 与现状逐位一致）。
+    # 向后兼容：显式 band_lock_max_hold 入参（仅 runner_entrypoint legacy 直传路径）
+    # 仍优先覆盖 scheme parse 出的 max_hold，保留既有调用方行为不变。
+    band_lock_params: dict[str, Any] = {}
+    if is_band_lock:
+        parsed = parse_band_lock_scheme(scheme)
+        # is_band_lock_scheme(scheme) True ⟺ parse 非 None（同一单一源，codec 契约）；
+        # 防御性兜底（不用 assert，避免 -O 被剥离）：理论不可达，落「未知 scheme」。
+        if parsed is None:  # pragma: no cover
+            raise NotImplementedError(
+                f"labels scheme={scheme!r}: is_band_lock_scheme True but parse None "
+                f"(band_lock_scheme codec inconsistency)"
+            )
+        band_lock_params = parsed
+        if band_lock_max_hold is not None:
+            band_lock_params["max_hold"] = band_lock_max_hold
     if (
         not is_strategy_aware
         and not is_band_lock
@@ -704,7 +725,13 @@ def compute_labels(
                 # scheme 透传：写入 records.scheme（legacy 'band_lock' 或变体），
                 # 与 factors.labels PK 对齐。
                 scheme=scheme,
-                max_hold=band_lock_max_hold,
+                # 4 个出场参数 + max_hold 全部从 scheme 串 parse（单一真值），透传给
+                # 共享核 simulate_band_lock。全默认 scheme → 全默认参数 → 零漂移。
+                max_hold=band_lock_params["max_hold"],
+                stop_ratio=band_lock_params["stop_ratio"],
+                floor_ratio=band_lock_params["floor_ratio"],
+                floor_enabled=band_lock_params["floor_enabled"],
+                ma5_require_down=band_lock_params["ma5_require_down"],
             )
             if labels_df.empty:
                 raise RuntimeError(
@@ -792,6 +819,10 @@ def runner_entrypoint(job: object) -> None:
         3. params.base_type + params.base_params（expandForTraining 注入路径）：
            - base_type='strategy_aware' → 从 base_params 提 strategy_id/version，
              复用分支 2 的语义（codec + _load_strategy_definition）
+           - base_type='band_lock' → 把 max_hold + 4 个出场参数（stop_ratio/
+             floor_ratio/floor_enabled/ma5_require_down）并入 base_params，统一经
+             base_scheme_codec 编码进 scheme 串（params-config spec 05 §一；scheme
+             串 = 单一真值，消除 band_lock_max_hold 双路径）。
            - 其它 base_type（如 'fwd_ret'）→ base_scheme_codec(base_type, base_params)
         三者全缺 → ValueError fail-fast。
     """
@@ -808,6 +839,10 @@ def runner_entrypoint(job: object) -> None:
     # 含 strategy_id+version → 用 codec 算 scheme + 加载该策略的 exit_rules。
     # 此分支不要求 params 里的 scheme（codec 算出权威 scheme，避免双源真理）。
     exit_rules: list[dict] | None = None
+    # scheme 是否由 base_type='band_lock' 路径编码而来（含 max_hold 已进 scheme 串）：
+    # 若是，下方不再单独透传 band_lock_max_hold kwarg（max_hold 单一真值在 scheme，
+    # 避免与 compute_labels 的 scheme parse 出现双源冲突）。
+    scheme_from_band_lock_base = False
     if strategy_id and strategy_version:
         scheme = base_scheme_codec(
             "strategy_aware",
@@ -832,6 +867,17 @@ def runner_entrypoint(job: object) -> None:
                 exit_rules = _load_strategy_definition(
                     str(strategy_id), str(strategy_version)
                 )
+            elif base_type == "band_lock":
+                # band_lock：max_hold + 4 个出场参数统一并入 base_params，经 codec
+                # 编进 scheme 串（单一真值）。base_params 已含的参数原样保留；缺失
+                # 由 canonical_band_lock_scheme 量化时回填默认（默认参数不进串 →
+                # 'band_lock'，守哈希不漂移）。max_hold 兼容 top-level
+                # band_lock_max_hold（base_params.max_hold 优先），消除双路径。
+                bl_params = dict(base_params)
+                if "max_hold" not in bl_params and "band_lock_max_hold" in params:
+                    bl_params["max_hold"] = params["band_lock_max_hold"]
+                scheme = base_scheme_codec("band_lock", bl_params)
+                scheme_from_band_lock_base = True
             else:
                 # fwd_ret 等其它类型：codec 算 scheme，无需 exit_rules。
                 scheme = base_scheme_codec(base_type, base_params)
@@ -847,24 +893,27 @@ def runner_entrypoint(job: object) -> None:
     # force_recompute 可选（spec 02 §force_recompute）：默认 False 走增量缺口；
     # True 整段重算覆盖（= 改造前整段行为）。
     force_recompute = bool(params.get("force_recompute", False))
-    # band_lock_max_hold 可选（仅 band_lock scheme 生效）：透传给 simulate_band_lock
-    # 的 max_hold 硬上限；缺省 None=不设硬上限。非 band_lock scheme 下 compute_labels
-    # 忽略该入参。校验 int（禁 bool / float / 字符串），越界由核 / 本处拦截。
-    band_lock_max_hold_raw = params.get("band_lock_max_hold")
+    # band_lock_max_hold：**向后兼容**直传入参（仅显式 scheme=band_lock 的 legacy
+    # 直传路径用；base_type='band_lock' 路径已把 max_hold 折进 scheme 串，不再单独
+    # 透传 —— 见 scheme_from_band_lock_base）。透传给 simulate_band_lock 的 max_hold
+    # 硬上限；缺省 None=不设硬上限。非 band_lock scheme 下 compute_labels 忽略该入参。
+    # 校验 int（禁 bool / float / 字符串），越界由核 / 本处拦截。
     band_lock_max_hold: int | None = None
-    if band_lock_max_hold_raw is not None:
-        if isinstance(band_lock_max_hold_raw, bool) or not isinstance(
-            band_lock_max_hold_raw, int
-        ):
-            raise ValueError(
-                f"band_lock_max_hold must be a positive int, "
-                f"got {band_lock_max_hold_raw!r}"
-            )
-        if band_lock_max_hold_raw < 1:
-            raise ValueError(
-                f"band_lock_max_hold must be >= 1, got {band_lock_max_hold_raw!r}"
-            )
-        band_lock_max_hold = int(band_lock_max_hold_raw)
+    if not scheme_from_band_lock_base:
+        band_lock_max_hold_raw = params.get("band_lock_max_hold")
+        if band_lock_max_hold_raw is not None:
+            if isinstance(band_lock_max_hold_raw, bool) or not isinstance(
+                band_lock_max_hold_raw, int
+            ):
+                raise ValueError(
+                    f"band_lock_max_hold must be a positive int, "
+                    f"got {band_lock_max_hold_raw!r}"
+                )
+            if band_lock_max_hold_raw < 1:
+                raise ValueError(
+                    f"band_lock_max_hold must be >= 1, got {band_lock_max_hold_raw!r}"
+                )
+            band_lock_max_hold = int(band_lock_max_hold_raw)
     job_id = getattr(job, "id", None)
     compute_labels(
         scheme=str(scheme),

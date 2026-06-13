@@ -52,6 +52,12 @@ from quant_pipeline.labels._common import (
     derive_suspended_set,
     empty_labels_frame,
 )
+from quant_pipeline.labels.band_lock_scheme import (
+    DEFAULT_FLOOR_ENABLED,
+    DEFAULT_FLOOR_RATIO,
+    DEFAULT_MA5_REQUIRE_DOWN,
+    DEFAULT_STOP_RATIO,
+)
 from quant_pipeline.labels.strategy_aware import (
     LIMIT_TOLERANCE,
     NEW_LISTING_MIN_DAYS,
@@ -189,6 +195,10 @@ def compute_band_lock_labels(
     *,
     scheme: str = BAND_LOCK_SCHEME,
     max_hold: int | None = None,
+    stop_ratio: float = DEFAULT_STOP_RATIO,
+    floor_ratio: float = DEFAULT_FLOOR_RATIO,
+    floor_enabled: bool = DEFAULT_FLOOR_ENABLED,
+    ma5_require_down: bool = DEFAULT_MA5_REQUIRE_DOWN,
 ) -> pd.DataFrame:
     """计算 band_lock 标签长表（factors.labels 直接 upsert 列）。
 
@@ -203,8 +213,14 @@ def compute_band_lock_labels(
     信号日为窗口最后一个交易日、取不到 T+1 → 跳过该候选（边界样本，正常）。
 
     参数：
-      scheme:   写入 records 的 scheme（factors.labels.scheme）。
-      max_hold: 可选硬上限（已走过可交易持有日数）透传给核；None=不设硬上限。
+      scheme:           写入 records 的 scheme（factors.labels.scheme）。
+      max_hold:         可选硬上限（已走过可交易持有日数）透传给核；None=不设硬上限。
+      stop_ratio:       止损缓冲系数，透传给核；默认 = 共享核现状 0.999（零漂移）。
+      floor_ratio:      成本地板系数，透传给核；默认 0.999（>1 时由保本转锁盈）。
+      floor_enabled:    是否启用成本地板，透传给核；默认 True。
+      ma5_require_down: 锁定后 MA5 离场是否要求均线下行，透传给核；默认 True。
+                        4 个出场参数默认 = 共享核 simulate_band_lock 现状硬编码 →
+                        全默认调用与改造前逐位一致（feature_set_id 哈希不漂移）。
     """
 
     quotes = inputs.daily_quotes
@@ -355,7 +371,13 @@ def compute_band_lock_labels(
             continue
 
         outcome: BandLockOutcome = simulate_band_lock(
-            bars, signal_high, max_hold=max_hold
+            bars,
+            signal_high,
+            max_hold=max_hold,
+            stop_ratio=stop_ratio,
+            floor_ratio=floor_ratio,
+            floor_enabled=floor_enabled,
+            ma5_require_down=ma5_require_down,
         )
 
         # 买入价 = T+1 hfq open_adj（核已校验入场端；no_entry → 跳过）。

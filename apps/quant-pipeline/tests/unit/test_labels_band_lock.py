@@ -374,3 +374,147 @@ def test_base_scheme_codec_band_lock() -> None:
         base_scheme_codec("band_lock", {"max_hold": 0})
     with pytest.raises(ValueError):
         base_scheme_codec("band_lock", {"max_hold": True})
+
+
+# ----------------------------------------------------------------------
+# 出场参数透传到共享核（params-config-design spec 05 §一）
+# ----------------------------------------------------------------------
+
+def test_exit_params_default_zero_drift() -> None:
+    """4 个出场参数全默认 → 与不传（现状）逐位一致（零漂移硬门）。
+
+    同一份 quotes，一次走默认（无参数），一次显式传全默认值，两次结果须逐列相等。
+    """
+
+    quotes = _quotes(
+        [
+            {"trade_date": "20240101", "open": 9.9, "high": 10.0, "low": 9.7, "close": 9.95},
+            {"trade_date": "20240102", "open": 10.0, "high": 10.3, "low": 9.8, "close": 10.2},
+            {"trade_date": "20240103", "open": 10.4, "high": 10.6, "low": 10.5, "close": 10.5},
+            {"trade_date": "20240104", "open": 10.45, "high": 10.5, "low": 10.40, "close": 10.42},
+            {"trade_date": "20240105", "open": 10.4, "high": 10.5, "low": 10.3, "close": 10.4},
+        ]
+    )
+    base = compute_band_lock_labels(
+        LabelInputs(daily_quotes=quotes, entries=_entries("20240101"), end="20240105")
+    )
+    explicit = compute_band_lock_labels(
+        LabelInputs(daily_quotes=quotes, entries=_entries("20240101"), end="20240105"),
+        stop_ratio=0.999,
+        floor_ratio=0.999,
+        floor_enabled=True,
+        ma5_require_down=True,
+    )
+    pd.testing.assert_frame_equal(base, explicit)
+
+
+def test_stop_ratio_param_changes_exit_price() -> None:
+    """收紧 stop_ratio（0.999→0.990）使止损基准更低 → 出场价随之变化（参数确实生效）。
+
+    方案一：T+1 close>open，cost=10。stop_next(给T+2)=floor2(10×stop_ratio)。
+      - stop_ratio=0.999 → floor2(9.99)=9.99；
+      - stop_ratio=0.990 → floor2(9.90)=9.90。
+    T+2 锁定后冻结的跟踪止损也随系数缩放，两次出场价不同 → 证明 stop_ratio 透传到核。
+    """
+
+    quotes = _quotes(
+        [
+            {"trade_date": "20240101", "open": 9.9, "high": 10.0, "low": 9.7, "close": 9.95},
+            {"trade_date": "20240102", "open": 10.0, "high": 10.3, "low": 9.8, "close": 10.2},
+            {"trade_date": "20240103", "open": 10.4, "high": 10.6, "low": 10.5, "close": 10.5},
+            {"trade_date": "20240104", "open": 10.45, "high": 10.5, "low": 10.40, "close": 10.42},
+            {"trade_date": "20240105", "open": 10.4, "high": 10.5, "low": 10.3, "close": 10.4},
+        ]
+    )
+    tight = compute_band_lock_labels(
+        LabelInputs(daily_quotes=quotes, entries=_entries("20240101"), end="20240105"),
+        stop_ratio=0.990,
+    )
+    loose = compute_band_lock_labels(
+        LabelInputs(daily_quotes=quotes, entries=_entries("20240101"), end="20240105"),
+        stop_ratio=0.999,
+    )
+    assert len(tight) == 1 and len(loose) == 1
+    # 两个 stop_ratio 给出不同结果（出场价 / 出场原因任一不同）→ 参数确实透传到核。
+    assert (
+        not math.isclose(tight.iloc[0]["value"], loose.iloc[0]["value"], rel_tol=1e-9)
+        or tight.iloc[0]["exit_reason"] != loose.iloc[0]["exit_reason"]
+        or tight.iloc[0]["hold_days"] != loose.iloc[0]["hold_days"]
+    )
+
+
+def test_floor_enabled_and_floor_ratio_passthrough() -> None:
+    """floor_enabled / floor_ratio 透传到核：方案二锁盈地板抬高跟踪止损 → 出场不同。
+
+    构造方案二入场（T+1 close<=open，cost=open(T+1)=10）、signal_high 极高（永不锁定，
+    走未锁定跟踪止损 (2c)）。T+2 收盘>cost → floor_active；floor_ratio=1.02 →
+    floor_price=floor2(10×1.02)=10.20，高于按 low×0.999 算的自然止损。
+      - floor_enabled=True ：stop_next=max(low_stop, 10.20) → T+3 在 10.19 触止损（核实跑）。
+      - floor_enabled=False：地板短路 → stop_next=low_stop → T+4 才在 10.08 触止损。
+    （核侧数值由 simulate_band_lock 直接验证，本测确认标签层把两参数透传到核。）
+    """
+
+    # 信号日 T high=50 → signal_high 极高（永不锁定）；T+1..T+4 = 上面 4 根 bar。
+    rows = [
+        {"trade_date": "20240101", "open": 9.9, "high": 50.0, "low": 9.7, "close": 9.95},
+        {"trade_date": "20240102", "open": 10.0, "high": 10.2, "low": 9.7, "close": 9.9},
+        {"trade_date": "20240103", "open": 10.3, "high": 10.6, "low": 10.1, "close": 10.5},
+        {"trade_date": "20240104", "open": 10.2, "high": 10.3, "low": 10.1, "close": 10.15},
+        {"trade_date": "20240105", "open": 10.1, "high": 10.2, "low": 9.9, "close": 10.0},
+    ]
+    quotes = _quotes(rows)
+    enabled = compute_band_lock_labels(
+        LabelInputs(daily_quotes=quotes, entries=_entries("20240101"), end="20240105"),
+        floor_enabled=True,
+        floor_ratio=1.02,
+    )
+    disabled = compute_band_lock_labels(
+        LabelInputs(daily_quotes=quotes, entries=_entries("20240101"), end="20240105"),
+        floor_enabled=False,
+        floor_ratio=1.02,
+    )
+    assert len(enabled) == 1 and len(disabled) == 1
+    # buy_price = open(T+1)=10.0。
+    # floor 启用：止损 @10.19、hold=2；短路：@10.08、hold=3。
+    assert enabled.iloc[0]["exit_reason"] == "stop"
+    assert disabled.iloc[0]["exit_reason"] == "stop"
+    assert enabled.iloc[0]["hold_days"] == 2
+    assert disabled.iloc[0]["hold_days"] == 3
+    assert math.isclose(enabled.iloc[0]["value"], 10.19 / 10.0 - 1.0, rel_tol=1e-9)
+    assert math.isclose(disabled.iloc[0]["value"], 10.08 / 10.0 - 1.0, rel_tol=1e-9)
+
+
+def test_ma5_require_down_passthrough() -> None:
+    """ma5_require_down=False 比 True 更敏感（只要收盘跌破 MA5 即离场）→ 结果可不同。
+
+    复用 test_locked_then_ma5_exit 的锁定后场景，但 ma5_require_down=False 时不要求
+    均线下行，可能在更早某日（close<ma5 但 ma5>=prev_ma5）就离场 → 与 True 路径不同。
+    """
+
+    rows = [
+        {"trade_date": "20240101", "open": 10.0, "high": 10.2, "low": 9.9, "close": 10.0},
+        {"trade_date": "20240102", "open": 10.1, "high": 10.3, "low": 10.0, "close": 10.2},
+        {"trade_date": "20240103", "open": 10.3, "high": 10.5, "low": 10.2, "close": 10.4},
+        {"trade_date": "20240104", "open": 9.9, "high": 10.0, "low": 9.8, "close": 10.0},
+        {"trade_date": "20240105", "open": 10.0, "high": 10.9, "low": 9.95, "close": 10.8},
+        {"trade_date": "20240106", "open": 10.9, "high": 11.3, "low": 10.7, "close": 11.2},
+        {"trade_date": "20240107", "open": 11.2, "high": 11.4, "low": 11.0, "close": 11.3},
+        {"trade_date": "20240108", "open": 11.1, "high": 11.2, "low": 10.9, "close": 11.0},
+        {"trade_date": "20240109", "open": 10.9, "high": 11.0, "low": 10.75, "close": 10.85},
+        {"trade_date": "20240110", "open": 10.85, "high": 10.9, "low": 10.7, "close": 10.75},
+        {"trade_date": "20240111", "open": 10.75, "high": 10.8, "low": 10.7, "close": 10.72},
+    ]
+    quotes = _quotes(rows)
+    require_down = compute_band_lock_labels(
+        LabelInputs(daily_quotes=quotes, entries=_entries("20240104"), end="20240111"),
+        ma5_require_down=True,
+    )
+    sensitive = compute_band_lock_labels(
+        LabelInputs(daily_quotes=quotes, entries=_entries("20240104"), end="20240111"),
+        ma5_require_down=False,
+    )
+    assert len(require_down) == 1 and len(sensitive) == 1
+    assert require_down.iloc[0]["exit_reason"] == "ma5_exit"
+    assert sensitive.iloc[0]["exit_reason"] == "ma5_exit"
+    # 更敏感（不要求均线下行）→ 不晚于 require_down 离场（hold_days <=），且本数据严格更早。
+    assert sensitive.iloc[0]["hold_days"] < require_down.iloc[0]["hold_days"]
