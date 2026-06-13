@@ -23,7 +23,12 @@
    - B(同陈旧 / attempts2≥max2) → 回收为 **failed + `orphaned: stale heartbeat…`**；
    - C(heartbeat=now() 新鲜) → **未被误回收**(仍 running、err 空，reaped=2 非 3)。
    3 条 e2e 孤儿已删、DB 复原。
-3. **#3 kelly cancel**：起一个大 kelly job(默认网格 + `bootstrap_iters=1000`) 运行中 `UPDATE ml.jobs SET cancel_requested=true …` → **数秒内** status 转 cancelled；观察 sweep 段(55–90%) progress **持续递增**(非整段不动)；再跑一个改前已有结果的 job，确认 `research.kelly_sweep_results` 与改前**逐字一致**(零漂移)。
+3. ✅ **#3 kelly cancel —— 2026-06-14 已验通过**（合成 job 直插 ml.jobs，复制历史成功 job 5782f4d6 的 params）：
+   - **取消响应**：4 出场族 job（更长 sweep）跑到 sweep 段(progress=58)置 `cancel_requested=true` → **2s 内** status=cancelled，stage `sweep 6/53→36/53`（per-exit_cfg 检查命中 JobCancelled→dispatcher 写 cancelled 正规路径）；
+   - **进度持续递增**：0→35→42→55(sweep开始)→58，exit_cfg 计数递增（#3 的 per-exit_cfg 细化，修前单变体整段只跳一次）；
+   - **零漂移**：用 5782f4d6 完全相同 params 重跑，valid 窗口数据未变(n_valid 297=297)→ `kelly_valid` 5 cfg 逐位相同；唯一差异 n_train 603→602 是 2026-06-09 以来 K 线数据演化、非代码漂移（代码级零漂移由单测 test_no_cancel_result_unchanged 权威保证）；happy path 完好(3b/4族 job 均 success)；
+   - **无半成品**：cancelled job 结果行=0（取消早于 persist）。e2e job 已删、DB 复原。
+   - **坑（已记）**：kelly job 仅 ~12s，比"插入 job 与启动轮询器两次工具调用之间的墙钟延迟"还短，首试编排器启动时 job 已 success；改用"插入+轮询+取消合一的单后台脚本"(零间隙)才截住 sweep。
 4. ✅ **#1 前端 —— 2026-06-14 已验通过**：preview(:5173,登录态 admin,路由 `/signal-stats`)。四渲染点全过——列表出场方式列(exitModeTag:临时造 phase_lock 方案验得「两阶段锁定止损」)/导入下拉(exitModeShortLabel:phase_lock→两阶段锁定止损)/结果摘要(exitModeSummary:波段跟踪止损)/配置面板(exitModeText:出场模式=波段跟踪止损)均正确中文含参、零 fallback、控制台零 error;临时 phase_lock 方案已删、DB 复原。
 
 ## 硬约束 / 项目规范
@@ -40,4 +45,5 @@
 - **2026-06-14：#4 worker 启动 e2e 已验通过**(两命令 + INFO 日志 + noop success，DB 已复原)。
 - **2026-06-14：#1 前端 signal-stats 渲染 e2e 已验通过**(四渲染点全过，phase_lock 标签正确，DB 已复原)。
 - **2026-06-14：#2 孤儿回收 e2e 已验通过**(真实 worker startup reaper 回收 2 陈旧孤儿[retry→重跑 success / giveup→failed]、新鲜活 job 不误回收，DB 已复原)。
-- **待续：#3 大 kelly job cancel** 一项真机 e2e 仍未做。
+- **2026-06-14：#3 kelly cancel e2e 已验通过**(sweep 段置 cancel→2s 内 cancelled / 进度 per-exit_cfg 递增 / valid 窗口零漂移 / cancelled 无半成品持久化，DB 已复原)。
+- **✅ #1-#4 四项真机 e2e 全部完成**——本交接已无待办，归档。
