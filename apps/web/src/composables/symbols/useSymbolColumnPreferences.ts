@@ -1,7 +1,9 @@
-import { computed, ref, unref, type MaybeRef } from 'vue'
+import { computed, h, ref, unref, type MaybeRef } from 'vue'
 import { type DataTableColumns } from 'naive-ui'
 import { preferencesApi, type ColumnPreferenceItem, type SymbolsViewColumnPreferences } from '@/api'
 import type { SymbolColumnDef } from '../../components/symbols/columnTypes'
+import FieldHelpTip from '../../components/common/FieldHelpTip.vue'
+import { getFieldDescription } from '../../components/common/fieldDescriptions'
 
 export type SymbolPreferenceScope = keyof SymbolsViewColumnPreferences
 
@@ -70,9 +72,17 @@ export function buildColumnsFromPreference<Row>(
     .map((item) => {
       const def = columnMap.get(item.key)
       if (!def) return null
+      // 有字段说明时，表头渲染「列名 + ?」；否则保持纯字符串 title（不影响排序/列设置抽屉）
+      const title = def.descKey && getFieldDescription(def.descKey)
+        ? () => h(
+            'span',
+            { style: 'display:inline-flex;align-items:center;gap:4px' },
+            [def.title, h(FieldHelpTip, { field: def.descKey })],
+          )
+        : def.title
       return {
         key: def.key,
-        title: def.title,
+        title,
         width: def.width,
         fixed: def.fixed,
         sorter: def.sorter,

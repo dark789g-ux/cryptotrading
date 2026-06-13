@@ -38,10 +38,11 @@ export function createCryptoColumnDefs(options: CryptoColumnsOptions): SymbolCol
     { title: 'MA5', key: 'ma5', width: 110, sorter: true, render: (row) => formatFixed(row.ma5 as number | null | undefined, 4) },
     { title: 'MA30', key: 'ma30', width: 110, sorter: true, render: (row) => formatFixed(row.ma30 as number | null | undefined, 4) },
     { title: 'MA60', key: 'ma60', width: 110, sorter: true, render: (row) => formatFixed(row.ma60 as number | null | undefined, 4) },
-    { title: 'KDJ.J', key: 'kdjJ', width: 90, sorter: true, render: (row) => formatFixed(row.kdjJ as number | null | undefined, 2) },
+    { title: 'KDJ.J', key: 'kdjJ', descKey: 'kdj_j', width: 90, sorter: true, render: (row) => formatFixed(row.kdjJ as number | null | undefined, 2) },
     {
       title: 'RR',
       key: 'riskRewardRatio',
+      descKey: 'profit_loss_ratio',
       width: 90,
       sorter: true,
       render: (row) => formatFixed(row.riskRewardRatio as number | null | undefined, 2),
@@ -49,6 +50,7 @@ export function createCryptoColumnDefs(options: CryptoColumnsOptions): SymbolCol
     {
       title: 'Stop %',
       key: 'stopLossPct',
+      descKey: 'stop_loss_pct',
       width: 90,
       sorter: true,
       render: (row) => (row.stopLossPct == null ? '-' : `${Number(row.stopLossPct).toFixed(2)}%`),
