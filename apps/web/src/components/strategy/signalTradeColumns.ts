@@ -18,6 +18,7 @@ export function buildTradeColumns(opts: {
       title: '名称',
       key: 'name',
       width: 96,
+      ellipsis: { lineClamp: 3, tooltip: true },
       render: (row) => row.name ?? '—',
     },
     {
@@ -65,7 +66,9 @@ export function buildTradeColumns(opts: {
     {
       title: '出场原因',
       key: 'exitReason',
+      minWidth: 110,
       sorter: true,
+      ellipsis: { lineClamp: 3, tooltip: true },
       render: (row) => exitReasonLabel(row.exitReason),
     },
     {

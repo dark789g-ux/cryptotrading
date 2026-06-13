@@ -98,6 +98,8 @@ const columns: DataTableColumns<RegimeStrategyConfig> = [
   {
     title: '备注',
     key: 'note',
+    minWidth: 160,
+    ellipsis: { lineClamp: 3, tooltip: true },
     render: (row) => row.note ?? '-',
   },
   {

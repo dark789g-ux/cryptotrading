@@ -78,6 +78,8 @@ const columns = [
   {
     title: '名称',
     key: 'name',
+    minWidth: 160,
+    ellipsis: { lineClamp: 3, tooltip: true as const },
   },
   {
     title: '目标类型',
