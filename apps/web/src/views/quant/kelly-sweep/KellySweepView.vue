@@ -130,6 +130,11 @@ async function onHistorySelect(jobId: string | null) {
     // 深拷贝后 Object.assign，避免直接引用 summary 内部对象（防副作用）
     const newConfig = JSON.parse(JSON.stringify(params)) as SweepParams
     Object.assign(store.config, newConfig)
+    // Object.assign 不删除目标多余 key：历史 job 无 band_lock_grid 时须显式清除存量，
+    // 否则切换历史后 band_lock 编辑器仍残留展开（配置与所选 job 不一致）。
+    if (!('band_lock_grid' in newConfig)) {
+      delete store.config.band_lock_grid
+    }
   }
 }
 

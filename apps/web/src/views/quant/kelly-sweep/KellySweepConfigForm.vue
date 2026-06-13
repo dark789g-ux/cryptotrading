@@ -178,6 +178,19 @@
         >
           {{ f.label }}
         </n-checkbox>
+        <!-- band_lock 独立开关：不进 exit_families（NestJS DTO 不放行），仅决定是否传 band_lock_grid -->
+        <n-checkbox
+          :checked="bandLockEnabled"
+          size="small"
+          @update:checked="toggleBandLock"
+        >
+          band_lock（波段跟踪止损）
+        </n-checkbox>
+      </div>
+
+      <!-- band_lock 候选集编辑器：仅勾选时展开 -->
+      <div v-if="bandLockEnabled" class="band-lock-wrap">
+        <BandLockGridEditor v-model="bandLockGridModel" />
       </div>
     </n-card>
 
@@ -216,8 +229,10 @@ import {
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import { kellySweepApi, type ExitFamily, type BaseTriggerOp } from '@/api/modules/quant/kellySweep'
-import type { SweepParams } from '@/api/modules/quant/kellySweep'
+import type { SweepParams, BandLockGrid } from '@/api/modules/quant/kellySweep'
 import { useKellySweepConfigSync } from '@/composables/quant/useKellySweepConfigSync'
+import { makeDefaultBandLockGrid } from '@/stores/kellySweep'
+import BandLockGridEditor from '@/components/quant/kelly-sweep/BandLockGridEditor.vue'
 
 // ---------- 出场族常量（来源 sweep.py:90-106 DEFAULT_EXIT_GRID，UI 粗估用） ----------
 const EXIT_FAMILY_SIZES: Record<ExitFamily, number> = {
@@ -308,6 +323,30 @@ function toggleExitFamily(f: ExitFamily, checked: boolean) {
   }
 }
 
+// ---------- band_lock 出场族（独立开关，不进 exit_families） ----------
+// band_lock 不属 NestJS DTO 合法 exit_families {fixed_n,tp_sl,trailing,atr_stop}，
+// 故不写入 config.exit_families；band_lock 段是否生效由 config.band_lock_grid 是否存在驱动
+// （Python kelly_sweep_runner._build_exit_grid_from_params：band_lock_grid 提供 → 生成 band_lock 段）。
+const bandLockEnabled = computed(() => config.value.band_lock_grid !== undefined)
+
+function toggleBandLock(checked: boolean) {
+  if (checked) {
+    config.value = { ...config.value, band_lock_grid: makeDefaultBandLockGrid() }
+  } else {
+    const { band_lock_grid, ...rest } = config.value
+    void band_lock_grid
+    config.value = rest as SweepParams
+  }
+}
+
+/** band_lock 候选集 v-model 桥接：getter 兜底默认（v-if 保证仅 enabled 时渲染），setter 写回 config */
+const bandLockGridModel = computed<BandLockGrid>({
+  get: () => config.value.band_lock_grid ?? makeDefaultBandLockGrid(),
+  set: (v) => {
+    config.value = { ...config.value, band_lock_grid: v }
+  },
+})
+
 // ---------- RS 基准切换 ----------
 function toggleRsBenchmark(v: string, checked: boolean) {
   if (checked) {
@@ -388,6 +427,12 @@ const comboCount = computed(() => variantCount.value * exitCount.value)
 
 .sub-card {
   background: color-mix(in srgb, var(--color-surface-elevated) 60%, transparent);
+}
+
+.band-lock-wrap {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border);
 }
 
 .combo-estimate {

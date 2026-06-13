@@ -31,6 +31,30 @@ export interface BaseTrigger {
   value: number
 }
 
+/**
+ * band_lock 出场族候选集（各维度多值），提交时拼进 job.params.band_lock_grid。
+ *
+ * 键名与 Python worker `_normalize_band_lock_candidates`（kelly_sweep_runner.py:104-129）
+ * 透传给 `build_band_lock_grid(**candidates)` 的 5 个 kwargs 一一对应（必须带 `_list` 后缀）。
+ * 每个值是该维度的候选集数组；后端做笛卡尔积 + 坍缩去重（sweep.py build_band_lock_grid）。
+ *
+ * 注意：band_lock 不属于 exit_families 合法集 {fixed_n,tp_sl,trailing,atr_stop}（NestJS DTO
+ * KELLY_SWEEP_EXIT_FAMILIES 不放行）。band_lock 段是否生效**仅由本字段是否存在驱动**：
+ * 传 band_lock_grid → Python 生成 band_lock 段并合并；不传 → 现状（无 band_lock）。
+ */
+export interface BandLockGrid {
+  /** max_hold 候选：null=不封顶 / 正整数 */
+  max_hold_list: (number | null)[]
+  /** stop_ratio 候选（量化前原始 ratio，∈[0.001,1.0]，千分位） */
+  stop_ratio_list: number[]
+  /** floor_ratio 候选（量化前原始 ratio，∈[0.001,9.999]，千分位） */
+  floor_ratio_list: number[]
+  /** floor_enabled 候选（bool 多选） */
+  floor_enabled_list: boolean[]
+  /** ma5_require_down 候选（bool 多选） */
+  ma5_require_down_list: boolean[]
+}
+
 export interface SweepParams {
   base_trigger: BaseTrigger
   /** 'all' 或 ts_code 数组 */
@@ -48,6 +72,11 @@ export interface SweepParams {
   same_day_rule: SameDayRule
   rs_benchmark: string[]
   exit_families: ExitFamily[]
+  /**
+   * band_lock 出场族候选集（可选）。
+   * 仅当用户勾选「波段跟踪止损」出场族时存在并提交；不存在 = 不扫 band_lock（现状）。
+   */
+  band_lock_grid?: BandLockGrid
 }
 
 export interface KellySweepMeta {

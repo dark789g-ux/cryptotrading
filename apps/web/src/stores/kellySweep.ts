@@ -12,6 +12,7 @@ import { ref } from 'vue'
 import {
   kellySweepApi,
   type SweepParams,
+  type BandLockGrid,
   type SweepGroup,
   type KellySweepSummary,
   type KellyScatterPoint,
@@ -35,6 +36,23 @@ export const DEFAULT_SWEEP_PARAMS: SweepParams = {
   same_day_rule: 'sl_first',
   rs_benchmark: ['hs300', 'zz500'],
   exit_families: ['fixed_n', 'tp_sl', 'trailing', 'atr_stop'],
+}
+
+/**
+ * band_lock 候选集默认值工厂（每次返回新对象，避免共享引用被 mutate）。
+ *
+ * 默认 = 退化成现状（spec 05§3.1 默认候选集 → build_band_lock_grid() == DEFAULT_EXIT_GRID
+ * 的 band_lock 3 个 cfg）：max_hold ∈ {null,10,20}，4 新参数取核默认 0.999/0.999/true/true。
+ * 用户勾选「波段跟踪止损」出场族时，以此初始化 config.band_lock_grid。
+ */
+export function makeDefaultBandLockGrid(): BandLockGrid {
+  return {
+    max_hold_list: [null, 10, 20],
+    stop_ratio_list: [0.999],
+    floor_ratio_list: [0.999],
+    floor_enabled_list: [true],
+    ma5_require_down_list: [true],
+  }
 }
 
 export const useKellySweepStore = defineStore('kellySweep', () => {
