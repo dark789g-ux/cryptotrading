@@ -116,9 +116,8 @@ _LEGACY_FWD5_SCHEME: Final[str] = "fwd_5d_ret"
 #: strategy_version) 决定（见 base_scheme_codec）；default_exit@v1 回此 legacy 串，
 #: 守历史 factors.labels（scheme='strategy-aware'）不漂移（spec 02 §4）。
 _STRATEGY_AWARE_SCHEME: Final[str] = "strategy-aware"
-#: band_lock（波段跟踪止损 trailing_lock）canonical 别名串。无 max_hold 硬上限时回此
-#: legacy 串；带 max_hold=N 时回 'band_lock__mh{N}'（决定性、可复现、可与无上限并存）。
-_BAND_LOCK_SCHEME: Final[str] = "band_lock"
+# band_lock 系的 scheme 串编解码已移交 band_lock_scheme.py（canonical/parse 单一源）；
+# 本模块 base_scheme_codec 的 band_lock 分支委托 canonical_band_lock_scheme。
 
 _VALID_BASE_TYPES: Final[frozenset[str]] = frozenset(
     {"fwd_ret", "strategy_aware", "band_lock"}
@@ -145,16 +144,15 @@ def base_scheme_codec(base_type: str, base_params: dict | None = None) -> str:
     """
 
     if base_type == "band_lock":
-        sp = base_params or {}
-        max_hold = sp.get("max_hold")
-        if max_hold is None:
-            return _BAND_LOCK_SCHEME            # 不设硬上限 → legacy 别名串
-        if isinstance(max_hold, bool) or not isinstance(max_hold, int) or max_hold < 1:
-            raise ValueError(
-                f"base_scheme_codec: band_lock max_hold must be a positive int, "
-                f"got {max_hold!r}"
-            )
-        return f"band_lock__mh{int(max_hold)}"
+        # band_lock 出场参数 ↔ scheme 串的唯一编解码源在 band_lock_scheme.py
+        # （三件套 quantize/canonical/parse）。这里改调 canonical_band_lock_scheme，
+        # 不再就地拼串：全默认 → 'band_lock'，仅 max_hold → 'band_lock__mh{N}'（守现存哈希），
+        # 含非默认 sr/fr/fl/md → 紧凑后缀。max_hold 非正整数等越界由其 quantize 抛 ValueError。
+        # 函数内延迟 import：band_lock_scheme 不反向依赖本模块，无循环，但延迟 import 与
+        # 本模块既有风格一致、且把依赖限定在 band_lock 分支。
+        from quant_pipeline.labels.band_lock_scheme import canonical_band_lock_scheme
+
+        return canonical_band_lock_scheme(base_params or {})
 
     if base_type not in _VALID_BASE_TYPES:
         raise ValueError(
@@ -208,5 +206,4 @@ __all__ = [
     "base_scheme_codec",
     "_LEGACY_FWD5_SCHEME",
     "_STRATEGY_AWARE_SCHEME",
-    "_BAND_LOCK_SCHEME",
 ]
