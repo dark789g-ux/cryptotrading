@@ -45,6 +45,7 @@ const columns = computed<DataTableColumns<PortfolioSimRun>>(() => [
     title: '名称',
     key: 'name',
     minWidth: 160,
+    ellipsis: { lineClamp: 3, tooltip: true },
     render(row) {
       return h(
         'span',

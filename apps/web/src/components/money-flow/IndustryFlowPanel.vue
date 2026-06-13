@@ -103,7 +103,7 @@ function openDetail(row: MoneyFlowIndustryRow) {
 const trendFetchFn = fetchIndustryTrend
 
 const columns: DataTableColumns<MoneyFlowIndustryRow> = [
-  { title: '行业', key: 'industry', width: 120 },
+  { title: '行业', key: 'industry', width: 120, ellipsis: { lineClamp: 3, tooltip: true } },
   { title: '涨跌幅%', key: 'pctChange', width: 90, sorter: (a, b) => Number(a.pctChange) - Number(b.pctChange), render: row => { const v = Number(row.pctChange); return h('span', { class: v > 0 ? 'positive' : v < 0 ? 'negative' : '' }, `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`) } },
   { title: '净流入(亿)', key: 'netAmount', width: 110, defaultSortOrder: 'descend' as const, sorter: (a, b) => Number(a.netAmount) - Number(b.netAmount), render: row => { const v = Number(row.netAmount); return h('span', { class: v > 0 ? 'positive' : v < 0 ? 'negative' : '' }, v.toFixed(2)) } },
   { title: '净买入(亿)', key: 'netBuyAmount', width: 110, sorter: (a, b) => Number(a.netBuyAmount) - Number(b.netBuyAmount), render: row => { const v = Number(row.netBuyAmount); return h('span', { class: v > 0 ? 'positive' : 'negative' }, v.toFixed(2)) } },

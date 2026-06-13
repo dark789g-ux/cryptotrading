@@ -137,7 +137,7 @@ const columns: DataTableColumns<PortfolioSimFill> = [
         : h(NTag, { type: 'warning', size: 'small' }, { default: () => '弃单' })
     },
   },
-  { title: '源', key: 'sourceLabel', width: 120, sorter: true },
+  { title: '源', key: 'sourceLabel', width: 120, sorter: true, ellipsis: { lineClamp: 3, tooltip: true } },
   { title: 'ts_code', key: 'tsCode', width: 110, sorter: true },
   {
     title: '信号日',
@@ -198,6 +198,7 @@ const columns: DataTableColumns<PortfolioSimFill> = [
     title: '弃单原因',
     key: 'skipReason',
     width: 130,
+    ellipsis: { lineClamp: 3, tooltip: true },
     render: (r) => (r.skipReason ? SKIP_REASON_LABELS[r.skipReason] ?? r.skipReason : '—'),
   },
 ]
