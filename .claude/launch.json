@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "web",
+      "name": "dev",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@cryptotrading/web", "dev"],
+      "runtimeArgs": ["dev"],
       "port": 5173
     }
   ]
