@@ -55,6 +55,28 @@ export interface BandLockGrid {
   ma5_require_down_list: boolean[]
 }
 
+/**
+ * phase_lock 出场族候选集（各维度多值），提交时拼进 job.params.phase_lock_grid。
+ *
+ * 键名与 Python worker `_normalize_phase_lock_candidates`（kelly_sweep_runner.py，D4 实现）
+ * 透传给 `build_phase_lock_grid(**candidates)` 的 3 个 kwargs 一一对应（必须带 `_list` 后缀）。
+ * 每个值是该维度的候选集数组；后端做笛卡尔积 lookback × init_factor × lock_factor + 量化去重
+ * （sweep.py build_phase_lock_grid）。
+ *
+ * 注意：phase_lock 不属于 exit_families 合法集 {fixed_n,tp_sl,trailing,atr_stop}（NestJS DTO
+ * KELLY_SWEEP_EXIT_FAMILIES 不放行）。phase_lock 段是否生效**仅由本字段是否存在驱动**（与
+ * band_lock 同 presence-driven）：传 phase_lock_grid → Python 生成 phase_lock 段并合并；
+ * 不传 → 现状（无 phase_lock）。
+ */
+export interface PhaseLockGrid {
+  /** lookback 候选（正整数，∈[1,250]，初始止损回看根数） */
+  lookback_list: number[]
+  /** init_factor 候选（量化前原始 ratio，∈(0,2.0]，千分位） */
+  init_factor_list: number[]
+  /** lock_factor 候选（量化前原始 ratio，∈(0,2.0]，千分位） */
+  lock_factor_list: number[]
+}
+
 export interface SweepParams {
   base_trigger: BaseTrigger
   /** 'all' 或 ts_code 数组 */
@@ -77,6 +99,11 @@ export interface SweepParams {
    * 仅当用户勾选「波段跟踪止损」出场族时存在并提交；不存在 = 不扫 band_lock（现状）。
    */
   band_lock_grid?: BandLockGrid
+  /**
+   * phase_lock 出场族候选集（可选）。
+   * 仅当用户勾选「分阶段锁定止损」出场族时存在并提交；不存在 = 不扫 phase_lock（现状）。
+   */
+  phase_lock_grid?: PhaseLockGrid
 }
 
 export interface KellySweepMeta {

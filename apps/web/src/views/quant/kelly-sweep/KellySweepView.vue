@@ -135,6 +135,10 @@ async function onHistorySelect(jobId: string | null) {
     if (!('band_lock_grid' in newConfig)) {
       delete store.config.band_lock_grid
     }
+    // 同款清理 phase_lock_grid（presence-driven，残留会让 phase_lock 编辑器误展开）。
+    if (!('phase_lock_grid' in newConfig)) {
+      delete store.config.phase_lock_grid
+    }
   }
 }
 

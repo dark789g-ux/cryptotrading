@@ -13,6 +13,7 @@ import {
   kellySweepApi,
   type SweepParams,
   type BandLockGrid,
+  type PhaseLockGrid,
   type SweepGroup,
   type KellySweepSummary,
   type KellyScatterPoint,
@@ -130,6 +131,71 @@ export function estimateBandLockGridSize(grid: BandLockGrid): number {
     }
   }
   return seen.size
+}
+
+// ── phase_lock 候选集（spec 02 §kelly 默认网格 / spec 04 §D5） ─────────────────
+/**
+ * phase_lock 候选集默认值工厂（每次返回新对象，避免共享引用被 mutate）。
+ *
+ * 默认 = spec 02 kelly 默认网格：lookback{5,10,15,20} × init_factor{0.97,0.98,0.99,1.00}
+ * × lock_factor{0.99,0.999,1.005} = 4×4×3 = 48 组。
+ * 用户勾选「分阶段锁定止损」出场族时，以此初始化 config.phase_lock_grid。
+ */
+export function makeDefaultPhaseLockGrid(): PhaseLockGrid {
+  return {
+    lookback_list: [5, 10, 15, 20],
+    init_factor_list: [0.97, 0.98, 0.99, 1.0],
+    lock_factor_list: [0.99, 0.999, 1.005],
+  }
+}
+
+/**
+ * phase_lock ratio 量化到千分位（round-half-up；ratio 恒正 → Math.round 与 Python
+ * floor(x+0.5) 逐位一致，phase_lock_scheme.py，量化算法与 band_lock 完全相同）。
+ * 供编辑器输入归一与网格预估去重共用。init_factor / lock_factor ∈ (0,2.0]。
+ */
+export function quantizePhaseLockFactor(r: number): number {
+  return Math.round(r * BAND_LOCK_RATIO_GRID) / BAND_LOCK_RATIO_GRID
+}
+
+/** init/lock_factor 维度按量化值保序去重，与 Python 去重同口径 */
+function dedupQuantizedFactors(list: number[]): number[] {
+  const seen = new Set<number>()
+  const out: number[] = []
+  for (const r of list) {
+    const q = quantizePhaseLockFactor(r)
+    if (!seen.has(q)) {
+      seen.add(q)
+      out.push(q)
+    }
+  }
+  return out
+}
+
+/**
+ * 预估 phase_lock 出场族会生成多少个 cfg（纯函数，无副作用）。
+ *
+ * 纯 TS 复刻后端 build_phase_lock_grid（sweep.py，D4）的笛卡尔积 + 量化去重：
+ *   1. lookback 整数去重；init_factor / lock_factor 量化千分位后去重。
+ *   2. 笛卡尔积 lookback × init_factor × lock_factor（无依赖坍缩，三维独立）。
+ *
+ * 任一维度空 → 返回 0（与后端笛卡尔积为空 / build_exit_grid 校验失败一致）。
+ *
+ * PhaseLockGridEditor（实时「将生成 N 个」）与 KellySweepConfigForm（组合数预估的出场数）共用，
+ * 保证前端预估单一源、与后端 build_phase_lock_grid 同口径。
+ */
+export function estimatePhaseLockGridSize(grid: PhaseLockGrid): number {
+  const lookbacks = dedupScalar(grid.lookback_list)
+  const inits = dedupQuantizedFactors(grid.init_factor_list)
+  const locks = dedupQuantizedFactors(grid.lock_factor_list)
+
+  // 任一维度空 → 后端笛卡尔积为空 / build_exit_grid 校验失败；按 0 计
+  if (lookbacks.length === 0 || inits.length === 0 || locks.length === 0) {
+    return 0
+  }
+
+  // 三维笛卡尔积；各维度已去重，乘积即去重后规模（无依赖坍缩）
+  return lookbacks.length * inits.length * locks.length
 }
 
 export const useKellySweepStore = defineStore('kellySweep', () => {

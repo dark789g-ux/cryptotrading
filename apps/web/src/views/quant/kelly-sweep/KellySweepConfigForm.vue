@@ -186,11 +186,24 @@
         >
           band_lock（波段跟踪止损）
         </n-checkbox>
+        <!-- phase_lock 独立开关：同 presence-driven，不进 exit_families，仅决定是否传 phase_lock_grid -->
+        <n-checkbox
+          :checked="phaseLockEnabled"
+          size="small"
+          @update:checked="togglePhaseLock"
+        >
+          phase_lock（分阶段锁定止损）
+        </n-checkbox>
       </div>
 
       <!-- band_lock 候选集编辑器：仅勾选时展开 -->
       <div v-if="bandLockEnabled" class="band-lock-wrap">
         <BandLockGridEditor v-model="bandLockGridModel" />
+      </div>
+
+      <!-- phase_lock 候选集编辑器：仅勾选时展开 -->
+      <div v-if="phaseLockEnabled" class="band-lock-wrap">
+        <PhaseLockGridEditor v-model="phaseLockGridModel" />
       </div>
     </n-card>
 
@@ -231,8 +244,12 @@ import type { SelectOption } from 'naive-ui'
 import { kellySweepApi, type ExitFamily, type BaseTriggerOp } from '@/api/modules/quant/kellySweep'
 import type { SweepParams, BandLockGrid } from '@/api/modules/quant/kellySweep'
 import { useKellySweepConfigSync } from '@/composables/quant/useKellySweepConfigSync'
-import { makeDefaultBandLockGrid, estimateBandLockGridSize } from '@/stores/kellySweep'
+import { usePhaseLockGrid } from '@/composables/quant/usePhaseLockGrid'
+import {
+  makeDefaultBandLockGrid, estimateBandLockGridSize, estimatePhaseLockGridSize,
+} from '@/stores/kellySweep'
 import BandLockGridEditor from '@/components/quant/kelly-sweep/BandLockGridEditor.vue'
+import PhaseLockGridEditor from '@/components/quant/kelly-sweep/PhaseLockGridEditor.vue'
 
 // ---------- 出场族常量（来源 sweep.py:90-106 DEFAULT_EXIT_GRID，UI 粗估用） ----------
 const EXIT_FAMILY_SIZES: Record<ExitFamily, number> = {
@@ -347,6 +364,10 @@ const bandLockGridModel = computed<BandLockGrid>({
   },
 })
 
+// ---------- phase_lock 出场族（独立开关，不进 exit_families；逻辑见 usePhaseLockGrid） ----------
+// presence-driven 完全镜像 band_lock：由 config.phase_lock_grid 是否存在驱动，不写 exit_families。
+const { phaseLockEnabled, togglePhaseLock, phaseLockGridModel } = usePhaseLockGrid(config)
+
 // ---------- RS 基准切换 ----------
 function toggleRsBenchmark(v: string, checked: boolean) {
   if (checked) {
@@ -381,12 +402,16 @@ const variantCount = computed(() => {
 })
 
 const exitCount = computed(() => {
-  // exit_families 各族出场数 + band_lock 网格（勾选时）；与后端 build_exit_grid 合并 band_lock_grid 同口径
+  // exit_families 各族出场数 + band_lock 网格 + phase_lock 网格（勾选时）；
+  // 与后端 build_exit_grid 合并 band_lock_grid / phase_lock_grid 同口径
   const familySum = config.value.exit_families.reduce((sum, f) => sum + (EXIT_FAMILY_SIZES[f] ?? 0), 0)
   const bandLockSum = config.value.band_lock_grid
     ? estimateBandLockGridSize(config.value.band_lock_grid)
     : 0
-  return familySum + bandLockSum
+  const phaseLockSum = config.value.phase_lock_grid
+    ? estimatePhaseLockGridSize(config.value.phase_lock_grid)
+    : 0
+  return familySum + bandLockSum + phaseLockSum
 })
 
 const comboCount = computed(() => variantCount.value * exitCount.value)
