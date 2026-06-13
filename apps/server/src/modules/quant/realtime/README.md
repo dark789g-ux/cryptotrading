@@ -72,8 +72,9 @@ Python worker  ──UPDATE ml.jobs.progress──┐
 ```powershell
 docker compose up -d postgres
 pnpm --filter @cryptotrading/server dev
-# 另一终端
-cd apps/quant-pipeline ; uv run python -m quant_pipeline.worker
+# 另一终端：启动常驻 worker（轮询 ml.jobs）
+cd apps/quant-pipeline ; uv run quant-worker
+# 等价写法：uv run quant worker run  或  uv run python -m quant_pipeline.worker
 ```
 
 ### 2. 创建一个 job 并取 SSE token

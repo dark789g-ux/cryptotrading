@@ -42,6 +42,7 @@ dev = [
 
 [project.scripts]
 quant = "quant_pipeline.cli:app"
+quant-worker = "quant_pipeline.worker.__main__:main"
 lint-no-silent-degradation = "tools.lint_no_silent_degradation:main"
 
 [build-system]
