@@ -90,6 +90,42 @@ export function buildBandLockParams(
   return { stopRatio, floorRatio, floorEnabled, ma5RequireDown };
 }
 
+// ── phase_lock 参数：量化 + 默认 + 组装 ──────────────────────────────────────
+
+/** phase_lock 3 参数默认值（与共享核 phase_lock_exit.py 默认逐字一致）。 */
+const PHASE_LOCK_DEFAULTS = {
+  initFactor: 0.999,
+  lockFactor: 0.999,
+  lookback: 10,
+} as const;
+
+/**
+ * 把 DTO 的 phase_lock 3 参数组装成落库的 phaseLockParams jsonb。
+ * - 非 phase_lock 模式 → null。
+ * - phase_lock 且量化后 3 参数全为默认 → null（存量行零漂移）。
+ * - 否则 → 量化后的完整 3 字段对象（runner 直接透传，核不再量化）。
+ * 调用前提：已过 validateDto（factor 量化后在合法范围、lookback 正整数）。
+ */
+export function buildPhaseLockParams(
+  dto: CreateSignalTestDto,
+): SignalTestEntity['phaseLockParams'] {
+  if (dto.exitMode !== 'phase_lock') return null;
+  const initFactor =
+    dto.initFactor !== undefined ? quantizeRatio(dto.initFactor) : PHASE_LOCK_DEFAULTS.initFactor;
+  const lockFactor =
+    dto.lockFactor !== undefined ? quantizeRatio(dto.lockFactor) : PHASE_LOCK_DEFAULTS.lockFactor;
+  const lookback = dto.lookback ?? PHASE_LOCK_DEFAULTS.lookback;
+  // 全默认 → null（零漂移）。
+  if (
+    initFactor === PHASE_LOCK_DEFAULTS.initFactor &&
+    lockFactor === PHASE_LOCK_DEFAULTS.lockFactor &&
+    lookback === PHASE_LOCK_DEFAULTS.lookback
+  ) {
+    return null;
+  }
+  return { initFactor, lockFactor, lookback };
+}
+
 @Injectable()
 export class SignalStatsService {
   private readonly logger = new Logger(SignalStatsService.name);
@@ -122,6 +158,7 @@ export class SignalStatsService {
       exitConditions: dto.exitConditions ?? null,
       maxHold: dto.maxHold ?? null,
       bandLockParams: buildBandLockParams(dto),
+      phaseLockParams: buildPhaseLockParams(dto),
       universe: dto.universe,
       dateStart: dto.dateStart,
       dateEnd: dto.dateEnd,
@@ -167,6 +204,10 @@ export class SignalStatsService {
     // 注意 floorEnabled/ma5RequireDown 用 ?? 防显式/存量 false 被吞。
     const prev = targetExitMode === 'trailing_lock' ? entity.bandLockParams : null;
     const keepBandLock = targetExitMode === 'trailing_lock';
+    // phase_lock 3 参数合并：仅当目标模式仍是 phase_lock 才回填存量值（dto 显式带优先）；
+    //   切到其它模式时丢弃存量 phase_lock 残留（置 undefined），避免被 stray 校验误判 400。
+    const prevPL = targetExitMode === 'phase_lock' ? entity.phaseLockParams : null;
+    const keepPhaseLock = targetExitMode === 'phase_lock';
     const merged: CreateSignalTestDto = {
       name: dto.name ?? entity.name,
       buyConditions: dto.buyConditions ?? entity.buyConditions,
@@ -180,6 +221,9 @@ export class SignalStatsService {
       ma5RequireDown: keepBandLock
         ? (dto.ma5RequireDown ?? prev?.ma5RequireDown ?? undefined)
         : undefined,
+      initFactor: keepPhaseLock ? (dto.initFactor ?? prevPL?.initFactor ?? undefined) : undefined,
+      lockFactor: keepPhaseLock ? (dto.lockFactor ?? prevPL?.lockFactor ?? undefined) : undefined,
+      lookback: keepPhaseLock ? (dto.lookback ?? prevPL?.lookback ?? undefined) : undefined,
       universe: dto.universe ?? entity.universe,
       dateStart: dto.dateStart ?? entity.dateStart,
       dateEnd: dto.dateEnd ?? entity.dateEnd,
@@ -193,6 +237,7 @@ export class SignalStatsService {
       exitConditions: merged.exitConditions ?? null,
       maxHold: merged.maxHold ?? null,
       bandLockParams: buildBandLockParams(merged),
+      phaseLockParams: buildPhaseLockParams(merged),
       universe: merged.universe,
       dateStart: merged.dateStart,
       dateEnd: merged.dateEnd,
@@ -363,8 +408,11 @@ export class SignalStatsService {
         }
       }
       this.validateBandLockParams(dto);
+    } else if (dto.exitMode === 'phase_lock') {
+      // phase_lock：无 horizonN / exitConditions / maxHold 必填项（max_hold 不提供）。
+      this.validatePhaseLockParams(dto);
     } else {
-      throw new BadRequestException('exitMode 必须为 fixed_n、strategy 或 trailing_lock');
+      throw new BadRequestException('exitMode 必须为 fixed_n、strategy、trailing_lock 或 phase_lock');
     }
 
     // 2b. band_lock 4 参数仅 trailing_lock 可送；其它模式误送 → 400（保持模式纯净）。
@@ -377,6 +425,19 @@ export class SignalStatsService {
       if (stray.length > 0) {
         throw new BadRequestException(
           `exitMode=${dto.exitMode} 不支持 band_lock 参数：${stray.join(', ')}`,
+        );
+      }
+    }
+
+    // 2c. phase_lock 3 参数仅 phase_lock 可送；其它模式误送 → 400（保持模式纯净）。
+    if (dto.exitMode !== 'phase_lock') {
+      const stray: string[] = [];
+      if (dto.initFactor !== undefined) stray.push('initFactor');
+      if (dto.lockFactor !== undefined) stray.push('lockFactor');
+      if (dto.lookback !== undefined) stray.push('lookback');
+      if (stray.length > 0) {
+        throw new BadRequestException(
+          `exitMode=${dto.exitMode} 不支持 phase_lock 参数：${stray.join(', ')}`,
         );
       }
     }
@@ -427,6 +488,38 @@ export class SignalStatsService {
     }
     if (dto.ma5RequireDown !== undefined && typeof dto.ma5RequireDown !== 'boolean') {
       throw new BadRequestException('ma5RequireDown 必须为布尔值');
+    }
+  }
+
+  /**
+   * 校验 phase_lock 的 3 参数（仅在 exitMode='phase_lock' 分支调用）。
+   *   initFactor: 提供 → 量化后 NNNN∈[1,2000]（ratio∈[0.001,2.0]，允许 >1），否则 400
+   *   lockFactor: 提供 → 量化后 NNNN∈[1,2000]（同上），否则 400
+   *   lookback:   提供 → 整数且 ∈[1,250]，否则 400
+   * 范围依据 spec 02 §参数范围（量化校验）。
+   */
+  private validatePhaseLockParams(dto: CreateSignalTestDto): void {
+    const checkRatio = (name: string, v: number | undefined, maxNNNN: number): void => {
+      if (v === undefined) return;
+      if (typeof v !== 'number' || !Number.isFinite(v)) {
+        throw new BadRequestException(`${name} 必须为有限数值`);
+      }
+      const nnnn = Math.floor(v * 1000 + 0.5); // 与核量化对齐（round-half-up）
+      if (nnnn < 1 || nnnn > maxNNNN) {
+        throw new BadRequestException(
+          `${name} 量化后须在 [${(1 / 1000).toFixed(3)}, ${(maxNNNN / 1000).toFixed(3)}] 范围内`,
+        );
+      }
+    };
+    checkRatio('initFactor', dto.initFactor, 2000);
+    checkRatio('lockFactor', dto.lockFactor, 2000);
+    if (dto.lookback !== undefined) {
+      if (typeof dto.lookback !== 'number' || !Number.isInteger(dto.lookback)) {
+        throw new BadRequestException('lookback 必须为整数');
+      }
+      if (dto.lookback < 1 || dto.lookback > 250) {
+        throw new BadRequestException('lookback 须在 [1, 250] 范围内');
+      }
     }
   }
 

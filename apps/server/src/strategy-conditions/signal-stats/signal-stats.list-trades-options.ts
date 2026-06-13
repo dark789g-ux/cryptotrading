@@ -55,6 +55,8 @@ export const VALID_EXIT_REASONS = new Set<string>([
   'delist',
   'stop',
   'ma5_exit',
+  'phase_lock_stop',
+  'phase_lock_ma5',
 ]);
 
 // ── 工具函数 ──────────────────────────────────────────────────────────────────

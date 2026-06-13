@@ -562,6 +562,306 @@ describe('SignalStatsService - band_lock update(PUT)', () => {
   });
 });
 
+// ── phase_lock DTO 校验 ─────────────────────────────────────────────────────
+
+describe('SignalStatsService - phase_lock DTO validation', () => {
+  const basePhaseLock: Partial<CreateSignalTestDto> = {
+    exitMode: 'phase_lock',
+    horizonN: undefined,
+  };
+
+  it('phase_lock 无参数（全默认）通过校验', async () => {
+    const svc = makeService();
+    await expect(svc.create(buildValidDto({ ...basePhaseLock }))).resolves.toBeDefined();
+  });
+
+  it('phase_lock 不强制 horizonN / exitConditions / maxHold', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(
+        buildValidDto({
+          ...basePhaseLock,
+          horizonN: undefined,
+          exitConditions: undefined,
+          maxHold: undefined,
+        }),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('合法 initFactor=0.98 通过', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(buildValidDto({ ...basePhaseLock, initFactor: 0.98 })),
+    ).resolves.toBeDefined();
+  });
+
+  it('lockFactor=1.005（锁盈，>1 合法）通过', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(buildValidDto({ ...basePhaseLock, lockFactor: 1.005 })),
+    ).resolves.toBeDefined();
+  });
+
+  it('initFactor=2.0（量化 NNNN=2000，上界含）通过', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(buildValidDto({ ...basePhaseLock, initFactor: 2.0 })),
+    ).resolves.toBeDefined();
+  });
+
+  it('initFactor 量化后越上界（>2.0）抛 400', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(buildValidDto({ ...basePhaseLock, initFactor: 2.0005 })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('lockFactor 量化后为 0（<0.001）抛 400', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(buildValidDto({ ...basePhaseLock, lockFactor: 0.0004 })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('合法 lookback=1（下界）通过', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(buildValidDto({ ...basePhaseLock, lookback: 1 })),
+    ).resolves.toBeDefined();
+  });
+
+  it('合法 lookback=250（上界）通过', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(buildValidDto({ ...basePhaseLock, lookback: 250 })),
+    ).resolves.toBeDefined();
+  });
+
+  it('lookback=0 抛 400', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(buildValidDto({ ...basePhaseLock, lookback: 0 })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('lookback=251（越上界）抛 400', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(buildValidDto({ ...basePhaseLock, lookback: 251 })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('lookback 非整数（10.5）抛 400', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(buildValidDto({ ...basePhaseLock, lookback: 10.5 })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  // ── 非 phase_lock 模式误送 phase_lock 参数 → 400 ─────────────────────────────
+  it('fixed_n 误送 initFactor → 400', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(buildValidDto({ exitMode: 'fixed_n', horizonN: 5, initFactor: 0.99 })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('trailing_lock 误送 lookback → 400', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(
+        buildValidDto({ exitMode: 'trailing_lock', horizonN: undefined, lookback: 15 }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('strategy 误送 lockFactor → 400', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(
+        buildValidDto({
+          exitMode: 'strategy',
+          exitConditions: [{ field: 'macd_hist', operator: 'lt', value: 0 }],
+          maxHold: 10,
+          lockFactor: 1.0,
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('phase_lock 误送 band_lock 参数（stopRatio）→ 400', async () => {
+    const svc = makeService();
+    await expect(
+      svc.create(buildValidDto({ ...basePhaseLock, stopRatio: 0.99 })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+// ── phase_lock 持久化（create → testRepo.create payload）────────────────────
+
+describe('SignalStatsService - phase_lock 持久化', () => {
+  function makeServiceWithTestRepo() {
+    const testRepo = makeMockRepo();
+    const svc = new SignalStatsService(
+      testRepo as any,
+      makeMockRepo() as any,
+      makeMockRepo() as any,
+      makeMockRepo() as any,
+      makeMockDataSource() as any,
+      makeMockRunner() as any,
+    );
+    return { svc, testRepo };
+  }
+
+  const basePL: Partial<CreateSignalTestDto> = {
+    exitMode: 'phase_lock',
+    horizonN: undefined,
+  };
+
+  it('3 参数全默认 → phaseLockParams 存 null（零漂移）', async () => {
+    const { svc, testRepo } = makeServiceWithTestRepo();
+    await svc.create(buildValidDto({ ...basePL }));
+    const payload = testRepo.create.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.phaseLockParams).toBeNull();
+  });
+
+  it('显式传入全默认值（0.999/0.999/10）→ 仍存 null', async () => {
+    const { svc, testRepo } = makeServiceWithTestRepo();
+    await svc.create(
+      buildValidDto({ ...basePL, initFactor: 0.999, lockFactor: 0.999, lookback: 10 }),
+    );
+    const payload = testRepo.create.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.phaseLockParams).toBeNull();
+  });
+
+  it('任一非默认 → 存量化后的完整 3 字段对象', async () => {
+    const { svc, testRepo } = makeServiceWithTestRepo();
+    // initFactor 量化：0.9805 → floor(980.5+0.5)=981 → 0.981（round-half-up）
+    await svc.create(buildValidDto({ ...basePL, initFactor: 0.9805 }));
+    const payload = testRepo.create.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.phaseLockParams).toEqual({
+      initFactor: 0.981,
+      lockFactor: 0.999, // 其余补默认
+      lookback: 10,
+    });
+  });
+
+  it('仅 lookback=15（非默认）→ 存完整对象', async () => {
+    const { svc, testRepo } = makeServiceWithTestRepo();
+    await svc.create(buildValidDto({ ...basePL, lookback: 15 }));
+    const payload = testRepo.create.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.phaseLockParams).toEqual({
+      initFactor: 0.999,
+      lockFactor: 0.999,
+      lookback: 15,
+    });
+  });
+
+  it('非 phase_lock 模式（fixed_n）→ phaseLockParams 始终 null', async () => {
+    const { svc, testRepo } = makeServiceWithTestRepo();
+    await svc.create(buildValidDto({ exitMode: 'fixed_n', horizonN: 5 }));
+    const payload = testRepo.create.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.phaseLockParams).toBeNull();
+  });
+});
+
+// ── phase_lock update(PUT) 路径持久化 ───────────────────────────────────────
+
+describe('SignalStatsService - phase_lock update(PUT)', () => {
+  function makeUpdateService(entity: Record<string, unknown>) {
+    const testRepo = makeMockRepo(entity);
+    const svc = new SignalStatsService(
+      testRepo as any,
+      makeMockRepo() as any,
+      makeMockRepo() as any,
+      makeMockRepo() as any,
+      makeMockDataSource() as any,
+      makeMockRunner() as any,
+    );
+    return { svc, testRepo };
+  }
+
+  function nonDefaultPhaseLockEntity(): Record<string, unknown> {
+    return {
+      id: 'test-pl',
+      name: '阶段锁',
+      buyConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
+      exitMode: 'phase_lock',
+      horizonN: null,
+      exitConditions: null,
+      maxHold: null,
+      bandLockParams: null,
+      phaseLockParams: { initFactor: 0.98, lockFactor: 0.999, lookback: 15 },
+      universe: { type: 'all' },
+      dateStart: '20240101',
+      dateEnd: '20240630',
+    };
+  }
+
+  it('[回归] 非默认 phase_lock 方案 PUT 切 fixed_n → 不报错且 phaseLockParams 置 null', async () => {
+    const { svc, testRepo } = makeUpdateService(nonDefaultPhaseLockEntity());
+    const saved = (await svc.update('test-pl', {
+      exitMode: 'fixed_n',
+      horizonN: 5,
+    })) as unknown as Record<string, unknown>;
+    expect(saved.exitMode).toBe('fixed_n');
+    expect(saved.phaseLockParams).toBeNull();
+    const savedArg = testRepo.save.mock.calls[0][0] as unknown as Record<string, unknown>;
+    expect(savedArg.phaseLockParams).toBeNull();
+  });
+
+  it('phase_lock → phase_lock 更新单个参数，其余从存量保留', async () => {
+    const { svc } = makeUpdateService(nonDefaultPhaseLockEntity());
+    const saved = (await svc.update('test-pl', {
+      initFactor: 0.97,
+    })) as unknown as Record<string, unknown>;
+    expect(saved.phaseLockParams).toEqual({
+      initFactor: 0.97,
+      lockFactor: 0.999,
+      lookback: 15, // 存量保留
+    });
+  });
+
+  it('phase_lock 把参数改回全默认 → phaseLockParams 回 null', async () => {
+    const { svc } = makeUpdateService(nonDefaultPhaseLockEntity());
+    const saved = (await svc.update('test-pl', {
+      initFactor: 0.999,
+      lockFactor: 0.999,
+      lookback: 10,
+    })) as unknown as Record<string, unknown>;
+    expect(saved.phaseLockParams).toBeNull();
+  });
+
+  it('fixed_n 存量方案 PUT 切 phase_lock 并带参数 → 落库量化对象', async () => {
+    const entity = {
+      id: 'test-fn',
+      name: '固定N',
+      buyConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
+      exitMode: 'fixed_n',
+      horizonN: 5,
+      exitConditions: null,
+      maxHold: null,
+      bandLockParams: null,
+      phaseLockParams: null,
+      universe: { type: 'all' },
+      dateStart: '20240101',
+      dateEnd: '20240630',
+    };
+    const { svc } = makeUpdateService(entity);
+    const saved = (await svc.update('test-fn', {
+      exitMode: 'phase_lock',
+      initFactor: 0.98,
+    })) as unknown as Record<string, unknown>;
+    expect(saved.exitMode).toBe('phase_lock');
+    expect(saved.phaseLockParams).toEqual({
+      initFactor: 0.98,
+      lockFactor: 0.999,
+      lookback: 10,
+    });
+  });
+});
+
 describe('SignalStatsService - CRUD', () => {
   it('findOne 不存在时抛 NotFoundException', async () => {
     const testRepo = makeMockRepo(undefined); // findOne 返回 null

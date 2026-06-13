@@ -23,8 +23,10 @@ export interface CreateSignalTestDto {
    * - `strategy`：卖出条件命中出场（或达到 maxHold 兜底），须同时填 exitConditions + maxHold。
    * - `trailing_lock`：波段跟踪止损（锁定 + MA5 收盘离场 + 跌停顺延），可选 maxHold 硬上限；
    *   无 horizonN、无 exitConditions。
+   * - `phase_lock`：两阶段锁定止损（初始止损固定 → 收盘站上 MA5↑ 锁定上移 → 阶段 B 收盘破 MA5↓ 清仓 + 跌停顺延）；
+   *   无 horizonN、无 exitConditions、无 maxHold。
    */
-  exitMode: 'fixed_n' | 'strategy' | 'trailing_lock';
+  exitMode: 'fixed_n' | 'strategy' | 'trailing_lock' | 'phase_lock';
 
   /**
    * fixed_n 模式：持有到 buy_date 后第 N 个实际可交易日。
@@ -59,6 +61,18 @@ export interface CreateSignalTestDto {
 
   /** 锁定后 MA5 离场是否要求 MA5 下行（仅 trailing_lock）。留空=true。 */
   ma5RequireDown?: boolean;
+
+  // ── 阶段锁定专属参数（仅 exitMode='phase_lock' 可送；其它模式误送 → 400）──
+  // 均为可选；不传 = 用各自默认。initFactor/lockFactor 量化到 0.001（round-half-up）。
+
+  /** 初始止损系数（仅 phase_lock）。留空=0.999；量化后范围 (0,2.0]（即 NNNN∈[1,2000]）。 */
+  initFactor?: number;
+
+  /** 锁定止损系数（仅 phase_lock）。留空=0.999；量化后范围 (0,2.0]（即 NNNN∈[1,2000]）。 */
+  lockFactor?: number;
+
+  /** 初始止损回看根数（仅 phase_lock）。留空=10；正整数。 */
+  lookback?: number;
 
   /**
    * 标的池：

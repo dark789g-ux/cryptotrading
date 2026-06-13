@@ -30,7 +30,14 @@ export interface SimulatedTrade {
   exitPrice: number;
   ret: number;
   holdDays: number;
-  exitReason: 'max_hold' | 'signal' | 'delist' | 'stop' | 'ma5_exit';
+  exitReason:
+    | 'max_hold'
+    | 'signal'
+    | 'delist'
+    | 'stop'
+    | 'ma5_exit'
+    | 'phase_lock_stop'
+    | 'phase_lock_ma5';
 }
 
 export type FilterReason =
@@ -116,6 +123,11 @@ export interface SimulationInput {
    */
   signalHigh?: number;
   /**
+   * phase_lock 初始止损回看序列：含 T+1 的最近 lookback 个**非停牌**复权 low（升序，由数据层切好）。
+   * 仅 phase_lock 模式读取；其它模式不读（可省略）。缺失（undefined）按空序列处理 → 无初始止损（核不报错）。
+   */
+  recentLows?: number[];
+  /**
    * 跳过次新硬过滤（NEW_LISTING_MIN_TRADING_DAYS）：buyConditions 显式含 list_days（上市时长）
    * 条件时为 true——以用户条件为准，不再按"上市不足 60 个 SSE 交易日"剔除。默认 false（行为不变）。
    */
@@ -138,6 +150,15 @@ export type ExitConfig =
       floorEnabled?: boolean;
       /** 锁定后 MA5 离场是否要求均线下行（ma5 < prevMa5），默认 true；false 时只要收盘跌破 MA5 即离场。 */
       ma5RequireDown?: boolean;
+    }
+  | {
+      mode: 'phase_lock';
+      /** 初始止损系数（× min(recentLows)）；已量化的网格点（核不再量化）。 */
+      initFactor: number;
+      /** 锁定止损系数（× max(cost, 当日 low)）；已量化的网格点。initFactor / lockFactor 互不串用。 */
+      lockFactor: number;
+      /** 初始止损回看根数（recentLows 的目标长度，由数据层切好；核只对收到的 recentLows 取 min）。 */
+      lookback: number;
     };
 
 /** 次新过滤阈值：buy_date 距 list_date < 60 个 SSE 交易日 → 剔除。 */
@@ -196,7 +217,7 @@ export function simulateTradeCore(input: SimulationInput): SimulationOutcome {
     decision = decideFixedN(days, exit.horizonN, delistDate);
   } else if (exit.mode === 'strategy') {
     decision = decideStrategy(days, exit.maxHold, delistDate);
-  } else {
+  } else if (exit.mode === 'trailing_lock') {
     // trailing_lock：signalHigh 缺失视为无效输入 → 数据不足（不静默当 0/Infinity 处理）。
     if (input.signalHigh === undefined) {
       return { kind: 'filtered', reason: 'insufficient_data' };
@@ -210,6 +231,31 @@ export function simulateTradeCore(input: SimulationInput): SimulationOutcome {
       floorEnabled: exit.floorEnabled,
       ma5RequireDown: exit.ma5RequireDown,
     });
+  } else {
+    // phase_lock：recentLows 由数据层切好（含 T+1 的最近 lookback 个非停牌复权 low，升序）。
+    //   缺失（undefined）→ 空序列 → 核视为无初始止损（不报错，与 Python core 一致）。
+    //   decidePhaseLock 返回 Outcome（与 Python 同构）；这里翻译为 ExitDecision/filtered。
+    //   退市分支与 band_lock 同口径，由 decidePhaseLock 内部接管。
+    const outcome = decidePhaseLock(days, input.recentLows ?? [], {
+      initFactor: exit.initFactor,
+      lockFactor: exit.lockFactor,
+      lookback: exit.lookback,
+      delistDate,
+    });
+    if (outcome.kind === 'no_entry') {
+      // 入场端理论上已被 simulateTradeCore 前置过滤挡住；冗余防御：suspended→suspended，limit_up→limit_up。
+      return { kind: 'filtered', reason: outcome.reason === 'limit_up' ? 'limit_up' : 'suspended' };
+    }
+    if (outcome.kind === 'no_exit') {
+      decision = null; // 窗口耗尽未出场 → insufficient_data。
+    } else {
+      decision = {
+        exitDay: days[outcome.exitIndex!],
+        exitReason: outcome.reason as ExitDecision['exitReason'],
+        exitPrice: outcome.exitPrice ?? undefined,
+        holdDays: outcome.holdDays,
+      };
+    }
   }
 
   if (decision === null) {
@@ -553,6 +599,214 @@ export function decideBandLock(
 
   // 窗口耗尽未出场（含顺延未解）→ null（insufficient_data，由 simulateTradeCore 收口）。
   return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 阶段锁定 phase_lock —— 与 Python 共享核 phase_lock_exit.py 同构（单一真值）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** decidePhaseLock 选项（含 delistDate；ExitConfig variant 只携带前三个 factor/lookback）。 */
+export interface PhaseLockOptions {
+  /** 初始止损系数（× min(recentLows)）；已量化的网格点，核不再量化。 */
+  initFactor: number;
+  /** 锁定止损系数（× max(cost, 当日 low)）；已量化的网格点。initFactor / lockFactor 互不串用。 */
+  lockFactor: number;
+  /** 初始止损回看根数（recentLows 的目标长度）；核只对收到的 recentLows 取 min，不自己切片。 */
+  lookback: number;
+  /** 退市日（YYYYMMDD）；null=未退市，永不触发退市强平。 */
+  delistDate: string | null;
+}
+
+/**
+ * decidePhaseLock 返回（与 Python `PhaseLockOutcome` 同构，逐字段镜像 test_phase_lock_exit.py 期望）。
+ *
+ * no_entry / no_exit 路径也带 `locked` / `holdDays`，与 D1 数值权威源逐位对齐。
+ * `exitIndex` = 命中出场那根在 days 中的下标（kind='exit' 时非空）。
+ */
+export interface PhaseLockOutcome {
+  kind: 'no_entry' | 'exit' | 'no_exit';
+  /** no_entry: 'suspended'|'limit_up'；exit: 'phase_lock_stop'|'phase_lock_ma5'|'delist'。 */
+  reason: 'suspended' | 'limit_up' | 'phase_lock_stop' | 'phase_lock_ma5' | 'delist' | null;
+  /** 命中出场那根的 days 下标（kind='exit' 非空）。 */
+  exitIndex: number | null;
+  /** 出场成交价（前复权）；止损跳空低开取 min(stop, open)；ma5/delist 取 qfq_close（由调用方回退）。 */
+  exitPrice: number | null;
+  /** 已走过可交易持有日数（持仓首日不计；停牌不计）。 */
+  holdDays: number;
+  /** 是否曾进入阶段 B（调试/统计用，与 Python locked 对齐）。 */
+  locked: boolean;
+}
+
+/**
+ * phase_lock 出场：两阶段锁定止损（初始止损固定 → 收盘站上 MA5↑ 锁定上移 → 阶段 B 收盘破 MA5↓ 清仓 + 跌停顺延）。
+ *
+ * 与 Python `simulate_phase_lock` **逐行对应**（规范见 01-algorithm.md），数值权威源为
+ * test_phase_lock_exit.py（S1~S15）。返回 PhaseLockOutcome（与 Python 同构，含 no_entry/no_exit 的
+ * locked/holdDays），由 simulateTradeCore 翻译为 ExitDecision/filtered。映射约定：
+ *   adj_open→qfqOpen, adj_high→qfqHigh, adj_low→qfqLow, adj_close→qfqClose, ma5→ma5,
+ *   raw_open→rawOpen, raw_high→rawHigh, up_limit→upLimit, down_limit→downLimit；
+ *   停牌（_is_suspended）→ hasQuote=false（与 buildHoldingDays 口径一致）。
+ *
+ * - days[0] = buy_date(T+1)；从 days[1] 起逐日推进；停牌日（hasQuote=false）跳过。
+ * - 与 band_lock 核心差异：阶段 A 初始止损**固定不上移**（band_lock 逐日用当日 low 抬升）。
+ * - 止损成交价（stop）≠ qfq_close（跳空低开取 open，故 min(stop_eff, open)），由 exitPrice 显式给出。
+ * - recentLows 由数据层切好（含 T+1 的最近 lookback 个非停牌复权 low，升序）；空 → 无初始止损。
+ * - 核函数不处理退市：signal-stats 在此**额外**接 delistDate 分支（沿用 decideBandLock 口径，
+ *   reason='delist'、用退市前最后一个有 quote 日 qfq_close 强平）。
+ * - 入场端（停牌 / 一字涨停）也复刻 Python 的 no_entry（便于 spec 逐数值对拍）；
+ *   生产路径上 simulateTradeCore 已前置过滤，no_entry 仅作冗余防御。
+ */
+export function decidePhaseLock(
+  days: HoldingDaySnapshot[],
+  recentLows: number[],
+  opts: PhaseLockOptions,
+): PhaseLockOutcome {
+  const { initFactor, lockFactor, delistDate } = opts;
+  if (days.length === 0) {
+    return { kind: 'no_exit', reason: null, exitIndex: null, exitPrice: null, holdDays: 0, locked: false };
+  }
+
+  const entry = days[0];
+
+  // ---- 入场（bars[0] = 持仓首日 T+1），与 Python 同构 ----
+  // 停牌 / 无 quote → 信号不成立。
+  if (!entry.hasQuote || entry.qfqOpen === null) {
+    return { kind: 'no_entry', reason: 'suspended', exitIndex: null, exitPrice: null, holdDays: 0, locked: false };
+  }
+  // 涨停开盘不入场 = raw_open ≥ up_limit（仅入场端；两者非空才生效）。
+  if (entry.upLimit !== null && entry.rawOpen !== null && entry.rawOpen >= entry.upLimit) {
+    return { kind: 'no_entry', reason: 'limit_up', exitIndex: null, exitPrice: null, holdDays: 0, locked: false };
+  }
+
+  const cost = entry.qfqOpen;
+
+  // 阶段 A 初始止损（固定，不上移）：min(recentLows) × init_factor。
+  // recentLows 已由数据层切好；空 → 无初始止损（null）。
+  const initStop: number | null =
+    recentLows.length === 0 ? null : floor2(Math.min(...recentLows) * initFactor);
+
+  let stopNext: number | null = initStop; // T+2 起盘中生效（持仓首日 T+1 不出场）
+  let locked = false;
+  let pending: 'phase_lock_stop' | 'phase_lock_ma5' | null = null;
+  let hold = 0;
+  let prevMa5 = entry.ma5;
+
+  // 退市强平兜底：记录退市前最后一个有 quote 日（与 decideBandLock 同口径）。
+  let lastQuoteIdx = 0;
+  let lastQuoteHold = 0;
+
+  for (let i = 1; i < days.length; i++) {
+    const bar = days[i];
+
+    // 退市先于本日生效？沿用现有口径：用退市前最后一个有 quote 日 qfq_close 强平。
+    if (delistDate !== null && bar.calDate >= delistDate) {
+      if (lastQuoteIdx < 0 || days[lastQuoteIdx].qfqClose === null) {
+        return { kind: 'no_exit', reason: null, exitIndex: null, exitPrice: null, holdDays: hold, locked };
+      }
+      return {
+        kind: 'exit',
+        reason: 'delist',
+        exitIndex: lastQuoteIdx,
+        exitPrice: null, // delist 不给成交价 → simulateTradeCore 回退取 exitDay.qfqClose。
+        holdDays: lastQuoteHold,
+        locked,
+      };
+    }
+
+    // 先判停牌：不计 hold / 不触发 / 不更新止损 / 不动 prevMa5。
+    if (!bar.hasQuote) continue;
+
+    hold += 1;
+    lastQuoteIdx = i;
+    lastQuoteHold = hold;
+    const stopEff = stopNext; // 今日生效 = 昨日收盘设定的（阶段切换当日设的新止损次日才进这里）。
+    const deadLimitDown = isDeadLimitDown(bar);
+
+    // (0) 顺延中（上日封死跌停未能出场）
+    if (pending !== null) {
+      if (!deadLimitDown) {
+        // 非封死跌停 → 出场 @qfq_open，reason 保留（非停牌日 hasQuote 保证 qfqOpen 非空）。
+        return {
+          kind: 'exit',
+          reason: pending,
+          exitIndex: i,
+          exitPrice: bar.qfqOpen,
+          holdDays: hold,
+          locked,
+        };
+      }
+      // 仍封死 → 继续顺延。
+      continue;
+    }
+
+    // (1) 盘中止损 [最高优先]
+    if (stopEff !== null && bar.qfqLow !== null && bar.qfqLow <= stopEff) {
+      if (deadLimitDown) {
+        // 封死跌停卖不出 → 置 pending，顺延。
+        pending = 'phase_lock_stop';
+        continue;
+      }
+      // 跳空低开（open < stop）按开盘价成交 → 取 min(stop_eff, qfq_open)。
+      const fill = bar.qfqOpen !== null ? Math.min(stopEff, bar.qfqOpen) : stopEff;
+      return {
+        kind: 'exit',
+        reason: 'phase_lock_stop',
+        exitIndex: i,
+        exitPrice: fill,
+        holdDays: hold,
+        locked,
+      };
+    }
+
+    // (2) 收盘判断（当日未触止损）
+    if (!locked) {
+      // 阶段切换：close > MA5 且 MA5 > prevMa5（ma5_require_up 钉死 true），仅一次。
+      // 切换当日设的新止损**次日生效**（当日已过盘中止损检查）；切换日不评估清仓。
+      if (
+        bar.ma5 !== null &&
+        prevMa5 !== null &&
+        bar.qfqClose !== null &&
+        bar.qfqClose > bar.ma5 &&
+        bar.ma5 > prevMa5
+      ) {
+        // max(cost, 当日 low)；adj_low 缺失（停牌已跳过，正常不发生）退回 cost。
+        const base = bar.qfqLow !== null ? Math.max(cost, bar.qfqLow) : cost;
+        stopNext = floor2(base * lockFactor); // 上移并冻结
+        locked = true;
+      }
+      // 否则：stopNext 保持初始值不变（阶段 A 固定——与 band_lock 逐日上移的关键差异！）
+    } else {
+      // 阶段 B：清仓 close < MA5 且 MA5 < prevMa5（ma5_require_down 钉死 true）
+      if (
+        bar.ma5 !== null &&
+        bar.qfqClose !== null &&
+        bar.qfqClose < bar.ma5 &&
+        prevMa5 !== null &&
+        bar.ma5 < prevMa5
+      ) {
+        if (deadLimitDown) {
+          // 封死跌停卖不出 → 置 pending，顺延（prevMa5 仍照常推进）。
+          pending = 'phase_lock_ma5';
+          prevMa5 = bar.ma5;
+          continue;
+        }
+        return {
+          kind: 'exit',
+          reason: 'phase_lock_ma5',
+          exitIndex: i,
+          exitPrice: bar.qfqClose,
+          holdDays: hold,
+          locked,
+        };
+      }
+      // 否则：止损冻结，stopNext 不变。
+    }
+
+    prevMa5 = bar.ma5;
+  }
+
+  // 窗口耗尽未出场（含顺延未解）→ no_exit（带 locked/holdDays，与 Python 对齐）。
+  return { kind: 'no_exit', reason: null, exitIndex: null, exitPrice: null, holdDays: hold, locked };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

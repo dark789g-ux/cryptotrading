@@ -24,8 +24,9 @@ export class SignalTestEntity {
   buyConditions: StrategyConditionItem[];
 
   // 列为 varchar(16) 无 DB CHECK；trailing_lock 波段跟踪止损出场新增（spec，无需迁移）。
+  // phase_lock 分阶段锁定出场新增（spec，varchar(16) 无 CHECK，新增枚举值无需迁移）。
   @Column({ type: 'varchar', length: 16, name: 'exit_mode' })
-  exitMode: 'fixed_n' | 'strategy' | 'trailing_lock';
+  exitMode: 'fixed_n' | 'strategy' | 'trailing_lock' | 'phase_lock';
 
   @Column({ type: 'int', nullable: true, name: 'horizon_n' })
   horizonN: number | null;
@@ -47,6 +48,13 @@ export class SignalTestEntity {
     floorEnabled: boolean;
     ma5RequireDown: boolean;
   } | null;
+
+  /**
+   * phase_lock 额外参数（仅 phase_lock）；null = 全默认（存量行零漂移）。
+   * 存入的是已量化（round-half-up 到 0.001）的网格点；runner 直接透传给核，核不再量化。
+   */
+  @Column({ type: 'jsonb', nullable: true, name: 'phase_lock_params' })
+  phaseLockParams: { initFactor: number; lockFactor: number; lookback: number } | null;
 
   @Column({ type: 'jsonb' })
   universe: SignalTestUniverse;

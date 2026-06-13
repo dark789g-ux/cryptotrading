@@ -10,7 +10,7 @@ import { SignalTestUniverse } from '../../../entities/strategy/signal-test.entit
 export interface UpdateSignalTestDto {
   name?: string;
   buyConditions?: StrategyConditionItem[];
-  exitMode?: 'fixed_n' | 'strategy' | 'trailing_lock';
+  exitMode?: 'fixed_n' | 'strategy' | 'trailing_lock' | 'phase_lock';
   horizonN?: number;
   exitConditions?: StrategyConditionItem[];
   maxHold?: number;
@@ -19,6 +19,10 @@ export interface UpdateSignalTestDto {
   floorRatio?: number;
   floorEnabled?: boolean;
   ma5RequireDown?: boolean;
+  // 阶段锁定专属参数（仅 phase_lock）；语义见 create-signal-test.dto.ts。
+  initFactor?: number;
+  lockFactor?: number;
+  lookback?: number;
   universe?: SignalTestUniverse;
   dateStart?: string;
   dateEnd?: string;

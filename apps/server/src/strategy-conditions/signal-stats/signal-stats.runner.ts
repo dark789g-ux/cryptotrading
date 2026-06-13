@@ -108,7 +108,7 @@ export class SignalStatsRunner {
   }
 
   private async doExecute(test: SignalTestEntity, runId: string): Promise<void> {
-    const { buyConditions, exitMode, horizonN, exitConditions, maxHold, bandLockParams, universe, dateStart, dateEnd } = test;
+    const { buyConditions, exitMode, horizonN, exitConditions, maxHold, bandLockParams, phaseLockParams, universe, dateStart, dateEnd } = test;
 
     // ── 1. 初始化 progressTotal（区间 SSE 交易日数）
     const tradingDays = await this.enumerator.listSseTradingDays(dateStart, dateEnd);
@@ -154,8 +154,8 @@ export class SignalStatsRunner {
     }
 
     // ── 4. 构造 exit 配置
-    //   trailing_lock 必须在 strategy 之前显式分支：否则会落进 {mode:'strategy', maxHold: maxHold!}
-    //   导致行为错乱（trailing_lock 的 maxHold 可空、且走的是 decideBandLock 而非 decideStrategy）。
+    //   trailing_lock / phase_lock 必须在 strategy 之前显式分支：否则会落进 {mode:'strategy', maxHold: maxHold!}
+    //   导致行为错乱（trailing_lock/phase_lock 的 maxHold 可空、且走各自 decideXxx 而非 decideStrategy）。
     let exit: ExitConfig;
     if (exitMode === 'fixed_n') {
       exit = { mode: 'fixed_n', horizonN: horizonN! };
@@ -169,6 +169,14 @@ export class SignalStatsRunner {
         floorRatio: bandLockParams?.floorRatio ?? 0.999,
         floorEnabled: bandLockParams?.floorEnabled ?? true,
         ma5RequireDown: bandLockParams?.ma5RequireDown ?? true,
+      };
+    } else if (exitMode === 'phase_lock') {
+      // phase_lock 3 参数从 phaseLockParams（已是量化后的网格点）透传；null → 各自默认（0.999/0.999/10）。
+      exit = {
+        mode: 'phase_lock',
+        initFactor: phaseLockParams?.initFactor ?? 0.999,
+        lockFactor: phaseLockParams?.lockFactor ?? 0.999,
+        lookback: phaseLockParams?.lookback ?? 10,
       };
     } else {
       exit = { mode: 'strategy', maxHold: maxHold! };

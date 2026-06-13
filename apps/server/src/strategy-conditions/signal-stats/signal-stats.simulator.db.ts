@@ -139,14 +139,22 @@ export class SignalStatsSimulator {
       for (const p of prelims) if (p.prelim.buyIdx < minBuyIdx) minBuyIdx = p.prelim.buyIdx;
       const unionWindow = sseCalendar.slice(minBuyIdx).filter((d) => d <= dateEnd);
 
-      // 3c-bis. trailing_lock 须左扩取数：MA5 预热（buy 日 MA5 需 T-3..T+1）+ signalHigh=qfqHigh(T)。
-      //   T = buyIdx-1（最早 = minBuyIdx-1），再前推 MA5_PREHEAT_TRADING_DAYS 个交易日做预热。
+      // 3c-bis. trailing_lock / phase_lock 须左扩取数：
+      //   - MA5 预热（buy 日 MA5 需 T-3..T+1）；trailing_lock 另需 signalHigh=qfqHigh(T)。
+      //   - phase_lock 另需 recentLows（含 T+1 的最近 lookback 个非停牌复权 low）→ 左扩须覆盖 lookback。
+      //   T = buyIdx-1（最早 = minBuyIdx-1），再前推 max(MA5_PREHEAT_TRADING_DAYS, lookback) 个交易日：
+      //     MA5_PREHEAT 满足 MA5 预热；lookback 满足 recentLows 回看（停牌可能稀释，多取无害）。
       //   左扩仅影响 quote/limit 预取与 MA5 滚动，**不**改各信号 windowDates（buy 日起的持有窗口语义不变）。
       const isBandLock = exit.mode === 'trailing_lock';
-      const extStartIdx = isBandLock
-        ? Math.max(0, minBuyIdx - 1 - MA5_PREHEAT_TRADING_DAYS)
+      const isPhaseLock = exit.mode === 'phase_lock';
+      const needsExtFetch = isBandLock || isPhaseLock;
+      // phase_lock 的回看根数；bandLock 不读，取 0 不影响 max。
+      const lookback = isPhaseLock ? exit.lookback : 0;
+      const preheatDays = Math.max(MA5_PREHEAT_TRADING_DAYS, lookback);
+      const extStartIdx = needsExtFetch
+        ? Math.max(0, minBuyIdx - 1 - preheatDays)
         : minBuyIdx;
-      const fetchWindow = isBandLock
+      const fetchWindow = needsExtFetch
         ? sseCalendar.slice(extStartIdx).filter((d) => d <= dateEnd)
         : unionWindow;
 
@@ -154,9 +162,10 @@ export class SignalStatsSimulator {
       const quoteMap = await this.fetchQuotes(tsCode, fetchWindow);
       const limitMap = await this.fetchLimits(tsCode, fetchWindow);
       let downLimitMap: Map<string, number | null> | undefined;
-      if (isBandLock) {
+      if (needsExtFetch) {
         // MA5 在 fetchWindow 的非停牌 qfq_close 序列上滚动现算，写回各 quote 行（仅非停牌日有 ma5）。
         attachMa5(fetchWindow, quoteMap, MA5_WINDOW);
+        // 封死跌停顺延判定（两模式共用）：down_limit 预取。
         downLimitMap = await this.fetchDownLimits(tsCode, fetchWindow);
       }
       let hitSet = new Set<string>();
@@ -185,13 +194,19 @@ export class SignalStatsSimulator {
           quoteMap,
           limitMap,
           hitSet,
-          isBandLock ? { downLimitMap } : undefined,
+          needsExtFetch ? { downLimitMap } : undefined,
         );
         // trailing_lock：signalHigh = qfq_high(T)，T = buyIdx-1（已在 fetchWindow 内，因左扩覆盖 T）。
         let signalHigh: number | undefined;
         if (isBandLock) {
           const signalDateT = sseCalendar[buyIdx - 1];
           signalHigh = quoteMap.get(signalDateT)?.qfqHigh ?? undefined;
+        }
+        // phase_lock：recentLows = 含 buyDate(T+1) 的最近 lookback 个非停牌复权 low，升序。
+        //   从 buyDate 在 fetchWindow 内向左回看，收满 lookback 个非停牌 qfqLow 即止，再反转为升序。
+        let recentLows: number[] | undefined;
+        if (isPhaseLock) {
+          recentLows = collectRecentLows(sseCalendar, buyIdx, quoteMap, lookback);
         }
         outcomes[index] = simulateTradeCore({
           tsCode,
@@ -200,6 +215,7 @@ export class SignalStatsSimulator {
           daysSinceList,
           delistDate,
           signalHigh,
+          recentLows,
           skipNewListingFilter: params.skipNewListingFilter,
           exit,
         });
@@ -380,4 +396,32 @@ export function attachMa5(
     if (buf.length > win) sum -= buf.shift()!;
     q.ma5 = buf.length === win ? sum / win : null; // 不足 win 个 → 预热不足
   }
+}
+
+/**
+ * phase_lock 初始止损回看序列：含 buyDate(T+1) 的最近 `lookback` 个**非停牌**复权 low，**升序**返回。
+ *
+ * 口径（phase_lock_exit.py docstring + spec 01）：从 buyDate 在全局 SSE 日历内向左回看，
+ * 收集 quoteMap 中**非停牌**（有行且 qfqLow 非空）日的 qfqLow，最多 `lookback` 个（含 buyDate 自身），
+ * 再反转为时间升序（与 Python 核 `min(recent_lows)` 等价——min 与顺序无关，升序仅为契约一致）。
+ * 不足 lookback 个（次新股 / 早期停牌）→ 用现有可用个数（核降级，不报错）；空 → 核视为无初始止损。
+ *
+ * @param sseCalendar 全局 SSE 日历（升序）
+ * @param buyIdx      buyDate 在 sseCalendar 中的下标（= signalIdx + 1）
+ * @param quoteMap    左扩 fetchWindow 的预取 quote（key=cal_date；停牌日无 key）
+ * @param lookback    回看根数（phase_lock opts.lookback）
+ */
+export function collectRecentLows(
+  sseCalendar: string[],
+  buyIdx: number,
+  quoteMap: Map<string, WindowQuote>,
+  lookback: number,
+): number[] {
+  const lowsDesc: number[] = []; // 从 buyDate 往左收集（时间降序）
+  for (let i = buyIdx; i >= 0 && lowsDesc.length < lookback; i--) {
+    const q = quoteMap.get(sseCalendar[i]);
+    if (!q || q.qfqLow === null || q.qfqLow === undefined) continue; // 停牌日跳过
+    lowsDesc.push(q.qfqLow);
+  }
+  return lowsDesc.reverse(); // 升序
 }
