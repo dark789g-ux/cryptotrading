@@ -18,7 +18,11 @@
    - `uv run python -m quant_pipeline.worker` 等价启动验证：同样消费 noop→success、同套 INFO 日志(两命令走同一 `__main__:main`)；
    - **运维坑已验修复**：两入口日志均含 INFO `worker_started` / `dispatch`(修前 `quant-worker` 直指 `run_worker_loop` 不调 `setup_logging` 会静默)。
    - 收尾：worker 进程已 kill(按命令行精确过滤,无误伤/无残留)、2 条测试 noop 已删、DB 复原(`running/pending=0`)。
-2. **#2 孤儿回收**：起一个长 job(如 kelly_sweep) → 杀 worker → 重启 worker → 阈值(默认 600s，e2e 可临时把 `WORKER_STALE_RUNNING_THRESHOLD_SECONDS` 调小加速)后被回收(attempts<max 应重 pending 被领走重跑、结果幂等)；另验一个心跳正常(每 30s)的活 job 在 reaper 周期触发时**不被**误回收。
+2. ✅ **#2 孤儿回收 —— 2026-06-14 已验通过**：用合成孤儿(running + 陈旧 heartbeat)穿过真实 `uv run quant-worker` 的 startup reaper（回收代码路径与真实 crash 孤儿完全一致，且真实孤儿 `5b1e0d90` 此前已被新 reaper 回收过一次）。worker 启动日志 `reaper_reaped reaped=2 stale_seconds=600`：
+   - A(heartbeat 20min 陈旧 / attempts0<max3 / noop) → 回收为 pending → **被 worker 重新领走重跑 noop → success**(attempts=1)；
+   - B(同陈旧 / attempts2≥max2) → 回收为 **failed + `orphaned: stale heartbeat…`**；
+   - C(heartbeat=now() 新鲜) → **未被误回收**(仍 running、err 空，reaped=2 非 3)。
+   3 条 e2e 孤儿已删、DB 复原。
 3. **#3 kelly cancel**：起一个大 kelly job(默认网格 + `bootstrap_iters=1000`) 运行中 `UPDATE ml.jobs SET cancel_requested=true …` → **数秒内** status 转 cancelled；观察 sweep 段(55–90%) progress **持续递增**(非整段不动)；再跑一个改前已有结果的 job，确认 `research.kelly_sweep_results` 与改前**逐字一致**(零漂移)。
 4. ✅ **#1 前端 —— 2026-06-14 已验通过**：preview(:5173,登录态 admin,路由 `/signal-stats`)。四渲染点全过——列表出场方式列(exitModeTag:临时造 phase_lock 方案验得「两阶段锁定止损」)/导入下拉(exitModeShortLabel:phase_lock→两阶段锁定止损)/结果摘要(exitModeSummary:波段跟踪止损)/配置面板(exitModeText:出场模式=波段跟踪止损)均正确中文含参、零 fallback、控制台零 error;临时 phase_lock 方案已删、DB 复原。
 
@@ -35,4 +39,5 @@
 实现已提交本地 main(`a66b074`/`223b03d`/`3ce5654`/`dc8c123`，未推 origin)，单测/集成测/构建全绿。
 - **2026-06-14：#4 worker 启动 e2e 已验通过**(两命令 + INFO 日志 + noop success，DB 已复原)。
 - **2026-06-14：#1 前端 signal-stats 渲染 e2e 已验通过**(四渲染点全过，phase_lock 标签正确，DB 已复原)。
-- **待续：#2 杀 worker 验回收 / #3 大 kelly job cancel** 两项真机 e2e 仍未做。
+- **2026-06-14：#2 孤儿回收 e2e 已验通过**(真实 worker startup reaper 回收 2 陈旧孤儿[retry→重跑 success / giveup→failed]、新鲜活 job 不误回收，DB 已复原)。
+- **待续：#3 大 kelly job cancel** 一项真机 e2e 仍未做。
