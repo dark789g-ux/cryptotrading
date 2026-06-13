@@ -192,9 +192,9 @@ const advancedFieldOptions: NumericConditionFieldOption[] = [
     label: 'KDJ',
     key: 'kdj',
     children: [
-      { label: 'KDJ.K', value: 'KDJ.K' },
-      { label: 'KDJ.D', value: 'KDJ.D' },
-      { label: 'KDJ.J', value: 'KDJ.J' },
+      { label: 'KDJ.K', value: 'KDJ.K', descKey: 'kdj_k' },
+      { label: 'KDJ.D', value: 'KDJ.D', descKey: 'kdj_d' },
+      { label: 'KDJ.J', value: 'KDJ.J', descKey: 'kdj_j' },
     ],
   },
   {
@@ -202,9 +202,9 @@ const advancedFieldOptions: NumericConditionFieldOption[] = [
     label: 'MACD',
     key: 'macd',
     children: [
-      { label: 'DIF', value: 'DIF' },
-      { label: 'DEA', value: 'DEA' },
-      { label: 'MACD', value: 'MACD' },
+      { label: 'DIF', value: 'DIF', descKey: 'macd_dif' },
+      { label: 'DEA', value: 'DEA', descKey: 'macd_dea' },
+      { label: 'MACD', value: 'MACD', descKey: 'macd_hist' },
     ],
   },
   {
@@ -214,10 +214,10 @@ const advancedFieldOptions: NumericConditionFieldOption[] = [
     children: [
       { label: '成交量', value: 'volume' },
       { label: '成交额', value: 'amount' },
-      { label: '量比', value: 'volumeRatio' },
-      { label: 'PE', value: 'pe' },
-      { label: 'PE(TTM)', value: 'peTtm' },
-      { label: 'PB', value: 'pb' },
+      { label: '量比', value: 'volumeRatio', descKey: 'volume_ratio' },
+      { label: 'PE', value: 'pe', descKey: 'pe' },
+      { label: 'PE(TTM)', value: 'peTtm', descKey: 'pe_ttm' },
+      { label: 'PB', value: 'pb', descKey: 'pb' },
     ],
   },
 ]

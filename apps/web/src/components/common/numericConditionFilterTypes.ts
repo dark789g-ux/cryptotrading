@@ -19,4 +19,9 @@ export interface NumericFieldCondition {
 
 export type NumericCondition = NumericNumberCondition | NumericFieldCondition
 
-export type NumericConditionFieldOption = SelectMixedOption
+/**
+ * 字段选项。在 naive 原生 SelectMixedOption 基础上允许可选 descKey
+ * （字段说明 conceptId，见 components/common/fieldDescriptions.ts），
+ * 用于 NumericConditionFilter 下拉的 "?" 帮助图标；不带 descKey 时行为不变。
+ */
+export type NumericConditionFieldOption = SelectMixedOption & { descKey?: string }

@@ -17,7 +17,13 @@
     <div class="condition-form">
       <div class="field-group">
         <label>字段</label>
-        <n-select v-model:value="draft.field" :options="fieldOptions" filterable placeholder="选择字段" />
+        <n-select
+          v-model:value="draft.field"
+          :options="fieldOptions"
+          :render-label="renderFieldLabel"
+          filterable
+          placeholder="选择字段"
+        />
       </div>
       <div class="field-group field-group--compact">
         <label>关系</label>
@@ -41,6 +47,7 @@
           v-if="draft.valueType === 'field'"
           v-model:value="draft.compareField"
           :options="fieldOptions"
+          :render-label="renderFieldLabel"
           filterable
           placeholder="选择字段"
         />
@@ -75,9 +82,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, h, ref } from 'vue'
 import { NBadge, NButton, NDivider, NEmpty, NIcon, NInputNumber, NModal, NRadioButton, NRadioGroup, NSelect } from 'naive-ui'
+import type { SelectBaseOption } from 'naive-ui/es/select/src/interface'
 import { CloseOutline, FilterOutline } from '@vicons/ionicons5'
+import FieldHelpTip from './FieldHelpTip.vue'
+import { getFieldDescription } from './fieldDescriptions'
 import type { NumericCondition, NumericConditionFieldOption, NumericConditionOp, NumericConditionValueType } from './numericConditionFilterTypes'
 
 interface DraftCondition {
@@ -137,6 +147,25 @@ const opLabels: Record<NumericConditionOp, string> = {
   lte: '<=',
   eq: '=',
   neq: '!=',
+}
+
+/**
+ * 字段下拉 label 渲染：选项带 descKey 且有说明时，在 label 旁加 "?" 帮助图标。
+ * 选项无 descKey（如分组头、其它调用方的普通选项）则返回纯 label，行为不变。
+ */
+function renderFieldLabel(option: SelectBaseOption) {
+  const label = typeof option.label === 'string' ? option.label : String(option.label ?? option.value ?? '')
+  const descKey = typeof (option as { descKey?: unknown }).descKey === 'string'
+    ? (option as { descKey: string }).descKey
+    : undefined
+  if (descKey && getFieldDescription(descKey)) {
+    return h(
+      'span',
+      { style: 'display:inline-flex;align-items:center;gap:4px' },
+      [label, h(FieldHelpTip, { field: descKey })],
+    )
+  }
+  return label
 }
 
 const fieldLabelMap = computed(() => {

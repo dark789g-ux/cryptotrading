@@ -1,8 +1,21 @@
 import { computed, h } from 'vue'
 import { NButton, NTag as NTagComponent, type DataTableColumns } from 'naive-ui'
 import type { RunSymbolMetricRow } from '@/api'
+import FieldHelpTip from '@/components/common/FieldHelpTip.vue'
+import { getFieldDescription } from '@/components/common/fieldDescriptions'
 
 export type ColSortOrder = false | 'ascend' | 'descend'
+
+/** 列头「列名 + ?」渲染：有字段说明才带 "?"，否则退回纯文本 title */
+const titleWithHelp = (text: string, conceptId: string) =>
+  getFieldDescription(conceptId)
+    ? () =>
+        h(
+          'span',
+          { style: 'display:inline-flex;align-items:center;gap:4px' },
+          [text, h(FieldHelpTip, { field: conceptId })],
+        )
+    : text
 
 interface UseCandleRunSymbolMetricsColumnsOptions {
   headerOrder: (key: string) => ColSortOrder
@@ -92,7 +105,7 @@ export const useCandleRunSymbolMetricsColumns = ({
       render: (row) => (row.dataStatus === 'missing' ? '-' : fmtNum(row.ma60)),
     },
     {
-      title: 'KDJ.J',
+      title: titleWithHelp('KDJ.J', 'kdj_j'),
       key: 'kdjJ',
       width: 90,
       sortOrder: headerOrder('kdjJ'),
@@ -100,7 +113,7 @@ export const useCandleRunSymbolMetricsColumns = ({
       render: (row) => (row.dataStatus === 'missing' ? '-' : fmtNum(row.kdjJ, 2)),
     },
     {
-      title: '盈亏比',
+      title: titleWithHelp('盈亏比', 'profit_loss_ratio'),
       key: 'riskRewardRatio',
       width: 90,
       sortOrder: headerOrder('riskRewardRatio'),
@@ -108,7 +121,7 @@ export const useCandleRunSymbolMetricsColumns = ({
       render: (row) => (row.dataStatus === 'missing' ? '-' : fmtNum(row.riskRewardRatio, 2)),
     },
     {
-      title: '止损%',
+      title: titleWithHelp('止损%', 'stop_loss_pct'),
       key: 'stopLossPct',
       width: 90,
       sortOrder: headerOrder('stopLossPct'),
