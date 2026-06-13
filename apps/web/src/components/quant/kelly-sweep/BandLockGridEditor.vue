@@ -127,12 +127,9 @@
  * 5 维度编辑：max_hold（含「不封顶」=null）、stop_ratio / floor_ratio（数值多值）、
  * floor_enabled / ma5_require_down（bool 多选）。各维度默认单值 = 退化成现状。
  *
- * 实时预估纯 TS 复刻后端 build_band_lock_grid（sweep.py:173-）的笛卡尔积 + 坍缩去重：
- *   1. 各候选集先量化去重（ratio: NNNN=Math.round(r*1000)；与 Python round-half-up 逐位一致，
- *      ratio 恒正；band_lock_scheme.py:_round_half_up_nnnn）。
- *   2. 笛卡尔积 max_hold × stop_ratio × floor_enabled × ma5_require_down，每组合再展开 floor_ratio。
- *   3. 坍缩去重：floor_enabled=false 时 floor_ratio 不展开（占位默认），
- *      指纹 = (mh, sr, fe, md, fe ? fr : null)（band_lock_scheme + sweep.py:231-249）。
+ * 实时预估 = stores/kellySweep.ts 的 estimateBandLockGridSize（纯 TS 复刻后端 build_band_lock_grid
+ * 的笛卡尔积 + 坍缩去重），与 KellySweepConfigForm 顶部组合数预估共用同一函数（单一源、同口径）。
+ * 输入归一同样复用 store 的 quantizeBandLockRatio。
  *
  * 父组件用 defineModel 注入完整 BandLockGrid；本组件只读改其内容，不负责传/不传决策
  * （由父 KellySweepConfigForm 据 band_lock 勾选决定是否把本对象拼进 band_lock_grid job param）。
@@ -143,6 +140,7 @@
 import { computed, ref } from 'vue'
 import { NButton, NCheckbox, NInputNumber } from 'naive-ui'
 import type { BandLockGrid } from '@/api/modules/quant/kellySweep'
+import { estimateBandLockGridSize, quantizeBandLockRatio } from '@/stores/kellySweep'
 
 // ── 范围约束（spec 01 §一）+ 量化网格 + 护栏阈值 ─────────────────────────────
 /** stop_ratio ∈ [0.001, 1.0]（band_lock_scheme.py STOP_RATIO_NNNN_MIN/MAX，千分位） */
@@ -151,8 +149,6 @@ const STOP_MAX = 1.0
 /** floor_ratio ∈ [0.001, 9.999]（允许 >1 锁盈；FLOOR_RATIO_NNNN_MIN/MAX） */
 const FLOOR_MIN = 0.001
 const FLOOR_MAX = 9.999
-/** 量化千分位网格（NNNN = Math.round(ratio*1000)，band_lock_scheme.py RATIO_GRID=1000） */
-const RATIO_GRID = 1000
 /** band_lock 族 cfg 软阈值（spec 05§五「超软阈值（如 100）黄字提醒」）。
  *  注：后端硬护栏 _BAND_LOCK_GRID_WARN_THRESHOLD=200 仅 warn 不拒绝；前端取更早的 100 提醒。 */
 const GRID_WARN_THRESHOLD = 100
@@ -169,11 +165,6 @@ const model = defineModel<BandLockGrid>({ required: true })
 const newMaxHold = ref<number | null>(null)
 const newStopRatio = ref<number | null>(null)
 const newFloorRatio = ref<number | null>(null)
-
-/** 量化：ratio → NNNN/1000（round-half-up，ratio 恒正 → Math.round 与 Python floor(x+0.5) 一致） */
-function quantizeRatio(r: number): number {
-  return Math.round(r * RATIO_GRID) / RATIO_GRID
-}
 
 function fmt3(r: number): string {
   return r.toFixed(3)
@@ -213,8 +204,8 @@ function addRatio(key: RatioKey, refName: NewRatioRef) {
   const v = refObj.value
   if (v === null) return
   // 量化后去重：用户输入 0.9991 / 0.9992 都量化到 0.999，避免视觉重复（与后端 _dedup_keep_order 同口径）
-  const q = quantizeRatio(v)
-  const quantizedExisting = model.value[key].map(quantizeRatio)
+  const q = quantizeBandLockRatio(v)
+  const quantizedExisting = model.value[key].map(quantizeBandLockRatio)
   if (!quantizedExisting.includes(q)) {
     model.value = { ...model.value, [key]: [...model.value[key], q] }
   }
@@ -239,57 +230,8 @@ function toggleBool(key: BoolKey, value: boolean, checked: boolean) {
   }
 }
 
-// ── 实时网格规模预估（纯 TS 复刻 build_band_lock_grid 笛卡尔积 + 坍缩去重） ────
-/** 量化去重保序：ratio 维度按量化值去重，与 Python _dedup_keep_order 同口径 */
-function dedupQuantizedRatios(list: number[]): number[] {
-  const seen = new Set<number>()
-  const out: number[] = []
-  for (const r of list) {
-    const q = quantizeRatio(r)
-    if (!seen.has(q)) {
-      seen.add(q)
-      out.push(q)
-    }
-  }
-  return out
-}
-
-function dedup<T>(list: T[]): T[] {
-  return Array.from(new Set(list))
-}
-
-const gridCount = computed(() => {
-  const maxHolds = dedup(model.value.max_hold_list)
-  const stops = dedupQuantizedRatios(model.value.stop_ratio_list)
-  const floors = dedupQuantizedRatios(model.value.floor_ratio_list)
-  const floorEnableds = dedup(model.value.floor_enabled_list)
-  const ma5s = dedup(model.value.ma5_require_down_list)
-
-  // 任一维度空 → 后端会因笛卡尔积为空 / build_exit_grid 校验失败而无配置；前端按 0 提示
-  if (
-    maxHolds.length === 0 || stops.length === 0 || floorEnableds.length === 0 ||
-    ma5s.length === 0 || floors.length === 0
-  ) {
-    return 0
-  }
-
-  // 笛卡尔积 + 坍缩去重：指纹 (mh, sr, fe, md, fe ? fr : null)
-  const seen = new Set<string>()
-  for (const mh of maxHolds) {
-    for (const sr of stops) {
-      for (const fe of floorEnableds) {
-        for (const md of ma5s) {
-          const frCandidates = fe ? floors : [null]
-          for (const fr of frCandidates) {
-            const fingerprint = JSON.stringify([mh, sr, fe, md, fe ? fr : null])
-            seen.add(fingerprint)
-          }
-        }
-      }
-    }
-  }
-  return seen.size
-})
+// ── 实时网格规模预估（委托 store 共享纯函数，与组合数预估同口径） ───────────────
+const gridCount = computed(() => estimateBandLockGridSize(model.value))
 </script>
 
 <style scoped>

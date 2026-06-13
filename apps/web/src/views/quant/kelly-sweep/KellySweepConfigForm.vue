@@ -231,7 +231,7 @@ import type { SelectOption } from 'naive-ui'
 import { kellySweepApi, type ExitFamily, type BaseTriggerOp } from '@/api/modules/quant/kellySweep'
 import type { SweepParams, BandLockGrid } from '@/api/modules/quant/kellySweep'
 import { useKellySweepConfigSync } from '@/composables/quant/useKellySweepConfigSync'
-import { makeDefaultBandLockGrid } from '@/stores/kellySweep'
+import { makeDefaultBandLockGrid, estimateBandLockGridSize } from '@/stores/kellySweep'
 import BandLockGridEditor from '@/components/quant/kelly-sweep/BandLockGridEditor.vue'
 
 // ---------- 出场族常量（来源 sweep.py:90-106 DEFAULT_EXIT_GRID，UI 粗估用） ----------
@@ -380,9 +380,14 @@ const variantCount = computed(() => {
   return total
 })
 
-const exitCount = computed(() =>
-  config.value.exit_families.reduce((sum, f) => sum + (EXIT_FAMILY_SIZES[f] ?? 0), 0),
-)
+const exitCount = computed(() => {
+  // exit_families 各族出场数 + band_lock 网格（勾选时）；与后端 build_exit_grid 合并 band_lock_grid 同口径
+  const familySum = config.value.exit_families.reduce((sum, f) => sum + (EXIT_FAMILY_SIZES[f] ?? 0), 0)
+  const bandLockSum = config.value.band_lock_grid
+    ? estimateBandLockGridSize(config.value.band_lock_grid)
+    : 0
+  return familySum + bandLockSum
+})
 
 const comboCount = computed(() => variantCount.value * exitCount.value)
 </script>

@@ -55,6 +55,83 @@ export function makeDefaultBandLockGrid(): BandLockGrid {
   }
 }
 
+// ── band_lock 网格规模预估（前端单一源，与后端 build_band_lock_grid 同口径） ──────
+/** 量化千分位网格（NNNN = Math.round(ratio*1000)，band_lock_scheme.py RATIO_GRID=1000） */
+const BAND_LOCK_RATIO_GRID = 1000
+
+/**
+ * ratio 量化到千分位（round-half-up；ratio 恒正 → Math.round 与 Python floor(x+0.5) 逐位一致，
+ * band_lock_scheme.py:_round_half_up_nnnn）。供编辑器输入归一与网格预估去重共用。
+ */
+export function quantizeBandLockRatio(r: number): number {
+  return Math.round(r * BAND_LOCK_RATIO_GRID) / BAND_LOCK_RATIO_GRID
+}
+
+/** 标量保序去重（max_hold / bool 维度） */
+function dedupScalar<T>(list: T[]): T[] {
+  return Array.from(new Set(list))
+}
+
+/** ratio 维度按量化值保序去重，与 Python _dedup_keep_order 同口径 */
+function dedupQuantizedRatios(list: number[]): number[] {
+  const seen = new Set<number>()
+  const out: number[] = []
+  for (const r of list) {
+    const q = quantizeBandLockRatio(r)
+    if (!seen.has(q)) {
+      seen.add(q)
+      out.push(q)
+    }
+  }
+  return out
+}
+
+/**
+ * 预估 band_lock 出场族会生成多少个 cfg（纯函数，无副作用）。
+ *
+ * 纯 TS 复刻后端 build_band_lock_grid（sweep.py）的笛卡尔积 + 坍缩去重：
+ *   1. 各候选集先量化去重（ratio 量化千分位，与 Python round-half-up 逐位一致）。
+ *   2. 笛卡尔积 max_hold × stop_ratio × floor_enabled × ma5_require_down，每组合再展开 floor_ratio。
+ *   3. 坍缩去重：floor_enabled=false 时 floor_ratio 不展开（占位默认 null），
+ *      指纹 = (mh, sr, fe, md, fe ? fr : null)（band_lock_scheme + sweep.py）。
+ *
+ * 任一维度空 → 返回 0（与后端笛卡尔积为空 / build_exit_grid 校验失败一致）。
+ *
+ * BandLockGridEditor（实时「将生成 N 个」）与 KellySweepConfigForm（组合数预估的出场数）共用，
+ * 保证前端预估单一源、与后端 build_band_lock_grid 同口径。
+ */
+export function estimateBandLockGridSize(grid: BandLockGrid): number {
+  const maxHolds = dedupScalar(grid.max_hold_list)
+  const stops = dedupQuantizedRatios(grid.stop_ratio_list)
+  const floors = dedupQuantizedRatios(grid.floor_ratio_list)
+  const floorEnableds = dedupScalar(grid.floor_enabled_list)
+  const ma5s = dedupScalar(grid.ma5_require_down_list)
+
+  // 任一维度空 → 后端会因笛卡尔积为空 / build_exit_grid 校验失败而无配置；按 0 计
+  if (
+    maxHolds.length === 0 || stops.length === 0 || floorEnableds.length === 0 ||
+    ma5s.length === 0 || floors.length === 0
+  ) {
+    return 0
+  }
+
+  // 笛卡尔积 + 坍缩去重：指纹 (mh, sr, fe, md, fe ? fr : null)
+  const seen = new Set<string>()
+  for (const mh of maxHolds) {
+    for (const sr of stops) {
+      for (const fe of floorEnableds) {
+        for (const md of ma5s) {
+          const frCandidates = fe ? floors : [null]
+          for (const fr of frCandidates) {
+            seen.add(JSON.stringify([mh, sr, fe, md, fe ? fr : null]))
+          }
+        }
+      }
+    }
+  }
+  return seen.size
+}
+
 export const useKellySweepStore = defineStore('kellySweep', () => {
   // --- 当前配置 ---
   const config = ref<SweepParams>({ ...DEFAULT_SWEEP_PARAMS, base_trigger: { ...DEFAULT_SWEEP_PARAMS.base_trigger } })
