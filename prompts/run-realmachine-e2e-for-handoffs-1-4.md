@@ -13,10 +13,11 @@
 - 未做真机 e2e 的原因：单 worker 串行队列，易被 stale running / 前序会话 worker 占用干扰(参 memory `project_phase_lock_exit` kelly/labels e2e 跳过同因)。
 
 ## 待做 e2e(逐任务，file:line 见 archive/ 下对应交接)
-1. **#4 worker 启动**(`apps/server/src/modules/quant/realtime/README.md:76`)：
-   - `cd apps/quant-pipeline ; uv run quant-worker` → 另一终端插 `ml.jobs` 一行 `run_type='noop'` → 确认被置 running→success；
-   - 验 `uv run python -m quant_pipeline.worker` 等价启动；
-   - **重点验本次修的运维坑**：`quant-worker` 入口现在应能看到 INFO 日志(worker_started / poll …)，不再静默。
+1. ✅ **#4 worker 启动 —— 2026-06-14 已验通过**(`apps/server/src/modules/quant/realtime/README.md:76`)：
+   - `uv run quant-worker` 起 worker → 插 `run_type='noop'` → 被置 running→success(progress=100)；
+   - `uv run python -m quant_pipeline.worker` 等价启动验证：同样消费 noop→success、同套 INFO 日志(两命令走同一 `__main__:main`)；
+   - **运维坑已验修复**：两入口日志均含 INFO `worker_started` / `dispatch`(修前 `quant-worker` 直指 `run_worker_loop` 不调 `setup_logging` 会静默)。
+   - 收尾：worker 进程已 kill(按命令行精确过滤,无误伤/无残留)、2 条测试 noop 已删、DB 复原(`running/pending=0`)。
 2. **#2 孤儿回收**：起一个长 job(如 kelly_sweep) → 杀 worker → 重启 worker → 阈值(默认 600s，e2e 可临时把 `WORKER_STALE_RUNNING_THRESHOLD_SECONDS` 调小加速)后被回收(attempts<max 应重 pending 被领走重跑、结果幂等)；另验一个心跳正常(每 30s)的活 job 在 reaper 周期触发时**不被**误回收。
 3. **#3 kelly cancel**：起一个大 kelly job(默认网格 + `bootstrap_iters=1000`) 运行中 `UPDATE ml.jobs SET cancel_requested=true …` → **数秒内** status 转 cancelled；观察 sweep 段(55–90%) progress **持续递增**(非整段不动)；再跑一个改前已有结果的 job，确认 `research.kelly_sweep_results` 与改前**逐字一致**(零漂移)。
 4. **#1 前端**：浏览器点开 signal-stats 列表/结果页摘要/详情配置面板/导入方案下拉，确认 `phase_lock`/`trailing_lock` 等在四处均显示正确中文标签(含参格式 `N=`/`≤maxHold` 一致)，无原始串/兜底误显。
@@ -31,4 +32,6 @@
 各任务交接原"验证标准"的真机部分(见 `prompts/archive/` 下对应 4 个交接文档)。
 
 ## 前序进度 / 待续
-全新任务，未动手。实现已提交本地 main(`a66b074`/`223b03d`/`3ce5654`/`dc8c123`，未推 origin)，单测/集成测/构建全绿；本任务只补真机串行 e2e。
+实现已提交本地 main(`a66b074`/`223b03d`/`3ce5654`/`dc8c123`，未推 origin)，单测/集成测/构建全绿。
+- **2026-06-14：#4 worker 启动 e2e 已验通过**(两命令 + INFO 日志 + noop success，DB 已复原)。
+- **待续：#1 前端浏览器渲染 / #2 杀 worker 验回收 / #3 大 kelly job cancel** 三项真机 e2e 仍未做。
