@@ -173,6 +173,7 @@ const columns = computed<DataTableColumns<JobRow>>(() => [
     title: 'run_type',
     key: 'runType',
     width: 110,
+    ellipsis: { lineClamp: 3, tooltip: true },
     render: row => h('span', { class: 'mono' }, row.runType),
   },
   {

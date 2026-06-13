@@ -88,6 +88,7 @@ const columns = computed<DataTableColumns<ModelRunListItem>>(() => [
     title: '模型版本',
     key: 'model_version',
     minWidth: 280,
+    ellipsis: { lineClamp: 3, tooltip: true },
     sorter: 'default' as const,
     sortOrder: getSortOrder('model_version'),
     render(row) {

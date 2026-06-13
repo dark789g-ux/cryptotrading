@@ -103,6 +103,7 @@ const columns = computed<DataTableColumns<StrategyDefinition>>(() => [
     title: 'ID / 版本',
     key: 'strategy_id',
     minWidth: 160,
+    ellipsis: { lineClamp: 3, tooltip: true },
     render(row) {
       return h('span', { class: 'mono' }, `${row.strategy_id} (${row.strategy_version})`)
     },
