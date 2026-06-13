@@ -54,6 +54,81 @@ def _make_stage_progress(job_id: UUID, stage_name: str) -> Any:
     return _cb
 
 
+def _build_exit_grid_from_params(params: dict[str, Any]) -> list[dict[str, Any]]:
+    """从 job.params 构造 exit_grid（spec 05§四）。
+
+    - exit_families（默认四族不含 band_lock）→ build_exit_grid 取各族 DEFAULT 子集。
+    - 若 params 含 band_lock_grid（各维度候选集 dict）→ build_band_lock_grid(**candidates)
+      生成 band_lock 部分，**替代** build_exit_grid 的 band_lock 段（避免 DEFAULT 3 个与自定义
+      重复 / 漂移），再与其它族合并。
+    - 若未提供 band_lock_grid 但 families 含 band_lock → 用 DEFAULT 的 3 个（现状零漂移）。
+
+    Args:
+        params: job.params（含 exit_families / band_lock_grid）。
+
+    Returns:
+        合并后的 exit_grid（其它族 build_exit_grid 顺序 + band_lock 自定义段附后）。
+
+    Raises:
+        ValueError: exit_families 非数组 / 含未知族 / 空（透传 build_exit_grid）；
+                    band_lock_grid 非 dict；候选集量化校验失败（透传 build_band_lock_grid）。
+    """
+    from quant_pipeline.research.kelly_sweep.sweep import build_band_lock_grid, build_exit_grid
+
+    families_raw = params.get("exit_families", ["fixed_n", "tp_sl", "trailing", "atr_stop"])
+    if not isinstance(families_raw, list):
+        raise ValueError(
+            f"kelly_sweep params.exit_families 必须是字符串数组，got {families_raw!r}"
+        )
+    families = [str(f) for f in families_raw]
+
+    band_lock_grid_raw = params.get("band_lock_grid")
+    if band_lock_grid_raw is None:
+        # 现状：band_lock 走 DEFAULT 3 个（若 families 含 band_lock）。
+        return build_exit_grid(families)
+
+    if not isinstance(band_lock_grid_raw, dict):
+        raise ValueError(
+            f"kelly_sweep params.band_lock_grid 必须是各维度候选集 dict，got {band_lock_grid_raw!r}"
+        )
+
+    # 自定义 band_lock_grid：band_lock 段由 build_band_lock_grid 生成，
+    # 从 build_exit_grid 的族集合中剔除 band_lock（防 DEFAULT 3 个与自定义重复）。
+    other_families = [f for f in families if f != "band_lock"]
+    other_grid = build_exit_grid(other_families) if other_families else []
+
+    band_lock_part = build_band_lock_grid(**_normalize_band_lock_candidates(band_lock_grid_raw))
+    return other_grid + band_lock_part
+
+
+def _normalize_band_lock_candidates(raw: dict[str, Any]) -> dict[str, list]:
+    """band_lock_grid job param（各维度候选集 dict）→ build_band_lock_grid 的 kwargs。
+
+    仅透传 build_band_lock_grid 支持的 5 个候选集键；未提供的键交给函数默认（退化成现状）。
+    每个值必须是 list（候选集）；非 list → ValueError（fail-fast，防前端误传标量）。
+    """
+    allowed = {
+        "max_hold_list",
+        "stop_ratio_list",
+        "floor_ratio_list",
+        "floor_enabled_list",
+        "ma5_require_down_list",
+    }
+    out: dict[str, list] = {}
+    for key, value in raw.items():
+        if key not in allowed:
+            raise ValueError(
+                f"kelly_sweep band_lock_grid 含未知候选集键 {key!r}，"
+                f"合法键为 {sorted(allowed)!r}"
+            )
+        if not isinstance(value, list):
+            raise ValueError(
+                f"kelly_sweep band_lock_grid.{key} 必须是候选集数组，got {value!r}"
+            )
+        out[key] = value
+    return out
+
+
 def _parse_sweep_config(params: dict[str, Any]):
     """从 job.params 解析 SweepConfig（12 字段）。
 
@@ -111,7 +186,7 @@ def run_kelly_sweep(job: Job) -> dict[str, Any]:
     )
     from quant_pipeline.research.kelly_sweep.persist import build_summary_payload, persist_results
     from quant_pipeline.research.kelly_sweep.report import compute_pareto_frontier, rank_top_k
-    from quant_pipeline.research.kelly_sweep.sweep import BENCH_CODE_MAP, build_exit_grid, run_sweep
+    from quant_pipeline.research.kelly_sweep.sweep import BENCH_CODE_MAP, run_sweep
 
     params = job.params or {}
     job_id = job.id
@@ -119,13 +194,8 @@ def run_kelly_sweep(job: Job) -> dict[str, Any]:
     # ── 1. 解析配置 ────────────────────────────────────────────────────────
     cfg = _parse_sweep_config(params)
 
-    # exit_families：默认全选四族
-    families_raw = params.get("exit_families", ["fixed_n", "tp_sl", "trailing", "atr_stop"])
-    if not isinstance(families_raw, list):
-        raise ValueError(
-            f"kelly_sweep params.exit_families 必须是字符串数组，got {families_raw!r}"
-        )
-    exit_grid = build_exit_grid([str(f) for f in families_raw])
+    # exit_grid：其它族走 build_exit_grid；band_lock_grid 提供时自定义 band_lock 维度扫描。
+    exit_grid = _build_exit_grid_from_params(params)
 
     logger.info(
         "kelly_sweep runner 启动: job_id=%s, base_trigger=%s, exit_grid 大小=%d",

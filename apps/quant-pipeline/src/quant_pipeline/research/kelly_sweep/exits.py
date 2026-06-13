@@ -320,6 +320,10 @@ def simulate_band_lock_exit(
     path: ForwardPath,
     *,
     max_hold: Optional[int] = None,
+    stop_ratio: float = 0.999,
+    floor_ratio: float = 0.999,
+    floor_enabled: bool = True,
+    ma5_require_down: bool = True,
 ) -> Optional[TradeResult]:
     """波段跟踪止损出场：把 path 适配后调 strategy/band_lock_exit.py 共享核。
 
@@ -345,8 +349,15 @@ def simulate_band_lock_exit(
         （与其它出场族窗口不足兜底一致）。
 
     Args:
-        path:     ForwardPath（须含 buy_bar + signal_bar_high，由 load_forward_paths 填充）。
-        max_hold: band_lock 硬上限（已走过可交易持有日数）；None=不封顶。
+        path:             ForwardPath（须含 buy_bar + signal_bar_high，由 load_forward_paths 填充）。
+        max_hold:         band_lock 硬上限（已走过可交易持有日数）；None=不封顶。
+        stop_ratio:       止损缓冲系数（覆盖核 4 处止损基准 × 系数），默认 0.999=现状。
+        floor_ratio:      成本地板系数（floor_price=floor2(cost×floor_ratio)），默认 0.999=现状；
+                          >1 时从「保本」变「锁盈」。仅 floor_enabled=True 时生效。
+        floor_enabled:    是否启用方案二成本地板，默认 True=现状；False 时核三处地板逻辑全短路。
+        ma5_require_down: 锁定后 MA5 离场是否要求均线下行，默认 True=现状；False 时收盘跌破 MA5 即离场。
+
+    四参数默认值钉死共享核 strategy/band_lock_exit.py 现存硬编码 → 全默认时与现状逐字一致（零漂移）。
 
     Returns:
         TradeResult；无交易时 None。
@@ -373,7 +384,15 @@ def simulate_band_lock_exit(
     core_bars = [_to_band_lock_bar(path.buy_bar)] + [
         _to_band_lock_bar(b) for b in held_bars
     ]
-    outcome = simulate_band_lock(core_bars, path.signal_bar_high, max_hold=max_hold)
+    outcome = simulate_band_lock(
+        core_bars,
+        path.signal_bar_high,
+        max_hold=max_hold,
+        stop_ratio=stop_ratio,
+        floor_ratio=floor_ratio,
+        floor_enabled=floor_enabled,
+        ma5_require_down=ma5_require_down,
+    )
 
     if outcome.kind == "no_entry":
         return None

@@ -27,6 +27,13 @@ from typing import Any, Callable, Optional
 
 import pandas as pd
 
+from quant_pipeline.labels.band_lock_scheme import (
+    DEFAULT_FLOOR_ENABLED,
+    DEFAULT_FLOOR_RATIO,
+    DEFAULT_MA5_REQUIRE_DOWN,
+    DEFAULT_STOP_RATIO,
+    quantize_band_lock_params,
+)
 from quant_pipeline.research.kelly_sweep.config import SweepConfig
 from quant_pipeline.research.kelly_sweep.entry_features import (
     apply_threshold,
@@ -124,6 +131,10 @@ for _mh in [None, 10, 20]:
 # 组合数警告阈值（spec 04§1）
 _COMBO_WARN_THRESHOLD = 5000
 
+# band_lock 族网格爆炸护栏阈值（spec 05§3.4）：band_lock 族 cfg 数 > 此值 → warn，
+# 不拒绝、不截断（data-integrity「no silent caps」，尊重用户意图）。
+_BAND_LOCK_GRID_WARN_THRESHOLD = 200
+
 # 合法出场族名称（与 DEFAULT_EXIT_GRID 的 type 字段一一对应）
 _KNOWN_EXIT_FAMILIES: frozenset[str] = frozenset(
     ["fixed_n", "tp_sl", "trailing", "atr_stop", "band_lock"]
@@ -157,6 +168,114 @@ def build_exit_grid(families: list[str]) -> list[dict[str, Any]]:
         )
     family_set = set(families)
     return [cfg for cfg in DEFAULT_EXIT_GRID if cfg["type"] in family_set]
+
+
+def build_band_lock_grid(
+    max_hold_list: list[Optional[int]] = [None, 10, 20],
+    stop_ratio_list: list[float] = [DEFAULT_STOP_RATIO],
+    floor_ratio_list: list[float] = [DEFAULT_FLOOR_RATIO],
+    floor_enabled_list: list[bool] = [DEFAULT_FLOOR_ENABLED],
+    ma5_require_down_list: list[bool] = [DEFAULT_MA5_REQUIRE_DOWN],
+) -> list[dict[str, Any]]:
+    """band_lock 出场族候选集 → 笛卡尔积 + 依赖坍缩去重 → ExitConfig 字典列表（spec 05§3）。
+
+    band_lock 网格 = max_hold × stop_ratio × floor_ratio × floor_enabled × ma5_require_down。
+
+    **零漂移硬门**：默认候选集（不传参）= 现状 DEFAULT_EXIT_GRID 中 band_lock 3 个 cfg
+    （max_hold ∈ {None,10,20}，4 新参数取核默认 0.999/0.999/True/True），且 _exit_id 逐字不变。
+
+    各 ratio 候选进笛卡尔积前经 `quantize_band_lock_params` 量化（千分位 round-half-up，
+    单一源，与 scheme 编码 / labels / TS 同一量化算法，避免分叉）。
+
+    依赖坍缩去重（spec 01§依赖 + 05§3.2）：floor_ratio 仅在 floor_enabled=True 时生效。
+      - floor_enabled=True  分支：正常展开 floor_ratio 候选。
+      - floor_enabled=False 分支：floor_ratio 不影响结果 → 不展开（取占位默认 DEFAULT_FLOOR_RATIO）。
+      按「有效参数指纹」去重：指纹 = (max_hold, stop_ratio, floor_enabled, ma5_require_down,
+      floor_enabled ? floor_ratio : None)——False 时 floor_ratio 从指纹剔除。
+      例：floor_enabled:[T,F] × floor_ratio:[0.998,0.999] → 3 个（非 4）。
+
+    网格爆炸护栏（spec 05§3.4）：band_lock 族 cfg 数 > 200 → logger.warning（含各维度候选数），
+    **不拒绝、不截断**（data-integrity「no silent caps」）。
+
+    Args:
+        max_hold_list:         max_hold 候选（None=不封顶 / 正整数）。
+        stop_ratio_list:       stop_ratio 候选（量化前原始 ratio）。
+        floor_ratio_list:      floor_ratio 候选（量化前原始 ratio）。
+        floor_enabled_list:    floor_enabled 候选（bool）。
+        ma5_require_down_list:  ma5_require_down 候选（bool）。
+
+    Returns:
+        [{type:'band_lock', max_hold, stop_ratio, floor_ratio, floor_enabled, ma5_require_down}, ...]，
+        坍缩去重后顺序稳定（首次出现的指纹保留）。
+
+    Raises:
+        ValueError: 任一 ratio / max_hold 量化校验失败（透传 quantize_band_lock_params）。
+    """
+    # ── 各 ratio 候选预量化（单一源），并去重保稳定顺序 ─────────────────────────
+    # quantize_band_lock_params 一次性量化 + 校验全部字段；ratio 用其量化结果（NNNN/1000）。
+    quant_stop: list[float] = _dedup_keep_order(
+        [quantize_band_lock_params({"stop_ratio": r})["stop_ratio"] for r in stop_ratio_list]
+    )
+    quant_floor: list[float] = _dedup_keep_order(
+        [quantize_band_lock_params({"floor_ratio": r})["floor_ratio"] for r in floor_ratio_list]
+    )
+    quant_max_hold: list[Optional[int]] = _dedup_keep_order(
+        [quantize_band_lock_params({"max_hold": mh})["max_hold"] for mh in max_hold_list]
+    )
+    quant_floor_enabled: list[bool] = _dedup_keep_order(list(floor_enabled_list))
+    quant_ma5: list[bool] = _dedup_keep_order(list(ma5_require_down_list))
+
+    grid: list[dict[str, Any]] = []
+    seen: set[tuple] = set()  # 有效参数指纹集合（坍缩去重）
+
+    for mh, sr, fe, md in itertools.product(
+        quant_max_hold, quant_stop, quant_floor_enabled, quant_ma5
+    ):
+        # floor_enabled=False 时 floor_ratio 不展开（取占位默认），指纹剔除 floor_ratio。
+        fr_candidates = quant_floor if fe else [DEFAULT_FLOOR_RATIO]
+        for fr in fr_candidates:
+            fingerprint = (mh, sr, fe, md, fr if fe else None)
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            grid.append(
+                {
+                    "type": "band_lock",
+                    "max_hold": mh,
+                    "stop_ratio": sr,
+                    "floor_ratio": fr,
+                    "floor_enabled": fe,
+                    "ma5_require_down": md,
+                }
+            )
+
+    if len(grid) > _BAND_LOCK_GRID_WARN_THRESHOLD:
+        logger.warning(
+            "band_lock 出场族生成 %d 个配置，超过软阈值 %d（"
+            "max_hold=%d × stop_ratio=%d × floor_ratio=%d × floor_enabled=%d × ma5_require_down=%d，"
+            "坍缩去重后 %d）。不截断，但多重检验过拟合风险高，请谨慎解读。",
+            len(grid),
+            _BAND_LOCK_GRID_WARN_THRESHOLD,
+            len(quant_max_hold),
+            len(quant_stop),
+            len(quant_floor),
+            len(quant_floor_enabled),
+            len(quant_ma5),
+            len(grid),
+        )
+
+    return grid
+
+
+def _dedup_keep_order(items: list) -> list:
+    """去重保留首次出现顺序（候选集可能含重复值，如用户重复填 0.999）。"""
+    seen: set = set()
+    out: list = []
+    for x in items:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -282,9 +401,48 @@ def _exit_id(exit_cfg: dict[str, Any]) -> str:
     if t == "atr_stop":
         return f"atr_stop(k={exit_cfg['k']},mh={exit_cfg['max_hold']})"
     if t == "band_lock":
-        # max_hold 可为 None（不封顶）；显式写出以与 mh=10/20 区分、保证 id 唯一。
-        return f"band_lock(mh={exit_cfg.get('max_hold')})"
+        return _band_lock_exit_id(exit_cfg)
     raise ValueError(f"未知出场类型 type={t!r}")
+
+
+def _band_lock_exit_id(exit_cfg: dict[str, Any]) -> str:
+    """band_lock 出场配置 → 唯一可读 _exit_id（spec 05§3.3）。
+
+    全默认 → `band_lock(mh=X)`（守现存扫描结果可比对，逐字不变）。
+    非默认参数按固定顺序 sr→fr→fl→md 追加，**fr 省略规则与坍缩指纹同口径**：
+      - floor_enabled=False(fl=0) → 省 fr（floor_ratio 不参与计算）；
+      - floor_enabled=True(默认) 且 fr 非默认 → 含 fr。
+    布尔仅在取 False（非默认）时出现 fl=0 / md=0（与 scheme 后缀同口径）。
+
+    max_hold 始终写出（None=不封顶，与 mh=10/20 区分），守现存 `band_lock(mh=X)` 格式。
+    """
+    parts: list[str] = [f"mh={exit_cfg.get('max_hold')}"]
+
+    stop_ratio = exit_cfg.get("stop_ratio", DEFAULT_STOP_RATIO)
+    floor_ratio = exit_cfg.get("floor_ratio", DEFAULT_FLOOR_RATIO)
+    floor_enabled = exit_cfg.get("floor_enabled", DEFAULT_FLOOR_ENABLED)
+    ma5_require_down = exit_cfg.get("ma5_require_down", DEFAULT_MA5_REQUIRE_DOWN)
+
+    if stop_ratio != DEFAULT_STOP_RATIO:
+        parts.append(f"sr={_fmt_ratio(stop_ratio)}")
+    # fr 仅在 floor_enabled=True（地板生效）且 floor_ratio 非默认时出现；fl=0 时省略。
+    if floor_enabled and floor_ratio != DEFAULT_FLOOR_RATIO:
+        parts.append(f"fr={_fmt_ratio(floor_ratio)}")
+    if floor_enabled != DEFAULT_FLOOR_ENABLED:
+        parts.append("fl=0")  # 仅 False（非默认）出现
+    if ma5_require_down != DEFAULT_MA5_REQUIRE_DOWN:
+        parts.append("md=0")  # 仅 False（非默认）出现
+
+    return f"band_lock({','.join(parts)})"
+
+
+def _fmt_ratio(ratio: float) -> str:
+    """ratio（千分位量化值）→ 紧凑字符串：去尾零（0.997→'0.997'，1.02→'1.02'）。
+
+    千分位量化保证 ratio 至多 3 位小数；用定点 3 位再去尾零，规避浮点末位脏值
+    （如 0.997 的 IEEE754 表示），保证 _exit_id 在同一量化值上确定唯一。
+    """
+    return f"{ratio:.3f}".rstrip("0").rstrip(".")
 
 
 def _run_exit(path: ForwardPath, exit_cfg: dict[str, Any], same_day_rule: str) -> Optional[float]:
@@ -312,8 +470,16 @@ def _run_exit(path: ForwardPath, exit_cfg: dict[str, Any], same_day_rule: str) -
         elif t == "atr_stop":
             trade = simulate_atr_stop(path, k=exit_cfg["k"], max_hold=exit_cfg["max_hold"])
         elif t == "band_lock":
-            # max_hold 可缺/为 None（不封顶）；simulate_band_lock_exit 无交易时返回 None。
-            band_trade = simulate_band_lock_exit(path, max_hold=exit_cfg.get("max_hold"))
+            # max_hold 可缺/为 None（不封顶）；4 新参数缺省 .get 兜底核默认（现状零漂移）；
+            # simulate_band_lock_exit 无交易时返回 None。
+            band_trade = simulate_band_lock_exit(
+                path,
+                max_hold=exit_cfg.get("max_hold"),
+                stop_ratio=exit_cfg.get("stop_ratio", DEFAULT_STOP_RATIO),
+                floor_ratio=exit_cfg.get("floor_ratio", DEFAULT_FLOOR_RATIO),
+                floor_enabled=exit_cfg.get("floor_enabled", DEFAULT_FLOOR_ENABLED),
+                ma5_require_down=exit_cfg.get("ma5_require_down", DEFAULT_MA5_REQUIRE_DOWN),
+            )
             if band_trade is None:
                 return None
             return band_trade.ret

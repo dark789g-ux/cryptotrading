@@ -391,6 +391,133 @@ class TestParseSweepConfig:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 4b. _build_exit_grid_from_params — band_lock_grid 注入 / 合并（任务 C）
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestBuildExitGridFromParams:
+    def test_no_band_lock_grid_default_families(self) -> None:
+        """不含 band_lock_grid 且默认四族 → 等价 build_exit_grid(四族)（现状）。"""
+        from quant_pipeline.research.kelly_sweep.sweep import build_exit_grid
+        from quant_pipeline.worker.kelly_sweep_runner import _build_exit_grid_from_params
+
+        grid = _build_exit_grid_from_params({})
+        assert grid == build_exit_grid(["fixed_n", "tp_sl", "trailing", "atr_stop"])
+
+    def test_families_with_band_lock_no_grid_uses_default_three(self) -> None:
+        """families 含 band_lock 但无 band_lock_grid → band_lock 段 = DEFAULT 3 个（现状）。"""
+        from quant_pipeline.worker.kelly_sweep_runner import _build_exit_grid_from_params
+
+        grid = _build_exit_grid_from_params({"exit_families": ["band_lock"]})
+        band_cfgs = [c for c in grid if c["type"] == "band_lock"]
+        assert len(band_cfgs) == 3
+        assert [c["max_hold"] for c in band_cfgs] == [None, 10, 20]
+
+    def test_band_lock_grid_provided_generates_custom(self) -> None:
+        """提供 band_lock_grid → band_lock 段由 build_band_lock_grid 生成（非 DEFAULT 3）。"""
+        from quant_pipeline.worker.kelly_sweep_runner import _build_exit_grid_from_params
+
+        params = {
+            "exit_families": ["band_lock"],
+            "band_lock_grid": {
+                "max_hold_list": [None, 10, 20],
+                "stop_ratio_list": [0.997, 0.998, 0.999],
+            },
+        }
+        grid = _build_exit_grid_from_params(params)
+        band_cfgs = [c for c in grid if c["type"] == "band_lock"]
+        assert len(band_cfgs) == 9  # 3 max_hold × 3 stop_ratio
+
+    def test_band_lock_grid_no_duplicate_with_default(self) -> None:
+        """提供 band_lock_grid 时，band_lock 段不混入 DEFAULT 3 个（剔除后合并）。"""
+        from quant_pipeline.worker.kelly_sweep_runner import _build_exit_grid_from_params
+
+        params = {
+            "exit_families": ["band_lock"],
+            "band_lock_grid": {"max_hold_list": [10]},  # 仅 1 个
+        }
+        grid = _build_exit_grid_from_params(params)
+        band_cfgs = [c for c in grid if c["type"] == "band_lock"]
+        assert len(band_cfgs) == 1  # 不是 1+3=4
+
+    def test_band_lock_grid_merged_with_other_families(self) -> None:
+        """band_lock_grid + 其它族 → 其它族 build_exit_grid + band_lock 自定义段合并。"""
+        from quant_pipeline.research.kelly_sweep.sweep import build_exit_grid
+        from quant_pipeline.worker.kelly_sweep_runner import _build_exit_grid_from_params
+
+        params = {
+            "exit_families": ["fixed_n", "band_lock"],
+            "band_lock_grid": {"max_hold_list": [None, 10]},
+        }
+        grid = _build_exit_grid_from_params(params)
+        fixed_n_cfgs = [c for c in grid if c["type"] == "fixed_n"]
+        band_cfgs = [c for c in grid if c["type"] == "band_lock"]
+        assert len(fixed_n_cfgs) == len(build_exit_grid(["fixed_n"]))  # 5
+        assert len(band_cfgs) == 2
+
+    def test_band_lock_grid_provided_families_without_band_lock(self) -> None:
+        """families 不含 band_lock 但提供 band_lock_grid → 仍生成 band_lock 段（grid 是信号）。"""
+        from quant_pipeline.worker.kelly_sweep_runner import _build_exit_grid_from_params
+
+        params = {
+            "exit_families": ["fixed_n"],
+            "band_lock_grid": {"max_hold_list": [10, 20]},
+        }
+        grid = _build_exit_grid_from_params(params)
+        band_cfgs = [c for c in grid if c["type"] == "band_lock"]
+        assert len(band_cfgs) == 2
+        assert any(c["type"] == "fixed_n" for c in grid)
+
+    def test_band_lock_grid_collapse_dedup(self) -> None:
+        """band_lock_grid 走坍缩去重：floor_enabled:[T,F] × floor_ratio:[0.998,0.999] → 3。"""
+        from quant_pipeline.worker.kelly_sweep_runner import _build_exit_grid_from_params
+
+        params = {
+            "exit_families": ["band_lock"],
+            "band_lock_grid": {
+                "max_hold_list": [None],
+                "floor_ratio_list": [0.998, 0.999],
+                "floor_enabled_list": [True, False],
+            },
+        }
+        grid = _build_exit_grid_from_params(params)
+        band_cfgs = [c for c in grid if c["type"] == "band_lock"]
+        assert len(band_cfgs) == 3
+
+    def test_band_lock_grid_not_dict_raises(self) -> None:
+        """band_lock_grid 非 dict → ValueError（fail-fast）。"""
+        from quant_pipeline.worker.kelly_sweep_runner import _build_exit_grid_from_params
+
+        with pytest.raises(ValueError, match="band_lock_grid 必须是"):
+            _build_exit_grid_from_params({"band_lock_grid": [1, 2, 3]})
+
+    def test_band_lock_grid_unknown_key_raises(self) -> None:
+        """band_lock_grid 含未知候选集键 → ValueError。"""
+        from quant_pipeline.worker.kelly_sweep_runner import _build_exit_grid_from_params
+
+        with pytest.raises(ValueError, match="未知候选集键"):
+            _build_exit_grid_from_params(
+                {"band_lock_grid": {"bogus_list": [1]}}
+            )
+
+    def test_band_lock_grid_value_not_list_raises(self) -> None:
+        """band_lock_grid 候选集值非 list → ValueError（防前端误传标量）。"""
+        from quant_pipeline.worker.kelly_sweep_runner import _build_exit_grid_from_params
+
+        with pytest.raises(ValueError, match="必须是候选集数组"):
+            _build_exit_grid_from_params(
+                {"band_lock_grid": {"max_hold_list": 10}}
+            )
+
+    def test_exit_families_not_list_raises(self) -> None:
+        """exit_families 非数组 → ValueError（守现状校验）。"""
+        from quant_pipeline.worker.kelly_sweep_runner import _build_exit_grid_from_params
+
+        with pytest.raises(ValueError, match="exit_families 必须是字符串数组"):
+            _build_exit_grid_from_params({"exit_families": "fixed_n"})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 5. persist_results — 单元测试（mock DB）
 # ─────────────────────────────────────────────────────────────────────────────
 
