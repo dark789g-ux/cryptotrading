@@ -99,13 +99,24 @@ def simulate_band_lock(
     signal_high: float,
     *,
     max_hold: int | None = None,
+    stop_ratio: float = 0.999,
+    floor_ratio: float = 0.999,
+    floor_enabled: bool = True,
+    ma5_require_down: bool = True,
 ) -> BandLockOutcome:
     """模拟波段跟踪止损出场（规范算法逐字实现，见模块 docstring 指向的 spec）。
 
     参数：
-        bars:        持仓窗口，T+1 起升序；bars[0] = 持仓首日。
-        signal_high: 信号 K 线 T 的复权最高价 adj_high(T)。
-        max_hold:    可选硬上限（已走过可交易持有日数）；None = 不设硬上限（默认）。
+        bars:             持仓窗口，T+1 起升序；bars[0] = 持仓首日。
+        signal_high:      信号 K 线 T 的复权最高价 adj_high(T)。
+        max_hold:         可选硬上限（已走过可交易持有日数）；None = 不设硬上限（默认）。
+        stop_ratio:       止损缓冲系数（基准价向下留缓冲），默认 0.999；覆盖 4 处止损基准 × 系数。
+        floor_ratio:      成本地板系数（floor_price = floor2(cost × floor_ratio)），默认 0.999；
+                          > 1 时从「保本」变「锁盈」。仅 floor_enabled=True 时生效。
+        floor_enabled:    是否启用方案二成本地板，默认 True；False 时三处地板逻辑全部短路。
+        ma5_require_down: 锁定后 MA5 离场是否要求均线下行（ma5 < prev_ma5），默认 True；
+                          False 时只要收盘跌破 MA5 即离场（更敏感）。prev_ma5 仍照常维护。
+        核接收的 ratio 视为**已量化的网格点**（量化是各入口的事，核不做 ratio 量化）。
 
     返回 BandLockOutcome：
         kind='no_entry'：买入端不成立（停牌 / 一字涨停）。
@@ -136,11 +147,11 @@ def simulate_band_lock(
 
     # 持仓首日"收盘后"设定、T+2 生效的初始止损
     if scheme == 1:
-        stop_next: float | None = floor2(entry.adj_open * 0.999)
+        stop_next: float | None = floor2(entry.adj_open * stop_ratio)
     else:
         # 方案二初始止损用 adj_low；adj_low 缺失则退回 adj_open（防御，正常数据不缺）
         base_low = entry.adj_low if entry.adj_low is not None else entry.adj_open
-        stop_next = floor2(base_low * 0.999)
+        stop_next = floor2(base_low * stop_ratio)
 
     locked = False
     floor_active = False
@@ -148,7 +159,7 @@ def simulate_band_lock(
     hold = 0
     prev_ma5 = entry.ma5
 
-    floor_price = floor2(cost * 0.999)  # 方案二保本地板价（常量）
+    floor_price = floor2(cost * floor_ratio)  # 方案二保本地板价（常量；floor_enabled=False 时不参与）
 
     # ---- 逐日推进（i = 1, 2, …） ----
     for i in range(1, len(bars)):
@@ -197,25 +208,27 @@ def simulate_band_lock(
 
         # (2) 收盘处理（未被止损）
         # (2-pre) 方案二保本地板激活（每个交易日都评估，含锁定当日；sticky）
-        if scheme == 2 and bar.adj_close is not None and bar.adj_close > cost:
+        if floor_enabled and scheme == 2 and bar.adj_close is not None and bar.adj_close > cost:
             floor_active = True
 
         # (2a) 未锁定 且 adj_low > signal_high → 锁定
         if not locked and bar.adj_low is not None and bar.adj_low > signal_high:
-            stop_next = floor2(bar.adj_low * 0.999)
-            if scheme == 2 and floor_active:
+            stop_next = floor2(bar.adj_low * stop_ratio)
+            if floor_enabled and scheme == 2 and floor_active:
                 stop_next = max(stop_next, floor_price)
             locked = True  # 从此冻结，stop_next 不再更新
 
         if locked:
             # (2b) 已锁定（含本日刚锁定）→ MA5 收盘离场
-            if (
+            #   恒判 close<ma5；ma5<prev_ma5（均线下行）一项由 ma5_require_down 门控。
+            ma5_exit_hit = (
                 bar.ma5 is not None
-                and prev_ma5 is not None
                 and bar.adj_close is not None
                 and bar.adj_close < bar.ma5
-                and bar.ma5 < prev_ma5
-            ):
+            )
+            if ma5_require_down:
+                ma5_exit_hit = ma5_exit_hit and prev_ma5 is not None and bar.ma5 < prev_ma5
+            if ma5_exit_hit:
                 if dead_limit_down:
                     # 封死跌停 → 置 pending，顺延（本日不再评估 max_hold）
                     pending = "ma5_exit"
@@ -232,8 +245,8 @@ def simulate_band_lock(
         else:
             # (2c) 未锁定 → 更新次日止损 stop_next
             if bar.adj_low is not None:
-                low_stop = floor2(bar.adj_low * 0.999)
-                if scheme == 2 and floor_active:
+                low_stop = floor2(bar.adj_low * stop_ratio)
+                if floor_enabled and scheme == 2 and floor_active:
                     stop_next = max(low_stop, floor_price)
                 else:
                     stop_next = low_stop

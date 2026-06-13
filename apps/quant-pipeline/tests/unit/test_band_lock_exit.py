@@ -497,3 +497,176 @@ def test_intraday_stop_precedes_ma5_exit() -> None:
 
 def test_empty_bars_returns_no_exit() -> None:
     assert simulate_band_lock([], 10.0) == BandLockOutcome(kind="no_exit")
+
+
+# ======================================================================
+# S14~S19：4 个放开参数（stop_ratio / floor_ratio / floor_enabled /
+# ma5_require_down）的边界对拍样例。每条同时断言「默认参数回归」与「变体行为」，
+# 与 signal-stats.band-lock.spec.ts 的 S14~S19 **逐位一致**（跨语言对拍）。
+# 注：核接收已量化的网格点 ratio（量化是各入口的事），样例直接传网格点 ratio。
+# ======================================================================
+
+
+# ----------------------------------------------------------------------
+# S14：stop_ratio=0.997 → 锁定止损价更低，同日成交价不同（可手算）
+#   d2 open(10.5) 高于两侧止损 → 按止损价直接成交，区分默认/变体。
+# ----------------------------------------------------------------------
+
+def test_s14_stop_ratio_lowers_stop_price() -> None:
+    """signal_high=10；方案一锁定后止损 = floor2(10.5×stop_ratio)。
+    默认 0.999 → 10.48；变体 0.997 → floor2(10.4685)=10.46。
+    d2 low10.40 触发，open10.5≥止损 → 按止损价成交，两值不同。
+    """
+
+    bars = [
+        _bar(o=10.0, h=10.3, low=9.8, c=10.2),
+        _bar(o=10.4, h=10.6, low=10.5, c=10.5),
+        _bar(o=10.5, h=10.6, low=10.40, c=10.42),
+    ]
+    # 默认参数回归
+    assert simulate_band_lock(bars, 10.00) == BandLockOutcome(
+        kind="exit", reason="stop", exit_index=2, exit_price=10.48, scheme=1, hold_days=2
+    )
+    # 变体 stop_ratio=0.997
+    assert simulate_band_lock(bars, 10.00, stop_ratio=0.997) == BandLockOutcome(
+        kind="exit", reason="stop", exit_index=2, exit_price=10.46, scheme=1, hold_days=2
+    )
+
+
+# ----------------------------------------------------------------------
+# S15：stop_ratio=1.0 → 仅去缓冲，但 floor2 截断仍生效（非等于基准）
+#   锁定基准 low=10.567：floor2(10.567×1.0)=10.56（截断生效，≠10.567）。
+# ----------------------------------------------------------------------
+
+def test_s15_stop_ratio_one_floor2_still_truncates() -> None:
+    """signal_high=10；锁定基准 low=10.567。
+    默认 0.999 → 锁定止损 floor2(10.557…)=10.55；变体 1.0 → floor2(10.567)=10.56（仍截断）。
+    d2 low10.55 触发，open10.6≥止损 → 默认成交 10.55、变体成交 10.56。
+    """
+
+    bars = [
+        _bar(o=10.0, h=10.3, low=9.8, c=10.2),
+        _bar(o=10.4, h=10.6, low=10.567, c=10.5),
+        _bar(o=10.6, h=10.7, low=10.55, c=10.6),
+    ]
+    # 默认参数回归
+    assert simulate_band_lock(bars, 10.00) == BandLockOutcome(
+        kind="exit", reason="stop", exit_index=2, exit_price=10.55, scheme=1, hold_days=2
+    )
+    # 变体 stop_ratio=1.0：floor2(10.567)=10.56，证明 1.0 仍截断（≠10.567）
+    assert simulate_band_lock(bars, 10.00, stop_ratio=1.0) == BandLockOutcome(
+        kind="exit", reason="stop", exit_index=2, exit_price=10.56, scheme=1, hold_days=2
+    )
+
+
+# ----------------------------------------------------------------------
+# S16：floor_ratio=1.02, floor_enabled=true（方案二盈利后回落）
+#   锁盈地板拦截出场，stop 抬到 floor2(cost×1.02)。
+#   ⚠️ 10.0×1.02=10.2 但 10.2×100=1019.9999…→floor2=10.19（跨语言浮点逐位一致）。
+# ----------------------------------------------------------------------
+
+def test_s16_floor_ratio_locks_profit() -> None:
+    """方案二 cost=10，signal_high=99 不锁定。
+    默认 floor=floor2(10×0.999)=9.99 → d2 low10.0 不触发 → no_exit。
+    变体 floor=floor2(10×1.02)=10.19（浮点截断）→ d1 浮盈激活地板，stop 抬到 10.19，
+    d2 low10.0≤10.19 触发，open10.25≥止损 → 成交 10.19（stop≥floor2(cost×1.02)）。
+    """
+
+    bars = [
+        _bar(o=10.0, h=10.0, low=9.7, c=9.9),
+        _bar(o=10.1, h=10.3, low=9.8, c=10.2),
+        _bar(o=10.25, h=10.3, low=10.0, c=10.05),
+    ]
+    # 默认参数回归：地板 9.99 拦不住，d2 low10.0 在止损上方 → no_exit
+    assert simulate_band_lock(bars, 99.0) == BandLockOutcome(kind="no_exit")
+    # 变体 floor_ratio=1.02：锁盈地板 10.19 拦截
+    assert simulate_band_lock(bars, 99.0, floor_ratio=1.02) == BandLockOutcome(
+        kind="exit", reason="stop", exit_index=2, exit_price=10.19, scheme=2, hold_days=2
+    )
+
+
+# ----------------------------------------------------------------------
+# S17：floor_enabled=false（方案二）→ 不设地板，止损可跌破成本
+# ----------------------------------------------------------------------
+
+def test_s17_floor_disabled_stop_below_cost() -> None:
+    """方案二 cost=10，signal_high=99 不锁定。d1 浮盈 close10.2>cost。
+    默认（地板启用）：stop=max(floor2(9.8×0.999)=9.79, floor2(10×0.999)=9.99)=9.99。
+    变体 floor_enabled=false：地板不参与，stop=floor2(9.8×0.999)=9.79（跌破成本更深）。
+    d2 low9.5 触发，open10.0≥两侧止损 → 默认成交 9.99、变体成交 9.79。
+    """
+
+    bars = [
+        _bar(o=10.0, h=10.0, low=9.7, c=9.9),
+        _bar(o=10.1, h=10.3, low=9.8, c=10.2),
+        _bar(o=10.0, h=10.05, low=9.5, c=9.6),
+    ]
+    # 默认参数回归：地板把止损抬到 9.99
+    assert simulate_band_lock(bars, 99.0) == BandLockOutcome(
+        kind="exit", reason="stop", exit_index=2, exit_price=9.99, scheme=2, hold_days=2
+    )
+    # 变体 floor_enabled=false：无地板，止损 9.79（跌破成本）
+    assert simulate_band_lock(bars, 99.0, floor_enabled=False) == BandLockOutcome(
+        kind="exit", reason="stop", exit_index=2, exit_price=9.79, scheme=2, hold_days=2
+    )
+
+
+# ----------------------------------------------------------------------
+# S18：ma5_require_down=false（锁定后收盘跌破 MA5 但 MA5 未下行）
+#   默认 require_down=true 该日不出场；变体只判 close<ma5 → 立即 ma5_exit。
+# ----------------------------------------------------------------------
+
+def test_s18_ma5_require_down_false_exits_earlier() -> None:
+    """方案一，signal_high=10。
+    d1 锁定 stop=10.48，prev_ma5→10.3；
+    d2 low10.5>10.48 不止损；close10.1<ma5=10.4（跌破）但 ma5 10.4>prev_ma5 10.3（上行）。
+    默认 require_down=true：close<ma5 AND ma5<prev = False → 不出场 → no_exit。
+    变体 require_down=false：只判 close<ma5 → ma5_exit @close10.1。
+    """
+
+    bars = [
+        _bar(o=10.0, h=10.3, low=9.8, c=10.2, ma5=10.0),
+        _bar(o=10.4, h=10.6, low=10.5, c=10.5, ma5=10.3),
+        _bar(o=10.5, h=10.6, low=10.5, c=10.1, ma5=10.4),
+    ]
+    # 默认参数回归：MA5 上行 → 不离场 → no_exit
+    assert simulate_band_lock(bars, 10.00) == BandLockOutcome(kind="no_exit")
+    # 变体 ma5_require_down=false：收盘跌破 MA5 即离场
+    assert simulate_band_lock(bars, 10.00, ma5_require_down=False) == BandLockOutcome(
+        kind="exit", reason="ma5_exit", exit_index=2, exit_price=10.1, scheme=1, hold_days=2
+    )
+
+
+# ----------------------------------------------------------------------
+# S19：组合 max_hold=10 + stop_ratio=0.997 + floor_enabled=false + ma5_require_down=false
+#   多参数交互，逐位对拍。三参数（sr/fl/md）均在路径上咬合：
+#     sr=0.997 改 init/未锁定/锁定止损；fl=false 使 d1 不被地板抬高；md=false 使 d3 立即 ma5_exit。
+# ----------------------------------------------------------------------
+
+def test_s19_combined_params() -> None:
+    """方案二 cost=10，signal_high=10。
+    默认：d1 浮盈激活地板 stop 抬到 9.99，全程不触发，窗口耗尽 → no_exit。
+    组合：init=floor2(9.5×0.997)=9.47；d1 stop=floor2(9.9×0.997)=9.87（fl=false 不抬）；
+        d2 low10.8>sh 锁定 stop=floor2(10.8×0.997)=10.76；d2 close11.0≥ma5 不离场，prev→10.5；
+        d3 close10.6<ma5 10.7（跌破）、ma5 10.7>prev 10.5（上行），md=false → ma5_exit @10.6。
+    """
+
+    bars = [
+        _bar(o=10.0, h=10.1, low=9.5, c=9.8),
+        _bar(o=10.0, h=10.5, low=9.9, c=10.4),
+        _bar(o=10.5, h=11.2, low=10.8, c=11.0, ma5=10.5),
+        _bar(o=11.0, h=11.1, low=10.9, c=10.6, ma5=10.7),
+    ]
+    # 默认参数回归：窗口耗尽 → no_exit
+    assert simulate_band_lock(bars, 10.0, max_hold=10) == BandLockOutcome(kind="no_exit")
+    # 组合变体
+    assert simulate_band_lock(
+        bars,
+        10.0,
+        max_hold=10,
+        stop_ratio=0.997,
+        floor_enabled=False,
+        ma5_require_down=False,
+    ) == BandLockOutcome(
+        kind="exit", reason="ma5_exit", exit_index=3, exit_price=10.6, scheme=2, hold_days=3
+    )

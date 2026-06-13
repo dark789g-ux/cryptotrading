@@ -351,6 +351,134 @@ describe('decideBandLock 对拍样例', () => {
     expect(dec!.exitPrice).toBeUndefined(); // delist 不给 exitPrice，simulateTradeCore 回退取 qfqClose
     expect(dec!.holdDays).toBe(1);
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // S14~S19：4 个放开参数（stopRatio / floorRatio / floorEnabled / ma5RequireDown）
+  // 的边界对拍样例。每条同时断言「默认参数回归」与「变体行为」，与 Python
+  // test_band_lock_exit.py 的 S14~S19 **逐位一致**（跨语言对拍）。
+  // 注：核接收已量化的网格点 ratio（量化是各入口的事），样例直接传网格点 ratio。
+  // ───────────────────────────────────────────────────────────────────────────
+
+  // S14：stopRatio=0.997 → 锁定止损价更低，同日成交价不同。
+  it('S14 stopRatio=0.997 压低锁定止损：默认 @10.48 / 变体 @10.46', () => {
+    const d = days(
+      { o: 10.0, h: 10.3, low: 9.8, c: 10.2 },
+      { o: 10.4, h: 10.6, low: 10.5, c: 10.5 },
+      { o: 10.5, h: 10.6, low: 10.4, c: 10.42 },
+    );
+    // 默认参数回归
+    const def = decideBandLock(d, { signalHigh: 10.0, delistDate: null });
+    expect(def!.exitReason).toBe('stop');
+    expect(def!.exitDay.calDate).toBe('d2');
+    expect(def!.exitPrice).toBe(10.48);
+    expect(def!.holdDays).toBe(2);
+    // 变体 stopRatio=0.997
+    const v = decideBandLock(d, { signalHigh: 10.0, delistDate: null, stopRatio: 0.997 });
+    expect(v!.exitReason).toBe('stop');
+    expect(v!.exitDay.calDate).toBe('d2');
+    expect(v!.exitPrice).toBe(10.46);
+    expect(v!.holdDays).toBe(2);
+  });
+
+  // S15：stopRatio=1.0 → 仅去缓冲，floor2 截断仍生效（floor2(10.567)=10.56 ≠ 10.567）。
+  it('S15 stopRatio=1.0 floor2 仍截断：默认 @10.55 / 变体 @10.56', () => {
+    const d = days(
+      { o: 10.0, h: 10.3, low: 9.8, c: 10.2 },
+      { o: 10.4, h: 10.6, low: 10.567, c: 10.5 },
+      { o: 10.6, h: 10.7, low: 10.55, c: 10.6 },
+    );
+    const def = decideBandLock(d, { signalHigh: 10.0, delistDate: null });
+    expect(def!.exitReason).toBe('stop');
+    expect(def!.exitDay.calDate).toBe('d2');
+    expect(def!.exitPrice).toBe(10.55);
+    expect(def!.holdDays).toBe(2);
+    const v = decideBandLock(d, { signalHigh: 10.0, delistDate: null, stopRatio: 1.0 });
+    expect(v!.exitReason).toBe('stop');
+    expect(v!.exitDay.calDate).toBe('d2');
+    expect(v!.exitPrice).toBe(10.56); // floor2(10.567×1.0)=10.56，证明 1.0 仍截断
+    expect(v!.holdDays).toBe(2);
+  });
+
+  // S16：floorRatio=1.02, floorEnabled=true（方案二盈利回落）→ 锁盈地板拦截。
+  // ⚠️ 10.0×1.02=10.2 但 10.2×100=1019.9999…→floor2=10.19（跨语言浮点逐位一致）。
+  it('S16 floorRatio=1.02 锁盈地板：默认 null / 变体 stop @10.19', () => {
+    const d = days(
+      { o: 10.0, h: 10.0, low: 9.7, c: 9.9 },
+      { o: 10.1, h: 10.3, low: 9.8, c: 10.2 },
+      { o: 10.25, h: 10.3, low: 10.0, c: 10.05 },
+    );
+    // 默认参数回归：地板 9.99 拦不住，d2 low10.0 在止损上方 → null（no_exit）
+    expect(decideBandLock(d, { signalHigh: 99.0, delistDate: null })).toBeNull();
+    // 变体 floorRatio=1.02：锁盈地板 10.19 拦截
+    const v = decideBandLock(d, { signalHigh: 99.0, delistDate: null, floorRatio: 1.02 });
+    expect(v!.exitReason).toBe('stop');
+    expect(v!.exitDay.calDate).toBe('d2');
+    expect(v!.exitPrice).toBe(10.19); // floor2(10×1.02)=10.19（浮点截断，与 Python 逐位一致）
+    expect(v!.holdDays).toBe(2);
+  });
+
+  // S17：floorEnabled=false（方案二）→ 不设地板，止损可跌破成本。
+  it('S17 floorEnabled=false 止损跌破成本：默认 @9.99 / 变体 @9.79', () => {
+    const d = days(
+      { o: 10.0, h: 10.0, low: 9.7, c: 9.9 },
+      { o: 10.1, h: 10.3, low: 9.8, c: 10.2 },
+      { o: 10.0, h: 10.05, low: 9.5, c: 9.6 },
+    );
+    // 默认参数回归：地板把止损抬到 9.99
+    const def = decideBandLock(d, { signalHigh: 99.0, delistDate: null });
+    expect(def!.exitReason).toBe('stop');
+    expect(def!.exitDay.calDate).toBe('d2');
+    expect(def!.exitPrice).toBe(9.99);
+    expect(def!.holdDays).toBe(2);
+    // 变体 floorEnabled=false：无地板，止损 9.79（跌破成本）
+    const v = decideBandLock(d, { signalHigh: 99.0, delistDate: null, floorEnabled: false });
+    expect(v!.exitReason).toBe('stop');
+    expect(v!.exitDay.calDate).toBe('d2');
+    expect(v!.exitPrice).toBe(9.79);
+    expect(v!.holdDays).toBe(2);
+  });
+
+  // S18：ma5RequireDown=false（锁定后收盘跌破 MA5 但 MA5 未下行）→ 立即 ma5_exit。
+  it('S18 ma5RequireDown=false 提前 MA5 离场：默认 null / 变体 ma5_exit @10.1', () => {
+    const d = days(
+      { o: 10.0, h: 10.3, low: 9.8, c: 10.2, ma5: 10.0 },
+      { o: 10.4, h: 10.6, low: 10.5, c: 10.5, ma5: 10.3 },
+      { o: 10.5, h: 10.6, low: 10.5, c: 10.1, ma5: 10.4 }, // 跌破 MA5 但 MA5 上行（10.4>10.3）
+    );
+    // 默认参数回归：MA5 上行 → 不离场 → null（no_exit）
+    expect(decideBandLock(d, { signalHigh: 10.0, delistDate: null })).toBeNull();
+    // 变体 ma5RequireDown=false：收盘跌破 MA5 即离场
+    const v = decideBandLock(d, { signalHigh: 10.0, delistDate: null, ma5RequireDown: false });
+    expect(v!.exitReason).toBe('ma5_exit');
+    expect(v!.exitDay.calDate).toBe('d2');
+    expect(v!.exitPrice).toBe(10.1);
+    expect(v!.holdDays).toBe(2);
+  });
+
+  // S19：组合 maxHold=10 + stopRatio=0.997 + floorEnabled=false + ma5RequireDown=false。
+  it('S19 组合参数：默认 null / 变体 ma5_exit @10.6（d3, holdDays=3）', () => {
+    const d = days(
+      { o: 10.0, h: 10.1, low: 9.5, c: 9.8 },
+      { o: 10.0, h: 10.5, low: 9.9, c: 10.4 },
+      { o: 10.5, h: 11.2, low: 10.8, c: 11.0, ma5: 10.5 },
+      { o: 11.0, h: 11.1, low: 10.9, c: 10.6, ma5: 10.7 },
+    );
+    // 默认参数回归：窗口耗尽 → null（no_exit）
+    expect(decideBandLock(d, { signalHigh: 10.0, maxHold: 10, delistDate: null })).toBeNull();
+    // 组合变体
+    const v = decideBandLock(d, {
+      signalHigh: 10.0,
+      maxHold: 10,
+      delistDate: null,
+      stopRatio: 0.997,
+      floorEnabled: false,
+      ma5RequireDown: false,
+    });
+    expect(v!.exitReason).toBe('ma5_exit');
+    expect(v!.exitDay.calDate).toBe('d3');
+    expect(v!.exitPrice).toBe(10.6);
+    expect(v!.holdDays).toBe(3);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

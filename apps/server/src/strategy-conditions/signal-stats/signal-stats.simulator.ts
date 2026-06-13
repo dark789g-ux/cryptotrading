@@ -127,7 +127,18 @@ export interface SimulationInput {
 export type ExitConfig =
   | { mode: 'fixed_n'; horizonN: number }
   | { mode: 'strategy'; maxHold: number }
-  | { mode: 'trailing_lock'; maxHold?: number };
+  | {
+      mode: 'trailing_lock';
+      maxHold?: number;
+      /** 止损缓冲系数（基准价向下留缓冲），默认 0.999；覆盖 4 处止损基准 × 系数。 */
+      stopRatio?: number;
+      /** 成本地板系数（floorPrice = floor2(cost × floorRatio)），默认 0.999；>1 从「保本」变「锁盈」。 */
+      floorRatio?: number;
+      /** 是否启用方案二成本地板，默认 true；false 时三处地板逻辑全部短路。 */
+      floorEnabled?: boolean;
+      /** 锁定后 MA5 离场是否要求均线下行（ma5 < prevMa5），默认 true；false 时只要收盘跌破 MA5 即离场。 */
+      ma5RequireDown?: boolean;
+    };
 
 /** 次新过滤阈值：buy_date 距 list_date < 60 个 SSE 交易日 → 剔除。 */
 export const NEW_LISTING_MIN_TRADING_DAYS = 60;
@@ -194,6 +205,10 @@ export function simulateTradeCore(input: SimulationInput): SimulationOutcome {
       signalHigh: input.signalHigh,
       maxHold: exit.maxHold,
       delistDate,
+      stopRatio: exit.stopRatio,
+      floorRatio: exit.floorRatio,
+      floorEnabled: exit.floorEnabled,
+      ma5RequireDown: exit.ma5RequireDown,
     });
   }
 
@@ -354,6 +369,14 @@ export interface BandLockOptions {
   maxHold?: number;
   /** 退市日（YYYYMMDD）；null=未退市，永不触发退市强平。 */
   delistDate: string | null;
+  /** 止损缓冲系数（基准价向下留缓冲），undefined → 默认 0.999；覆盖 4 处止损基准 × 系数。 */
+  stopRatio?: number;
+  /** 成本地板系数（floorPrice = floor2(cost × floorRatio)），undefined → 默认 0.999；>1 从「保本」变「锁盈」。仅 floorEnabled=true 时生效。 */
+  floorRatio?: number;
+  /** 是否启用方案二成本地板，undefined → 默认 true；false 时三处地板逻辑全部短路。 */
+  floorEnabled?: boolean;
+  /** 锁定后 MA5 离场是否要求均线下行（ma5 < prevMa5），undefined → 默认 true；false 时只要收盘跌破 MA5 即离场。prevMa5 仍照常维护。 */
+  ma5RequireDown?: boolean;
 }
 
 /**
@@ -382,6 +405,11 @@ export function decideBandLock(
   opts: BandLockOptions,
 ): ExitDecision | null {
   const { signalHigh, maxHold, delistDate } = opts;
+  // 参数旋钮：undefined 落默认（与现状逐字等价；核接收已量化的网格点 ratio，不做 ratio 量化）。
+  const stopRatio = opts.stopRatio ?? 0.999;
+  const floorRatio = opts.floorRatio ?? 0.999;
+  const floorEnabled = opts.floorEnabled ?? true;
+  const ma5RequireDown = opts.ma5RequireDown ?? true;
   if (days.length === 0) return null;
   const entry = days[0]; // 调用方已保证 hasQuote 且 qfqOpen 非空
 
@@ -393,11 +421,11 @@ export function decideBandLock(
   // 持仓首日“收盘后”设定、T+2 生效的初始止损。
   let stopNext: number | null;
   if (scheme === 1) {
-    stopNext = floor2(entry.qfqOpen! * 0.999);
+    stopNext = floor2(entry.qfqOpen! * stopRatio);
   } else {
     // 方案二初始止损用 qfq_low；缺失则退回 qfq_open（防御，正常数据不缺）。
     const baseLow = entry.qfqLow !== null ? entry.qfqLow : entry.qfqOpen!;
-    stopNext = floor2(baseLow * 0.999);
+    stopNext = floor2(baseLow * stopRatio);
   }
 
   let locked = false;
@@ -405,7 +433,7 @@ export function decideBandLock(
   let pending: 'stop' | 'ma5_exit' | null = null;
   let hold = 0;
   let prevMa5 = entry.ma5;
-  const floorPrice = floor2(cost * 0.999); // 方案二保本地板价（常量）
+  const floorPrice = floor2(cost * floorRatio); // 方案二保本地板价（常量；floorEnabled=false 时不参与）
 
   // 退市强平兜底：记录退市前最后一个有 quote 日（与 decideFixedN/decideStrategy 同口径）。
   let lastQuoteIdx = 0;
@@ -462,14 +490,14 @@ export function decideBandLock(
 
     // (2) 收盘处理（未被止损）
     // (2-pre) 方案二保本地板激活（每个交易日都评估，含锁定当日；sticky）。
-    if (scheme === 2 && bar.qfqClose !== null && bar.qfqClose > cost) {
+    if (floorEnabled && scheme === 2 && bar.qfqClose !== null && bar.qfqClose > cost) {
       floorActive = true;
     }
 
     // (2a) 未锁定 且 qfq_low > signalHigh → 锁定。
     if (!locked && bar.qfqLow !== null && bar.qfqLow > signalHigh) {
-      stopNext = floor2(bar.qfqLow * 0.999);
-      if (scheme === 2 && floorActive) {
+      stopNext = floor2(bar.qfqLow * stopRatio);
+      if (floorEnabled && scheme === 2 && floorActive) {
         stopNext = Math.max(stopNext, floorPrice);
       }
       locked = true; // 从此冻结，stopNext 不再更新。
@@ -477,13 +505,13 @@ export function decideBandLock(
 
     if (locked) {
       // (2b) 已锁定（含本日刚锁定）→ MA5 收盘离场。
-      if (
-        bar.ma5 !== null &&
-        prevMa5 !== null &&
-        bar.qfqClose !== null &&
-        bar.qfqClose < bar.ma5 &&
-        bar.ma5 < prevMa5
-      ) {
+      //   恒判 close<ma5；ma5<prevMa5（均线下行）一项由 ma5RequireDown 门控。
+      let ma5ExitHit =
+        bar.ma5 !== null && bar.qfqClose !== null && bar.qfqClose < bar.ma5;
+      if (ma5RequireDown) {
+        ma5ExitHit = ma5ExitHit && prevMa5 !== null && bar.ma5! < prevMa5;
+      }
+      if (ma5ExitHit) {
         if (deadLimitDown) {
           // 封死跌停 → 置 pending，顺延（本日不再评估 max_hold）。
           pending = 'ma5_exit';
@@ -500,8 +528,8 @@ export function decideBandLock(
     } else {
       // (2c) 未锁定 → 更新次日止损 stopNext。
       if (bar.qfqLow !== null) {
-        const lowStop = floor2(bar.qfqLow * 0.999);
-        if (scheme === 2 && floorActive) {
+        const lowStop = floor2(bar.qfqLow * stopRatio);
+        if (floorEnabled && scheme === 2 && floorActive) {
           stopNext = Math.max(lowStop, floorPrice);
         } else {
           stopNext = lowStop;
