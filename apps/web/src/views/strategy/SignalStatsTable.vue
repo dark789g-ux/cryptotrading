@@ -90,6 +90,13 @@ const columns = computed<DataTableColumns<SignalTestWithLatestRun>>(() => [
           { default: () => `波段跟踪止损(${cap})` },
         )
       }
+      if (row.exitMode === 'phase_lock') {
+        return h(
+          NTag,
+          { type: 'success', size: 'small' },
+          { default: () => '两阶段锁定止损' },
+        )
+      }
       return h(
         NTag,
         { type: 'warning', size: 'small' },

@@ -81,6 +81,7 @@ const exitModeLabel = computed(() => {
   if (t.exitMode === 'fixed_n') return `固定${t.horizonN}日`
   if (t.exitMode === 'trailing_lock')
     return t.maxHold == null ? '波段跟踪止损' : `波段跟踪止损(≤${t.maxHold})`
+  if (t.exitMode === 'phase_lock') return '两阶段锁定止损'
   return `条件出场(≤${t.maxHold})`
 })
 
