@@ -45,6 +45,11 @@ from quant_pipeline.labels.fallback import (
     FallbackInputs,
     compute_fwd_5d_ret,
 )
+from quant_pipeline.labels.phase_lock_labels import compute_phase_lock_labels
+from quant_pipeline.labels.phase_lock_scheme import (
+    is_phase_lock_scheme,
+    parse_phase_lock_scheme,
+)
 from quant_pipeline.labels.strategy_aware import (
     LabelInputs,
     compute_strategy_aware_labels,
@@ -76,6 +81,11 @@ _STRATEGY_AWARE_RE: re.Pattern[str] = re.compile(r"^strategy-aware(__.+)?$")
 # build_exit_rules）。判定与解析的**单一源**是 band_lock_scheme.py（三件套），
 # 不再手写正则；4 个出场参数（stop/floor/floor_enabled/ma5_require_down）+ max_hold
 # 全部从 scheme 串 parse（同 scheme → 同参数 → 同标签，决定性、scheme 自描述）。
+# phase_lock 系串判定 + 解析（phase-lock-exit-design spec 02/03）：legacy 'phase_lock'
+# 与合法变体 'phase_lock__lb{N}__if{NNNN}__lf{NNNN}' 都走 phase_lock 独立有状态分支
+# （共享核 simulate_phase_lock，同样绕开 strategy_aware build_exit_rules）。判定与解析
+# 的**单一源**是 phase_lock_scheme.py（三件套），不手写正则；3 个参数（lookback/
+# init_factor/lock_factor）全部从 scheme 串 parse（与 band_lock 同级、前缀不重叠）。
 
 logger = logging.getLogger(__name__)
 
@@ -493,7 +503,8 @@ def compute_labels(
     参数：
         scheme:                "strategy-aware" / "strategy-aware__{id}_{ver}" /
                                "fwd_5d_ret" / "fwd_ret_h{N}" /
-                               "band_lock" / "band_lock__{variant}"
+                               "band_lock" / "band_lock__{variant}" /
+                               "phase_lock" / "phase_lock__{variant}"
         date_range:            "YYYYMMDD:YYYYMMDD"
         new_listing_min_days:  新股门槛交易日阈值。None → 走默认 60；0 表示不过滤。
                                非法值由 _validate_min_days 抛 ValueError。
@@ -560,9 +571,26 @@ def compute_labels(
         band_lock_params = parsed
         if band_lock_max_hold is not None:
             band_lock_params["max_hold"] = band_lock_max_hold
+    # phase_lock 家族判定 + 全参数解析的单一源 = phase_lock_scheme.py（畸形 scheme
+    # → is_phase_lock=False，落入下方「未知 scheme」NotImplementedError）。前缀
+    # 'phase_lock*' 与 'band_lock*' 不重叠，两家族互不误吞、顺序不敏感。
+    is_phase_lock = is_phase_lock_scheme(scheme)
+    # phase_lock 出场参数（lookback + init_factor + lock_factor）全部从 scheme 串
+    # parse —— scheme 串 = 单一真值。parse 返回含默认回填的完整 dict
+    # （'phase_lock' → 全默认；'phase_lock__lb15' → 仅 lookback=15，其余默认）。
+    phase_lock_params: dict[str, Any] = {}
+    if is_phase_lock:
+        parsed_pl = parse_phase_lock_scheme(scheme)
+        if parsed_pl is None:  # pragma: no cover
+            raise NotImplementedError(
+                f"labels scheme={scheme!r}: is_phase_lock_scheme True but parse None "
+                f"(phase_lock_scheme codec inconsistency)"
+            )
+        phase_lock_params = parsed_pl
     if (
         not is_strategy_aware
         and not is_band_lock
+        and not is_phase_lock
         and scheme != SCHEME_FWD_5D_RET
         and fwd_ret_hn_match is None
     ):
@@ -570,7 +598,8 @@ def compute_labels(
             f"labels scheme={scheme!r} not implemented "
             f"(supported: 'strategy-aware', 'strategy-aware__{{id}}_{{ver}}', "
             f"{SCHEME_FWD_5D_RET!r}, fwd_ret_h{{N}}, "
-            f"'band_lock', 'band_lock__{{variant}}')"
+            f"'band_lock', 'band_lock__{{variant}}', "
+            f"'phase_lock', 'phase_lock__{{variant}}')"
         )
     start, end = date_range.split(":")
     if len(start) != 8 or len(end) != 8:
@@ -583,6 +612,10 @@ def compute_labels(
     #   fwd_ret / 无 ma_break → ma_window=None → head_pad=0（g0_load=g0，不回看）。
     if is_band_lock:
         head_pad = MA_WINDOW - 1
+    elif is_phase_lock:
+        # phase_lock 用 MA5（同 band_lock 需 MA_WINDOW−1 预热）+ recent_lows 需回看
+        # lookback−1 个在场行 → 左扩取大：max(MA_WINDOW, lookback)−1（spec 03 §左扩取大）。
+        head_pad = max(MA_WINDOW, int(phase_lock_params["lookback"])) - 1
     else:
         ma_window = _resolve_ma_window(
             is_strategy_aware=is_strategy_aware, exit_rules=exit_rules
@@ -736,6 +769,42 @@ def compute_labels(
             if labels_df.empty:
                 raise RuntimeError(
                     f"labels: compute_band_lock_labels produced 0 rows "
+                    f"date_range={date_range!r} scheme={scheme!r} subrange={(g0, g1)!r}"
+                )
+            # 输出 trade_date=signal_date ⊆ [g0,g1]；再夹一次（头/尾 padding 区不写）。
+            labels_df = labels_df.loc[
+                (labels_df["trade_date"] >= g0) & (labels_df["trade_date"] <= g1)
+            ].reset_index(drop=True)
+        elif is_phase_lock:
+            # phase_lock 独立有状态 scheme（phase-lock-exit spec 03 §三）：买在 T+1
+            # hfq open_adj，调共享核 simulate_phase_lock，绕开 strategy_aware first-match。
+            labels_df = compute_phase_lock_labels(
+                LabelInputs(
+                    daily_quotes=quotes,
+                    stk_limit=stk_limit if not stk_limit.empty else None,
+                    suspend_d=suspend if not suspend.empty else None,
+                    delist=delist if not delist.empty else None,
+                    listing=listing if not listing.empty else None,
+                    entries=entries,
+                    end=g1,
+                    new_listing_min_days=new_listing_min_days,
+                    # 全局日历：窗口无关 new_listing 计数（约束 1 / bug3）。
+                    trade_calendar=trade_calendar,
+                ),
+                progress_callback=_progress if progress_callback is not None else None,
+                # scheme 透传：写入 records.scheme（legacy 'phase_lock' 或变体），
+                # 与 factors.labels PK 对齐。
+                scheme=scheme,
+                # 3 个参数全部从 scheme 串 parse（单一真值），透传给共享核
+                # simulate_phase_lock（lookback 只作用于 recent_lows 切片）。
+                # 全默认 scheme → 全默认参数 → 零漂移。
+                init_factor=phase_lock_params["init_factor"],
+                lock_factor=phase_lock_params["lock_factor"],
+                lookback=phase_lock_params["lookback"],
+            )
+            if labels_df.empty:
+                raise RuntimeError(
+                    f"labels: compute_phase_lock_labels produced 0 rows "
                     f"date_range={date_range!r} scheme={scheme!r} subrange={(g0, g1)!r}"
                 )
             # 输出 trade_date=signal_date ⊆ [g0,g1]；再夹一次（头/尾 padding 区不写）。
