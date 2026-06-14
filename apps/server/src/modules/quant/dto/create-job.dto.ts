@@ -45,6 +45,8 @@ export class CreateJobDto {
   created_by?: string;
   /** labels/features/prepare run_type 必填；后端展开写入 params */
   label_ref?: { label_id: string; label_version: string };
+  /** true 时建为草稿（status=draft，worker 不捞）；默认 false 仍落 pending（M2 草稿态，spec 06 §6.3.2） */
+  as_draft?: boolean;
 }
 
 /**
@@ -259,6 +261,11 @@ export interface ValidatedCreateJob {
   createdBy?: string;
   /** labels/features/prepare run_type 携带；训练类（FEATURE_SET_RUN_TYPES）不携带 */
   labelRef?: { labelId: string; labelVersion: string };
+  /**
+   * true → create() 落 status=draft；缺省 / false 落 pending（向后兼容，M2 草稿态）。
+   * validateCreateJob 始终回填布尔值；声明为可选仅为兼容直接构造 dto 的内部调用方（如单测 / cron）。
+   */
+  asDraft?: boolean;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -327,6 +334,15 @@ export function validateCreateJob(input: unknown): ValidatedCreateJob {
       throw new BadRequestException('created_by 必须为 ≤64 字符的字符串');
     }
     createdBy = body.created_by;
+  }
+
+  // as_draft：可选布尔，默认 false（向后兼容，M2 草稿态）。非布尔显式传入则 400。
+  let asDraft = false;
+  if (body.as_draft !== undefined && body.as_draft !== null) {
+    if (typeof body.as_draft !== 'boolean') {
+      throw new BadRequestException('as_draft 必须为布尔值');
+    }
+    asDraft = body.as_draft;
   }
 
   const rt = runType as MlJobRunType;
@@ -415,5 +431,6 @@ export function validateCreateJob(input: unknown): ValidatedCreateJob {
     parentJobId,
     createdBy,
     labelRef,
+    asDraft,
   };
 }

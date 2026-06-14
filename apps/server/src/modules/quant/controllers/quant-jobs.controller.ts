@@ -73,6 +73,18 @@ export class QuantJobsController {
   }
 
   /**
+   * 手动发起草稿任务运行：draft → pending（M2 §6.3.3）。
+   *
+   * - 非草稿任务 → 409（仅草稿任务可发起运行）
+   * - 任务不存在 → 404
+   */
+  @Post(':id/dispatch')
+  dispatch(@Param('id') id: string) {
+    if (!id) throw new BadRequestException('id 必填');
+    return this.svc.dispatch(id);
+  }
+
+  /**
    * 为 SSE 流接口颁发一次性短期 token。
    *
    * 接口仍受全局 AuthGuard：用户必须已登录；token payload 锚定当前 user_id，

@@ -12,6 +12,7 @@ describe('QuantJobsController', () => {
     findOne: jest.Mock;
     list: jest.Mock;
     cancel: jest.Mock;
+    dispatch: jest.Mock;
     issueSseToken: jest.Mock;
   };
   let controller: QuantJobsController;
@@ -28,6 +29,7 @@ describe('QuantJobsController', () => {
       findOne: jest.fn(async (id) => ({ id })),
       list: jest.fn(async () => ({ items: [], total: 0, page: 1, page_size: 20 })),
       cancel: jest.fn(async (id) => ({ id, cancelRequested: true })),
+      dispatch: jest.fn(async (id) => ({ jobId: id })),
       issueSseToken: jest.fn(async (id, uid) => ({ token: 'abc.def', expires_at: '2026-05-17 00:00:00Z', job_id: id })),
     };
     controller = new QuantJobsController(svc as any);
@@ -105,6 +107,17 @@ describe('QuantJobsController', () => {
     });
     it('id 空 → 400', () => {
       expect(() => controller.cancel('')).toThrow(BadRequestException);
+    });
+  });
+
+  describe('POST /quant/jobs/:id/dispatch', () => {
+    it('转发到 service.dispatch', async () => {
+      const out = await controller.dispatch('jd');
+      expect(svc.dispatch).toHaveBeenCalledWith('jd');
+      expect(out).toEqual({ jobId: 'jd' });
+    });
+    it('id 空 → 400', () => {
+      expect(() => controller.dispatch('')).toThrow(BadRequestException);
     });
   });
 

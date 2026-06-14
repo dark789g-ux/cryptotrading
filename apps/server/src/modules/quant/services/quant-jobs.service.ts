@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MlJobEntity } from '../../../entities/ml/ml-job.entity';
@@ -151,7 +157,8 @@ export class QuantJobsService {
       params: finalParams,
       priority: dto.priority,
       maxAttempts: dto.maxAttempts,
-      status: 'pending',
+      // asDraft=true → 建为草稿（worker 只捞 pending，不会立即拾取）；缺省 / false 落 pending（向后兼容）
+      status: dto.asDraft === true ? 'draft' : 'pending',
       progress: 0,
       attempts: 0,
       cancelRequested: false,
@@ -209,8 +216,10 @@ export class QuantJobsService {
   /**
    * 标记 cancel_requested=true；worker 在下一次心跳 / 阶段切换时读到后中止。
    *
-   * 仅对 pending / running 状态生效：
-   * - 已终态（success / failed / blocked / cancelled）的 job 直接返回当前状态，不视为错误
+   * 状态分支：
+   * - 已终态（success / failed / blocked / cancelled）：直接返回当前状态，不视为错误
+   * - draft：草稿从未进 worker，直连终态 UPDATE status='cancelled'（不写 cancel_requested、不等 worker，M2 §6.3.4）
+   * - pending / running：写 cancel_requested=true，由 worker 读到后中止
    * - 不存在的 job 抛 404
    */
   async cancel(id: string): Promise<MlJobEntity> {
@@ -219,8 +228,29 @@ export class QuantJobsService {
       // 终态不可改：返回原行让前端 UI 自行刷新
       return row;
     }
+    if (row.status === 'draft') {
+      // 草稿从未被 worker 拾取，直接置为终态 cancelled，无需 cancel_requested 协议
+      await this.jobsRepo.update({ id }, { status: 'cancelled' });
+      return this.findOne(id);
+    }
     await this.jobsRepo.update({ id }, { cancelRequested: true });
     return this.findOne(id);
+  }
+
+  /**
+   * 手动发起草稿任务运行：draft → pending（worker 随后自然捞起，无需改 worker，M2 §6.3.3）。
+   *
+   * - 不存在 → 404
+   * - status !== 'draft' → 409 ConflictException（仅草稿任务可发起运行）
+   * - 否则 UPDATE status='pending' WHERE id AND status='draft'（带状态条件防并发竞态）
+   */
+  async dispatch(id: string): Promise<{ jobId: string }> {
+    const row = await this.findOne(id);
+    if (row.status !== 'draft') {
+      throw new ConflictException('仅草稿任务可发起运行');
+    }
+    await this.jobsRepo.update({ id, status: 'draft' }, { status: 'pending' });
+    return { jobId: id };
   }
 
   /**

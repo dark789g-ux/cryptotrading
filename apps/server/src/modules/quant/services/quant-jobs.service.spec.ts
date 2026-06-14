@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import {
   QuantJobsService,
   JOBS_FIELD_COL_MAP,
@@ -119,6 +119,47 @@ describe('QuantJobsService', () => {
       );
       expect(repo.save).toHaveBeenCalled();
       expect(out.id).toBe('job-uuid');
+    });
+
+    it('默认（无 asDraft）落 status=pending（向后兼容）', async () => {
+      const dto: ValidatedCreateJob = {
+        runType: 'noop',
+        params: {},
+        priority: 100,
+        maxAttempts: 1,
+      };
+      await service.create(dto, 'user-1');
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'pending' }),
+      );
+    });
+
+    it('asDraft=false 显式传入仍落 status=pending', async () => {
+      const dto: ValidatedCreateJob = {
+        runType: 'noop',
+        params: {},
+        priority: 100,
+        maxAttempts: 1,
+        asDraft: false,
+      };
+      await service.create(dto, 'user-1');
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'pending' }),
+      );
+    });
+
+    it('asDraft=true → 落 status=draft（worker 只捞 pending，不会被立即拾取）', async () => {
+      const dto: ValidatedCreateJob = {
+        runType: 'noop',
+        params: {},
+        priority: 100,
+        maxAttempts: 1,
+        asDraft: true,
+      };
+      await service.create(dto, 'user-1');
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'draft' }),
+      );
     });
 
     it('dto.parentJobId / dto.createdBy 在 controller 未提供 createdBy 时也能透传', async () => {
@@ -265,9 +306,55 @@ describe('QuantJobsService', () => {
       expect(out.status).toBe('success');
     });
 
+    it('draft 状态：直连终态 cancelled（不写 cancel_requested，草稿从未进 worker）', async () => {
+      repo.findOne
+        .mockResolvedValueOnce({ id: 'jd', status: 'draft' } as Partial<MlJobEntity>)
+        .mockResolvedValueOnce({ id: 'jd', status: 'cancelled' } as Partial<MlJobEntity>);
+      const out = await service.cancel('jd');
+      expect(repo.update).toHaveBeenCalledWith({ id: 'jd' }, { status: 'cancelled' });
+      // 不应写 cancelRequested
+      expect(repo.update).not.toHaveBeenCalledWith(
+        { id: 'jd' },
+        expect.objectContaining({ cancelRequested: true }),
+      );
+      expect(out.status).toBe('cancelled');
+    });
+
     it('不存在：抛 404', async () => {
       repo.findOne.mockResolvedValueOnce(null);
       await expect(service.cancel('missing')).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('dispatch', () => {
+    it('draft → pending：UPDATE status=pending，返回 { jobId }', async () => {
+      repo.findOne.mockResolvedValueOnce({ id: 'jd', status: 'draft' } as Partial<MlJobEntity>);
+      const out = await service.dispatch('jd');
+      expect(repo.update).toHaveBeenCalledWith(
+        { id: 'jd', status: 'draft' },
+        { status: 'pending' },
+      );
+      expect(out).toEqual({ jobId: 'jd' });
+    });
+
+    it('非 draft（pending）→ 409 ConflictException', async () => {
+      repo.findOne.mockResolvedValueOnce({ id: 'jp', status: 'pending' } as Partial<MlJobEntity>);
+      await expect(service.dispatch('jp')).rejects.toBeInstanceOf(ConflictException);
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('非 draft（running / 终态）→ 409 ConflictException', async () => {
+      for (const status of ['running', 'success', 'failed', 'blocked', 'cancelled'] as const) {
+        repo.update.mockClear();
+        repo.findOne.mockResolvedValueOnce({ id: 'jx', status } as Partial<MlJobEntity>);
+        await expect(service.dispatch('jx')).rejects.toBeInstanceOf(ConflictException);
+        expect(repo.update).not.toHaveBeenCalled();
+      }
+    });
+
+    it('不存在 → 404 NotFoundException', async () => {
+      repo.findOne.mockResolvedValueOnce(null);
+      await expect(service.dispatch('missing')).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 

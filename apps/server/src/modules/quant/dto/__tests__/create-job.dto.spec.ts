@@ -288,6 +288,29 @@ describe('validateCreateJob — 回归：其它 run_type 行为不变', () => {
   });
 });
 
+describe('validateCreateJob — as_draft（M2 草稿态）', () => {
+  it('不传 as_draft → asDraft 默认 false（向后兼容）', () => {
+    const out = validateCreateJob({ run_type: 'noop' });
+    expect(out.asDraft).toBe(false);
+  });
+
+  it('as_draft=true → asDraft=true', () => {
+    const out = validateCreateJob({ run_type: 'noop', as_draft: true });
+    expect(out.asDraft).toBe(true);
+  });
+
+  it('as_draft=false → asDraft=false', () => {
+    const out = validateCreateJob({ run_type: 'noop', as_draft: false });
+    expect(out.asDraft).toBe(false);
+  });
+
+  it('as_draft 非布尔（字符串）→ BadRequestException', () => {
+    expect(() =>
+      validateCreateJob({ run_type: 'noop', as_draft: 'true' as any }),
+    ).toThrow(BadRequestException);
+  });
+});
+
 describe('MlJobEntity.resultPayload', () => {
   it('实体字段可读写，类型为对象；默认值由 DB 端 default 提供（NestJS 侧无强 schema）', () => {
     const job = new MlJobEntity();

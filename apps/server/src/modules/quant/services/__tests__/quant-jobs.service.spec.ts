@@ -47,6 +47,7 @@ function makeDto(overrides: Partial<ValidatedCreateJob> & { runType: ValidatedCr
     params: {},
     priority: 100,
     maxAttempts: 1,
+    asDraft: false,
     ...overrides,
   };
 }
