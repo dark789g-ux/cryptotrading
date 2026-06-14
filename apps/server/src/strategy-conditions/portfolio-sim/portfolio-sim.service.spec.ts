@@ -12,8 +12,14 @@ import {
 } from '@nestjs/common';
 import { PortfolioSimService } from './portfolio-sim.service';
 import { CreatePortfolioSimDto } from './dto/create-portfolio-sim.dto';
-import { PortfolioSimConfig, PortfolioSimSource } from './portfolio-sim.types';
+import {
+  PortfolioSimConfig,
+  PortfolioSimSource,
+  SizingConfig,
+  CircuitBreaker,
+} from './portfolio-sim.types';
 import { COST_PRESET_REALISTIC, COST_PRESET_ZERO } from './portfolio-sim.cost';
+import { Logger } from '@nestjs/common';
 
 const UUID_A = '11111111-1111-4111-8111-111111111111';
 const UUID_B = '22222222-2222-4222-8222-222222222222';
@@ -249,6 +255,384 @@ describe('PortfolioSimService - create DTO 校验', () => {
     const { svc, runRepo } = makeService();
     await expect(svc.create(dto())).resolves.toBeDefined();
     expect(runRepo.save).toHaveBeenCalled();
+  });
+});
+
+// ── rankSpec 校验（多因子排序，spec 07 §1）──────────────────────────────────
+
+function sizing(over: Partial<SizingConfig> = {}): SizingConfig {
+  return {
+    mode: 'signal_weighted',
+    floorMult: 0.5,
+    capMult: 1.5,
+    kellyFraction: 0.5,
+    kellyMaxMult: 1.0,
+    ...over,
+  };
+}
+
+function circuitBreaker(over: Partial<CircuitBreaker> = {}): CircuitBreaker {
+  return {
+    enableCooldown: true,
+    consecutiveLossesThreshold: 3,
+    baseCooldownDays: 3,
+    maxCooldownDays: 10,
+    extendOnLoss: 2,
+    reduceOnProfit: 1,
+    enableDrawdownHalt: true,
+    drawdownHaltPct: 0.15,
+    drawdownResumePct: 0.1,
+    ...over,
+  };
+}
+
+describe('PortfolioSimService - rankSpec 校验', () => {
+  it('rankSpec.factors=[] → 通过（= none）', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(dto({ config: config({ sources: [source({ rankSpec: { factors: [] } })] }) })),
+    ).resolves.toBeDefined();
+  });
+
+  it('rankSpec 合法单因子 → 通过', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            sources: [
+              source({ rankSpec: { factors: [{ factor: 'risk_reward', weight: 1, dir: 'desc' }] } }),
+            ],
+          }),
+        }),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('rankSpec 合法 composite（多因子）→ 通过', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            sources: [
+              source({
+                rankSpec: {
+                  factors: [
+                    { factor: 'pos_120', weight: 1, dir: 'asc' },
+                    { factor: 'momentum_60', weight: 0.5, dir: 'desc' },
+                  ],
+                },
+              }),
+            ],
+          }),
+        }),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('rankSpec.factors 非数组 → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({ config: config({ sources: [source({ rankSpec: { factors: 'x' as any } })] }) }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rankSpec 因子 KEY 非白名单 → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            sources: [source({ rankSpec: { factors: [{ factor: 'bogus' as any, weight: 1, dir: 'asc' }] } })],
+          }),
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rankSpec 因子 weight ≤0 → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            sources: [source({ rankSpec: { factors: [{ factor: 'pos_120', weight: 0, dir: 'asc' }] } })],
+          }),
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rankSpec 因子 dir 非枚举 → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            sources: [source({ rankSpec: { factors: [{ factor: 'pos_120', weight: 1, dir: 'up' as any }] } })],
+          }),
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rankSpec 含 histAvailable=false 因子（ml_score）→ 通过但 logger.warn', async () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            sources: [source({ rankSpec: { factors: [{ factor: 'ml_score', weight: 1, dir: 'desc' }] } })],
+          }),
+        }),
+      ),
+    ).resolves.toBeDefined();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('ml_score'));
+    warnSpy.mockRestore();
+  });
+
+  it('rankSpec 优先于 legacy rankField：rankField 非法但 rankSpec 合法 → 通过', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            sources: [
+              source({
+                rankField: 'bogus' as any,
+                rankSpec: { factors: [{ factor: 'pos_120', weight: 1, dir: 'asc' }] },
+              }),
+            ],
+          }),
+        }),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('legacy rankField 扩为注册表全 9 因子（如 risk_reward）→ 通过', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({ config: config({ sources: [source({ rankField: 'risk_reward' as any, rankDir: 'desc' })] }) }),
+      ),
+    ).resolves.toBeDefined();
+  });
+});
+
+// ── sizing 校验（spec 07 §2）─────────────────────────────────────────────────
+
+describe('PortfolioSimService - sizing 校验', () => {
+  it('sizing 未提供 → 通过', async () => {
+    const { svc } = makeService();
+    await expect(svc.create(dto())).resolves.toBeDefined();
+  });
+
+  it('sizing.mode=fixed → 通过（不读 floor/cap/kelly）', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            sources: [source({ sizing: { mode: 'fixed', floorMult: -9, capMult: -9, kellyFraction: 9, kellyMaxMult: -9 } })],
+          }),
+        }),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('sizing.mode 非白名单 → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({ config: config({ sources: [source({ sizing: sizing({ mode: 'bogus' as any }) })] }) }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('signal_weighted floorMult ≤0 → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({ config: config({ sources: [source({ sizing: sizing({ mode: 'signal_weighted', floorMult: 0 }) })] }) }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('signal_weighted capMult < floorMult → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            sources: [source({ sizing: sizing({ mode: 'signal_weighted', floorMult: 1.0, capMult: 0.5 }) })],
+          }),
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('signal_weighted floor>0 且 cap≥floor → 通过', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            sources: [source({ sizing: sizing({ mode: 'signal_weighted', floorMult: 0.8, capMult: 0.8 }) })],
+          }),
+        }),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('source_kelly kellyFraction 越界（0 / >1）→ 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({ config: config({ sources: [source({ sizing: sizing({ mode: 'source_kelly', kellyFraction: 0 }) })] }) }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      svc.create(
+        dto({ config: config({ sources: [source({ sizing: sizing({ mode: 'source_kelly', kellyFraction: 1.5 }) })] }) }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('source_kelly kellyMaxMult ≤0 → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({ config: config({ sources: [source({ sizing: sizing({ mode: 'source_kelly', kellyMaxMult: 0 }) })] }) }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('source_kelly kellyFraction∈(0,1] 且 kellyMaxMult>0 → 通过', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            sources: [source({ sizing: sizing({ mode: 'source_kelly', kellyFraction: 1.0, kellyMaxMult: 2.0 }) })],
+          }),
+        }),
+      ),
+    ).resolves.toBeDefined();
+  });
+});
+
+// ── circuitBreaker 校验（config 级，spec 07 §3）──────────────────────────────
+
+describe('PortfolioSimService - circuitBreaker 校验', () => {
+  it('circuitBreaker 未提供 → 通过', async () => {
+    const { svc } = makeService();
+    await expect(svc.create(dto())).resolves.toBeDefined();
+  });
+
+  it('全关（两开关 false）→ 通过（不校验阈值）', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            circuitBreaker: circuitBreaker({
+              enableCooldown: false,
+              enableDrawdownHalt: false,
+              consecutiveLossesThreshold: -9,
+              drawdownHaltPct: 9,
+            }),
+          }),
+        }),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('合法熔断（两开关 on）→ 通过', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(dto({ config: config({ circuitBreaker: circuitBreaker() }) })),
+    ).resolves.toBeDefined();
+  });
+
+  it('cooldown threshold <1 / 非整数 → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(dto({ config: config({ circuitBreaker: circuitBreaker({ consecutiveLossesThreshold: 0 }) }) })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      svc.create(dto({ config: config({ circuitBreaker: circuitBreaker({ consecutiveLossesThreshold: 1.5 }) }) })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('cooldown base>max → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({ config: config({ circuitBreaker: circuitBreaker({ baseCooldownDays: 10, maxCooldownDays: 5 }) }) }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('cooldown base<0 → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(dto({ config: config({ circuitBreaker: circuitBreaker({ baseCooldownDays: -1 }) }) })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('cooldown extendOnLoss <0 → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(dto({ config: config({ circuitBreaker: circuitBreaker({ extendOnLoss: -1 }) }) })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('cooldown reduceOnProfit <0 → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(dto({ config: config({ circuitBreaker: circuitBreaker({ reduceOnProfit: -1 }) }) })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('drawdownHaltPct 越界（≤0 / ≥1）→ 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(dto({ config: config({ circuitBreaker: circuitBreaker({ drawdownHaltPct: 0 }) }) })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      svc.create(
+        dto({ config: config({ circuitBreaker: circuitBreaker({ drawdownHaltPct: 1, drawdownResumePct: 0.5 }) }) }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('drawdownResumePct > haltPct → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({ config: config({ circuitBreaker: circuitBreaker({ drawdownHaltPct: 0.1, drawdownResumePct: 0.2 }) }) }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('drawdownResumePct <0 → 400', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(dto({ config: config({ circuitBreaker: circuitBreaker({ drawdownResumePct: -0.01 }) }) })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('drawdownResumePct=0 且 0<haltPct<1 → 通过（边界）', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({ config: config({ circuitBreaker: circuitBreaker({ drawdownHaltPct: 0.2, drawdownResumePct: 0 }) }) }),
+      ),
+    ).resolves.toBeDefined();
   });
 });
 

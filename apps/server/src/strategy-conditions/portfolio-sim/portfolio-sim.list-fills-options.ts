@@ -48,12 +48,19 @@ export const FILL_SORT_COLUMN_MAP = {
 /** 成交状态白名单。 */
 export const VALID_FILL_STATUS = new Set<string>(['taken', 'skipped']);
 
-/** 跳过原因白名单（来自引擎 SkipReason）。 */
+/**
+ * 跳过原因白名单（来自引擎 SkipReason）。
+ * 必须与 portfolio-sim.types.ts 的 SkipReason 联合逐字段对齐——否则前端按新原因筛选时
+ * 后端静默丢弃过滤条件（返回全部、无 warn）。升级期补入 Phase 2/3 三新原因。
+ */
 export const VALID_SKIP_REASONS = new Set<string>([
   'already_held',
   'slots_full',
   'exposure_cap',
   'cash_short',
+  'cooldown', // 【Phase 3】连亏熔断冷却期内冻结开仓
+  'drawdown_halt', // 【Phase 3】回撤熔断停开仓
+  'sized_out', // 【Phase 2】source_kelly 负期望源 alloc≈0
 ]);
 
 /**

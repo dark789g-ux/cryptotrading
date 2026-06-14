@@ -8,6 +8,7 @@ import {
   isValidFillSortField,
   dateRangeOp,
   FILL_SORT_COLUMN_MAP,
+  VALID_SKIP_REASONS,
 } from './portfolio-sim.list-fills-options';
 import { Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
 
@@ -65,6 +66,28 @@ describe('buildFillListOptions', () => {
       skipReason: 'cash_short',
     });
     expect(buildFillListOptions('r', { skipReason: 'nope' }).where).toEqual({ runId: 'r' });
+  });
+
+  it('Phase 2/3 新增 skipReason（cooldown / drawdown_halt / sized_out）按原因筛选命中', () => {
+    for (const reason of ['cooldown', 'drawdown_halt', 'sized_out']) {
+      expect(buildFillListOptions('r', { skipReason: reason }).where).toMatchObject({
+        skipReason: reason,
+      });
+    }
+  });
+
+  it('VALID_SKIP_REASONS 含全部 4 旧 + 3 新原因（与引擎 SkipReason 对齐）', () => {
+    for (const reason of [
+      'already_held',
+      'slots_full',
+      'exposure_cap',
+      'cash_short',
+      'cooldown',
+      'drawdown_halt',
+      'sized_out',
+    ]) {
+      expect(VALID_SKIP_REASONS.has(reason)).toBe(true);
+    }
   });
 
   it('sourceLabel 精确写入（trim）', () => {

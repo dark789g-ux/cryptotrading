@@ -29,7 +29,14 @@ import { PortfolioSimDailyEntity } from '../../entities/strategy/portfolio-sim-d
 import { PortfolioSimFillEntity } from '../../entities/strategy/portfolio-sim-fill.entity';
 import { CreatePortfolioSimDto } from './dto/create-portfolio-sim.dto';
 import { PortfolioSimRunner } from './portfolio-sim.runner';
-import { PortfolioSimConfig } from './portfolio-sim.types';
+import {
+  PortfolioSimConfig,
+  PortfolioSimSource,
+} from './portfolio-sim.types';
+import {
+  RANK_FACTOR_REGISTRY,
+  VALID_RANK_FACTOR_KEYS,
+} from './portfolio-sim.factor-registry';
 import {
   ListFillsOptions,
   buildFillListOptions,
@@ -39,8 +46,10 @@ import {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const VALID_RANK_FIELDS = new Set(['pos_120', 'circ_mv', 'none']);
+/** legacy 单字段排序白名单 = 注册表 keys ∪ {'none'}（单一真相，见 spec 02 §VALID 集派生）。 */
+const VALID_RANK_FIELDS = new Set<string>([...VALID_RANK_FACTOR_KEYS, 'none']);
 const VALID_RANK_DIRS = new Set(['asc', 'desc']);
+const VALID_SIZING_MODES = new Set(['fixed', 'signal_weighted', 'source_kelly']);
 
 /** 进度查询响应。 */
 export interface PortfolioSimProgress {
@@ -263,12 +272,11 @@ export class PortfolioSimService {
       ) {
         throw new BadRequestException(`${tag}.exposureCap 须在 (0, 1] 区间或 null`);
       }
-      if (!VALID_RANK_FIELDS.has(src.rankField)) {
-        throw new BadRequestException(`${tag}.rankField 须为 pos_120 / circ_mv / none`);
-      }
-      if (!VALID_RANK_DIRS.has(src.rankDir)) {
-        throw new BadRequestException(`${tag}.rankDir 须为 asc / desc`);
-      }
+      // 排序：rankSpec（若提供且 factors 非空 / 为 []）优先，否则 legacy rankField。
+      this.validateSourceRank(src as PortfolioSimSource, tag);
+
+      // 仓位 sizing（若提供）。
+      this.validateSourceSizing(src as PortfolioSimSource, tag);
     }
 
     // initialCapital > 0
@@ -301,6 +309,181 @@ export class PortfolioSimService {
     }
     if (config.anchorMode && sources.length !== 1) {
       throw new BadRequestException('anchorMode=true 时 config.sources 必须恰为 1 个源');
+    }
+
+    // 熔断 circuitBreaker（config 级，若提供）。
+    this.validateCircuitBreaker(config.circuitBreaker);
+  }
+
+  /**
+   * 排序校验：rankSpec 优先（factors 每项 factor∈白名单、weight>0、dir∈{asc,desc}；
+   * histAvailable=false 的因子 warn；factors 允许为 []）；否则 legacy rankField∈白名单∪{none}、
+   * rankDir∈{asc,desc}。非法一律 400（消息含字段 tag）。
+   */
+  private validateSourceRank(src: PortfolioSimSource, tag: string): void {
+    const spec = src.rankSpec;
+    if (spec !== undefined && spec !== null) {
+      if (typeof spec !== 'object' || !Array.isArray(spec.factors)) {
+        throw new BadRequestException(`${tag}.rankSpec.factors 须为数组`);
+      }
+      // factors 允许为 []（= none）。
+      for (let j = 0; j < spec.factors.length; j++) {
+        const f = spec.factors[j];
+        const ftag = `${tag}.rankSpec.factors[${j}]`;
+        if (!f || typeof f !== 'object') {
+          throw new BadRequestException(`${ftag} 非法`);
+        }
+        if (!VALID_RANK_FACTOR_KEYS.has(f.factor)) {
+          throw new BadRequestException(
+            `${ftag}.factor 非法：${String(f.factor)}（须为注册表内因子 KEY）`,
+          );
+        }
+        if (typeof f.weight !== 'number' || !(f.weight > 0) || !Number.isFinite(f.weight)) {
+          throw new BadRequestException(`${ftag}.weight 须为 > 0 的有限数`);
+        }
+        if (!VALID_RANK_DIRS.has(f.dir)) {
+          throw new BadRequestException(`${ftag}.dir 须为 asc / desc`);
+        }
+        if (!RANK_FACTOR_REGISTRY[f.factor].histAvailable) {
+          this.logger.warn(`${ftag}.factor=${f.factor} 历史不足，仅前向`);
+        }
+      }
+      return;
+    }
+
+    // legacy 路径。
+    if (!VALID_RANK_FIELDS.has(src.rankField)) {
+      throw new BadRequestException(
+        `${tag}.rankField 非法：${String(src.rankField)}（须为注册表内因子 KEY 或 none）`,
+      );
+    }
+    if (!VALID_RANK_DIRS.has(src.rankDir)) {
+      throw new BadRequestException(`${tag}.rankDir 须为 asc / desc`);
+    }
+  }
+
+  /**
+   * 仓位 sizing 校验（若提供）：mode∈白名单；signal_weighted 须 floorMult>0 且 capMult≥floorMult；
+   * source_kelly 须 kellyFraction∈(0,1] 且 kellyMaxMult>0。非法一律 400。
+   */
+  private validateSourceSizing(src: PortfolioSimSource, tag: string): void {
+    const sizing = src.sizing;
+    if (sizing === undefined || sizing === null) return;
+    const stag = `${tag}.sizing`;
+    if (typeof sizing !== 'object') {
+      throw new BadRequestException(`${stag} 非法`);
+    }
+    if (!VALID_SIZING_MODES.has(sizing.mode)) {
+      throw new BadRequestException(
+        `${stag}.mode 须为 fixed / signal_weighted / source_kelly`,
+      );
+    }
+    if (sizing.mode === 'signal_weighted') {
+      if (
+        typeof sizing.floorMult !== 'number' ||
+        !(sizing.floorMult > 0) ||
+        !Number.isFinite(sizing.floorMult)
+      ) {
+        throw new BadRequestException(`${stag}.floorMult 须为 > 0 的有限数`);
+      }
+      if (
+        typeof sizing.capMult !== 'number' ||
+        !Number.isFinite(sizing.capMult) ||
+        sizing.capMult < sizing.floorMult
+      ) {
+        throw new BadRequestException(`${stag}.capMult 须为 ≥ floorMult 的有限数`);
+      }
+    }
+    if (sizing.mode === 'source_kelly') {
+      if (
+        typeof sizing.kellyFraction !== 'number' ||
+        !(sizing.kellyFraction > 0) ||
+        sizing.kellyFraction > 1
+      ) {
+        throw new BadRequestException(`${stag}.kellyFraction 须在 (0, 1] 区间`);
+      }
+      if (
+        typeof sizing.kellyMaxMult !== 'number' ||
+        !(sizing.kellyMaxMult > 0) ||
+        !Number.isFinite(sizing.kellyMaxMult)
+      ) {
+        throw new BadRequestException(`${stag}.kellyMaxMult 须为 > 0 的有限数`);
+      }
+    }
+  }
+
+  /**
+   * 熔断 circuitBreaker 校验（config 级，若提供）：
+   *   enableCooldown → consecutiveLossesThreshold≥1（整数）、0≤base≤max、extendOnLoss≥0、reduceOnProfit≥0；
+   *   enableDrawdownHalt → 0<drawdownHaltPct<1、0≤drawdownResumePct≤drawdownHaltPct。非法一律 400。
+   */
+  private validateCircuitBreaker(cb: PortfolioSimConfig['circuitBreaker']): void {
+    if (cb === undefined || cb === null) return;
+    const tag = 'config.circuitBreaker';
+    if (typeof cb !== 'object') {
+      throw new BadRequestException(`${tag} 非法`);
+    }
+
+    if (cb.enableCooldown) {
+      if (
+        !Number.isInteger(cb.consecutiveLossesThreshold) ||
+        cb.consecutiveLossesThreshold < 1
+      ) {
+        throw new BadRequestException(
+          `${tag}.consecutiveLossesThreshold 须为 ≥1 的整数`,
+        );
+      }
+      if (
+        typeof cb.baseCooldownDays !== 'number' ||
+        !Number.isFinite(cb.baseCooldownDays) ||
+        cb.baseCooldownDays < 0
+      ) {
+        throw new BadRequestException(`${tag}.baseCooldownDays 须为 ≥0 的有限数`);
+      }
+      if (
+        typeof cb.maxCooldownDays !== 'number' ||
+        !Number.isFinite(cb.maxCooldownDays) ||
+        cb.maxCooldownDays < cb.baseCooldownDays
+      ) {
+        throw new BadRequestException(
+          `${tag}.maxCooldownDays 须为 ≥ baseCooldownDays 的有限数`,
+        );
+      }
+      if (
+        typeof cb.extendOnLoss !== 'number' ||
+        !Number.isFinite(cb.extendOnLoss) ||
+        cb.extendOnLoss < 0
+      ) {
+        throw new BadRequestException(`${tag}.extendOnLoss 须为 ≥0 的有限数`);
+      }
+      if (
+        typeof cb.reduceOnProfit !== 'number' ||
+        !Number.isFinite(cb.reduceOnProfit) ||
+        cb.reduceOnProfit < 0
+      ) {
+        throw new BadRequestException(`${tag}.reduceOnProfit 须为 ≥0 的有限数`);
+      }
+    }
+
+    if (cb.enableDrawdownHalt) {
+      if (
+        typeof cb.drawdownHaltPct !== 'number' ||
+        !Number.isFinite(cb.drawdownHaltPct) ||
+        !(cb.drawdownHaltPct > 0) ||
+        !(cb.drawdownHaltPct < 1)
+      ) {
+        throw new BadRequestException(`${tag}.drawdownHaltPct 须在 (0, 1) 开区间`);
+      }
+      if (
+        typeof cb.drawdownResumePct !== 'number' ||
+        !Number.isFinite(cb.drawdownResumePct) ||
+        cb.drawdownResumePct < 0 ||
+        cb.drawdownResumePct > cb.drawdownHaltPct
+      ) {
+        throw new BadRequestException(
+          `${tag}.drawdownResumePct 须在 [0, drawdownHaltPct] 区间`,
+        );
+      }
     }
   }
 
