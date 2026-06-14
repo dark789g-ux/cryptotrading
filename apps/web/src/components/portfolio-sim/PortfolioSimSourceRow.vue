@@ -143,15 +143,23 @@
       </div>
     </div>
 
-    <!-- rankField -->
+    <!-- 排序 rankSpec（多因子；legacy rankField 在适配器侧自动兼容）-->
     <div class="src-row__field">
-      <div class="src-row__field-label">排序字段 rankField</div>
-      <n-select
-        :value="model.rankField"
-        :options="rankFieldOptions"
-        size="small"
+      <div class="src-row__field-label">排序规则</div>
+      <RankSpecEditor
+        :factors="rankFactors"
         :disabled="disabled"
-        @update:value="(v: PortfolioRankField) => patch({ rankField: v })"
+        @update:factors="onFactorsChange"
+      />
+    </div>
+
+    <!-- 仓位 sizing -->
+    <div class="src-row__field">
+      <div class="src-row__field-label">仓位模式</div>
+      <SizingFields
+        :model="sizingModel"
+        :disabled="disabled"
+        @update="onSizingPatch"
       />
     </div>
   </div>
@@ -163,14 +171,27 @@ import { NButton, NInput, NInputNumber, NSelect, NSlider, NSpace, NSwitch } from
 import type { SelectOption } from 'naive-ui'
 import type {
   PortfolioSimSource,
-  PortfolioRankField,
+  RankFactor,
+  SizingConfig,
 } from '../../api/modules/strategy/portfolioSim'
+import RankSpecEditor from './RankSpecEditor.vue'
+import SizingFields from './SizingFields.vue'
 import {
-  RANK_FIELD_OPTIONS,
   QUADRANT_PRESETS,
   QUADRANT_PRESET_LABELS,
+  DEFAULT_SIZING,
   type QuadrantPreset,
 } from './portfolioSimPresets'
+
+/**
+ * 把 source 的排序配置解析为因子数组（前端镜像后端 resolveRankSpec）：
+ *   rankSpec.factors 非空 → 直接用；rankField==='none' → []；否则 legacy 单因子。
+ */
+function resolveFactors(src: PortfolioSimSource): RankFactor[] {
+  if (src.rankSpec?.factors?.length) return src.rankSpec.factors
+  if (src.rankField === 'none') return []
+  return [{ factor: src.rankField, weight: 1, dir: src.rankDir }]
+}
 
 /** 可选方案（来自 signal-tests 列表，已过滤为含 completed run 者由父级控制 disabled 提示）。 */
 export interface SchemeOption extends SelectOption {
@@ -197,7 +218,11 @@ const advanced = ref(false)
 const schemeId = ref<string | null>(null)
 const quadrantPreset = ref<QuadrantPreset>('none')
 
-const rankFieldOptions = RANK_FIELD_OPTIONS
+/** 当前排序因子数组（rankSpec 优先，legacy 兼容）。 */
+const rankFactors = computed<RankFactor[]>(() => resolveFactors(props.model))
+
+/** sizing 模型（缺省回落 DEFAULT_SIZING，使子组件总有完整对象可编辑）。 */
+const sizingModel = computed<SizingConfig>(() => props.model.sizing ?? DEFAULT_SIZING)
 
 const schemeOptions = computed<SelectOption[]>(() =>
   props.schemes.map((s) => ({
@@ -234,17 +259,49 @@ function onQuadrantChange(v: QuadrantPreset) {
   quadrantPreset.value = v
   if (v === 'none') return
   const preset = QUADRANT_PRESETS[v]
+  // 预设的 legacy 单字段同时翻译成 rankSpec（统一走多因子契约）。
+  const rf = preset.rankField
   patch({
     label: preset.label,
     exposureCap: preset.exposureCap,
-    rankField: preset.rankField,
+    rankField: rf,
     rankDir: preset.rankDir,
+    rankSpec: {
+      factors: rf === 'none' ? [] : [{ factor: rf, weight: 1, dir: preset.rankDir }],
+    },
   })
 }
 
 function onExposureSlider(v: number) {
   // slider 拖到 0 视为「不限」（null）
   patch({ exposureCap: v <= 0 ? null : v })
+}
+
+/**
+ * 排序因子变更：统一写入 rankSpec（引擎优先消费）。
+ * 同步把 legacy rankField/rankDir 收敛到合法兜底：
+ *   []      → rankField 'none'
+ *   单因子且为 legacy 可表达 key（pos_120/circ_mv）→ 同步；否则 rankField 'none'（rankSpec 接管）。
+ */
+function onFactorsChange(factors: RankFactor[]) {
+  const p: Partial<PortfolioSimSource> = { rankSpec: { factors } }
+  if (factors.length === 0) {
+    p.rankField = 'none'
+  } else if (
+    factors.length === 1 &&
+    (factors[0].factor === 'pos_120' || factors[0].factor === 'circ_mv')
+  ) {
+    p.rankField = factors[0].factor
+    p.rankDir = factors[0].dir
+  } else {
+    p.rankField = 'none'
+  }
+  patch(p)
+}
+
+function onSizingPatch(patchSizing: Partial<SizingConfig>) {
+  const base = props.model.sizing ?? DEFAULT_SIZING
+  patch({ sizing: { ...base, ...patchSizing } })
 }
 </script>
 

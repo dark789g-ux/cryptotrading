@@ -100,6 +100,24 @@
           </div>
         </div>
       </div>
+
+      <!-- ④ 账户级熔断 -->
+      <div class="section">
+        <div class="section__title">
+          熔断（账户级）
+          <n-tooltip>
+            <template #trigger><span class="section__q">?</span></template>
+            连亏熔断：连亏 N 笔后冻结开仓若干交易日；回撤熔断：自峰值回撤超阈值停开仓、回升复位。
+            两闸默认关闭、anchorMode 下强制全旁路。
+          </n-tooltip>
+        </div>
+        <CircuitBreakerPanel
+          :model="circuitBreaker"
+          :disabled="anchorMode"
+          :anchor-mode="anchorMode"
+          @update="onCircuitBreakerPatch"
+        />
+      </div>
     </div>
 
     <template #actions>
@@ -126,18 +144,21 @@ import {
 } from 'naive-ui'
 import AppModal from '../common/AppModal.vue'
 import PortfolioSimSourceRow, { type SchemeOption } from './PortfolioSimSourceRow.vue'
+import CircuitBreakerPanel from './CircuitBreakerPanel.vue'
 import { signalStatsApi } from '../../api/modules/strategy/signalStats'
 import { usePortfolioSimStore } from '../../stores/portfolioSim'
 import type {
   CreatePortfolioSimDto,
   PortfolioSimSource,
   PortfolioSimCostRates,
+  CircuitBreaker,
 } from '../../api/modules/strategy/portfolioSim'
 import {
   COST_TIER_PRESETS,
   COST_TIER_LABELS,
   COST_PRESET_REALISTIC,
   COST_PRESET_ZERO,
+  DEFAULT_CIRCUIT_BREAKER,
   estimateRoundTripRate,
   formatRatePct,
   type CostTier,
@@ -160,6 +181,7 @@ const anchorMode = ref(false)
 const initialCapital = ref(1_000_000)
 const costTier = ref<CostTier>('realistic')
 const cost = reactive<PortfolioSimCostRates>({ ...COST_PRESET_REALISTIC })
+const circuitBreaker = reactive<CircuitBreaker>({ ...DEFAULT_CIRCUIT_BREAKER })
 const submitting = ref(false)
 
 function freshSource(): PortfolioSimSource {
@@ -211,7 +233,12 @@ function resetForm() {
   initialCapital.value = 1_000_000
   costTier.value = 'realistic'
   Object.assign(cost, COST_PRESET_REALISTIC)
+  Object.assign(circuitBreaker, DEFAULT_CIRCUIT_BREAKER)
   sources.value = [freshSource()]
+}
+
+function onCircuitBreakerPatch(patch: Partial<CircuitBreaker>) {
+  Object.assign(circuitBreaker, patch)
 }
 
 // ── 源行操作 ─────────────────────────────────────────────────────────────────
@@ -287,6 +314,11 @@ async function onSubmit() {
     : sources.value
   const effectiveCost = anchorMode.value ? { ...COST_PRESET_ZERO } : { ...cost }
 
+  // 熔断：anchorMode 强制全旁路；非锚点且至少一闸开启时才下发（缺省=全关则省略，由后端默认）。
+  const cbEnabled = circuitBreaker.enableCooldown || circuitBreaker.enableDrawdownHalt
+  const effectiveCircuitBreaker =
+    !anchorMode.value && cbEnabled ? { ...circuitBreaker } : undefined
+
   const dto: CreatePortfolioSimDto = {
     name: name.value.trim(),
     config: {
@@ -294,6 +326,7 @@ async function onSubmit() {
       initialCapital: initialCapital.value,
       cost: effectiveCost,
       anchorMode: anchorMode.value,
+      ...(effectiveCircuitBreaker ? { circuitBreaker: effectiveCircuitBreaker } : {}),
     },
   }
 

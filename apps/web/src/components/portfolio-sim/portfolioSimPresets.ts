@@ -13,6 +13,10 @@
 import type {
   PortfolioSimCostRates,
   PortfolioRankField,
+  PortfolioRankFactorKey,
+  PortfolioRankDir,
+  SizingConfig,
+  CircuitBreaker,
 } from '../../api/modules/strategy/portfolioSim'
 
 // ── 费率预设（镜像后端 portfolio-sim.cost.ts）────────────────────────────────
@@ -113,17 +117,99 @@ export const QUADRANT_PRESET_LABELS: Record<QuadrantPreset, string> = {
   Q1: 'Q1 主选（靠 2025）',
 }
 
-// ── rankField 展示 ───────────────────────────────────────────────────────────
+// ── 多因子排序选项（镜像后端 RANK_FACTOR_REGISTRY，spec 02）─────────────────────
 
-export const RANK_FIELD_OPTIONS: Array<{ label: string; value: PortfolioRankField }> = [
-  { label: 'pos_120（升序，越低越优先）', value: 'pos_120' },
-  { label: 'circ_mv（升序，小市值优先）', value: 'circ_mv' },
-  { label: '不排序（按 ts_code）', value: 'none' },
+/** 单个因子的展示元数据（镜像注册表 label / histAvailable / defaultDir）。 */
+export interface RankFactorOption {
+  value: PortfolioRankFactorKey
+  /** 展示名（含历史不足警示，前向专用因子带 ⚠️）。 */
+  label: string
+  /** 是否历史可回测；false → 该因子历史几乎全 null、仅前向有效。 */
+  histAvailable: boolean
+  /** UI 初值方向（与注册表 defaultDir 一致）。 */
+  defaultDir: PortfolioRankDir
+}
+
+/**
+ * 9 因子选项（与后端 portfolio-sim.factor-registry.ts 的 RANK_FACTOR_REGISTRY 逐条镜像：
+ * key / label / histAvailable / defaultDir）。⚠️ 改后端注册表须同步本数组（无编译期联动）。
+ * ml_score histAvailable=false → label 标「⚠️历史仅2天·前向专用」，前端灰提示。
+ */
+export const RANK_FACTOR_OPTIONS: RankFactorOption[] = [
+  { value: 'pos_120', label: '120日价格位置', histAvailable: true, defaultDir: 'asc' },
+  { value: 'pos_60', label: '60日价格位置', histAvailable: true, defaultDir: 'asc' },
+  { value: 'close_ma60_ratio', label: 'close/ma60 比', histAvailable: true, defaultDir: 'asc' },
+  { value: 'vol_ratio_60', label: '量比60', histAvailable: true, defaultDir: 'asc' },
+  { value: 'vol_ratio_120', label: '量比120', histAvailable: true, defaultDir: 'asc' },
+  { value: 'risk_reward', label: '盈亏比', histAvailable: true, defaultDir: 'desc' },
+  { value: 'momentum_60', label: '动量(ATR标准化)', histAvailable: true, defaultDir: 'desc' },
+  { value: 'circ_mv', label: '流通市值', histAvailable: true, defaultDir: 'asc' },
+  {
+    value: 'ml_score',
+    label: 'ML 评分 ⚠️历史仅2天·前向专用',
+    histAvailable: false,
+    defaultDir: 'desc',
+  },
 ]
+
+/** value → option 速查（FillsTable 逐因子展示、SourceRow 加因子取默认方向用）。 */
+export const RANK_FACTOR_OPTION_MAP: Record<PortfolioRankFactorKey, RankFactorOption> =
+  RANK_FACTOR_OPTIONS.reduce(
+    (acc, o) => {
+      acc[o.value] = o
+      return acc
+    },
+    {} as Record<PortfolioRankFactorKey, RankFactorOption>,
+  )
+
+export const RANK_DIR_OPTIONS: Array<{ label: string; value: PortfolioRankDir }> = [
+  { label: '升序（值小优先）', value: 'asc' },
+  { label: '降序（值大优先）', value: 'desc' },
+]
+
+// ── 仓位模式选项（镜像后端 SizingConfig.mode）─────────────────────────────────
+
+export const SIZING_MODE_OPTIONS: Array<{ label: string; value: SizingConfig['mode'] }> = [
+  { label: '固定（positionRatio）', value: 'fixed' },
+  { label: '信号加权（按排序分缩放）', value: 'signal_weighted' },
+  { label: '源凯利（按源历史凯利缩放）', value: 'source_kelly' },
+]
+
+/** SizingConfig 默认值（镜像后端默认：fixed + floor0.5/cap1.5 + kelly0.5/max1.0）。 */
+export const DEFAULT_SIZING: SizingConfig = {
+  mode: 'fixed',
+  floorMult: 0.5,
+  capMult: 1.5,
+  kellyFraction: 0.5,
+  kellyMaxMult: 1.0,
+}
+
+// ── 熔断默认值（镜像后端 CircuitBreaker 缺省 = 全关）──────────────────────────
+
+/**
+ * CircuitBreaker 默认值：双闸全关，阈值取 spec 示例（连亏 3 笔 / 回撤 15% 停、10% 复）。
+ * 开关关闭时阈值仍带默认，便于用户开闸即用。
+ */
+export const DEFAULT_CIRCUIT_BREAKER: CircuitBreaker = {
+  enableCooldown: false,
+  consecutiveLossesThreshold: 3,
+  baseCooldownDays: 3,
+  maxCooldownDays: 10,
+  extendOnLoss: 2,
+  reduceOnProfit: 1,
+  enableDrawdownHalt: false,
+  drawdownHaltPct: 0.15,
+  drawdownResumePct: 0.1,
+}
+
+// ── 弃单原因标签（镜像后端 SkipReason，含 Phase 2/3 三新原因）──────────────────
 
 export const SKIP_REASON_LABELS: Record<string, string> = {
   already_held: '已持有同标的',
   slots_full: '持仓数已满',
   exposure_cap: '超敞口上限',
   cash_short: '现金不足',
+  cooldown: '连亏熔断',
+  drawdown_halt: '回撤熔断',
+  sized_out: '凯利归零',
 }

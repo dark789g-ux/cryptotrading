@@ -14,6 +14,81 @@ import { API_BASE, post, del, request } from '../../client'
 export type PortfolioRankField = 'pos_120' | 'circ_mv' | 'none'
 export type PortfolioRankDir = 'asc' | 'desc'
 
+/**
+ * 多因子排序的因子 KEY 联合（9 值，与后端 portfolio-sim.types.ts 的 RankFactorKey
+ * 及 portfolio-sim.factor-registry.ts 注册表 keys 逐字段镜像）。
+ */
+export type PortfolioRankFactorKey =
+  | 'pos_120'
+  | 'pos_60'
+  | 'close_ma60_ratio'
+  | 'vol_ratio_60'
+  | 'vol_ratio_120'
+  | 'risk_reward'
+  | 'momentum_60'
+  | 'circ_mv'
+  | 'ml_score'
+
+/** 单个排序因子：因子 KEY + 权重 + 方向（镜像后端 RankFactor）。 */
+export interface RankFactor {
+  /** 因子 KEY（注册表白名单内）。 */
+  factor: PortfolioRankFactorKey
+  /** 该因子在 composite 综合分中的权重（>0）。 */
+  weight: number
+  /** 排序方向：asc=值小者优先、desc=值大者优先。 */
+  dir: PortfolioRankDir
+}
+
+/**
+ * 排序规格：因子数组（镜像后端 RankSpec）。
+ * [] = none（按 ts_code 升序）、len1 = 单因子、len>1 = composite 多因子加权。
+ */
+export interface RankSpec {
+  factors: RankFactor[]
+}
+
+/**
+ * 动态仓位配置（Phase 2，镜像后端 SizingConfig）。缺省 = fixed（固定 positionRatio）。
+ * fixed 不读 floorMult/capMult/kellyFraction/kellyMaxMult 字段。
+ */
+export interface SizingConfig {
+  /** 仓位模式。缺省 'fixed'。 */
+  mode: 'fixed' | 'signal_weighted' | 'source_kelly'
+  /** signal_weighted 最差信号乘子，默认 0.5（须 >0）。 */
+  floorMult: number
+  /** signal_weighted 最优信号乘子，默认 1.5（须 ≥ floorMult）。 */
+  capMult: number
+  /** source_kelly half-kelly 系数，默认 0.5，范围 (0,1]。 */
+  kellyFraction: number
+  /** source_kelly 乘子上限，默认 1.0，范围 (0,∞)。 */
+  kellyMaxMult: number
+}
+
+/**
+ * 账户级熔断配置（Phase 3，镜像后端 CircuitBreaker）。缺省 = 全关。
+ * 连亏熔断（cooldown）+ 回撤熔断（drawdown）双触发，anchorMode 下强制全旁路。
+ */
+export interface CircuitBreaker {
+  /** 连亏熔断开关。 */
+  enableCooldown: boolean
+  /** 连亏 N 笔触发，正整数。 */
+  consecutiveLossesThreshold: number
+  /** 基础冷却交易日数。 */
+  baseCooldownDays: number
+  /** 冷却上限（≥ base）。 */
+  maxCooldownDays: number
+  /** 每次亏损延长天数（非负整数）。 */
+  extendOnLoss: number
+  /** 每次盈利缩短天数（非负整数）。 */
+  reduceOnProfit: number
+  /** 回撤熔断开关。 */
+  enableDrawdownHalt: boolean
+  /** 自峰值回撤 ≥ 此值停开仓，如 0.15。 */
+  drawdownHaltPct: number
+  /** 回升到回撤 ≤ 此值恢复（滞回），须 ≤ haltPct。 */
+  drawdownResumePct: number
+}
+
 /** 单个信号源（对应后端 PortfolioSimSource）。 */
 export interface PortfolioSimSource {
   /** 既有 signal_test_run 的 id（completed 且 trades>0 才能纳入）。 */
@@ -26,10 +101,14 @@ export interface PortfolioSimSource {
   maxPositions: number | null
   /** 总敞口上限占 NAV_ref；null = 不限。 */
   exposureCap: number | null
-  /** 同日候选超额排序字段；'none' = 不排序。 */
+  /** 【保留 legacy】同日候选超额排序字段；'none' = 不排序。 */
   rankField: PortfolioRankField
-  /** 排序方向（rankField !== 'none' 时有意义）。 */
+  /** 【保留 legacy】排序方向（rankField !== 'none' 时有意义）。 */
   rankDir: PortfolioRankDir
+  /** 【新增】多因子排序规格；存在且 factors 非空 → 接管排序（优先于 rankField）。 */
+  rankSpec?: RankSpec
+  /** 【新增】动态仓位配置（Phase 2）；缺省 = fixed。 */
+  sizing?: SizingConfig
 }
 
 /** 交易成本费率（均为单边小数费率，与后端 PortfolioSimCostRates 对齐）。 */
@@ -47,6 +126,8 @@ export interface PortfolioSimConfig {
   initialCapital: number
   cost: PortfolioSimCostRates
   anchorMode: boolean
+  /** 【新增】账户级熔断（Phase 3）；缺省 = 全关。anchorMode 下强制全旁路。 */
+  circuitBreaker?: CircuitBreaker
 }
 
 export interface CreatePortfolioSimDto {
@@ -127,6 +208,9 @@ export type PortfolioSkipReason =
   | 'slots_full'
   | 'exposure_cap'
   | 'cash_short'
+  | 'cooldown' // 【Phase 3】连亏熔断冷却期内冻结开仓
+  | 'drawdown_halt' // 【Phase 3】回撤熔断停开仓
+  | 'sized_out' // 【Phase 2】source_kelly 负期望源 alloc≈0
 
 /** GET /:id/fills 行（逐信号明细）。 */
 export interface PortfolioSimFill {
@@ -141,6 +225,16 @@ export interface PortfolioSimFill {
   skipReason: PortfolioSkipReason | null
   rankField: string | null
   rankValue: string | null
+  /**
+   * 【新增】综合排序分 / 单因子值（后端 numeric 列 → string | null）。
+   * composite=综合分、单因子=该因子值、none=null；老 run 为 null（降级）。
+   */
+  rankScore: string | null
+  /**
+   * 【新增】逐因子原始值 {factorKey: value|null}（后端 jsonb 列）。
+   * taken/skipped 都带（含熔断冻结 skip 的笔）；老 run 为 null（降级）。
+   */
+  factorValues: Record<string, number | null> | null
   weightEntry: string | null
   alloc: string | null
   exitDate: string | null

@@ -77,7 +77,7 @@
             成交 {{ run.nTaken ?? '—' }} · 弃单 {{ run.nSkipped ?? '—' }}（弃单分布见下方「弃单原因」筛选）
           </span>
         </template>
-        <PortfolioSimFillsTable :key="run.id" :run-id="run.id" />
+        <PortfolioSimFillsTable :key="run.id" :run-id="run.id" :config="run.config" />
       </n-card>
     </template>
 

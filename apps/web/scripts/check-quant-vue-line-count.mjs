@@ -5,6 +5,8 @@
  * 扫描范围：
  *   - apps/web/src/views/quant/**\/*.vue
  *   - apps/web/src/components/quant/**\/*.vue
+ *   - apps/web/src/views/strategy/**\/*.vue（含 PortfolioSimView）
+ *   - apps/web/src/components/portfolio-sim/**\/*.vue（组合模拟器多因子升级期新组件）
  *
  * 任一文件 > 500 行 → exit 1 + 打印超标文件清单（含行数）。
  *
@@ -29,6 +31,8 @@ const webRoot = path.resolve(__dirname, '..')
 const ROOTS = [
   path.join(webRoot, 'src', 'views', 'quant'),
   path.join(webRoot, 'src', 'components', 'quant'),
+  path.join(webRoot, 'src', 'views', 'strategy'),
+  path.join(webRoot, 'src', 'components', 'portfolio-sim'),
 ]
 
 /**

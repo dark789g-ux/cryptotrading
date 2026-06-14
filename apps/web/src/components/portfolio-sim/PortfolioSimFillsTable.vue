@@ -57,6 +57,8 @@
       :loading="loading"
       :pagination="pagination"
       :bordered="false"
+      :row-key="rowKey"
+      :expandable="expandable"
       size="small"
       @update:page="onPage"
       @update:page-size="onPageSize"
@@ -72,15 +74,18 @@ import type { DataTableColumns, DataTableSortState, SelectOption } from 'naive-u
 import { portfolioSimApi } from '../../api/modules/strategy/portfolioSim'
 import type {
   PortfolioSimFill,
+  PortfolioSimConfig,
   FillSortField,
   ListFillsParams,
   PortfolioSimFillStatus,
   PortfolioSkipReason,
+  RankFactor,
 } from '../../api/modules/strategy/portfolioSim'
 import { SKIP_REASON_LABELS } from './portfolioSimPresets'
+import FillFactorDetail from './FillFactorDetail.vue'
 import { formatTradeDate } from '../symbols/a-shares/aSharesFormatters'
 
-const props = defineProps<{ runId: string }>()
+const props = defineProps<{ runId: string; config?: PortfolioSimConfig }>()
 
 const rows = ref<PortfolioSimFill[]>([])
 const loading = ref(false)
@@ -125,6 +130,30 @@ function num(v: string | null, digits = 4): string {
   return Number.isFinite(n) ? n.toFixed(digits) : '—'
 }
 
+/**
+ * 该 run 的「源标签 → rankSpec 因子数组」映射（来自 config.sources）。
+ * 逐因子展开时回带每因子权重；legacy 单字段经 resolveFactors 还原。
+ */
+function resolveFactorsForLabel(sourceLabel: string): RankFactor[] {
+  const src = props.config?.sources.find((s) => s.label === sourceLabel)
+  if (!src) return []
+  if (src.rankSpec?.factors?.length) return src.rankSpec.factors
+  if (src.rankField === 'none') return []
+  return [{ factor: src.rankField, weight: 1, dir: src.rankDir }]
+}
+
+/** rank值列渲染：composite（含多因子）标注综合分，单因子显原值。 */
+function renderRankValue(r: PortfolioSimFill): string {
+  const factors = resolveFactorsForLabel(r.sourceLabel)
+  if (factors.length > 1) {
+    // composite：rank_score 是综合分，量纲为加权分，标注以免与单因子原值混读
+    return r.rankScore != null ? `综合 ${num(r.rankScore, 3)}` : num(r.rankValue, 2)
+  }
+  // 单因子 / none：优先 rank_score（=该因子值），回落 legacy rank_value
+  const v = r.rankScore ?? r.rankValue
+  return num(v, 2)
+}
+
 const columns: DataTableColumns<PortfolioSimFill> = [
   {
     title: '状态',
@@ -163,10 +192,18 @@ const columns: DataTableColumns<PortfolioSimFill> = [
   {
     title: 'rank值',
     key: 'rankValue',
-    width: 110,
+    width: 120,
     align: 'right',
     sorter: true,
-    render: (r) => num(r.rankValue, 2),
+    render: (r) => renderRankValue(r),
+  },
+  {
+    // rank_score 不进后端排序白名单 → 不可排序
+    title: '综合分',
+    key: 'rankScore',
+    width: 100,
+    align: 'right',
+    render: (r) => num(r.rankScore, 3),
   },
   {
     title: '权重',
@@ -202,6 +239,24 @@ const columns: DataTableColumns<PortfolioSimFill> = [
     render: (r) => (r.skipReason ? SKIP_REASON_LABELS[r.skipReason] ?? r.skipReason : '—'),
   },
 ]
+
+/** 行唯一键（fill.id 为 bigserial string）。 */
+function rowKey(row: PortfolioSimFill): string {
+  return row.id
+}
+
+/**
+ * 逐因子展开：渲染 FillFactorDetail（读 factor_values + rank_score + 该源 rankSpec 权重）。
+ * 非受控（naive-ui 内部按 row-key 管理展开态）。
+ */
+const expandable: { renderExpand: (row: PortfolioSimFill) => ReturnType<typeof h> } = {
+  renderExpand: (row: PortfolioSimFill) =>
+    h(FillFactorDetail, {
+      factorValues: row.factorValues,
+      rankScore: row.rankScore,
+      rankFactors: resolveFactorsForLabel(row.sourceLabel),
+    }),
+}
 
 function currentParams(): ListFillsParams {
   return {
