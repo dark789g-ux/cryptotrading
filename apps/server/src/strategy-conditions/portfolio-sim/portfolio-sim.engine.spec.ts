@@ -29,12 +29,14 @@ import {
   COST_PRESET_ZERO,
 } from './portfolio-sim.cost';
 import {
+  CircuitBreaker,
   EngineInput,
   EngineQuoteBar,
   EngineTrade,
   PortfolioSimConfig,
   PortfolioSimCostRates,
   PortfolioSimSource,
+  SizingConfig,
 } from './portfolio-sim.types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -964,5 +966,414 @@ describe('同一日 round-trip', () => {
     expect(res.dailyRows[0].positionCount).toBe(0);
     // NAV = 全现金 = 0.5e6 留存 + 0.5e6*(1.1) 回款 = 1.05e6
     expect(res.dailyRows[0].nav).toBeCloseTo(1_050_000, 4);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Batch1 三段集成（排序 + 仓位 + 熔断）
+// ═════════════════════════════════════════════════════════════════════════════
+
+const sizingCfg = (overrides: Partial<SizingConfig>): SizingConfig => ({
+  mode: 'fixed',
+  floorMult: 0.5,
+  capMult: 1.5,
+  kellyFraction: 0.5,
+  kellyMaxMult: 1.0,
+  ...overrides,
+});
+
+const cbAllOff = (overrides: Partial<CircuitBreaker> = {}): CircuitBreaker => ({
+  enableCooldown: false,
+  consecutiveLossesThreshold: 3,
+  baseCooldownDays: 0,
+  maxCooldownDays: 0,
+  extendOnLoss: 0,
+  reduceOnProfit: 0,
+  enableDrawdownHalt: false,
+  drawdownHaltPct: 0.15,
+  drawdownResumePct: 0.1,
+  ...overrides,
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// anchorMode 红线：任意 rankSpec / sizing / circuitBreaker 配置 realizedRetNet ≡ ret、taken 不变
+// ─────────────────────────────────────────────────────────────────────────────
+describe('anchorMode 恒等：Phase2/3 全旁路', () => {
+  it('composite rankSpec + signal_weighted + 全开熔断，anchorMode 下每笔 taken 且 net ≡ ret', () => {
+    const src = source({
+      positionRatio: 0.3,
+      maxPositions: 1, // 应被忽略
+      exposureCap: 0.1, // 应被忽略
+      rankSpec: {
+        factors: [
+          { factor: 'pos_120', weight: 2, dir: 'desc' },
+          { factor: 'circ_mv', weight: 1, dir: 'asc' },
+        ],
+      },
+      sizing: sizingCfg({ mode: 'signal_weighted', floorMult: 0.2, capMult: 2.0 }),
+    });
+    const rets = [0.13, -0.21, 0.4, -0.05];
+    const trades = rets.map((r, i) =>
+      trade({
+        tsCode: `T${i}`,
+        buyDate: '20260102',
+        exitDate: '20260103',
+        ret: r,
+        factorValues: { pos_120: i * 10, circ_mv: (4 - i) * 5 } as never,
+      }),
+    );
+    const bars: Record<string, Record<string, [number, number]>> = {};
+    for (let i = 0; i < rets.length; i++) {
+      bars[`T${i}`] = { '20260102': [10, 13], '20260103': [13, 7] };
+    }
+    const res = runPortfolioSim(
+      input({
+        config: config([src], {
+          anchorMode: true,
+          circuitBreaker: cbAllOff({
+            enableCooldown: true,
+            consecutiveLossesThreshold: 1, // 极易触发——anchorMode 须旁路
+            baseCooldownDays: 100,
+            maxCooldownDays: 100,
+            enableDrawdownHalt: true,
+            drawdownHaltPct: 0.001, // 极易触发
+          }),
+        }),
+        trades,
+        quotes: buildQuotes(bars),
+        calendar: ['20260102', '20260103'],
+      }),
+    );
+    // 全 taken（熔断/sizing/约束全旁路）
+    expect(res.fills.every((f) => f.status === 'taken')).toBe(true);
+    expect(res.summary.nTaken).toBe(4);
+    // 每笔 realizedRetNet ≡ ret（代数恒等）
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    rets.forEach((r, i) => {
+      expect(byTs.get(`T${i}`)!.realizedRetNet).toBeCloseTo(r, 12);
+    });
+    expect(res.summary.totalCosts).toBe(0);
+  });
+
+  it('source_kelly（含负期望源）anchorMode 下不 sized_out、全 taken', () => {
+    // 该源全亏 → 非 anchor 会 source_kelly mult=0 sized_out；anchorMode 须旁路。
+    const src = source({
+      positionRatio: 0.2,
+      sizing: sizingCfg({ mode: 'source_kelly' }),
+    });
+    const rets = [-0.1, -0.2, -0.3];
+    const trades = rets.map((r, i) =>
+      trade({ tsCode: `T${i}`, buyDate: '20260102', exitDate: '20260103', ret: r }),
+    );
+    const bars: Record<string, Record<string, [number, number]>> = {};
+    for (let i = 0; i < rets.length; i++) {
+      bars[`T${i}`] = { '20260102': [10, 10], '20260103': [10, 9] };
+    }
+    const res = runPortfolioSim(
+      input({
+        config: config([src], { anchorMode: true }),
+        trades,
+        quotes: buildQuotes(bars),
+        calendar: ['20260102', '20260103'],
+      }),
+    );
+    expect(res.fills.every((f) => f.status === 'taken')).toBe(true);
+    expect(res.fills.some((f) => f.skipReason === 'sized_out')).toBe(false);
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    rets.forEach((r, i) => {
+      expect(byTs.get(`T${i}`)!.realizedRetNet).toBeCloseTo(r, 12);
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// fills 透传 factorValues / rankScore（taken 与冻结 skip 都带）
+// ─────────────────────────────────────────────────────────────────────────────
+describe('fills factorValues / rankScore 透传', () => {
+  it('taken fill 带 factorValues + rankScore（composite 综合分）', () => {
+    const src = source({
+      positionRatio: 0.1,
+      rankSpec: {
+        factors: [{ factor: 'pos_120', weight: 1, dir: 'desc' }],
+      },
+    });
+    const trades = [
+      trade({
+        tsCode: 'X',
+        buyDate: '20260102',
+        exitDate: '20260110',
+        factorValues: { pos_120: 0.42 } as never,
+      }),
+    ];
+    const quotes = buildQuotes({ X: { '20260102': [10, 10] } });
+    const res = runPortfolioSim(
+      input({ config: config([src]), trades, quotes, calendar: ['20260102'] }),
+    );
+    const f = res.fills[0];
+    expect(f.status).toBe('taken');
+    expect(f.factorValues).toEqual({ pos_120: 0.42 });
+    // 单因子 → rankScore = 因子值
+    expect(f.rankScore).toBe(0.42);
+    // weightEntry = alloc / navRef = positionRatio（fixed）
+    expect(f.weightEntry).toBeCloseTo(0.1, 12);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 仓位：signal_weighted weightEntry / sized_out
+// ─────────────────────────────────────────────────────────────────────────────
+describe('仓位段集成', () => {
+  it('signal_weighted：最优信号 weightEntry = positionRatio × capMult', () => {
+    // 同日两候选，pos_120 desc：HIGH 最优 q=1 → mult=capMult；LOW 最差 q=0 → mult=floorMult。
+    const src = source({
+      positionRatio: 0.1,
+      rankSpec: { factors: [{ factor: 'pos_120', weight: 1, dir: 'desc' }] },
+      sizing: sizingCfg({ mode: 'signal_weighted', floorMult: 0.5, capMult: 1.5 }),
+    });
+    const trades = [
+      trade({ tsCode: 'LOW', buyDate: '20260102', exitDate: '20260110', factorValues: { pos_120: 1 } as never }),
+      trade({ tsCode: 'HIGH', buyDate: '20260102', exitDate: '20260110', factorValues: { pos_120: 9 } as never }),
+    ];
+    const quotes = buildQuotes({
+      LOW: { '20260102': [10, 10] },
+      HIGH: { '20260102': [10, 10] },
+    });
+    const res = runPortfolioSim(
+      input({ config: config([src]), trades, quotes, calendar: ['20260102'] }),
+    );
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    // navRef 首日 = initialCapital 1e6；weightEntry = alloc/navRef = positionRatio×mult
+    expect(byTs.get('HIGH')!.weightEntry).toBeCloseTo(0.1 * 1.5, 10);
+    expect(byTs.get('LOW')!.weightEntry).toBeCloseTo(0.1 * 0.5, 10);
+    // alloc = weightEntry × navRef
+    expect(byTs.get('HIGH')!.alloc).toBeCloseTo(0.1 * 1.5 * 1_000_000, 4);
+  });
+
+  it('source_kelly 全亏源 → 全 sized_out、不开仓', () => {
+    const src = source({
+      positionRatio: 0.2,
+      rankField: 'none',
+      sizing: sizingCfg({ mode: 'source_kelly' }),
+    });
+    const rets = [-0.1, -0.2, -0.15];
+    const trades = rets.map((r, i) =>
+      trade({ tsCode: `T${i}`, buyDate: '20260102', exitDate: '20260110', ret: r }),
+    );
+    const bars: Record<string, Record<string, [number, number]>> = {};
+    for (let i = 0; i < rets.length; i++) bars[`T${i}`] = { '20260102': [10, 10] };
+    const res = runPortfolioSim(
+      input({ config: config([src]), trades, quotes: buildQuotes(bars), calendar: ['20260102'] }),
+    );
+    expect(res.fills.every((f) => f.status === 'skipped')).toBe(true);
+    expect(res.fills.every((f) => f.skipReason === 'sized_out')).toBe(true);
+    expect(res.fills.every((f) => f.alloc === 0)).toBe(true);
+    expect(res.summary.nTaken).toBe(0);
+  });
+
+  it('checkSkip 与开仓用同一 alloc：signal_weighted 放大命中 cash_short', () => {
+    // positionRatio=0.6、capMult=1.5 → 最优信号 alloc=0.9e6；现金 1e6 够。
+    //   次优信号 alloc=0.6e6（mult=1，q=0.5）→ 1e6-0.9e6=0.1e6 < 0.6e6 → cash_short（用放大后 alloc 判定）。
+    const src = source({
+      positionRatio: 0.6,
+      rankField: 'none', // 关掉 rank，靠 sizing... 但 signal_weighted none→1，需 rankSpec 才有 q 差异
+      rankSpec: { factors: [{ factor: 'pos_120', weight: 1, dir: 'desc' }] },
+      sizing: sizingCfg({ mode: 'signal_weighted', floorMult: 1.0, capMult: 1.5 }),
+    });
+    const trades = [
+      trade({ tsCode: 'HIGH', buyDate: '20260102', exitDate: '20260110', factorValues: { pos_120: 9 } as never }),
+      trade({ tsCode: 'LOW', buyDate: '20260102', exitDate: '20260110', factorValues: { pos_120: 1 } as never }),
+    ];
+    const quotes = buildQuotes({
+      HIGH: { '20260102': [10, 10] },
+      LOW: { '20260102': [10, 10] },
+    });
+    const res = runPortfolioSim(
+      input({ config: config([src]), trades, quotes, calendar: ['20260102'] }),
+    );
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    // HIGH q=1 → mult=1.5 → alloc=0.9e6 taken
+    expect(byTs.get('HIGH')!.status).toBe('taken');
+    expect(byTs.get('HIGH')!.alloc).toBeCloseTo(0.9e6, 4);
+    // LOW q=0 → mult=floor=1.0 → alloc=0.6e6 > 剩余现金 0.1e6 → cash_short
+    expect(byTs.get('LOW')!.status).toBe('skipped');
+    expect(byTs.get('LOW')!.skipReason).toBe('cash_short');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 熔断：连亏冷却（含 win 口径 net、同日 round-trip 计入、冻结日透明）
+// ─────────────────────────────────────────────────────────────────────────────
+describe('熔断段集成 · 连亏冷却', () => {
+  it('连亏达阈值 → 冷却期内候选 skip cooldown，且冻结 fill 仍带 factorValues/rankScore', () => {
+    // 源：threshold=2、base=3。前两笔各自跨日出场亏损（净亏），触发冷却。
+    //   t0 买 D0 出 D1（亏）、t1 买 D1 出 D2（亏）→ D2 末 consec=2 触发 until。
+    //   t2 买 D3（冷却期内）→ skip cooldown。
+    const src = source({
+      positionRatio: 0.1,
+      rankSpec: { factors: [{ factor: 'pos_120', weight: 1, dir: 'desc' }] },
+    });
+    const trades = [
+      trade({ tsCode: 'A', buyDate: '20260102', exitDate: '20260103', ret: -0.1, factorValues: { pos_120: 5 } as never }),
+      trade({ tsCode: 'B', buyDate: '20260103', exitDate: '20260106', ret: -0.1, factorValues: { pos_120: 6 } as never }),
+      trade({ tsCode: 'C', buyDate: '20260107', exitDate: '20260110', ret: 0.2, factorValues: { pos_120: 7 } as never }),
+    ];
+    const calendar = ['20260102', '20260103', '20260106', '20260107', '20260108', '20260110'];
+    const quotes = buildQuotes({
+      A: { '20260102': [10, 10], '20260103': [10, 10] },
+      B: { '20260103': [10, 10], '20260106': [10, 10] },
+      C: { '20260107': [10, 10] },
+    });
+    const cb = cbAllOff({
+      enableCooldown: true,
+      consecutiveLossesThreshold: 2,
+      baseCooldownDays: 5,
+      maxCooldownDays: 5,
+    });
+    const res = runPortfolioSim(
+      input({ config: config([src], { circuitBreaker: cb }), trades, quotes, calendar }),
+    );
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    expect(byTs.get('A')!.status).toBe('taken');
+    expect(byTs.get('B')!.status).toBe('taken');
+    // C 在冷却期内（D2=20260106 出 B 后 consec=2、until=2+5=7；C 买于 dayIdx3=20260107 < 7）→ cooldown
+    expect(byTs.get('C')!.status).toBe('skipped');
+    expect(byTs.get('C')!.skipReason).toBe('cooldown');
+    // 冻结 fill 仍带 factorValues + rankScore（透明）
+    expect(byTs.get('C')!.factorValues).toEqual({ pos_120: 7 });
+    expect(byTs.get('C')!.rankScore).toBe(7); // 单因子 → 因子值
+  });
+
+  it('win 口径 = net：毛赚但成本吞噬净亏的笔计为亏损（驱动连亏）', () => {
+    // 用高成本让小正 ret 净亏。threshold=1：单笔净亏即触发冷却。
+    // t0：ret 极小正、成本高 → realizedRetNet<0 → 计亏 → 触发 until。
+    // t1：买于冷却期 → skip cooldown。
+    const src = source({ positionRatio: 0.5, rankField: 'none' });
+    const trades = [
+      trade({ tsCode: 'A', buyDate: '20260102', exitDate: '20260103', ret: 0.0005 }),
+      trade({ tsCode: 'B', buyDate: '20260104', exitDate: '20260110', ret: 0.1 }),
+    ];
+    const calendar = ['20260102', '20260103', '20260104', '20260106'];
+    const quotes = buildQuotes({
+      A: { '20260102': [10, 10], '20260103': [10, 10] },
+      B: { '20260104': [10, 10] },
+    });
+    const cb = cbAllOff({
+      enableCooldown: true,
+      consecutiveLossesThreshold: 1,
+      baseCooldownDays: 5,
+      maxCooldownDays: 5,
+    });
+    const res = runPortfolioSim(
+      input({
+        config: config([src], { cost: COST_PRESET_CONSERVATIVE, circuitBreaker: cb }),
+        trades,
+        quotes,
+        calendar,
+      }),
+    );
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    // A：毛 ret=+0.0005 但保守成本 > 0.05% → net<0
+    expect(byTs.get('A')!.realizedRetNet!).toBeLessThan(0);
+    expect(byTs.get('A')!.status).toBe('taken');
+    // B 在冷却期内 → cooldown（证明 A 按 net 计亏触发）
+    expect(byTs.get('B')!.status).toBe('skipped');
+    expect(byTs.get('B')!.skipReason).toBe('cooldown');
+  });
+
+  it('同日 round-trip 亏损计入连亏（第二个收口点）', () => {
+    // threshold=1。t0 同日 round-trip（买=出 D0）净亏 → 当日采集连亏。
+    //   闸门在开仓前判（D0 时 consec=0 不冻结），round-trip 收口在 ② 内 → 影响后续日。
+    // t1 买于 D1（冷却期内）→ cooldown。
+    const src = source({ positionRatio: 0.5, rankField: 'none' });
+    const trades = [
+      trade({ tsCode: 'A', buyDate: '20260102', exitDate: '20260102', ret: -0.1 }),
+      trade({ tsCode: 'B', buyDate: '20260103', exitDate: '20260110', ret: 0.1 }),
+    ];
+    const calendar = ['20260102', '20260103', '20260106'];
+    const quotes = buildQuotes({
+      A: { '20260102': [10, 10] },
+      B: { '20260103': [10, 10] },
+    });
+    const cb = cbAllOff({
+      enableCooldown: true,
+      consecutiveLossesThreshold: 1,
+      baseCooldownDays: 5,
+      maxCooldownDays: 5,
+    });
+    const res = runPortfolioSim(
+      input({ config: config([src], { circuitBreaker: cb }), trades, quotes, calendar }),
+    );
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    expect(byTs.get('A')!.status).toBe('taken');
+    expect(byTs.get('A')!.realizedRetNet).toBeCloseTo(-0.1, 12);
+    // until = dayIdx0 + 5 = 5；B 买于 dayIdx1 < 5 → cooldown
+    expect(byTs.get('B')!.status).toBe('skipped');
+    expect(byTs.get('B')!.skipReason).toBe('cooldown');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 熔断：回撤停（滞回，peak 用 nav 推进，prevNav 驱动）
+// ─────────────────────────────────────────────────────────────────────────────
+describe('熔断段集成 · 回撤停', () => {
+  it('NAV 自峰值跌破 haltPct → 后续日开仓被 drawdown_halt 冻结', () => {
+    // 单票满仓制造回撤：D0 入场 close=10→NAV 1e6（peak）；持有跌到 D1 close=8 → NAV=0.8e6（dd=-0.2）。
+    //   haltPct=0.15：D2 开仓前 prevNav=0.8e6/peak1e6-1=-0.2 ≤ -0.15 → halt。
+    //   D2 的新候选 X2 → drawdown_halt。
+    const src = source({ positionRatio: 1, rankField: 'none' });
+    const trades = [
+      // 持仓票：D0 买、晚出场（窗口外）→ 制造 NAV 回撤路径
+      trade({ tsCode: 'HOLD', buyDate: '20260102', exitDate: '20260120', ret: 0 }),
+      // D2 新候选：应被 drawdown_halt 冻结
+      trade({ tsCode: 'NEW', buyDate: '20260106', exitDate: '20260120', ret: 0 }),
+    ];
+    const calendar = ['20260102', '20260103', '20260106'];
+    const quotes = buildQuotes({
+      HOLD: { '20260102': [10, 10], '20260103': [10, 8], '20260106': [8, 8] },
+      NEW: { '20260106': [8, 8] },
+    });
+    const cb = cbAllOff({
+      enableDrawdownHalt: true,
+      drawdownHaltPct: 0.15,
+      drawdownResumePct: 0.1,
+    });
+    const res = runPortfolioSim(
+      input({ config: config([src], { circuitBreaker: cb }), trades, quotes, calendar }),
+    );
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    expect(byTs.get('HOLD')!.status).toBe('taken');
+    // D1 收盘 NAV=0.8e6（HOLD 满仓 mv=1e6*8/10）→ dd=-0.2；D2 开仓前 halt → NEW 冻结
+    expect(byTs.get('NEW')!.status).toBe('skipped');
+    expect(byTs.get('NEW')!.skipReason).toBe('drawdown_halt');
+  });
+
+  it('双触发同真：优先记 cooldown', () => {
+    // 同时让 cooldown 与 drawdown 都 halt。consec 阈值 1、回撤阈值极小。
+    const src = source({ positionRatio: 1, rankField: 'none' });
+    const trades = [
+      trade({ tsCode: 'HOLD', buyDate: '20260102', exitDate: '20260103', ret: -0.2 }), // 亏→连亏 + 回撤
+      trade({ tsCode: 'NEW', buyDate: '20260106', exitDate: '20260120', ret: 0 }),
+    ];
+    const calendar = ['20260102', '20260103', '20260106'];
+    const quotes = buildQuotes({
+      HOLD: { '20260102': [10, 10], '20260103': [10, 8] },
+      NEW: { '20260106': [8, 8] },
+    });
+    const cb = cbAllOff({
+      enableCooldown: true,
+      consecutiveLossesThreshold: 1,
+      baseCooldownDays: 10,
+      maxCooldownDays: 10,
+      enableDrawdownHalt: true,
+      drawdownHaltPct: 0.01,
+      drawdownResumePct: 0.005,
+    });
+    const res = runPortfolioSim(
+      input({ config: config([src], { circuitBreaker: cb }), trades, quotes, calendar }),
+    );
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    // 二者皆触发 → 优先记 cooldown
+    expect(byTs.get('NEW')!.status).toBe('skipped');
+    expect(byTs.get('NEW')!.skipReason).toBe('cooldown');
   });
 });

@@ -21,6 +21,20 @@
 import { calcSignalStats } from '../signal-stats/signal-stats.metrics';
 import { buyRate, sellRate } from './portfolio-sim.cost';
 import {
+  CooldownState,
+  initCooldown,
+  isInCooldown,
+  registerExit,
+  updateDrawdownHalt,
+} from './portfolio-sim.cooldown';
+import { rankAndScore } from './portfolio-sim.ranking';
+import {
+  computeAlloc,
+  computeSourceKellyMult,
+  MIN_ALLOC_YUAN,
+} from './portfolio-sim.sizing';
+import {
+  CircuitBreaker,
   EngineDailyRow,
   EngineFill,
   EngineInput,
@@ -132,6 +146,8 @@ export function runPortfolioSim(
   // 在仓持仓（跨日存活）。
   const positions: OpenPosition[] = [];
   // fills 与 trades 一一对应（按输入顺序），便于消费方对齐。
+  // factorValues 在此即从 trade 透传（与开仓路径解耦）——使熔断冻结被 skip 的 fill 也带此字段
+  // （满足「taken/skipped 都带」承诺，见 spec 01/05）。
   const fills: EngineFill[] = trades.map((t) => ({
     sourceIdx: t.sourceIdx,
     tsCode: t.tsCode,
@@ -139,10 +155,29 @@ export function runPortfolioSim(
     buyDate: t.buyDate,
     status: 'skipped' as const, // 默认 skipped，开仓成功时改写
     rankValue: t.rankValue,
+    factorValues: t.factorValues,
   }));
   // trade → 其 fill 的反查（同对象引用，开仓时回填）。
   const fillByTrade = new Map<EngineTrade, EngineFill>();
   trades.forEach((t, i) => fillByTrade.set(t, fills[i]));
+
+  // ── 引擎 init：预算每 source 的 source_kelly 乘子（装载期一次，非 per-trade）。
+  //    非 source_kelly 模式不预算（computeAlloc 不读 sourceKellyMult）。anchorMode 不影响预算
+  //    （computeAlloc 首行短路，乘子永不被读）。
+  const sourceKellyMult: number[] = config.sources.map((src, s) => {
+    if (src.sizing?.mode !== 'source_kelly') return 1;
+    const rets = trades.filter((t) => t.sourceIdx === s).map((t) => t.ret);
+    return computeSourceKellyMult(rets, src.sizing, (msg) =>
+      // eslint-disable-next-line no-console
+      console.warn(`[portfolio-sim] source #${s} (${src.label}): ${msg}`),
+    );
+  });
+
+  // ── 熔断状态（账户级，跨所有 source 合并）。anchorMode 下闸门永不触发。
+  const cb: CircuitBreaker | undefined = config.circuitBreaker;
+  const cooldown: CooldownState = initCooldown(cb?.baseCooldownDays ?? 0);
+  let ddHalted = false; // 回撤熔断滞回态
+  let peak = -Infinity; // NAV 峰值（用当日收盘 nav 更新）
 
   const dailyRows: EngineDailyRow[] = [];
   let cash = initialCapital;
@@ -150,30 +185,90 @@ export function runPortfolioSim(
   let totalCosts = 0;
   let doneDays = 0;
 
-  for (const d of calendar) {
+  /**
+   * 收口一笔持仓并采集连亏（spec 05 §recordExit）。
+   * 两处 closePosition（跨日出场 + 同日 round-trip）都经此 helper，确保每笔恰一次、口径一致。
+   * win 口径 = realizedRetNet > 0（净收益，含买卖成本）。
+   */
+  const closeAndRecord = (pos: OpenPosition, dayIdx: number): void => {
+    const r = closePosition(pos, cash, costRates, pos.exitDate);
+    cash = r.cash;
+    totalCosts += r.addedCost;
+    if (cb?.enableCooldown && !anchorMode) {
+      const isWin = (pos.fill.realizedRetNet ?? 0) > 0;
+      registerExit(
+        cooldown,
+        isWin,
+        false, // isHalf 恒 false
+        dayIdx,
+        cb.consecutiveLossesThreshold,
+        cb.maxCooldownDays,
+        cb.extendOnLoss,
+        cb.reduceOnProfit,
+      );
+    }
+  };
+
+  for (let dayIdx = 0; dayIdx < calendar.length; dayIdx++) {
+    const d = calendar[dayIdx];
     const navRef = prevNav; // NAV_ref(d) = 上一交易日收盘 NAV
 
     // ── ① 出场：exit_date == d 的在仓持仓逐笔收口（先出场后开仓）。
     //    倒序 splice：处理次序不影响结果——每笔独立用 ret 收口、cash 累加满足交换律、fill 各自回填。
+    //    closeAndRecord：收口后采集连亏（win 口径 = realizedRetNet>0 净收益）。
     for (let i = positions.length - 1; i >= 0; i--) {
       if (positions[i].exitDate !== d) continue;
-      const r = closePosition(positions[i], cash, costRates, d);
-      cash = r.cash;
-      totalCosts += r.addedCost;
+      closeAndRecord(positions[i], dayIdx);
       positions.splice(i, 1);
     }
+
+    // ── 开仓前账户级熔断双触发闸门（anchorMode 全跳过）。
+    //    回撤判定用 prevNav（=NAV(d-1)）与历史 peak 比，无未来函数。
+    const frozenCooldown =
+      !anchorMode && !!cb?.enableCooldown && isInCooldown(cooldown, dayIdx);
+    const ddNow = peak > 0 ? prevNav / peak - 1 : 0;
+    if (cb?.enableDrawdownHalt && !anchorMode) {
+      ddHalted = updateDrawdownHalt(ddHalted, ddNow, cb);
+    }
+    const frozenDD = !anchorMode && !!cb?.enableDrawdownHalt && ddHalted;
+    const frozen = frozenCooldown || frozenDD;
 
     // ── ② 开仓：buy_date == d 的信号，按 source 在 config 中的顺序逐策略处理。
     const dayBuys = buysByDate.get(d) ?? [];
     for (let s = 0; s < config.sources.length; s++) {
       const source = config.sources[s];
-      const candidates = sortCandidates(
+      // rankAndScore 取代 sortCandidates：横截面 = 当日该 source 候选；冻结日仍跑（写 rankScore，透明）。
+      const { sorted, scoreByTrade, qualityByTrade } = rankAndScore(
         dayBuys.filter((t) => t.sourceIdx === s),
         source,
       );
-      for (const trade of candidates) {
+      for (const trade of sorted) {
         const fill = fillByTrade.get(trade)!;
-        const skip = checkSkip(trade, source, positions, navRef, cash, {
+        // 冻结日仍写 rankScore（透明），但全候选 skip（cooldown 优先于 drawdown_halt）。
+        fill.rankScore = scoreByTrade.get(trade) ?? null;
+
+        if (frozen) {
+          fill.status = 'skipped';
+          fill.skipReason = frozenCooldown ? 'cooldown' : 'drawdown_halt';
+          continue;
+        }
+
+        // alloc 算一次，同时供 checkSkip 与开仓块（删除 checkSkip 内重复计算）。
+        const alloc = computeAlloc(trade, source, navRef, {
+          anchorMode,
+          qualityByTrade,
+          sourceKellyMult: sourceKellyMult[s],
+        });
+
+        // sized_out：仅 source_kelly mult=0（真负期望/全亏源）可达；signal_weighted mult≥floor>0 不触发。
+        if (!anchorMode && alloc < MIN_ALLOC_YUAN) {
+          fill.status = 'skipped';
+          fill.skipReason = 'sized_out';
+          fill.alloc = 0; // 可辨识，不参与持仓/盯市
+          continue;
+        }
+
+        const skip = checkSkip(trade, source, positions, navRef, cash, alloc, {
           anchorMode,
           buyFeeRate,
         });
@@ -183,14 +278,13 @@ export function runPortfolioSim(
           continue;
         }
         // 通过：开仓。
-        const alloc = source.positionRatio * navRef;
         const buyCost = alloc * buyFeeRate;
         cash -= alloc + buyCost;
         totalCosts += buyCost;
 
         fill.status = 'taken';
         fill.skipReason = undefined;
-        fill.weightEntry = source.positionRatio;
+        fill.weightEntry = alloc / navRef; // 有效权重 = positionRatio×mult（与实际下注一致）
         fill.alloc = alloc;
         fill.exitDate = trade.exitDate;
         fill.costsPaid = buyCost; // 卖费在出场时补加
@@ -210,10 +304,9 @@ export function runPortfolioSim(
         };
 
         // 边界：exitDate == buyDate（同一日 round-trip）→ 开仓后立即收口，不参与盯市。
+        //    同日 round-trip 也经 closeAndRecord 采集连亏（第二个收口点）。
         if (trade.exitDate === d) {
-          const r = closePosition(pos, cash, costRates, d);
-          cash = r.cash;
-          totalCosts += r.addedCost;
+          closeAndRecord(pos, dayIdx);
         } else {
           positions.push(pos);
         }
@@ -256,6 +349,7 @@ export function runPortfolioSim(
       strategyExposure,
     });
     prevNav = nav;
+    if (nav > peak) peak = nav; // peak 用当日收盘 nav 更新（驱动次日回撤熔断判定）
     doneDays += 1;
     onProgress?.(doneDays, totalDays);
   }
@@ -314,6 +408,8 @@ function closePosition(
  *   语义为「资金无限 + 无成本」，现金允许变负——锚点 run 仅用于逐笔对账，组合指标无意义。
  *
  * exposure_cap：(该策略持仓市值合计 + alloc)/NAV_ref > cap 才 skip（严格 >；恰好 == cap 放行）。
+ *
+ * alloc 由调用点 computeAlloc 算一次后传入（与开仓块共用同一值，避免 exposure/cash 判定与实际下注脱节）。
  */
 export function checkSkip(
   trade: EngineTrade,
@@ -321,11 +417,11 @@ export function checkSkip(
   positions: OpenPosition[],
   navRef: number,
   cash: number,
+  alloc: number,
   opts: { anchorMode: boolean; buyFeeRate: number },
 ): SkipReason | null {
   const { anchorMode, buyFeeRate } = opts;
   const sourceIdx = trade.sourceIdx;
-  const alloc = source.positionRatio * navRef;
   const buyCost = alloc * buyFeeRate;
 
   // 该策略当前持仓（同 sourceIdx）。
