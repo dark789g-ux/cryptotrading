@@ -1,16 +1,20 @@
 /**
  * portfolio-sim.loader.ts
  *
- * 组合级模拟器 DB 装载层：把既有 A 股回测 run 的逐笔交易 + rank 值 + qfq 行情 + SSE 日历
+ * 组合级模拟器 DB 装载层：把既有 A 股回测 run 的逐笔交易 + 多因子值 + qfq 行情 + SSE 日历
  * 准备成引擎 EngineInput（引擎不查库）。
  *
  * 设计照搬 signal-stats.simulator.db：按 tsCode 分组预取行情 + 有界并发。
+ * 因子装载注册表驱动（spec 06）：前端只送因子 KEY，SQL 的表/列全来自 RANK_FACTOR_REGISTRY 常量，
+ * 绝不拼前端字符串（见 portfolio-sim.loader-sql.ts）。
  *
- * 表/列已落真 DB 核实（2026-06-11）：
+ * 表/列已落真 DB 核实：
  *   - signal_test_trade(run_id, ts_code, signal_date, buy_date, exit_date, ret, hold_days)
- *   - signal_rolling_indicator(ts_code, trade_date, pos_120)        —— public schema，无 raw. 前缀
+ *   - signal_rolling_indicator(ts_code, trade_date, pos_120/pos_60/close_ma60_ratio/vol_ratio_60/vol_ratio_120) —— public schema
  *   - raw.daily_basic(ts_code, trade_date, circ_mv)
+ *   - raw.daily_indicator(ts_code, trade_date, ma60/atr_14/risk_reward_ratio)  —— momentum/risk_reward 源（2026-06-14 核）
  *   - raw.daily_quote(ts_code, trade_date, qfq_open, qfq_close)     —— 已有前复权列，直接用（引擎只用比率）
+ *   - ml.scores_daily(trade_date, ts_code, model_version, score, rank_in_day) —— 跨 model_version 不唯一，JOIN 走 DISTINCT ON 去重
  *   - raw.trade_cal(exchange, cal_date, is_open)                    —— SSE 升序、is_open=1
  */
 
@@ -23,6 +27,8 @@ import {
   EngineQuoteBar,
   EngineTrade,
   PortfolioSimConfig,
+  PortfolioSimSource,
+  RankFactorKey,
 } from './portfolio-sim.types';
 import {
   extendCalendarTail,
@@ -30,6 +36,11 @@ import {
   qfqRatioBar,
   windowUnionByTsCode,
 } from './portfolio-sim.loader-helpers';
+import { resolveRankSpec } from './portfolio-sim.factor-registry';
+import {
+  buildFactorValues,
+  buildSourceTradesSql,
+} from './portfolio-sim.loader-sql';
 
 /** qfq 行情预取的组间并发上界（与 signal-stats 一致，留余量给 PG pool max=10）。 */
 export const LOADER_QUOTE_CONCURRENCY = 8;
@@ -66,7 +77,7 @@ export class PortfolioSimLoader {
     const trades: EngineTrade[] = [];
     for (let s = 0; s < config.sources.length; s++) {
       const source = config.sources[s];
-      const srcTrades = await this.loadSourceTrades(s, source.runId, source.rankField);
+      const srcTrades = await this.loadSourceTrades(s, source.runId, source);
       if (srcTrades.length === 0) {
         throw new Error(
           `信号源 #${s}（label=${source.label}, runId=${source.runId}）查无逐笔交易；` +
@@ -127,87 +138,58 @@ export class PortfolioSimLoader {
   // ──────────────────────────────────────────────────────────────────────────
 
   /**
-   * 装载某源全部 trades，并按 rankField 回 JOIN rank 值。
+   * 装载某源全部 trades，按 rankSpec 注册表驱动多因子回 JOIN，组装每行 factorValues。
    *
-   * rankField:
-   *   - 'pos_120' → LEFT JOIN signal_rolling_indicator d ON (ts_code, trade_date=signal_date) 取 d.pos_120
-   *   - 'circ_mv' → LEFT JOIN raw.daily_basic m       ON (ts_code, trade_date=signal_date) 取 m.circ_mv
-   *   - 'none'    → 跳过 JOIN，rankValue 全 null
-   * 查不到（LEFT JOIN 未命中或值 NULL）→ rankValue=null（引擎自会置后）。
+   * 流程（spec 06-loader-multifactor.md）：
+   *   1. factors = resolveRankSpec(source) → keys（因子 KEY 集；legacy 单字段 / none 也经此适配）。
+   *   2. 注册表把 keys 翻译成需 JOIN 的表 + 需 SELECT 的列（全是注册表常量，绝不拼前端字符串）；
+   *      同张表只 LEFT JOIN 一次，按 (ts_code, signal_date)；ml.scores_daily 走 DISTINCT ON 去重子查询。
+   *      未命中注册表的 KEY → logger.warn + 跳过（service 已 400 拦，loader 再 defensive 双保险）。
+   *   3. JS 侧 buildFactorValues：column 直取过 parseNumericString，computed 调注册表 compute。
+   *
+   * rankValue 统一置 null：综合排序分由引擎 rankAndScore 计算（见 spec 01/03），loader 不再预排。
+   * 任一因子缺值（LEFT JOIN 未命中 / 列 NULL / momentum 分母 0）→ 该因子 null（引擎排序按 null 殿后）。
    */
   async loadSourceTrades(
     sourceIdx: number,
     runId: string,
-    rankField: 'pos_120' | 'circ_mv' | 'none',
+    source: PortfolioSimSource,
   ): Promise<EngineTrade[]> {
-    let sql: string;
-    if (rankField === 'pos_120') {
-      sql = `
-        SELECT t.ts_code AS "tsCode",
-               t.signal_date AS "signalDate",
-               t.buy_date AS "buyDate",
-               t.exit_date AS "exitDate",
-               t.ret AS "ret",
-               t.hold_days AS "holdDays",
-               d.pos_120 AS "rankRaw"
-          FROM signal_test_trade t
-          LEFT JOIN signal_rolling_indicator d
-            ON d.ts_code = t.ts_code AND d.trade_date = t.signal_date
-         WHERE t.run_id = $1`;
-    } else if (rankField === 'circ_mv') {
-      sql = `
-        SELECT t.ts_code AS "tsCode",
-               t.signal_date AS "signalDate",
-               t.buy_date AS "buyDate",
-               t.exit_date AS "exitDate",
-               t.ret AS "ret",
-               t.hold_days AS "holdDays",
-               m.circ_mv AS "rankRaw"
-          FROM signal_test_trade t
-          LEFT JOIN raw.daily_basic m
-            ON m.ts_code = t.ts_code AND m.trade_date = t.signal_date
-         WHERE t.run_id = $1`;
-    } else {
-      sql = `
-        SELECT t.ts_code AS "tsCode",
-               t.signal_date AS "signalDate",
-               t.buy_date AS "buyDate",
-               t.exit_date AS "exitDate",
-               t.ret AS "ret",
-               t.hold_days AS "holdDays",
-               NULL AS "rankRaw"
-          FROM signal_test_trade t
-         WHERE t.run_id = $1`;
-    }
+    const factors = resolveRankSpec(source);
+    const keys: RankFactorKey[] = factors.map((f) => f.factor);
 
-    const rows = await this.dataSource.query<
-      Array<{
-        tsCode: string;
-        signalDate: string;
-        buyDate: string;
-        exitDate: string;
-        ret: string;
-        holdDays: number;
-        rankRaw: string | number | null;
-      }>
-    >(sql, [runId]);
+    const { sql } = buildSourceTradesSql(keys, (key) => {
+      // service 已 400 拦未命中 KEY；这里二次防御：warn + 跳过（符合「未命中映射 warn+跳过」规范）。
+      this.logger.warn(
+        `PortfolioSimLoader: 信号源 #${sourceIdx}（runId=${runId}）排序因子 KEY="${key}" ` +
+          `未命中 RANK_FACTOR_REGISTRY，已跳过该因子的 JOIN（factorValues 不含此键）。`,
+      );
+    });
+
+    const rows = await this.dataSource.query<Array<Record<string, unknown>>>(
+      sql,
+      [runId],
+    );
 
     return rows.map((r) => {
-      const ret = parseNumericString(typeof r.ret === 'string' ? r.ret : String(r.ret));
-      // pos_120 是 double precision（pg 可能返回 number）；circ_mv 是 numeric（string）。统一 parseFloat。
-      const rankValue =
-        r.rankRaw === null || r.rankRaw === undefined
-          ? null
-          : parseNumericString(typeof r.rankRaw === 'string' ? r.rankRaw : String(r.rankRaw));
+      const ret = parseNumericString(
+        typeof r.ret === 'string' ? r.ret : String(r.ret),
+      );
+      const holdDaysRaw = r.holdDays;
       return {
         sourceIdx,
-        tsCode: r.tsCode,
-        signalDate: r.signalDate,
-        buyDate: r.buyDate,
-        exitDate: r.exitDate,
+        tsCode: r.tsCode as string,
+        signalDate: r.signalDate as string,
+        buyDate: r.buyDate as string,
+        exitDate: r.exitDate as string,
         ret: ret ?? 0,
-        holdDays: typeof r.holdDays === 'number' ? r.holdDays : parseInt(String(r.holdDays), 10),
-        rankValue,
+        holdDays:
+          typeof holdDaysRaw === 'number'
+            ? holdDaysRaw
+            : parseInt(String(holdDaysRaw), 10),
+        // 综合排序分在引擎算；loader 统一写 null（spec 06 §factorValues 组装与 null）。
+        rankValue: null,
+        factorValues: buildFactorValues(keys, r),
       };
     });
   }
