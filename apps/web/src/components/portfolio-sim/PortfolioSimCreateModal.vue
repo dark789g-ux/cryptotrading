@@ -49,7 +49,7 @@
           :key="i"
           :index="i"
           :model="src"
-          :schemes="schemeOptions"
+          :schemes="schemes"
           :removable="sources.length > 1"
           :disabled="false"
           @update="(p) => updateSource(i, p)"
@@ -143,9 +143,10 @@ import {
   useMessage,
 } from 'naive-ui'
 import AppModal from '../common/AppModal.vue'
-import PortfolioSimSourceRow, { type SchemeOption } from './PortfolioSimSourceRow.vue'
+import PortfolioSimSourceRow from './PortfolioSimSourceRow.vue'
 import CircuitBreakerPanel from './CircuitBreakerPanel.vue'
 import { signalStatsApi } from '../../api/modules/strategy/signalStats'
+import type { SignalTestWithLatestRun } from '../../api/modules/strategy/signalStats'
 import { usePortfolioSimStore } from '../../stores/portfolioSim'
 import type {
   CreatePortfolioSimDto,
@@ -198,19 +199,12 @@ function freshSource(): PortfolioSimSource {
 
 const sources = ref<PortfolioSimSource[]>([freshSource()])
 
-// ── 方案选项（signal-tests 列表 → 含 completed run id）────────────────────────
-const schemeOptions = ref<SchemeOption[]>([])
+// ── 方案列表（signal-tests 原始结果，含 latestRun，供 RunPicker 二级下拉用）──────
+const schemes = ref<SignalTestWithLatestRun[]>([])
 
 async function loadSchemes() {
   try {
-    const tests = await signalStatsApi.findAll()
-    schemeOptions.value = tests.map((t) => ({
-      label: t.name,
-      value: t.id,
-      // latestRun 是该方案最近一次 run（含 running/failed）；仅 completed 才可用作源
-      completedRunId:
-        t.latestRun && t.latestRun.status === 'completed' ? t.latestRun.id : null,
-    }))
+    schemes.value = await signalStatsApi.findAll()
   } catch (e) {
     message.warning(e instanceof Error ? e.message : '加载信号方案列表失败')
   }

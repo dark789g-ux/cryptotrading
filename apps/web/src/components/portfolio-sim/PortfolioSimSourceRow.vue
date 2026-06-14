@@ -24,36 +24,15 @@
       </n-space>
     </div>
 
-    <!-- 方案选择 / 高级手填 runId -->
+    <!-- 信号源：三态选择器（选方案+历史 run / 手填 uuid / 新建信号源） -->
     <div class="src-row__field">
-      <div class="src-row__field-label">
-        信号源
-        <n-switch v-model:value="advanced" size="small" :disabled="disabled" />
-        <span class="src-row__hint">{{ advanced ? '高级：手填 run id' : '选方案（用其最新 completed run）' }}</span>
-      </div>
-      <template v-if="!advanced">
-        <n-select
-          :value="schemeId"
-          :options="schemeOptions"
-          placeholder="选择一个已完成的信号方案"
-          size="small"
-          filterable
-          :disabled="disabled"
-          @update:value="onSchemeChange"
-        />
-        <div v-if="schemeId && !resolvedRunId" class="src-row__warn">
-          该方案最新 run 非 completed，无法纳入；请改用高级模式手填某个 completed run id。
-        </div>
-      </template>
-      <template v-else>
-        <n-input
-          :value="model.runId"
-          placeholder="粘贴 signal_test_run 的 uuid"
-          size="small"
-          :disabled="disabled"
-          @update:value="(v: string) => patch({ runId: v.trim() })"
-        />
-      </template>
+      <div class="src-row__field-label">信号源</div>
+      <PortfolioSimSourceRunPicker
+        :run-id="model.runId"
+        :schemes="schemes"
+        :disabled="disabled"
+        @update="patch"
+      />
     </div>
 
     <!-- label -->
@@ -167,15 +146,17 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NButton, NInput, NInputNumber, NSelect, NSlider, NSpace, NSwitch } from 'naive-ui'
+import { NButton, NInput, NInputNumber, NSelect, NSlider, NSpace } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import type {
   PortfolioSimSource,
   RankFactor,
   SizingConfig,
 } from '../../api/modules/strategy/portfolioSim'
+import type { SignalTestWithLatestRun } from '../../api/modules/strategy/signalStats'
 import RankSpecEditor from './RankSpecEditor.vue'
 import SizingFields from './SizingFields.vue'
+import PortfolioSimSourceRunPicker from './PortfolioSimSourceRunPicker.vue'
 import {
   QUADRANT_PRESETS,
   QUADRANT_PRESET_LABELS,
@@ -193,18 +174,10 @@ function resolveFactors(src: PortfolioSimSource): RankFactor[] {
   return [{ factor: src.rankField, weight: 1, dir: src.rankDir }]
 }
 
-/** 可选方案（来自 signal-tests 列表，已过滤为含 completed run 者由父级控制 disabled 提示）。 */
-export interface SchemeOption extends SelectOption {
-  label: string
-  value: string
-  /** 该方案最新 completed run 的 id；null 表示最新 run 非 completed。 */
-  completedRunId: string | null
-}
-
 const props = defineProps<{
   index: number
   model: PortfolioSimSource
-  schemes: SchemeOption[]
+  schemes: SignalTestWithLatestRun[]
   removable: boolean
   disabled: boolean
 }>()
@@ -214,8 +187,6 @@ const emit = defineEmits<{
   (e: 'remove'): void
 }>()
 
-const advanced = ref(false)
-const schemeId = ref<string | null>(null)
 const quadrantPreset = ref<QuadrantPreset>('none')
 
 /** 当前排序因子数组（rankSpec 优先，legacy 兼容）。 */
@@ -224,14 +195,6 @@ const rankFactors = computed<RankFactor[]>(() => resolveFactors(props.model))
 /** sizing 模型（缺省回落 DEFAULT_SIZING，使子组件总有完整对象可编辑）。 */
 const sizingModel = computed<SizingConfig>(() => props.model.sizing ?? DEFAULT_SIZING)
 
-const schemeOptions = computed<SelectOption[]>(() =>
-  props.schemes.map((s) => ({
-    label: s.completedRunId ? s.label : `${s.label}（无 completed run）`,
-    value: s.value,
-    disabled: !s.completedRunId,
-  })),
-)
-
 const quadrantOptions = computed<SelectOption[]>(() =>
   (Object.keys(QUADRANT_PRESET_LABELS) as QuadrantPreset[]).map((k) => ({
     label: QUADRANT_PRESET_LABELS[k],
@@ -239,20 +202,8 @@ const quadrantOptions = computed<SelectOption[]>(() =>
   })),
 )
 
-/** 当前选中方案解析出的 run id（completed 才有）。 */
-const resolvedRunId = computed<string | null>(() => {
-  if (!schemeId.value) return null
-  return props.schemes.find((s) => s.value === schemeId.value)?.completedRunId ?? null
-})
-
 function patch(p: Partial<PortfolioSimSource>) {
   emit('update', p)
-}
-
-function onSchemeChange(v: string) {
-  schemeId.value = v
-  const runId = props.schemes.find((s) => s.value === v)?.completedRunId ?? ''
-  patch({ runId })
 }
 
 function onQuadrantChange(v: QuadrantPreset) {
@@ -346,11 +297,6 @@ function onSizingPatch(patchSizing: Partial<SizingConfig>) {
   gap: 8px;
 }
 
-.src-row__hint {
-  font-size: 11px;
-  color: var(--color-text-muted, #aaa);
-}
-
 .src-row__val {
   color: var(--color-primary, #2080f0);
   font-variant-numeric: tabular-nums;
@@ -360,10 +306,5 @@ function onSizingPatch(patchSizing: Partial<SizingConfig>) {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.src-row__warn {
-  font-size: 11px;
-  color: #d03050;
 }
 </style>
