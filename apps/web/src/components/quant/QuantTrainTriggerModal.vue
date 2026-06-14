@@ -97,7 +97,7 @@
         data-testid="train-submit-btn"
         @click="onSubmit"
       >
-        提交
+        保存草稿
       </n-button>
     </template>
   </AppModal>
@@ -266,8 +266,9 @@ async function onSubmit() {
       run_type: payload.run_type,
       params: payload.params,
       priority: form.priority,
+      as_draft: true,
     })
-    msg.success(`已提交，job_id=${job.id.slice(0, 8)}…`)
+    msg.success(`草稿已保存，job_id=${job.id.slice(0, 8)}…`)
     emit('submitted', job.id)
     emit('update:show', false)
     router.push({ name: 'quant-jobs', query: { highlight: job.id } })

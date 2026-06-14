@@ -124,6 +124,7 @@ interface RunTypeOption extends SelectOption {
 }
 
 const statusOptions: StatusOption[] = [
+  { label: '草稿', value: 'draft' },
   { label: 'pending', value: 'pending' },
   { label: 'running', value: 'running' },
   { label: 'success', value: 'success' },
@@ -148,6 +149,7 @@ const runTypeOptions: RunTypeOption[] = [
 ]
 
 const statusTagMap: Record<JobStatus, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
+  draft: 'default',
   pending: 'info',
   running: 'info',
   success: 'success',
@@ -166,7 +168,8 @@ const columns = computed<DataTableColumns<JobRow>>(() => [
     key: 'status',
     width: 100,
     render(row) {
-      return h(NTag, { type: statusTagMap[row.status], size: 'small' }, { default: () => row.status })
+      const label = row.status === 'draft' ? '草稿' : row.status
+      return h(NTag, { type: statusTagMap[row.status], size: 'small' }, { default: () => label })
     },
   },
   {
@@ -224,22 +227,37 @@ const columns = computed<DataTableColumns<JobRow>>(() => [
   {
     title: '操作',
     key: 'actions',
-    width: 120,
+    width: 150,
     render(row) {
-      const canCancel = row.status === 'pending' || row.status === 'running'
-      return h('div', { class: 'row-actions' }, [
+      // 草稿可取消（后端走直连 cancelled，6.3.4）；pending/running 走 cancel_requested
+      const canCancel =
+        row.status === 'draft' || row.status === 'pending' || row.status === 'running'
+      const actions = [
         h(NButton, {
           size: 'tiny',
           quaternary: true,
           onClick: () => openDetail(row),
         }, { default: () => '详情' }),
+      ]
+      if (row.status === 'draft') {
+        actions.push(
+          h(NButton, {
+            size: 'tiny',
+            quaternary: true,
+            type: 'primary',
+            onClick: () => onDispatch(row),
+          }, { default: () => '运行' }),
+        )
+      }
+      actions.push(
         h(NButton, {
           size: 'tiny',
           quaternary: true,
           disabled: !canCancel || row.cancelRequested,
           onClick: () => onCancel(row),
         }, { default: () => (row.cancelRequested ? '已请求取消' : '取消') }),
-      ])
+      )
+      return h('div', { class: 'row-actions' }, actions)
     },
   },
 ])
@@ -328,9 +346,13 @@ function openDetail(row: JobRow) {
 }
 
 function onCancel(row: JobRow) {
+  const content =
+    row.status === 'draft'
+      ? `草稿将直接置为 cancelled；id=${row.id.slice(0, 8)}…`
+      : `worker 将在下一次心跳前响应；id=${row.id.slice(0, 8)}…`
   dialog.warning({
     title: '请求取消该作业？',
-    content: `worker 将在下一次心跳前响应；id=${row.id.slice(0, 8)}…`,
+    content,
     positiveText: '确认取消',
     negativeText: '不取消',
     onPositiveClick: async () => {
@@ -340,6 +362,24 @@ function onCancel(row: JobRow) {
         await reload()
       } catch (e) {
         msg.error(`取消失败：${(e as Error).message}`)
+      }
+    },
+  })
+}
+
+function onDispatch(row: JobRow) {
+  dialog.info({
+    title: '发起该草稿任务运行？',
+    content: `草稿将转为 pending，worker 随后捞取执行；id=${row.id.slice(0, 8)}…`,
+    positiveText: '确认运行',
+    negativeText: '不运行',
+    onPositiveClick: async () => {
+      try {
+        await quantApi.dispatchJob(row.id)
+        msg.success('已发起运行')
+        await reload()
+      } catch (e) {
+        msg.error(`发起失败：${(e as Error).message}`)
       }
     },
   })

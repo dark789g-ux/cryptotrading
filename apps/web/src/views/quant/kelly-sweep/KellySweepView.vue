@@ -40,7 +40,7 @@
             :disabled="submitting"
             @click="onSubmit"
           >
-            发起扫描
+            保存草稿
           </n-button>
           <span v-if="runningWarning" class="warn-hint">
             ⚠ 已有 kelly_sweep 任务运行中，确认继续？
@@ -87,6 +87,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { NAlert, NButton, NEmpty, NSelect } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import ProgressLine from '@/components/quant/ProgressLine.vue'
@@ -96,6 +97,7 @@ import { useKellySweepStore } from '@/stores/kellySweep'
 import { kellySweepApi, type SweepParams } from '@/api/modules/quant/kellySweep'
 
 const store = useKellySweepStore()
+const router = useRouter()
 
 const submitting = ref(false)
 const submitError = ref('')
@@ -142,7 +144,7 @@ async function onHistorySelect(jobId: string | null) {
   }
 }
 
-// ---------- 发起扫描 ----------
+// ---------- 保存草稿（M2 草稿态：扫描任务也默认建草稿，去作业队列点「运行」发起） ----------
 async function onSubmit() {
   submitError.value = ''
   runningWarning.value = false
@@ -153,12 +155,11 @@ async function onSubmit() {
     if (history.total > 0) {
       runningWarning.value = true
     }
-    const job = await kellySweepApi.createSweepJob(store.config)
-    store.setCurrentJob(job.id)
-    // 刷新历史列表
-    await store.loadHistory()
+    const job = await kellySweepApi.createSweepJob(store.config, { asDraft: true })
+    // 草稿不入队，无进度可订阅；落作业队列查看草稿行并手动发起运行
+    router.push({ name: 'quant-jobs', query: { highlight: job.id } })
   } catch (e) {
-    submitError.value = e instanceof Error ? e.message : '发起失败'
+    submitError.value = e instanceof Error ? e.message : '保存草稿失败'
   } finally {
     submitting.value = false
   }

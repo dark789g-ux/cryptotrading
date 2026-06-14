@@ -203,6 +203,8 @@ describe('QuantTrainTriggerModal', () => {
     // 新流程不再传 label_ref
     expect('label_ref' in body).toBe(false)
     expect((body.params as Record<string, unknown>).feature_set_id).toBe('fs-v1-20260517')
+    // M2 草稿态：触发入口默认建草稿，as_draft=true
+    expect(body.as_draft).toBe(true)
   })
 })
 

@@ -148,6 +148,7 @@ export type JobRunType =
   | 'kelly_sweep'
 
 export type JobStatus =
+  | 'draft'
   | 'pending'
   | 'running'
   | 'success'
@@ -536,8 +537,21 @@ export const quantApi = {
     max_attempts?: number
     /** snake_case：与后端 DTO label_ref 字段完全对齐，禁止改成 camelCase（wire 键名即此） */
     label_ref?: LabelRef
+    /**
+     * true → 后端落 status=draft（worker 不捞）；缺省 / false 落 pending（向后兼容，M2 草稿态）。
+     * snake_case：与后端 CreateJobDto.as_draft 字段对齐（wire 键名即此）。
+     */
+    as_draft?: boolean
   }): Promise<JobRow> {
     return post<JobRow>(`${API_BASE}/quant/jobs`, body)
+  },
+
+  /**
+   * 手动发起草稿任务运行：draft → pending（M2 §6.3.3）。
+   * 后端 `POST /quant/jobs/:id/dispatch`；非草稿任务 → 409，任务不存在 → 404。
+   */
+  dispatchJob(id: string): Promise<{ jobId: string }> {
+    return post<{ jobId: string }>(`${API_BASE}/quant/jobs/${encodeURIComponent(id)}/dispatch`)
   },
 
   /**

@@ -1,6 +1,6 @@
 <template>
   <div class="rp">
-    <!-- 来源方式三选一 -->
+    <!-- 来源方式二选一 -->
     <div class="rp__field">
       <div class="rp__label">来源方式</div>
       <n-radio-group
@@ -11,7 +11,6 @@
       >
         <n-radio-button value="scheme">选已有方案</n-radio-button>
         <n-radio-button value="manual">手填 uuid</n-radio-button>
-        <n-radio-button value="new">新建信号源</n-radio-button>
       </n-radio-group>
     </div>
 
@@ -42,7 +41,8 @@
           @update:value="onRunChange"
         />
         <div v-if="schemeId && !runsLoading && !hasCompletedRun" class="rp__warn">
-          无可用 completed run，请新建信号源或换方案
+          无可用 completed run，
+          <a class="rp__link" @click="goSignalStats">去『信号统计』新建并运行方案</a>
         </div>
       </div>
 
@@ -64,42 +64,13 @@
         />
       </div>
     </template>
-
-    <!-- ③ 新建信号源 -->
-    <template v-else>
-      <div class="rp__field">
-        <div class="rp__label">新建信号源</div>
-        <n-button size="small" :disabled="disabled" @click="showNewModal = true">
-          定义新信号源…
-        </n-button>
-        <div v-if="newRunState" class="rp__new-state">
-          <template v-if="newRunState.status === 'running'">
-            <span class="rp__running">运行中 {{ newRunPct }}%</span>
-          </template>
-          <template v-else-if="newRunState.status === 'completed'">
-            <span class="rp__ok">
-              ✓ 已完成 · 样本{{ newRunState.sampleCount ?? '-' }} ·
-              胜{{ newRunState.winRate != null ? fmtRetPct(newRunState.winRate) : '-' }}
-            </span>
-          </template>
-          <template v-else-if="newRunState.status === 'failed'">
-            <span class="rp__err">✗ 失败：{{ newRunState.errorMessage ?? '未知错误' }}</span>
-          </template>
-        </div>
-        <div v-if="newPollError" class="rp__warn">{{ newPollError }}</div>
-      </div>
-    </template>
-
-    <PortfolioSimNewSourceModal
-      v-model:show="showNewModal"
-      @created="onNewSourceCreated"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
-import { NButton, NInput, NRadioButton, NRadioGroup, NSelect, useMessage } from 'naive-ui'
+import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { NInput, NRadioButton, NRadioGroup, NSelect, useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import type {
   SignalTestRun,
@@ -112,9 +83,8 @@ import {
 } from '../strategy/signalStatsFormatters'
 import { formatUTCDateTime } from '../symbols/a-shares/aSharesFormatters'
 import { usePortfolioSimSourceRuns } from './composables/usePortfolioSimSourceRuns'
-import PortfolioSimNewSourceModal from './PortfolioSimNewSourceModal.vue'
 
-type SourceMethod = 'scheme' | 'manual' | 'new'
+type SourceMethod = 'scheme' | 'manual'
 
 /** 历史 run 二级下拉选项（vue3 规范：自定义选项须 extends SelectOption）。 */
 interface RunOption extends SelectOption {
@@ -134,20 +104,16 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
-const { loadRuns, latestCompleted, startPolling, stopAll } = usePortfolioSimSourceRuns()
+const router = useRouter()
+const { loadRuns, latestCompleted } = usePortfolioSimSourceRuns()
 
 // ── 本组件局部状态（testId 等全程不出本组件） ──────────────────────────────────
 const sourceMethod = ref<SourceMethod>('scheme')
 const schemeId = ref<string | null>(null)
-const testId = ref<string | null>(null) // 内部状态：查 listRuns / 轮询 / 摘要用，绝不 emit
+const testId = ref<string | null>(null) // 内部状态：查 listRuns / 摘要用，绝不 emit
 const runs = ref<SignalTestRun[]>([])
 const runsLoading = ref(false)
 const selectedRunId = ref<string | null>(null)
-
-// 路径 B：新建源的运行态与轮询异常
-const showNewModal = ref(false)
-const newRunState = ref<SignalTestRun | null>(null)
-const newPollError = ref<string>('')
 
 // ── 路径 A：方案 / 历史 run ─────────────────────────────────────────────────────
 const schemeOptions = computed<SelectOption[]>(() =>
@@ -241,39 +207,18 @@ function onRunChange(id: string) {
   emit('update', { runId: id })
 }
 
-// ── 路径 B：新建信号源轮询 ──────────────────────────────────────────────────────
-const newRunPct = computed<number>(() => {
-  const r = newRunState.value
-  if (!r || r.progressTotal <= 0) return 0 // 防除零
-  return Math.min(100, Math.round((r.progressScanned / r.progressTotal) * 100))
-})
-
-function onNewSourceCreated({ runId, testId: newTestId }: { runId: string; testId: string }) {
-  testId.value = newTestId // 收下 testId 自用，绝不 emit
-  newRunState.value = null
-  newPollError.value = ''
-  emit('update', { runId }) // 只把契约字段吐给父
-  startPolling(newTestId, {
-    onUpdate: (run) => {
-      newRunState.value = run
-    },
-    onError: (err) => {
-      newPollError.value = `轮询进度异常：${err.message}`
-    },
-  })
+/** 跳转「信号统计」页：用户在那里新建并运行方案，跑完回此选用历史 run。 */
+function goSignalStats() {
+  router.push({ name: 'signal-stats' })
 }
 
-// ── 来源方式切换 / 卸载：清态 + 停轮询，防脏 runId 与轮询泄漏 ─────────────────────
+// ── 来源方式切换：清态，防脏 runId ────────────────────────────────────────────
 function resetSourceState() {
-  stopAll()
   schemeId.value = null
   testId.value = null
   runs.value = []
   runsLoading.value = false
   selectedRunId.value = null
-  newRunState.value = null
-  newPollError.value = ''
-  showNewModal.value = false
 }
 
 function onMethodChange(m: SourceMethod) {
@@ -281,10 +226,6 @@ function onMethodChange(m: SourceMethod) {
   resetSourceState()
   emit('update', { runId: '' }) // 切换来源方式一律清空契约字段
 }
-
-onUnmounted(() => {
-  stopAll()
-})
 </script>
 
 <style scoped>
@@ -317,20 +258,9 @@ onUnmounted(() => {
   color: #d03050;
 }
 
-.rp__new-state {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.rp__running {
+.rp__link {
   color: var(--color-primary, #2080f0);
-}
-
-.rp__ok {
-  color: #18a058;
-}
-
-.rp__err {
-  color: #d03050;
+  cursor: pointer;
+  text-decoration: underline;
 }
 </style>

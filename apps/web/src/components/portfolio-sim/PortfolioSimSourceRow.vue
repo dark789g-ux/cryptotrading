@@ -24,7 +24,7 @@
       </n-space>
     </div>
 
-    <!-- 信号源：三态选择器（选方案+历史 run / 手填 uuid / 新建信号源） -->
+    <!-- 信号源：两态选择器（选方案+历史 run / 手填 uuid） -->
     <div class="src-row__field">
       <div class="src-row__field-label">信号源</div>
       <PortfolioSimSourceRunPicker

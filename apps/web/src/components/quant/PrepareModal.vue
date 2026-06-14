@@ -129,7 +129,7 @@
         :disabled="!canSubmit"
         @click="onSubmit"
       >
-        开始备料
+        保存草稿
       </n-button>
     </template>
   </AppModal>
@@ -385,9 +385,10 @@ async function onSubmit() {
       params,
       priority: form.priority,
       label_ref: labelRef,
+      as_draft: true,
     })
 
-    msg.success(`备料任务已入队，job_id=${job.id.slice(0, 8)}…`)
+    msg.success(`备料草稿已保存，job_id=${job.id.slice(0, 8)}…`)
     emit('submitted', job.id)
     emit('update:show', false)
     router.push({ name: 'quant-jobs', query: { highlight: job.id } })

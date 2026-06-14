@@ -244,9 +244,14 @@ export interface KellyPageResponse<T> {
 export const kellySweepApi = {
   /**
    * 发起扫描。复用 quantApi.createJob，传 run_type='kelly_sweep'。
+   * asDraft=true → 落草稿（M2 草稿态，默认走「保存草稿」入口）；缺省走 pending（向后兼容）。
    */
-  createSweepJob(params: SweepParams): Promise<JobRow> {
-    return quantApi.createJob({ run_type: 'kelly_sweep', params: params as unknown as Record<string, unknown> })
+  createSweepJob(params: SweepParams, opts?: { asDraft?: boolean }): Promise<JobRow> {
+    return quantApi.createJob({
+      run_type: 'kelly_sweep',
+      params: params as unknown as Record<string, unknown>,
+      as_draft: opts?.asDraft,
+    })
   },
 
   /**
