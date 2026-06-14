@@ -98,6 +98,7 @@ function makeTest(mode: SignalTestExitMode): SignalTest {
     maxHold: 10,
     bandLockParams: null,
     phaseLockParams: null,
+    backtestConfig: null,
     universe: { type: 'all' },
     dateStart: '20260101',
     dateEnd: '20260601',

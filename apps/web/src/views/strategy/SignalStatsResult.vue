@@ -48,6 +48,17 @@
         >
           <SignalTradesPanel v-if="latestRun.status === 'completed'" :run-id="latestRun.id" />
         </n-tab-pane>
+        <n-tab-pane
+          v-if="hasBacktest"
+          name="backtest"
+          tab="迷你回测"
+          :disabled="latestRun.status !== 'completed'"
+        >
+          <template v-if="latestRun.status === 'completed'">
+            <SignalTestBacktestMetricsGrid :run="latestRun" />
+            <SignalTestEquityChart :test-id="test.id" :run-id="latestRun.id" />
+          </template>
+        </n-tab-pane>
       </n-tabs>
     </template>
 
@@ -63,6 +74,8 @@ import RetHistogram from '../../components/strategy/RetHistogram.vue'
 import SignalStatsMetricsGrid from '../../components/strategy/SignalStatsMetricsGrid.vue'
 import SignalTradesPanel from '../../components/strategy/SignalTradesPanel.vue'
 import SignalTestConfigPanel from '../../components/strategy/SignalTestConfigPanel.vue'
+import SignalTestBacktestMetricsGrid from '../../components/strategy/SignalTestBacktestMetricsGrid.vue'
+import SignalTestEquityChart from '../../components/strategy/SignalTestEquityChart.vue'
 import SignalStatsRunProgress from './SignalStatsRunProgress.vue'
 import { fmtTradeDate, exitModeSummary } from '../../components/strategy/signalStatsFormatters'
 
@@ -92,14 +105,22 @@ const conditionLabel = computed(
   () => `买${props.test.buyConditions.length}/卖${props.test.exitConditions?.length ?? 0}条`,
 )
 
+// 回测层：run 有净值层（finalNav != null）才显「迷你回测」tab；旧 run 不显（零回归）。
+const hasBacktest = computed(() => latestRun.value?.finalNav != null)
+
 // ── Tabs ────────────────────────────────────────────────────────────────────────
 
-const activeTab = ref<'config' | 'histogram' | 'trades'>('histogram')
+const activeTab = ref<'config' | 'histogram' | 'trades' | 'backtest'>('histogram')
 
 watch(
   () => latestRun.value?.status,
   (status) => {
-    if (status !== 'completed' && (activeTab.value === 'histogram' || activeTab.value === 'trades')) {
+    if (
+      status !== 'completed' &&
+      (activeTab.value === 'histogram' ||
+        activeTab.value === 'trades' ||
+        activeTab.value === 'backtest')
+    ) {
       activeTab.value = 'config'
     }
   },

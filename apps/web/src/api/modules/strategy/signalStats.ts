@@ -1,9 +1,40 @@
 import { API_BASE, post, put, del, request } from '../../client'
 import type { StrategyConditionItem } from './strategyConditions'
+import type {
+  PortfolioSimCostRates,
+  RankSpec,
+  SizingConfig,
+  CircuitBreaker,
+} from './portfolioSim'
 
 export interface SignalTestUniverse {
   type: 'all' | 'list'
   tsCodes?: string[]
+}
+
+/**
+ * 迷你回测配置（扁平单源 PortfolioSimConfig，与后端 SignalTestBacktestConfig 对齐）。
+ * null/缺省 = 不跑回测层（信号质量层零漂移）。子类型复用 portfolioSim 镜像类型。
+ */
+export interface SignalTestBacktestConfig {
+  /** 初始资金（首日 NAV_ref）。 */
+  initialCapital: number
+  /** 交易成本费率（单边）。 */
+  cost: PortfolioSimCostRates
+  /** 锚点模式：约束停用、费率全 0、每笔必 taken。 */
+  anchorMode: boolean
+  /** 单票权重占 NAV_ref，(0,1]。 */
+  positionRatio: number
+  /** 最大同时在仓数；null = 不限。 */
+  maxPositions: number | null
+  /** 总敞口上限占 NAV_ref；null = 不限。 */
+  exposureCap: number | null
+  /** 多因子排序规格；factors=[] → 不排序（按 ts_code 升序）。 */
+  rankSpec: RankSpec
+  /** 动态仓位配置；mode='fixed' = 固定 positionRatio。 */
+  sizing: SizingConfig
+  /** 账户级熔断；null = 全关。 */
+  circuitBreaker: CircuitBreaker | null
 }
 
 export type SignalTestExitMode = 'fixed_n' | 'strategy' | 'trailing_lock' | 'phase_lock'
@@ -33,6 +64,8 @@ export interface SignalTest {
   maxHold: number | null
   bandLockParams: BandLockParams | null
   phaseLockParams: PhaseLockParams | null
+  /** 迷你回测配置；null = 不跑回测层。 */
+  backtestConfig: SignalTestBacktestConfig | null
   universe: SignalTestUniverse
   dateStart: string
   dateEnd: string
@@ -59,6 +92,8 @@ export interface CreateSignalTestDto {
   universe: SignalTestUniverse
   dateStart: string
   dateEnd: string
+  /** 迷你回测配置（可选）；缺省 / null = 不跑回测层（零漂移）。 */
+  backtestConfig?: SignalTestBacktestConfig | null
 }
 
 export type UpdateSignalTestDto = Partial<CreateSignalTestDto>
@@ -81,9 +116,33 @@ export interface SignalTestRun {
   avgHoldDays: string | null
   worstTradeRet: string | null
   bestTradeRet: string | null
+  // ── 迷你回测层指标（均 nullable；null = 该 run 未跑回测层）──────────────────
+  finalNav: string | null
+  totalRet: string | null
+  annualRet: string | null
+  maxDrawdown: string | null
+  sharpe: string | null
+  calmar: string | null
+  dailyWinRate: string | null
+  dailyKelly: string | null
+  nTaken: number | null
+  nSkipped: number | null
+  totalCosts: string | null
   filteredCount: number
   createdAt: string
   completedAt: string | null
+}
+
+/** 迷你回测逐日净值曲线行（signal_test_equity，trade_date 升序；numeric → string）。 */
+export interface SignalTestEquityRow {
+  id: string
+  runId: string
+  tradeDate: string
+  nav: string
+  cash: string
+  dailyRet: string
+  exposure: string
+  positionCount: number
 }
 
 export interface RetHistogramBin {
@@ -196,6 +255,13 @@ export const signalStatsApi = {
   getRetHistogram(runId: string, bins = 25) {
     return request<RetHistogramResult>(
       `${API_BASE}/signal-tests/runs/${runId}/ret-histogram?bins=${bins}`,
+    )
+  },
+
+  /** GET /signal-tests/:id/runs/:runId/equity 迷你回测逐日净值曲线（trade_date 升序）。 */
+  getEquity(testId: string, runId: string) {
+    return request<SignalTestEquityRow[]>(
+      `${API_BASE}/signal-tests/${testId}/runs/${runId}/equity`,
     )
   },
 }
