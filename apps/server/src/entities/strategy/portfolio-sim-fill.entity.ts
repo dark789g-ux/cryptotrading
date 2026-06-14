@@ -7,6 +7,7 @@ import {
   Index,
 } from 'typeorm';
 import { PortfolioSimRunEntity } from './portfolio-sim-run.entity';
+import { SkipReason } from '../../strategy-conditions/portfolio-sim/portfolio-sim.types';
 
 @Entity('portfolio_sim_fill')
 @Index('idx_portfolio_sim_fill_run_status', ['runId', 'status'])
@@ -37,13 +38,10 @@ export class PortfolioSimFillEntity {
   @Column({ type: 'varchar', length: 8 })
   status: 'taken' | 'skipped';
 
+  // skip_reason 列已是 varchar(16)，足以容纳新增 cooldown/drawdown_halt/sized_out（最长 13 字符）；
+  // 此处类型复用 SkipReason 联合，避免与引擎契约脱节（无需 migration，列宽不变）。
   @Column({ type: 'varchar', length: 16, nullable: true, name: 'skip_reason' })
-  skipReason:
-    | 'already_held'
-    | 'slots_full'
-    | 'exposure_cap'
-    | 'cash_short'
-    | null;
+  skipReason: SkipReason | null;
 
   @Column({ type: 'varchar', length: 16, nullable: true, name: 'rank_field' })
   rankField: string | null;

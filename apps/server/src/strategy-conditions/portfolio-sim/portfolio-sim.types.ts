@@ -10,6 +10,96 @@
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 排序契约（rankSpec 统一，保留 legacy 字段）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 多因子排序的因子 KEY 联合（9 值，与 portfolio-sim.factor-registry.ts 注册表 keys 同源）。
+ *
+ * 显式字面量联合而非从注册表派生，以保持本文件「纯类型、不 import 注册表」原则
+ * （避免 types ←→ registry 循环依赖；注册表反向 import 本类型）。
+ * 注册表的 RANK_FACTOR_REGISTRY 必须恰好覆盖这 9 个 key（spec 02 §VALID 集派生）。
+ */
+export type RankFactorKey =
+  | 'pos_120'
+  | 'pos_60'
+  | 'close_ma60_ratio'
+  | 'vol_ratio_60'
+  | 'vol_ratio_120'
+  | 'risk_reward'
+  | 'momentum_60'
+  | 'circ_mv'
+  | 'ml_score';
+
+/** 单个排序因子：因子 KEY + 权重 + 方向。 */
+export interface RankFactor {
+  /** 因子 KEY（注册表白名单内）。 */
+  factor: RankFactorKey;
+  /** 该因子在 composite 综合分中的权重（>0）。 */
+  weight: number;
+  /** 排序方向：asc=值小者优先、desc=值大者优先。 */
+  dir: 'asc' | 'desc';
+}
+
+/**
+ * 排序规格：因子数组。
+ * [] = none（按 ts_code 升序）、len1 = 单因子、len>1 = composite 多因子加权。
+ */
+export interface RankSpec {
+  factors: RankFactor[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 仓位契约（Phase 2，SizingConfig）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 动态仓位配置（Phase 2）。缺省 = fixed（固定 positionRatio）。
+ * fixed 不读 floorMult/capMult/kellyFraction/kellyMaxMult 字段。
+ */
+export interface SizingConfig {
+  /** 仓位模式。缺省 'fixed'。 */
+  mode: 'fixed' | 'signal_weighted' | 'source_kelly';
+  /** signal_weighted 最差信号乘子，默认 0.5（须 >0）。 */
+  floorMult: number;
+  /** signal_weighted 最优信号乘子，默认 1.5（须 ≥ floorMult）。 */
+  capMult: number;
+  /** source_kelly half-kelly 系数，默认 0.5，范围 (0,1]。 */
+  kellyFraction: number;
+  /** source_kelly 乘子上限，默认 1.0，范围 (0,∞)。 */
+  kellyMaxMult: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 熔断契约（Phase 3，CircuitBreaker，挂 PortfolioSimConfig 账户级）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 账户级熔断配置（Phase 3）。缺省 = 全关。
+ * 连亏熔断（cooldown）+ 回撤熔断（drawdown）双触发，anchorMode 下强制全旁路。
+ */
+export interface CircuitBreaker {
+  /** 连亏熔断开关（移植 cooldown.ts）。 */
+  enableCooldown: boolean;
+  /** 连亏 N 笔触发，正整数。 */
+  consecutiveLossesThreshold: number;
+  /** 基础冷却交易日数。 */
+  baseCooldownDays: number;
+  /** 冷却上限（≥ base）。 */
+  maxCooldownDays: number;
+  /** 每次亏损延长天数（非负整数）。 */
+  extendOnLoss: number;
+  /** 每次盈利缩短天数（非负整数）。 */
+  reduceOnProfit: number;
+  /** 回撤熔断开关。 */
+  enableDrawdownHalt: boolean;
+  /** 自峰值回撤 ≥ 此值停开仓，如 0.15。 */
+  drawdownHaltPct: number;
+  /** 回升到回撤 ≤ 此值恢复（滞回），须 ≤ haltPct。 */
+  drawdownResumePct: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 配置类型
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -25,10 +115,17 @@ export interface PortfolioSimSource {
   maxPositions: number | null;
   /** 该策略总敞口上限占 NAV_ref；null = 不限。严格 > cap 才 skip(exposure_cap)。 */
   exposureCap: number | null;
-  /** 同日候选超额时的排序字段（决定优先级）。'none' = 不排序（按 ts_code 升序）。 */
+  /**
+   * 【保留 legacy】同日候选超额时的单排序字段（决定优先级）。'none' = 不排序（按 ts_code 升序）。
+   * 引擎统一经 resolveRankSpec 适配为 rankSpec 消费，不再直接读此字段。
+   */
   rankField: 'pos_120' | 'circ_mv' | 'none';
-  /** 排序方向（仅 rankField !== 'none' 时有意义）。 */
+  /** 【保留 legacy】排序方向（仅 rankField !== 'none' 时有意义）。 */
   rankDir: 'asc' | 'desc';
+  /** 【新增】多因子排序规格；存在且 factors 非空 → 接管排序（优先于 rankField）。 */
+  rankSpec?: RankSpec;
+  /** 【新增】动态仓位配置（Phase 2）；缺省 = fixed。 */
+  sizing?: SizingConfig;
 }
 
 /** 交易成本费率（均为小数费率，单边）。 */
@@ -58,6 +155,8 @@ export interface PortfolioSimConfig {
    * 此时每笔信号必 taken，且 realizedRetNet ≡ ret（代数恒等）。
    */
   anchorMode: boolean;
+  /** 【新增】账户级熔断（Phase 3）；缺省 = 全关。anchorMode 下强制全旁路。 */
+  circuitBreaker?: CircuitBreaker;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,8 +184,16 @@ export interface EngineTrade {
   ret: number;
   /** 持仓交易日数（来自 signal_test_trade，仅透传；引擎不依赖其做时序）。 */
   holdDays: number;
-  /** 排序字段值（rankField 对应）；缺失（null）项排在有值项之后。 */
+  /**
+   * 【legacy 兼容保留】排序字段值（rankField 对应）；缺失（null）项排在有值项之后。
+   * 新流程 loader 统一写 null，综合分由引擎 rankAndScore 计算（见 spec 01）。
+   */
   rankValue: number | null;
+  /**
+   * 【新增】多因子原始值（loader 按注册表装载）；composite/单因子排序用。
+   * 缺值因子置 null（LEFT JOIN 未命中 / 列 NULL / momentum 分母 0）。
+   */
+  factorValues?: Record<RankFactorKey, number | null>;
 }
 
 /** 单个交易日的行情（qfq 价）。用于盯市。 */
@@ -155,6 +262,16 @@ export interface EngineFill {
   realizedRetNet?: number;
   /** 该笔买 + 卖费用绝对额合计（成交时给出）。 */
   costsPaid?: number;
+  /**
+   * 【新增】综合排序分 / 单因子值（落 rank_score）；由引擎 rankAndScore 写入。
+   * taken/skipped 均可有（冻结日仍跑 rankAndScore 算分，只是不开仓）。
+   */
+  rankScore?: number | null;
+  /**
+   * 【新增】逐因子原始值透明展示（落 factor_values jsonb）；fills 初始化即从 trade 透传，
+   * 与开仓路径解耦——熔断冻结被 skip 的 fill 也带此字段。
+   */
+  factorValues?: Record<RankFactorKey, number | null>;
 }
 
 /** 开仓被拒绝的原因（按引擎检查顺序）。 */
@@ -162,7 +279,10 @@ export type SkipReason =
   | 'already_held' // 该策略已持有同 ts_code
   | 'slots_full' // 该策略在仓数 >= maxPositions
   | 'exposure_cap' // (该策略持仓市值 + alloc)/NAV_ref > exposureCap（严格 >）
-  | 'cash_short'; // cash < alloc + 买费
+  | 'cash_short' // cash < alloc + 买费
+  | 'cooldown' // 【Phase 3】连亏熔断冷却期内冻结开仓
+  | 'drawdown_halt' // 【Phase 3】回撤熔断停开仓
+  | 'sized_out'; // 【Phase 2】source_kelly 负期望源 alloc≈0
 
 /** 组合回放汇总指标。 */
 export interface EngineSummary {
