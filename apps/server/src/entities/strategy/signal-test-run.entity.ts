@@ -61,6 +61,43 @@ export class SignalTestRunEntity {
   @Column({ type: 'numeric', nullable: true, name: 'best_trade_ret' })
   bestTradeRet: string | null;
 
+  // ---- 迷你回测层指标（spec 03 §3.3，均 nullable）----
+  // null = 该 run 未跑回测层（与 signal_test.backtest_config IS NULL 对应）。
+  // 映射 EngineSummary；与上方信号质量聚合列叠加共存（D2 决策）。
+
+  @Column({ type: 'numeric', nullable: true, name: 'final_nav' })
+  finalNav: string | null;
+
+  @Column({ type: 'numeric', nullable: true, name: 'total_ret' })
+  totalRet: string | null;
+
+  @Column({ type: 'numeric', nullable: true, name: 'annual_ret' })
+  annualRet: string | null;
+
+  @Column({ type: 'numeric', nullable: true, name: 'max_drawdown' })
+  maxDrawdown: string | null;
+
+  @Column({ type: 'numeric', nullable: true, name: 'sharpe' })
+  sharpe: string | null;
+
+  @Column({ type: 'numeric', nullable: true, name: 'calmar' })
+  calmar: string | null;
+
+  @Column({ type: 'numeric', nullable: true, name: 'daily_win_rate' })
+  dailyWinRate: string | null;
+
+  @Column({ type: 'numeric', nullable: true, name: 'daily_kelly' })
+  dailyKelly: string | null;
+
+  @Column({ type: 'int', nullable: true, name: 'n_taken' })
+  nTaken: number | null;
+
+  @Column({ type: 'int', nullable: true, name: 'n_skipped' })
+  nSkipped: number | null;
+
+  @Column({ type: 'numeric', nullable: true, name: 'total_costs' })
+  totalCosts: string | null;
+
   @Column({ type: 'int', default: 0, name: 'filtered_count' })
   filteredCount: number;
 

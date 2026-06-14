@@ -51,6 +51,7 @@ import { StrategyConditionHitEntity } from './entities/strategy/strategy-conditi
 import { SignalTestEntity } from './entities/strategy/signal-test.entity';
 import { SignalTestRunEntity } from './entities/strategy/signal-test-run.entity';
 import { SignalTestTradeEntity } from './entities/strategy/signal-test-trade.entity';
+import { SignalTestEquityEntity } from './entities/strategy/signal-test-equity.entity';
 import { StrategyConditionsModule } from './strategy-conditions/strategy-conditions.module';
 import { MoneyFlowStockEntity } from './entities/money-flow/money-flow-stock.entity';
 import { MoneyFlowIndustryEntity } from './entities/money-flow/money-flow-industry.entity';
@@ -148,6 +149,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           SignalTestEntity,
           SignalTestRunEntity,
           SignalTestTradeEntity,
+          // signal_test_equity（迷你回测逐日净值曲线，spec 2026-06-14-signaltest-minibacktest）
+          SignalTestEquityEntity,
           // signal_rolling_indicator（预计算滚动指标，spec 2026-06-09-signal-rolling-indicators-design）
           SignalRollingIndicatorEntity,
           MoneyFlowStockEntity,
