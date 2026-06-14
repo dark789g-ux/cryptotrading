@@ -6,6 +6,11 @@
 
 ---
 
+## 2026-06-14: 驱动后端异步 job——状态轮询直接打 DB，别经 webbridge evaluate
+**Symptom**: 经 webbridge evaluate 轮询 portfolio-sim run 进度，后台 poll 循环首轮 curl 迟迟不返回（卡在 iter 1）；但 run 本身已在数秒内 success（DB 直查得到）。随后 trigger evaluate 也卡，而 daemon `status` 却健康（running+connected）。
+**Cause**: 先前一条悬空的 evaluate 堵了该 session 的页面命令队列（同 2026-06-10 根因——页面命令排在悬空命令之后）；且后端 job 极快（loader 数秒跑完），等 webbridge 反而比直查 DB 慢。
+**Lesson**: 凡 job 状态有后端可直查的落点（本项目 `docker exec crypto-postgres psql ... SELECT status,phase,annual_ret FROM <run表>`），**轮询一律直接打 DB**——更快、绕开 webbridge session 卡死、不占浏览器 tab。webbridge 只留给「必须登录态」的写操作（create/trigger，fetch 带 cookie）。webbridge 写也卡时：换**新 session** `navigate {newTab:true}` 重建（2026-06-10），登录态是浏览器级持久、新 tab 仍登录。别在 fast backend job 上用 webbridge 轮询循环。
+
 ## 2026-06-14: 验「标签渲染为中文/没落 fallback」——别扫整页找原始枚举 token，name/id 列含字面量是假阳性
 **Symptom**: e2e 验出场模式标签是否中文，扫 `main.innerText` 找原始 token `phase_lock`/`trailing_lock`，命中数 >0，疑似 fallback bug。
 **Cause**: 命中全在 name 列——方案/运行名字本身含这些字面量（如 `trailing_lock_e2e_full`、自造的测试方案名「E2E phase_lock…」），不是标签 fallback。
