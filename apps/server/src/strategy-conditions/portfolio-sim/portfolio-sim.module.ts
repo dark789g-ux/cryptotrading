@@ -25,5 +25,7 @@ import { PortfolioSimLoader } from './portfolio-sim.loader';
   ],
   controllers: [PortfolioSimController],
   providers: [PortfolioSimService, PortfolioSimRunner, PortfolioSimLoader],
+  // signal-stats 迷你回测层（M1）复用 loader 装载引擎输入（spec 04 §4.1）。
+  exports: [PortfolioSimLoader],
 })
 export class PortfolioSimModule {}

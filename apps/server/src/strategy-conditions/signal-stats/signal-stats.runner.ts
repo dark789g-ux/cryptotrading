@@ -20,12 +20,23 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SignalTestRunEntity } from '../../entities/strategy/signal-test-run.entity';
 import { SignalTestTradeEntity } from '../../entities/strategy/signal-test-trade.entity';
-import { SignalTestEntity } from '../../entities/strategy/signal-test.entity';
+import { SignalTestEquityEntity } from '../../entities/strategy/signal-test-equity.entity';
+import {
+  SignalTestEntity,
+  SignalTestBacktestConfig,
+} from '../../entities/strategy/signal-test.entity';
 import { SignalStatsEnumerator } from './signal-stats.enumerator';
 import { SignalStatsSimulator } from './signal-stats.simulator.db';
 import { calcSignalStats } from './signal-stats.metrics';
 import { SimulatedTrade, FilterReason } from './signal-stats.simulator';
 import { ExitConfig } from './signal-stats.simulator';
+import { PortfolioSimLoader } from '../portfolio-sim/portfolio-sim.loader';
+import { runPortfolioSim } from '../portfolio-sim/portfolio-sim.engine';
+import {
+  EngineDailyRow,
+  EngineSummary,
+  PortfolioSimConfig,
+} from '../portfolio-sim/portfolio-sim.types';
 
 /** 按 FilterReason 分组的过滤计数。 */
 interface FilterCounts {
@@ -44,8 +55,11 @@ export class SignalStatsRunner {
     private readonly runRepo: Repository<SignalTestRunEntity>,
     @InjectRepository(SignalTestTradeEntity)
     private readonly tradeRepo: Repository<SignalTestTradeEntity>,
+    @InjectRepository(SignalTestEquityEntity)
+    private readonly equityRepo: Repository<SignalTestEquityEntity>,
     private readonly enumerator: SignalStatsEnumerator,
     private readonly simulator: SignalStatsSimulator,
+    private readonly portfolioSimLoader: PortfolioSimLoader,
   ) {}
 
   /**
@@ -238,10 +252,18 @@ export class SignalStatsRunner {
       await this.insertTradesBatched(runId, trades);
     }
 
-    // ── 8. 落库：更新 run 为 completed + 聚合指标（numeric 列以 string 存，对齐实体约定）
+    // 是否需要跑资金账户层（圈码 ⑤⑥⑦）：backtest_config != null 且有逐笔可回放。
+    const runBacktest = !!test.backtestConfig && trades.length > 0;
+
+    // ── 8. 落库：信号质量层聚合指标（numeric 列以 string 存，对齐实体约定）。
+    //     圈码顺序（spec 02 §2.1 / 04 §4.2）：⑧ status='completed' 必须排在 ⑤⑥⑦ 之后，
+    //     使「completed」严格意味着「连回测层（equity + 回测列）也已落库」——否则前端轮询
+    //     可能在 replaying/writing 中途见到 completed 而过早判定"无回测视图"。
+    //     · 无回测层：本次 update 直接含 status='completed'（与今日逐字一致，零漂移）。
+    //     · 有回测层：本次 update 不含 status（仍 running），跑完 ⑤⑥⑦ 后再单独标 completed。
     const numStr = (v: number | null): string | null => (v === null ? null : String(v));
     await this.runRepo.update(runId, {
-      status: 'completed',
+      ...(runBacktest ? {} : { status: 'completed' as const }),
       progressScanned: total,
       sampleCount: stats.sampleCount,
       winRate: numStr(stats.winRate),
@@ -257,10 +279,177 @@ export class SignalStatsRunner {
       completedAt: new Date(),
     });
 
+    // ── 资金账户层（迷你回测，圈码 ⑤⑥⑦）：独立 try/catch（spec 04 §4.3），
+    //     失败绝不冒泡到 executeRun 顶层 catch（否则会删掉质量层已落库的 trade）。
+    if (runBacktest) {
+      await this.runBacktestLayer(test.backtestConfig!, runId);
+      // ⑧ 终态：质量层 + 回测层均已落库后才标 completed（回测层失败也照常 completed，
+      //    其 catch 内已置回测列 null + error_message，质量数据保留）。
+      await this.runRepo.update(runId, { status: 'completed' });
+    }
+
     this.logger.log(
       `SignalStatsRun ${runId} completed: signals=${signals.length}, trades=${trades.length}, ` +
       `filtered=${filteredCount}, winRate=${stats.winRate?.toFixed(4) ?? 'null'}`,
     );
+  }
+
+  /**
+   * 资金账户层（迷你回测）：复用 portfolio-sim loader + 引擎按 run_id 回放刚落库的逐笔交易。
+   *
+   * 圈码 ⑤ 构造单源 PortfolioSimConfig → loader.load → EngineInput；
+   *      ⑥ runPortfolioSim → EngineResult（phase='replaying'，onProgress 上报）；
+   *      ⑦ phase='writing'：DELETE equity（幂等）→ 批量 insert dailyRows → UPDATE run 11 回测列。
+   *
+   * 错误边界（spec 04 §4.3）：任一步抛错 → logger.error + 回测 11 列置 null + error_message
+   *   记「回测层失败: ...」+ **不 rethrow**；质量层数据（trade/聚合列/completed）保留。
+   */
+  private async runBacktestLayer(
+    backtestConfig: SignalTestBacktestConfig,
+    runId: string,
+  ): Promise<void> {
+    try {
+      // ⑤ 扁平单源 backtest_config → 引擎 PortfolioSimConfig{ sources:[{ runId: 本 runId }] }。
+      const cfg = this.buildSingleSourceConfig(backtestConfig, runId);
+
+      await this.runRepo.update(runId, {
+        phase: 'replaying',
+        progressTotal: 0,
+        progressScanned: 0,
+      });
+
+      const { input } = await this.portfolioSimLoader.load(cfg);
+
+      // ⑥ 引擎回放（纯函数，不落 portfolio_sim_* 表）。onProgress 驱动 replaying 进度。
+      //    用与质量层同款节流器：bump 仅记内存，setInterval 周期 flush，stop 最终矫正。
+      await this.runRepo.update(runId, { progressTotal: input.calendar.length });
+      const replay = this.makePhaseProgress(runId);
+      replay.start();
+      let result;
+      try {
+        result = runPortfolioSim(input, () => replay.bump(1));
+      } finally {
+        await replay.stop();
+      }
+
+      // ⑦ phase='writing'：先 DELETE（幂等重跑）→ 批量 insert dailyRows → UPDATE 回测列。
+      await this.runRepo.update(runId, {
+        phase: 'writing',
+        progressTotal: result.dailyRows.length,
+        progressScanned: 0,
+      });
+      await this.equityRepo.delete({ runId });
+      await this.insertEquityBatched(runId, result.dailyRows);
+      await this.runRepo.update(runId, this.summaryToColumns(result.summary));
+
+      this.logger.log(
+        `SignalStatsRun ${runId} 回测层完成: equityDays=${result.dailyRows.length}, ` +
+        `finalNav=${result.summary.finalNav}, totalRet=${result.summary.totalRet}, ` +
+        `nTaken=${result.summary.nTaken}/nSkipped=${result.summary.nSkipped}`,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `SignalStatsRun ${runId} 回测层失败: ${msg}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      // 回测 11 列置 null + error_message 提示；**不 rethrow**（质量层数据保留，run 仍 completed）。
+      await this.runRepo.update(runId, {
+        ...this.nullBacktestColumns(),
+        errorMessage: `回测层失败: ${msg}`,
+      });
+    }
+  }
+
+  /**
+   * 扁平单源 backtest_config → 引擎 PortfolioSimConfig（spec 02 §2.2 / 04 §4.4）。
+   * 单元素 sources[0]，runId=本 run.id（loader 用它读 signal_test_trade）；账户级字段直透。
+   * legacy rankField/rankDir 置 'none'/'asc'（rankSpec 接管排序；factors=[] 时按 ts_code 升序）。
+   */
+  private buildSingleSourceConfig(
+    bc: SignalTestBacktestConfig,
+    runId: string,
+  ): PortfolioSimConfig {
+    return {
+      sources: [
+        {
+          runId,
+          label: 'self',
+          positionRatio: bc.positionRatio,
+          maxPositions: bc.maxPositions,
+          exposureCap: bc.exposureCap,
+          rankField: 'none',
+          rankDir: 'asc',
+          rankSpec: bc.rankSpec,
+          sizing: bc.sizing,
+        },
+      ],
+      initialCapital: bc.initialCapital,
+      cost: bc.cost,
+      anchorMode: bc.anchorMode,
+      circuitBreaker: bc.circuitBreaker ?? undefined,
+    };
+  }
+
+  /** EngineSummary 11 字段 → signal_test_run 回测列（numeric → string，int → number）。 */
+  private summaryToColumns(s: EngineSummary): Partial<SignalTestRunEntity> {
+    const numStr = (v: number | null): string | null => (v === null ? null : String(v));
+    return {
+      finalNav: numStr(s.finalNav),
+      totalRet: numStr(s.totalRet),
+      annualRet: numStr(s.annualRet),
+      maxDrawdown: numStr(s.maxDrawdown),
+      sharpe: numStr(s.sharpe),
+      calmar: numStr(s.calmar),
+      dailyWinRate: numStr(s.dailyWinRate),
+      dailyKelly: numStr(s.dailyKelly),
+      nTaken: s.nTaken,
+      nSkipped: s.nSkipped,
+      totalCosts: numStr(s.totalCosts),
+    };
+  }
+
+  /** 回测 11 列全置 null（回测层失败时回滚回测视图，质量列不动）。 */
+  private nullBacktestColumns(): Partial<SignalTestRunEntity> {
+    return {
+      finalNav: null,
+      totalRet: null,
+      annualRet: null,
+      maxDrawdown: null,
+      sharpe: null,
+      calmar: null,
+      dailyWinRate: null,
+      dailyKelly: null,
+      nTaken: null,
+      nSkipped: null,
+      totalCosts: null,
+    };
+  }
+
+  /** 分批插入 signal_test_equity（每批 200 行，numeric 列以 string 存）。 */
+  private async insertEquityBatched(
+    runId: string,
+    rows: EngineDailyRow[],
+  ): Promise<void> {
+    const BATCH = 200;
+    let written = 0;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const slice = rows.slice(i, i + BATCH);
+      const entities = slice.map((r) =>
+        this.equityRepo.create({
+          runId,
+          tradeDate: r.tradeDate,
+          nav: String(r.nav),
+          cash: String(r.cash),
+          dailyRet: String(r.dailyRet),
+          exposure: String(r.exposure),
+          positionCount: r.positionCount,
+        }),
+      );
+      await this.equityRepo.save(entities);
+      written += slice.length;
+      await this.runRepo.update(runId, { progressScanned: written });
+    }
   }
 
   /** 分批插入 signal_test_trade，每批 200 条避免 SQL 过长；每 FLUSH_EVERY 批上报进度。 */

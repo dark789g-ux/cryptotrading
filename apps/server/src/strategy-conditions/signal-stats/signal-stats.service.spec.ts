@@ -68,6 +68,7 @@ function makeService(
   const testRepo = makeMockRepo(testEntity);
   const runRepo = makeMockRepo();
   const tradeRepo = makeMockRepo();
+  const equityRepo = makeMockRepo();
   const symbolRepo = makeMockRepo();
   const dataSource = makeMockDataSource(calRows);
   const runner = makeMockRunner();
@@ -75,6 +76,7 @@ function makeService(
     testRepo as any,
     runRepo as any,
     tradeRepo as any,
+    equityRepo as any,
     symbolRepo as any,
     dataSource as any,
     runner as any,
@@ -363,6 +365,7 @@ describe('SignalStatsService - band_lock 持久化', () => {
       makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -440,6 +443,7 @@ describe('SignalStatsService - band_lock update(PUT)', () => {
     const testRepo = makeMockRepo(entity);
     const svc = new SignalStatsService(
       testRepo as any,
+      makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
@@ -708,6 +712,7 @@ describe('SignalStatsService - phase_lock 持久化', () => {
       makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -773,6 +778,7 @@ describe('SignalStatsService - phase_lock update(PUT)', () => {
     const testRepo = makeMockRepo(entity);
     const svc = new SignalStatsService(
       testRepo as any,
+      makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
@@ -870,6 +876,7 @@ describe('SignalStatsService - CRUD', () => {
       makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -904,6 +911,7 @@ describe('SignalStatsService - triggerRun', () => {
       runRepo as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -935,6 +943,7 @@ describe('SignalStatsService - triggerRun', () => {
     const svc = new SignalStatsService(
       testRepo as any,
       runRepo as any,
+      makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockDataSource() as any,
@@ -972,6 +981,7 @@ describe('SignalStatsService - findAll with latestRun', () => {
       runRepo as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -1001,6 +1011,7 @@ describe('SignalStatsService - findAll with latestRun', () => {
       runRepo as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -1026,6 +1037,7 @@ describe('SignalStatsService - findAll with latestRun', () => {
       runRepo as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
+      makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
     );
@@ -1046,6 +1058,7 @@ describe('SignalStatsService - getRetHistogram', () => {
     const svc = new SignalStatsService(
       makeMockRepo() as any,
       runRepo as any,
+      makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockDataSource() as any,
@@ -1072,6 +1085,7 @@ describe('SignalStatsService - getRetHistogram', () => {
       makeMockRepo() as any,
       runRepo as any,
       tradeRepo as any,
+      makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,
@@ -1102,6 +1116,7 @@ describe('SignalStatsService - getRetHistogram', () => {
       makeMockRepo() as any,
       runRepo as any,
       tradeRepo as any,
+      makeMockRepo() as any,
       makeMockRepo() as any,
       makeMockDataSource() as any,
       makeMockRunner() as any,

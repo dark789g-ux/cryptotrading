@@ -17,18 +17,23 @@ import { SignalStatsService } from './signal-stats/signal-stats.service';
 import { SignalStatsRunner } from './signal-stats/signal-stats.runner';
 import { SignalStatsEnumerator } from './signal-stats/signal-stats.enumerator';
 import { SignalStatsSimulator } from './signal-stats/signal-stats.simulator.db';
+import { PortfolioSimModule } from './portfolio-sim/portfolio-sim.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([
-    StrategyConditionEntity,
-    StrategyConditionRunEntity,
-    StrategyConditionHitEntity,
-    SignalTestEntity,
-    SignalTestRunEntity,
-    SignalTestTradeEntity,
-    SignalTestEquityEntity,
-    AShareSymbolEntity,
-  ])],
+  imports: [
+    TypeOrmModule.forFeature([
+      StrategyConditionEntity,
+      StrategyConditionRunEntity,
+      StrategyConditionHitEntity,
+      SignalTestEntity,
+      SignalTestRunEntity,
+      SignalTestTradeEntity,
+      SignalTestEquityEntity,
+      AShareSymbolEntity,
+    ]),
+    // 迷你回测层（M1）注入 PortfolioSimLoader（spec 04 §4.1）。
+    PortfolioSimModule,
+  ],
   controllers: [StrategyConditionsController, SignalStatsController],
   providers: [
     StrategyConditionsQueryBuilder,

@@ -5,7 +5,10 @@
  * 校验在 service 层 fail-fast（class-validator 未全局启用，统一在 service 抛 BadRequestException）。
  */
 import { StrategyConditionItem } from '../../../entities/strategy/strategy-condition.entity';
-import { SignalTestUniverse } from '../../../entities/strategy/signal-test.entity';
+import {
+  SignalTestUniverse,
+  SignalTestBacktestConfig,
+} from '../../../entities/strategy/signal-test.entity';
 
 export interface CreateSignalTestDto {
   /** 方案名称，不超过 100 字符。 */
@@ -86,4 +89,11 @@ export interface CreateSignalTestDto {
 
   /** 统计区间结束日，YYYYMMDD，须在 trade_cal 覆盖范围内且 ≥ dateStart。 */
   dateEnd: string;
+
+  /**
+   * 迷你回测配置（可选）；缺省 / null = 不跑回测层（信号质量层零漂移，spec 02 §2.1）。
+   * 扁平单源 PortfolioSimConfig（spec 03 §3.2）；service 层 fail-fast 校验区间/枚举/anchorMode
+   * （spec 04 §4.6，复用 portfolio-sim 语义）；runner 组装成引擎 PortfolioSimConfig{ sources:[{...}] }。
+   */
+  backtestConfig?: SignalTestBacktestConfig | null;
 }

@@ -30,6 +30,26 @@ function makeMockTradeRepo() {
   };
 }
 
+/** equity repo（资金账户层）；本套件全部 backtestConfig=null，回测层不触发，仅占位。 */
+function makeMockEquityRepo() {
+  return {
+    create: jest.fn((v: unknown) => v),
+    save: jest.fn(async (e: unknown) => e),
+    delete: jest.fn(async () => undefined),
+  };
+}
+
+/** loader（资金账户层）；本套件 backtestConfig=null 不触发，仅占位。 */
+function makeMockLoader() {
+  return {
+    load: jest.fn(async () => ({
+      input: { config: {}, trades: [], quotes: new Map(), calendar: [] },
+      groupTotal: 0,
+      appendedCalendarDates: [],
+    })),
+  };
+}
+
 function makeMockEnumerator(
   tradingDays: string[],
   allDays: string[],
@@ -92,7 +112,16 @@ function buildRunner(
 ): SignalStatsRunner {
   const rr = runRepo ?? makeMockRunRepo();
   const tr = tradeRepo ?? makeMockTradeRepo();
-  return new SignalStatsRunner(rr as any, tr as any, enumerator as any, simulator as any);
+  const eq = makeMockEquityRepo();
+  const loader = makeMockLoader();
+  return new SignalStatsRunner(
+    rr as any,
+    tr as any,
+    eq as any,
+    enumerator as any,
+    simulator as any,
+    loader as any,
+  );
 }
 
 // ── 测试套件 ────────────────────────────────────────────────────────────────

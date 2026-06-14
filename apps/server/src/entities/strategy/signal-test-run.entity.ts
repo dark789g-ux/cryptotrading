@@ -25,8 +25,9 @@ export class SignalTestRunEntity {
   @Column({ type: 'int', default: 0, name: 'progress_total' })
   progressTotal: number;
 
+  // 'replaying' = 资金账户层（迷你回测）引擎回放阶段（spec 02 §2.6，varchar(16) 无 CHECK，无需迁移）。
   @Column({ type: 'varchar', length: 16, nullable: true, name: 'phase' })
-  phase: 'scanning' | 'simulating' | 'writing' | null;
+  phase: 'scanning' | 'simulating' | 'writing' | 'replaying' | null;
 
   @Column({ type: 'text', nullable: true, name: 'error_message' })
   errorMessage: string | null;

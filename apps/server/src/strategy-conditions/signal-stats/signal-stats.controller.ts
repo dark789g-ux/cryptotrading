@@ -120,6 +120,16 @@ export class SignalStatsController {
     return this.service.listRuns(id);
   }
 
+  /**
+   * GET /api/signal-tests/:id/runs/:runId/equity
+   * 迷你回测逐日净值曲线（signal_test_equity，trade_date 升序）。
+   * 只读；该 run 未跑回测层 → 空数组。
+   */
+  @Get(':id/runs/:runId/equity')
+  listEquity(@Param('runId') runId: string) {
+    return this.service.listEquity(runId);
+  }
+
   /** GET /api/signal-tests/:id 方案详情 */
   @Get(':id')
   findOne(@Param('id') id: string) {

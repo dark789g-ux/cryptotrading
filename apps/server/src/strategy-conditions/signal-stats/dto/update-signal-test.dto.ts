@@ -5,7 +5,10 @@
  * 所有字段均可选；service 层对传入的字段做与 create 相同的 fail-fast 校验。
  */
 import { StrategyConditionItem } from '../../../entities/strategy/strategy-condition.entity';
-import { SignalTestUniverse } from '../../../entities/strategy/signal-test.entity';
+import {
+  SignalTestUniverse,
+  SignalTestBacktestConfig,
+} from '../../../entities/strategy/signal-test.entity';
 
 export interface UpdateSignalTestDto {
   name?: string;
@@ -26,4 +29,9 @@ export interface UpdateSignalTestDto {
   universe?: SignalTestUniverse;
   dateStart?: string;
   dateEnd?: string;
+  /**
+   * 迷你回测配置（可选）；显式传 null = 关闭回测层。未传 = 沿用存量（不改回测配置）。
+   * 校验同 create（service.validateBacktestConfig）。
+   */
+  backtestConfig?: SignalTestBacktestConfig | null;
 }

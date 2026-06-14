@@ -267,6 +267,7 @@ describe('buildTradeListOptions - service 层 listTrades 行为', () => {
       { create: jest.fn(), save: jest.fn(), findOne: jest.fn(), find: jest.fn() } as unknown,
       runRepo as unknown,
       tradeRepo as unknown,
+      { create: jest.fn(), save: jest.fn(), find: jest.fn(), delete: jest.fn() } as unknown, // equityRepo
       symbolRepo as unknown,
       { query: jest.fn(async () => [{ minDate: '20100101', maxDate: '20301231' }]) } as unknown,
       { executeRun: jest.fn() } as unknown,
