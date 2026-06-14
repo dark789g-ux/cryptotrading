@@ -13,7 +13,8 @@ export type MlJobStatus =
   | 'success'
   | 'failed'
   | 'blocked'
-  | 'cancelled';
+  | 'cancelled'
+  | 'draft';
 
 /**
  * PIT 窗口护门 / 因子运行时下发的单条 warning。
