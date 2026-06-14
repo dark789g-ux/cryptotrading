@@ -46,7 +46,7 @@
         </div>
         <PortfolioSimSourceRow
           v-for="(src, i) in sources"
-          :key="i"
+          :key="sourceKeys[i]"
           :index="i"
           :model="src"
           :schemes="schemes"
@@ -199,6 +199,11 @@ function freshSource(): PortfolioSimSource {
 
 const sources = ref<PortfolioSimSource[]>([freshSource()])
 
+// 源行稳定 key：与 sources 平行维护，防 v-for 用 index 作 key 时删除中间行复用错位
+// 组件实例，导致逐行 RunPicker 的轮询/选择内部态错附到其它源（DTO 不受影响，仅 UI 错乱）。
+let sourceKeySeq = 0
+const sourceKeys = ref<number[]>([sourceKeySeq++])
+
 // ── 方案列表（signal-tests 原始结果，含 latestRun，供 RunPicker 二级下拉用）──────
 const schemes = ref<SignalTestWithLatestRun[]>([])
 
@@ -229,6 +234,7 @@ function resetForm() {
   Object.assign(cost, COST_PRESET_REALISTIC)
   Object.assign(circuitBreaker, DEFAULT_CIRCUIT_BREAKER)
   sources.value = [freshSource()]
+  sourceKeys.value = [sourceKeySeq++]
 }
 
 function onCircuitBreakerPatch(patch: Partial<CircuitBreaker>) {
@@ -239,11 +245,13 @@ function onCircuitBreakerPatch(patch: Partial<CircuitBreaker>) {
 function addSource() {
   if (sources.value.length >= MAX_SOURCES) return
   sources.value.push(freshSource())
+  sourceKeys.value.push(sourceKeySeq++)
 }
 
 function removeSource(i: number) {
   if (sources.value.length <= 1) return
   sources.value.splice(i, 1)
+  sourceKeys.value.splice(i, 1)
 }
 
 function updateSource(i: number, patch: Partial<PortfolioSimSource>) {
@@ -278,7 +286,10 @@ const ratePreviewText = computed(() => {
 function onAnchorToggle(v: boolean) {
   if (v) {
     // 强制单源 + 零成本（提交时仍会归一，这里即时反映 UI）
-    if (sources.value.length > 1) sources.value = [sources.value[0]]
+    if (sources.value.length > 1) {
+      sources.value = [sources.value[0]]
+      sourceKeys.value = [sourceKeys.value[0]]
+    }
     costTier.value = 'zero'
     Object.assign(cost, COST_PRESET_ZERO)
   }
