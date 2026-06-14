@@ -59,6 +59,7 @@ const stepIndex = computed<number>(() => {
   switch (props.run.phase) {
     case 'scanning':   return 1
     case 'simulating': return 2
+    case 'replaying':  return 2
     case 'writing':    return 3
     default:           return 1
   }
@@ -69,6 +70,7 @@ const phaseTitle = computed<string>(() => {
   switch (props.run.phase) {
     case 'scanning':   return '扫描交易日中…'
     case 'simulating': return '模拟出场中…'
+    case 'replaying':  return '资金账户回放中…'
     case 'writing':    return '写入结果中…'
     default:           return '运行中…'
   }
@@ -81,6 +83,7 @@ const phaseLabel = computed<string>(() => {
   switch (props.run.phase) {
     case 'scanning':   return `扫描交易日 ${scanned} / ${total}`
     case 'simulating': return `模拟出场 ${scanned} / ${total} 笔`
+    case 'replaying':  return `资金账户回放 ${scanned} / ${total} 日`
     case 'writing':    return `写入结果 ${scanned} / ${total} 行`
     default:           return `${scanned} / ${total}`
   }
