@@ -49,6 +49,16 @@ export class PortfolioSimFillEntity {
   @Column({ type: 'numeric', nullable: true, name: 'rank_value' })
   rankValue: string | null;
 
+  // composite 综合分（单因子=该因子值；none=null）。numeric 列 JS 侧以 string 取回防精度，
+  // 沿用 rank_value/alloc 模式。老 run 为 NULL → 详情降级。
+  @Column({ type: 'numeric', nullable: true, name: 'rank_score' })
+  rankScore: string | null;
+
+  // 逐因子原始值 {factorKey: value|null, ...}（taken/skipped 都写，含熔断冻结 skip 的笔）。
+  // 仅展示，不进 WHERE/ORDER。老 run 为 NULL → 详情降级。
+  @Column({ type: 'jsonb', nullable: true, name: 'factor_values' })
+  factorValues: Record<string, number | null> | null;
+
   @Column({ type: 'numeric', nullable: true, name: 'weight_entry' })
   weightEntry: string | null;
 

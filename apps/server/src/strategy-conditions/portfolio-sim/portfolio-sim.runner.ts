@@ -28,14 +28,30 @@ import { calcSignalStats } from '../signal-stats/signal-stats.metrics';
 import { runPortfolioSim } from './portfolio-sim.engine';
 import { PortfolioSimLoader } from './portfolio-sim.loader';
 import { parseNumericString } from './portfolio-sim.loader-helpers';
+import { resolveRankSpec } from './portfolio-sim.factor-registry';
 import {
   EngineFill,
   EngineResult,
   PortfolioSimConfig,
+  PortfolioSimSource,
 } from './portfolio-sim.types';
 
 /** daily / fills 批量 insert 批大小。 */
 export const WRITE_BATCH = 1000;
+
+/**
+ * 经 resolveRankSpec 派生该 source 落库的 rank_field 口径（与引擎实际排序口径一致）：
+ *   factors.length>1   → 'composite'（多因子综合分）
+ *   factors.length===1 → factors[0].factor（单因子 KEY）
+ *   factors.length===0 → 'none'
+ * 不再直接读 source.rankField，否则 composite/legacy run 落库值与实际排序口径不符。
+ */
+export function deriveRankField(source: PortfolioSimSource): string {
+  const factors = resolveRankSpec(source);
+  if (factors.length > 1) return 'composite';
+  if (factors.length === 1) return factors[0].factor;
+  return 'none';
+}
 /** replaying 阶段进度节流间隔（ms）。 */
 const REPLAY_FLUSH_INTERVAL_MS = 1500;
 /** 锚点对账容差。 */
@@ -221,6 +237,11 @@ export class PortfolioSimRunner {
     const source = config.sources[f.sourceIdx];
     const numStr = (v: number | null | undefined): string | null =>
       v === null || v === undefined ? null : String(v);
+    // rank_value：composite 写综合分 rankScore；老 run 无 rankScore 时回落 rankValue 兜底。
+    const rankValueOut =
+      f.rankScore !== null && f.rankScore !== undefined
+        ? f.rankScore
+        : (f.rankValue ?? null);
     return this.fillRepo.create({
       runId,
       sourceRunId: source.runId,
@@ -230,8 +251,11 @@ export class PortfolioSimRunner {
       buyDate: f.buyDate,
       status: f.status,
       skipReason: f.skipReason ?? null,
-      rankField: source.rankField === 'none' ? null : source.rankField,
-      rankValue: numStr(f.rankValue),
+      // 经 resolveRankSpec 派生（不再直接读 source.rankField），保落库口径与实际排序一致。
+      rankField: deriveRankField(source),
+      rankValue: numStr(rankValueOut),
+      rankScore: numStr(f.rankScore),
+      factorValues: f.factorValues ?? null,
       weightEntry: numStr(f.weightEntry),
       alloc: numStr(f.alloc),
       exitDate: f.exitDate ?? null,
