@@ -1,31 +1,25 @@
-import { computed, h } from 'vue'
-import { NButton, NTag as NTagComponent, type DataTableColumns } from 'naive-ui'
+import { h } from 'vue'
+import { NButton, NTag as NTagComponent } from 'naive-ui'
 import type { RunSymbolMetricRow } from '@/api'
-import FieldHelpTip from '@/components/common/FieldHelpTip.vue'
-import { getFieldDescription } from '@/components/common/fieldDescriptions'
+import type { SymbolColumnDef } from '@/components/symbols/columnTypes'
+import { INDICATOR_DESCRIPTORS, buildIndicatorColumns } from '@/components/symbols/indicatorColumnDefs'
 
 export type ColSortOrder = false | 'ascend' | 'descend'
 
-/** 列头「列名 + ?」渲染：有字段说明才带 "?"，否则退回纯文本 title */
-const titleWithHelp = (text: string, conceptId: string) =>
-  getFieldDescription(conceptId)
-    ? () =>
-        h(
-          'span',
-          { style: 'display:inline-flex;align-items:center;gap:4px' },
-          [text, h(FieldHelpTip, { field: conceptId })],
-        )
-    : text
+/** 这 6 个 key 是 RunSymbolMetricRow 实有的指标字段（number 型），复用共享指标目录渲染 */
+export const BACKTEST_METRIC_KEYS = new Set([
+  'ma5',
+  'ma30',
+  'ma60',
+  'kdjJ',
+  'riskRewardRatio',
+  'stopLossPct',
+])
 
-interface UseCandleRunSymbolMetricsColumnsOptions {
-  headerOrder: (key: string) => ColSortOrder
-  onOpenKline: (symbol: string) => void
-}
-
-const fmtNum = (value: number | null | undefined, digits = 4) =>
+export const fmtNum = (value: number | null | undefined, digits = 4) =>
   value === null || value === undefined || Number.isNaN(Number(value)) ? '-' : Number(value).toFixed(digits)
 
-const renderStatusTags = (row: RunSymbolMetricRow) => {
+export const renderStatusTags = (row: RunSymbolMetricRow) => {
   if (!row.buyOnBar && !row.sellOnBar && !row.holdAtClose) return '—'
 
   const nodes: Array<ReturnType<typeof h>> = []
@@ -42,113 +36,81 @@ const renderStatusTags = (row: RunSymbolMetricRow) => {
   return h('div', { class: 'metric-row-status-tags' }, nodes)
 }
 
-export const useCandleRunSymbolMetricsColumns = ({
-  headerOrder,
-  onOpenKline,
-}: UseCandleRunSymbolMetricsColumnsOptions) => {
-  const columns = computed<DataTableColumns<RunSymbolMetricRow>>(() => [
-    {
-      title: '标的',
-      key: 'symbol',
-      width: 120,
-      fixed: 'left',
-      sortOrder: headerOrder('symbol'),
-      sorter: true,
-    },
-    {
-      title: '数据',
-      key: 'dataStatus',
-      width: 88,
-      sortOrder: headerOrder('dataStatus'),
-      sorter: true,
-      render: (row) =>
-        row.dataStatus === 'missing'
-          ? h(NTagComponent, { type: 'warning', size: 'small' }, { default: () => '缺数据' })
-          : h(NTagComponent, { type: 'success', size: 'small', bordered: false }, { default: () => '正常' }),
-    },
-    {
-      title: '状态',
-      key: 'barStatus',
-      width: 200,
-      render: renderStatusTags,
-    },
-    {
-      title: '收盘价',
-      key: 'close',
-      width: 110,
-      sortOrder: headerOrder('close'),
-      sorter: true,
-      render: (row) => (row.dataStatus === 'missing' ? '-' : fmtNum(row.close, 6)),
-    },
-    {
-      title: 'MA5',
-      key: 'ma5',
-      width: 100,
-      sortOrder: headerOrder('ma5'),
-      sorter: true,
-      render: (row) => (row.dataStatus === 'missing' ? '-' : fmtNum(row.ma5)),
-    },
-    {
-      title: 'MA30',
-      key: 'ma30',
-      width: 100,
-      sortOrder: headerOrder('ma30'),
-      sorter: true,
-      render: (row) => (row.dataStatus === 'missing' ? '-' : fmtNum(row.ma30)),
-    },
-    {
-      title: 'MA60',
-      key: 'ma60',
-      width: 100,
-      sortOrder: headerOrder('ma60'),
-      sorter: true,
-      render: (row) => (row.dataStatus === 'missing' ? '-' : fmtNum(row.ma60)),
-    },
-    {
-      title: titleWithHelp('KDJ.J', 'kdj_j'),
-      key: 'kdjJ',
-      width: 90,
-      sortOrder: headerOrder('kdjJ'),
-      sorter: true,
-      render: (row) => (row.dataStatus === 'missing' ? '-' : fmtNum(row.kdjJ, 2)),
-    },
-    {
-      title: titleWithHelp('盈亏比', 'profit_loss_ratio'),
-      key: 'riskRewardRatio',
-      width: 90,
-      sortOrder: headerOrder('riskRewardRatio'),
-      sorter: true,
-      render: (row) => (row.dataStatus === 'missing' ? '-' : fmtNum(row.riskRewardRatio, 2)),
-    },
-    {
-      title: titleWithHelp('止损%', 'stop_loss_pct'),
-      key: 'stopLossPct',
-      width: 90,
-      sortOrder: headerOrder('stopLossPct'),
-      sorter: true,
-      render: (row) =>
-        row.dataStatus === 'missing' || row.stopLossPct == null ? '-' : `${fmtNum(row.stopLossPct, 2)}%`,
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 96,
-      fixed: 'right',
-      render: (row) =>
-        h(
-          NButton,
-          {
-            size: 'small',
-            type: 'primary',
-            quaternary: true,
-            onClick: () => onOpenKline(row.symbol),
-          },
-          { default: () => 'K线' },
-        ),
-    },
-  ])
-
-  return {
-    columns,
-  }
+interface CreateBacktestMetricsColumnDefsOptions {
+  onOpenKline: (symbol: string) => void
 }
+
+/**
+ * 纯 defs 工厂：返回 SymbolColumnDef<RunSymbolMetricRow>[]，供共享列偏好底座
+ * （normalizeScopePreferences / buildColumnsFromPreference）与 ColumnSettingsDrawer 消费。
+ *
+ * 受控远程排序的 sortOrder 不在此注入——共享 buildColumnsFromPreference 产物不含 sortOrder，
+ * 由 host（CandleRunSymbolMetrics.vue）在 columnsBase 上 post-map 注入 headerOrder(key)。
+ *
+ * 6 个指标列复用 INDICATOR_DESCRIPTORS + buildIndicatorColumns，并用 blankWhen 守卫
+ * dataStatus==='missing' 时渲染 '-'（与原表逐列等价）。
+ */
+export const createBacktestMetricsColumnDefs = ({
+  onOpenKline,
+}: CreateBacktestMetricsColumnDefsOptions): SymbolColumnDef<RunSymbolMetricRow>[] => [
+  {
+    key: 'symbol',
+    title: '标的',
+    width: 120,
+    fixed: 'left',
+    locked: true,
+    defaultVisible: true,
+    sorter: true,
+    render: (row) => row.symbol,
+  },
+  {
+    key: 'dataStatus',
+    title: '数据',
+    width: 88,
+    defaultVisible: true,
+    sorter: true,
+    render: (row) =>
+      row.dataStatus === 'missing'
+        ? h(NTagComponent, { type: 'warning', size: 'small' }, { default: () => '缺数据' })
+        : h(NTagComponent, { type: 'success', size: 'small', bordered: false }, { default: () => '正常' }),
+  },
+  {
+    key: 'barStatus',
+    title: '状态',
+    width: 200,
+    defaultVisible: true,
+    render: renderStatusTags,
+  },
+  {
+    key: 'close',
+    title: '收盘价',
+    width: 110,
+    defaultVisible: true,
+    sorter: true,
+    render: (row) => (row.dataStatus === 'missing' ? '-' : fmtNum(row.close, 6)),
+  },
+  // —— 指标子集复用共享目录 + blankWhen 守卫（默认全可见，维持现状）——
+  ...buildIndicatorColumns<RunSymbolMetricRow>(
+    INDICATOR_DESCRIPTORS.filter((d) => BACKTEST_METRIC_KEYS.has(d.key)),
+    { blankWhen: (row) => row.dataStatus === 'missing', defaultVisible: true, width: 100 },
+  ),
+  {
+    key: 'actions',
+    title: '操作',
+    width: 96,
+    fixed: 'right',
+    locked: true,
+    defaultVisible: true,
+    render: (row) =>
+      h(
+        NButton,
+        {
+          size: 'small',
+          type: 'primary',
+          quaternary: true,
+          onClick: () => onOpenKline(row.symbol),
+        },
+        { default: () => 'K线' },
+      ),
+  },
+]

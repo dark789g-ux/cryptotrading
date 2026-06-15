@@ -13,12 +13,15 @@
     />
 
     <n-card class="data-card" :bordered="false" size="small" title="本根 K · 回测标的池指标">
+      <template #header-extra>
+        <n-button secondary size="small" @click="showColumnSettings = true">列设置</n-button>
+      </template>
       <n-data-table
         :columns="columns"
         :data="items"
         :loading="loading"
         :pagination="paginationState"
-        :scroll-x="1360"
+        scroll-x="max-content"
         remote
         @update:page="handlePageChange"
         @update:page-size="handlePageSizeChange"
@@ -26,13 +29,22 @@
       />
     </n-card>
 
+    <ColumnSettingsDrawer
+      v-model:show="showColumnSettings"
+      v-model="scopePreferences"
+      title="回测指标列"
+      :definitions="defs"
+      :saving="saving"
+      @save="onSaveColumns"
+    />
+
     <KlineChartModal v-model:show="klineModalShow" :run-id="runId" :ts="ts" :symbol="klineSymbol" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { NCard, NDataTable, useMessage, type DataTableSortState } from 'naive-ui'
+import { NButton, NCard, NDataTable, useMessage, type DataTableSortState } from 'naive-ui'
 import {
   DEFAULT_STATUS_VALUES,
   STATUS_BUY,
@@ -42,10 +54,12 @@ import {
   type StatusFilterValue,
 } from '../../composables/backtest/candleRunSymbolMetrics'
 import {
-  useCandleRunSymbolMetricsColumns,
+  createBacktestMetricsColumnDefs,
   type ColSortOrder,
 } from '../../composables/backtest/useCandleRunSymbolMetricsColumns'
+import { useBacktestMetricsColumnPreferences } from '../../composables/backtest/useBacktestMetricsColumnPreferences'
 import { backtestApi, symbolApi, type RunSymbolMetricRow } from '@/api'
+import ColumnSettingsDrawer from '@/components/symbols/ColumnSettingsDrawer.vue'
 import CandleRunSymbolMetricsFilterBar from './CandleRunSymbolMetricsFilterBar.vue'
 import KlineChartModal from './KlineChartModal.vue'
 
@@ -93,10 +107,27 @@ const openKline = (symbol: string) => {
   klineModalShow.value = true
 }
 
-const { columns } = useCandleRunSymbolMetricsColumns({
-  headerOrder,
-  onOpenKline: openKline,
-})
+const showColumnSettings = ref(false)
+const defs = createBacktestMetricsColumnDefs({ onOpenKline: openKline })
+const { scopePreferences, columnsBase, save, saving } = useBacktestMetricsColumnPreferences(defs)
+
+// post-map 注入受控 sortOrder（共享 buildColumnsFromPreference 产物不含 sortOrder）。
+// headerOrder 读 explicitSort/sortKey/sortOrder 三 ref，columns 随排序变化自动重算；
+// 按 column key 注入，与列在 prefs 中的可见性/顺序无关，天然正确。
+const columns = computed(() =>
+  columnsBase.value.map((column) => {
+    // buildColumnsFromPreference 产物均为带 key 的数据列（无 selection/expand 列），
+    // 但 naive-ui DataTableColumns 联合类型不含 key，故安全读取后注入受控 sortOrder。
+    const key = String((column as { key?: string | number }).key ?? '')
+    return { ...column, sortOrder: headerOrder(key) }
+  }),
+)
+
+const onSaveColumns = () => {
+  save()
+  showColumnSettings.value = false
+  message.success('列设置已保存')
+}
 
 const buildBody = () => ({
   ts: props.ts,
