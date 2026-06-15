@@ -70,6 +70,9 @@ export const ALLOWED_RUN_TYPES: readonly MlJobRunType[] = [
   'optuna',
   'seed_avg',
   'kelly_sweep',
+  // 美股 AkShare 同步（spec 2026-06-16-us-stocks-tab-design 05）。
+  // 不属 LABEL_REF / FEATURE_SET run_type，create() 直接落 pending，无 labelRef / feature_set 校验。
+  'us_sync',
 ] as const;
 
 /**

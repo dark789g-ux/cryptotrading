@@ -37,6 +37,7 @@ describe('PreferencesService', () => {
       await expect(service.getSymbolsView('user-1')).resolves.toEqual({
         crypto: [],
         aShares: [],
+        usStocks: [],
       });
     });
 
@@ -48,6 +49,7 @@ describe('PreferencesService', () => {
           { key: 'buySignal', visible: true },
           { key: 'actions', visible: true },
         ],
+        usStocks: [{ key: 'ma5', visible: false }],
       };
       repo.findOneBy.mockResolvedValueOnce({
         id: 'pref-1',
@@ -57,6 +59,25 @@ describe('PreferencesService', () => {
       } as UserPreferenceEntity);
 
       await expect(service.getSymbolsView('user-1')).resolves.toEqual(stored);
+    });
+
+    it('backfills usStocks=[] when stored value predates the scope (legacy rows)', async () => {
+      const stored = {
+        crypto: [],
+        aShares: [{ key: 'name', visible: true }],
+      };
+      repo.findOneBy.mockResolvedValueOnce({
+        id: 'pref-1',
+        userId: 'user-1',
+        key: SYMBOLS_VIEW_PREFERENCES_KEY,
+        value: stored,
+      } as UserPreferenceEntity);
+
+      await expect(service.getSymbolsView('user-1')).resolves.toEqual({
+        crypto: [],
+        aShares: [{ key: 'name', visible: true }],
+        usStocks: [],
+      });
     });
   });
 
@@ -75,6 +96,7 @@ describe('PreferencesService', () => {
           { key: 'buySignal', visible: false },
           { key: 'actions', visible: true },
         ],
+        usStocks: [{ key: 'ticker', visible: true }],
       };
 
       await service.saveSymbolsView('user-1', input);
@@ -109,6 +131,7 @@ describe('PreferencesService', () => {
               { key: 'name', visible: true },
               { key: 'tsCode', visible: false },
             ],
+            usStocks: [],
           },
         }),
       );
@@ -127,6 +150,7 @@ describe('PreferencesService', () => {
       const newValue = {
         crypto: [{ key: 'close', visible: false }],
         aShares: [{ key: 'tsCode', visible: true }],
+        usStocks: [{ key: 'ticker', visible: true }],
       };
 
       await service.saveSymbolsView('user-1', newValue);

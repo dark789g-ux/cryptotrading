@@ -13,6 +13,7 @@ import { SymbolPresetsModule } from './catalog/symbol-presets/symbol-presets.mod
 import { SettingsModule } from './settings/settings.module';
 import { PreferencesModule } from './preferences/preferences.module';
 import { ASharesModule } from './market-data/a-shares/a-shares.module';
+import { UsStocksModule } from './market-data/us-stocks/us-stocks.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { SymbolEntity } from './entities/symbol/symbol.entity';
@@ -216,6 +217,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     SettingsModule,
     PreferencesModule,
     ASharesModule,
+    UsStocksModule,
     AuthModule,
     UsersModule,
     StrategyConditionsModule,

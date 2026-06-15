@@ -12,6 +12,7 @@ export interface ColumnPreferenceItem {
 export interface SymbolsViewColumnPreferences {
   crypto: ColumnPreferenceItem[];
   aShares: ColumnPreferenceItem[];
+  usStocks: ColumnPreferenceItem[];
 }
 
 export const SYMBOLS_VIEW_PREFERENCES_KEY = 'symbols_view_columns';
@@ -35,12 +36,14 @@ function sanitizeSymbolsView(value: unknown): SymbolsViewColumnPreferences {
   return {
     crypto: sanitizeScopeColumns(input.crypto),
     aShares: sanitizeScopeColumns(input.aShares),
+    usStocks: sanitizeScopeColumns(input.usStocks),
   };
 }
 
 const EMPTY_SYMBOLS_VIEW_PREFERENCES: SymbolsViewColumnPreferences = {
   crypto: [],
   aShares: [],
+  usStocks: [],
 };
 
 @Injectable()

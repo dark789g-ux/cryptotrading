@@ -46,7 +46,9 @@ export type MlJobRunType =
   | 'infer'
   | 'optuna'
   | 'seed_avg'
-  | 'kelly_sweep';
+  | 'kelly_sweep'
+  // 美股 AkShare 同步（spec 2026-06-16-us-stocks-tab-design 05；Python worker 路由 us_sync）
+  | 'us_sync';
 
 @Entity({ schema: 'ml', name: 'jobs' })
 @Index(['status', 'priority', 'createdAt'])
