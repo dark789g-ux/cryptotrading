@@ -3,6 +3,7 @@ import { NButton, NIcon, NSpace, NTag, NTooltip } from 'naive-ui'
 import { TrendingUpOutline } from '@vicons/ionicons5'
 import type { WatchlistQuoteRow } from '@/api'
 import type { SymbolColumnDef } from '../symbols/columnTypes'
+import { INDICATOR_DESCRIPTORS, buildIndicatorColumns } from '../symbols/indicatorColumnDefs'
 import {
   formatAmount,
   formatMarketCap,
@@ -27,12 +28,6 @@ function dashForCrypto(symbol: string, value: unknown) {
 function toStr(value: string | number | null | undefined): string | null {
   if (value == null) return null
   return String(value)
-}
-
-function formatFixed(value: number | string | null | undefined, digits: number) {
-  if (value == null) return '-'
-  const num = Number(value)
-  return Number.isFinite(num) ? num.toFixed(digits) : '-'
 }
 
 function formatUTCDate(input: string | number | Date | null | undefined): string {
@@ -234,33 +229,11 @@ export function createWatchlistColumnDefs(
         )
       },
     },
-    { title: 'MA5', key: 'ma5', width: 110, sorter: true, defaultVisible: true, render: (row) => formatFixed(row.ma5, 4) },
-    { title: 'MA30', key: 'ma30', width: 110, sorter: true, defaultVisible: true, render: (row) => formatFixed(row.ma30, 4) },
-    { title: 'MA60', key: 'ma60', width: 110, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.ma60, 4) },
-    { title: 'MA120', key: 'ma120', width: 110, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.ma120, 4) },
-    { title: 'MA240', key: 'ma240', width: 110, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.ma240, 4) },
-    { title: 'KDJ.J', key: 'kdjJ', descKey: 'kdj_j', width: 90, sorter: true, defaultVisible: true, render: (row) => formatFixed(row.kdjJ, 2) },
-    { title: 'KDJ.K', key: 'kdjK', descKey: 'kdj_k', width: 90, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.kdjK, 2) },
-    { title: 'KDJ.D', key: 'kdjD', descKey: 'kdj_d', width: 90, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.kdjD, 2) },
-    { title: 'DIF', key: 'dif', descKey: 'macd_dif', width: 90, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.dif, 4) },
-    { title: 'DEA', key: 'dea', descKey: 'macd_dea', width: 90, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.dea, 4) },
-    { title: 'MACD', key: 'macd', descKey: 'macd_hist', width: 90, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.macd, 4) },
-    { title: 'BBI', key: 'bbi', descKey: 'bbi', width: 90, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.bbi, 4) },
-    { title: '10日成交额', key: 'quoteVolume10', width: 120, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.quoteVolume10, 2) },
-    { title: 'ATR14', key: 'atr14', descKey: 'atr14', width: 90, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.atr14, 4) },
-    { title: 'Loss ATR14', key: 'lossAtr14', descKey: 'loss_atr14', width: 110, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.lossAtr14, 4) },
-    { title: 'Low9', key: 'low9', width: 90, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.low9, 4) },
-    { title: 'High9', key: 'high9', width: 90, sorter: true, defaultVisible: false, render: (row) => formatFixed(row.high9, 4) },
-    { title: 'RR', key: 'riskRewardRatio', descKey: 'profit_loss_ratio', width: 90, sorter: true, defaultVisible: true, render: (row) => formatFixed(row.riskRewardRatio, 2) },
-    {
-      title: 'Stop %',
-      key: 'stopLossPct',
-      descKey: 'stop_loss_pct',
-      width: 90,
-      sorter: true,
-      defaultVisible: false,
-      render: (row) => (row.stopLossPct == null ? '-' : `${Number(row.stopLossPct).toFixed(2)}%`),
-    },
+    // 指标列复用共享目录（descriptor 驱动），消除与 A股/回测表的重复声明。
+    // 保留自选股原有默认可见集；共享目录多出的 brick/amv 6 列无字段 → 渲染 '-' 且默认隐藏，对自选股无害。
+    ...buildIndicatorColumns<WatchlistQuoteRow>(INDICATOR_DESCRIPTORS, {
+      defaultVisible: (k) => new Set(['ma5', 'ma30', 'kdjJ', 'riskRewardRatio']).has(k),
+    }),
     {
       title: 'Updated',
       key: 'openTime',
