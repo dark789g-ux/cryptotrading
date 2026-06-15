@@ -123,7 +123,8 @@ export class ASharesService {
     let sql = appendASharesSort(baseQuery.sql, dto, scoreModelVersion != null);
     sql += ` LIMIT $${baseQuery.nextParamIndex} OFFSET $${baseQuery.nextParamIndex + 1}`;
 
-    const rows = await this.dataSource.query<Array<Record<string, string | null>>>(
+    // brickXg 列是 DB boolean（node-postgres 解析为 JS boolean），泛型需容纳 boolean
+    const rows = await this.dataSource.query<Array<Record<string, string | boolean | null>>>(
       sql,
       [...baseQuery.params, pageSize, (page - 1) * pageSize],
     );

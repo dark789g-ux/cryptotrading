@@ -54,3 +54,114 @@ describe('a-shares-query.sql 评分排序', () => {
     expect(sorted).toContain('ORDER BY q.qfq_pct_chg DESC NULLS LAST');
   });
 });
+
+describe('a-shares-query.sql 技术指标 + 个股 AMV 列', () => {
+  const PROD = 'lgb-lambdarank-v1-20260521-seed42';
+  const baseDto: QueryASharesDto = { priceMode: 'qfq' };
+
+  it('SELECT 补 Tier-1 每股指标列（字面别名精确）', () => {
+    const { sql } = buildASharesBaseQuery(baseDto);
+    // 均线 / BBI
+    expect(sql).toContain('i.ma5 AS "ma5"');
+    expect(sql).toContain('i.ma30 AS "ma30"');
+    expect(sql).toContain('i.ma60 AS "ma60"');
+    expect(sql).toContain('i.ma120 AS "ma120"');
+    expect(sql).toContain('i.ma240 AS "ma240"');
+    expect(sql).toContain('i.bbi AS "bbi"');
+    // KDJ / MACD（snake_case → camelCase 别名）
+    expect(sql).toContain('i.kdj_j AS "kdjJ"');
+    expect(sql).toContain('i.kdj_k AS "kdjK"');
+    expect(sql).toContain('i.kdj_d AS "kdjD"');
+    expect(sql).toContain('i.dif AS "dif"');
+    expect(sql).toContain('i.dea AS "dea"');
+    expect(sql).toContain('i.macd AS "macd"');
+    // ATR / 9日高低 / 风险
+    expect(sql).toContain('i.atr_14 AS "atr14"');
+    expect(sql).toContain('i.loss_atr_14 AS "lossAtr14"');
+    expect(sql).toContain('i.low_9 AS "low9"');
+    expect(sql).toContain('i.high_9 AS "high9"');
+    expect(sql).toContain('i.risk_reward_ratio AS "riskRewardRatio"');
+    expect(sql).toContain('i.stop_loss_pct AS "stopLossPct"');
+    expect(sql).toContain('i.quote_volume_10 AS "quoteVolume10"');
+    // 砖块（brick_xg 为 boolean 列）
+    expect(sql).toContain('i.brick AS "brick"');
+    expect(sql).toContain('i.brick_delta AS "brickDelta"');
+    expect(sql).toContain('i.brick_xg AS "brickXg"');
+  });
+
+  it('SELECT 补个股 AMV 列（来自 stock_amv_daily sa）', () => {
+    const { sql } = buildASharesBaseQuery(baseDto);
+    expect(sql).toContain('sa.amv_dif AS "amvDif"');
+    expect(sql).toContain('sa.amv_dea AS "amvDea"');
+    expect(sql).toContain('sa.amv_macd AS "amvMacd"');
+  });
+
+  it('LEFT JOIN stock_amv_daily（裸名 public 库，不是 raw.，按唯一键不放大行数）', () => {
+    const { sql } = buildASharesBaseQuery(baseDto);
+    expect(sql).toContain(
+      'LEFT JOIN stock_amv_daily sa ON sa.ts_code = s.ts_code AND sa.trade_date = l.trade_date',
+    );
+    expect(sql).not.toContain('raw.stock_amv_daily');
+  });
+
+  it('指标 JOIN 在 scoreJoin 之前：评分排序时 sa JOIN 仍存在且不打断 scoreJoin', () => {
+    const dto: QueryASharesDto = { sort: { field: 'modelScore', order: 'descend' } };
+    const { sql } = buildASharesBaseQuery(dto, PROD);
+    expect(sql).toContain('LEFT JOIN stock_amv_daily sa');
+    expect(sql).toContain('LEFT JOIN ml.scores_daily sd');
+    // sa JOIN 必须排在 scoreJoin 之前
+    expect(sql.indexOf('LEFT JOIN stock_amv_daily sa')).toBeLessThan(
+      sql.indexOf('LEFT JOIN ml.scores_daily sd'),
+    );
+  });
+});
+
+describe('a-shares-query.sql 指标列排序映射', () => {
+  function sortColFor(field: string, priceMode: 'raw' | 'qfq' = 'qfq'): string {
+    const dto: QueryASharesDto = { sort: { field, order: 'ascend' }, priceMode };
+    const base = buildASharesBaseQuery(dto);
+    const sorted = appendASharesSort(base.sql, dto, false);
+    const m = sorted.match(/ORDER BY (.+?) ASC NULLS LAST/);
+    return m ? m[1] : '';
+  }
+
+  it.each([
+    ['ma5', 'i.ma5'],
+    ['ma30', 'i.ma30'],
+    ['ma60', 'i.ma60'],
+    ['ma120', 'i.ma120'],
+    ['ma240', 'i.ma240'],
+    ['bbi', 'i.bbi'],
+    ['kdjJ', 'i.kdj_j'],
+    ['kdjK', 'i.kdj_k'],
+    ['kdjD', 'i.kdj_d'],
+    ['dif', 'i.dif'],
+    ['dea', 'i.dea'],
+    ['macd', 'i.macd'],
+    ['atr14', 'i.atr_14'],
+    ['lossAtr14', 'i.loss_atr_14'],
+    ['low9', 'i.low_9'],
+    ['high9', 'i.high_9'],
+    ['riskRewardRatio', 'i.risk_reward_ratio'],
+    ['stopLossPct', 'i.stop_loss_pct'],
+    ['quoteVolume10', 'i.quote_volume_10'],
+    ['brick', 'i.brick'],
+    ['brickDelta', 'i.brick_delta'],
+    ['brickXg', 'i.brick_xg'],
+    ['amvDif', 'sa.amv_dif'],
+    ['amvDea', 'sa.amv_dea'],
+    ['amvMacd', 'sa.amv_macd'],
+  ])('RAW_SORT_COL_MAP 解析 %s → %s', (field, col) => {
+    expect(sortColFor(field, 'raw')).toBe(col);
+  });
+
+  it('QFQ 模式继承指标列映射（amvMacd / kdjJ 同样可排序）', () => {
+    expect(sortColFor('amvMacd', 'qfq')).toBe('sa.amv_macd');
+    expect(sortColFor('kdjJ', 'qfq')).toBe('i.kdj_j');
+  });
+
+  it('未知排序字段回退 s.ts_code', () => {
+    expect(sortColFor('nonexistentField', 'raw')).toBe('s.ts_code');
+    expect(sortColFor('nonexistentField', 'qfq')).toBe('s.ts_code');
+  });
+});

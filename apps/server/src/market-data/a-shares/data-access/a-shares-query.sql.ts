@@ -64,6 +64,31 @@ const RAW_SORT_COL_MAP: Record<string, string> = {
   totalMv: 'm.total_mv',
   circMv: 'm.circ_mv',
   tradeDate: 'q.trade_date',
+  ma5: 'i.ma5',
+  ma30: 'i.ma30',
+  ma60: 'i.ma60',
+  ma120: 'i.ma120',
+  ma240: 'i.ma240',
+  bbi: 'i.bbi',
+  kdjJ: 'i.kdj_j',
+  kdjK: 'i.kdj_k',
+  kdjD: 'i.kdj_d',
+  dif: 'i.dif',
+  dea: 'i.dea',
+  macd: 'i.macd',
+  atr14: 'i.atr_14',
+  lossAtr14: 'i.loss_atr_14',
+  low9: 'i.low_9',
+  high9: 'i.high_9',
+  riskRewardRatio: 'i.risk_reward_ratio',
+  stopLossPct: 'i.stop_loss_pct',
+  quoteVolume10: 'i.quote_volume_10',
+  brick: 'i.brick',
+  brickDelta: 'i.brick_delta',
+  brickXg: 'i.brick_xg',
+  amvDif: 'sa.amv_dif',
+  amvDea: 'sa.amv_dea',
+  amvMacd: 'sa.amv_macd',
 };
 
 const QFQ_SORT_COL_MAP: Record<string, string> = {
@@ -130,6 +155,13 @@ export function buildASharesBaseQuery(
         m.total_mv AS "totalMv",
         m.circ_mv AS "circMv",
         q.trade_date AS "tradeDate",
+        i.ma5 AS "ma5", i.ma30 AS "ma30", i.ma60 AS "ma60", i.ma120 AS "ma120", i.ma240 AS "ma240", i.bbi AS "bbi",
+        i.kdj_j AS "kdjJ", i.kdj_k AS "kdjK", i.kdj_d AS "kdjD", i.dif AS "dif", i.dea AS "dea", i.macd AS "macd",
+        i.atr_14 AS "atr14", i.loss_atr_14 AS "lossAtr14", i.low_9 AS "low9", i.high_9 AS "high9",
+        i.risk_reward_ratio AS "riskRewardRatio", i.stop_loss_pct AS "stopLossPct",
+        i.quote_volume_10 AS "quoteVolume10",
+        i.brick AS "brick", i.brick_delta AS "brickDelta", i.brick_xg AS "brickXg",
+        sa.amv_dif AS "amvDif", sa.amv_dea AS "amvDea", sa.amv_macd AS "amvMacd",
         COALESCE(
           (SELECT jsonb_agg(DISTINCT jsonb_build_object('id', w.id::text, 'name', w.name))
            FROM watchlist_items wi
@@ -141,7 +173,8 @@ export function buildASharesBaseQuery(
       LEFT JOIN latest l ON l.ts_code = s.ts_code
       LEFT JOIN raw.daily_quote q ON q.ts_code = s.ts_code AND q.trade_date = l.trade_date
       LEFT JOIN raw.daily_basic m ON m.ts_code = s.ts_code AND m.trade_date = l.trade_date
-      LEFT JOIN raw.daily_indicator i ON i.ts_code = s.ts_code AND i.trade_date = l.trade_date${scoreJoin}
+      LEFT JOIN raw.daily_indicator i ON i.ts_code = s.ts_code AND i.trade_date = l.trade_date
+      LEFT JOIN stock_amv_daily sa ON sa.ts_code = s.ts_code AND sa.trade_date = l.trade_date${scoreJoin}
       WHERE s.list_status = 'L'
     `;
 
