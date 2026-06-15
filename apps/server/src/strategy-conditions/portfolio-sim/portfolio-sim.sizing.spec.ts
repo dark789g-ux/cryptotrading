@@ -312,3 +312,54 @@ describe('computeAlloc · sized_out 边界', () => {
     expect(alloc).toBeGreaterThanOrEqual(MIN_ALLOC_YUAN);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// effectivePositionRatio（M1 regime 覆盖 base 比例）
+// ─────────────────────────────────────────────────────────────────────────────
+describe('computeAlloc · effectivePositionRatio（regime 覆盖 base）', () => {
+  it('给 effectivePositionRatio → 覆盖 source.positionRatio 作 base', () => {
+    const src = source({ positionRatio: 0.1 });
+    const alloc = computeAlloc(trade(), src, NAV, {
+      anchorMode: false,
+      qualityByTrade: new Map(),
+      effectivePositionRatio: 0.45,
+    });
+    expect(alloc).toBeCloseTo(0.45 * NAV, 6); // 用 0.45 不是 0.1
+  });
+
+  it('缺省 effectivePositionRatio → 回落 source.positionRatio（零漂移）', () => {
+    const src = source({ positionRatio: 0.1 });
+    const alloc = computeAlloc(trade(), src, NAV, {
+      anchorMode: false,
+      qualityByTrade: new Map(),
+      // effectivePositionRatio 缺省
+    });
+    expect(alloc).toBeCloseTo(0.1 * NAV, 6);
+  });
+
+  it('与 sizing mult 共乘：base=effective × mult', () => {
+    const src = source({
+      positionRatio: 0.1,
+      rankSpec: { factors: [{ factor: 'pos_120', weight: 1, dir: 'desc' }] },
+      sizing: sizing({ mode: 'signal_weighted', floorMult: 0.5, capMult: 1.5 }),
+    });
+    const t = trade();
+    const alloc = computeAlloc(t, src, NAV, {
+      anchorMode: false,
+      qualityByTrade: new Map([[t, 1]]), // q=1 → mult=1.5
+      effectivePositionRatio: 0.2,
+    });
+    // base=0.2（regime 覆盖）× 1.5（sizing）× NAV
+    expect(alloc).toBeCloseTo(0.2 * 1.5 * NAV, 6);
+  });
+
+  it('anchorMode 短路忽略 effectivePositionRatio（仍用 source.positionRatio）', () => {
+    const src = source({ positionRatio: 0.1 });
+    const alloc = computeAlloc(trade(), src, NAV, {
+      anchorMode: true,
+      qualityByTrade: new Map(),
+      effectivePositionRatio: 0.45, // 应被忽略
+    });
+    expect(alloc).toBeCloseTo(0.1 * NAV, 6); // 用 source 0.1，不是 regime 0.45
+  });
+});

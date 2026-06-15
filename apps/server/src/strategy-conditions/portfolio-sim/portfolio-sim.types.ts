@@ -9,6 +9,8 @@
  * 口径基准：02 引擎设计（逐日回放：出场 → 开仓 → 盯市 → 记录）。
  */
 
+import { StrategyConditionItem } from '../../entities/strategy/strategy-condition.entity';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 排序契约（rankSpec 统一，保留 legacy 字段）
 // ─────────────────────────────────────────────────────────────────────────────
@@ -100,6 +102,36 @@ export interface CircuitBreaker {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Regime 契约（M1，按当日大盘 0AMV 切 maxPositions/positionRatio）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 当日大盘 0AMV 一根 bar（regime 求值用）。key 字段对应 oamv_daily 裸列：
+ *   amvDif←amv_dif / amvDea←amv_dea / amvMacd←amv_macd（柱/HIST） / close←close / ma240←ma240。
+ * 全字段 nullable（ma240 有预热 NULL，引用它的 rule 在预热段 fail-closed → no-open）。
+ */
+export interface OamvBar {
+  amvDif: number | null;
+  amvDea: number | null;
+  amvMacd: number | null;
+  close: number | null;
+  ma240: number | null;
+}
+
+/**
+ * 一条 regime 规则：条件（0AMV-only，内部 AND）命中时覆盖 maxPositions/positionRatio。
+ * conditions 用后端 StrategyConditionItem（{field,operator,value?,compareField?}，无 compareMode）。
+ */
+export interface RegimeRule {
+  /** 0AMV 条件列表（内部 AND，非空由 DTO 校验保证）。 */
+  conditions: StrategyConditionItem[];
+  /** 命中时该源最大同时在仓数（正整数，无「不限仓 null」档）。 */
+  maxPositions: number;
+  /** 命中时单票仓位占 NAV_ref，(0,1]。 */
+  positionRatio: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 配置类型
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -157,6 +189,13 @@ export interface PortfolioSimConfig {
   anchorMode: boolean;
   /** 【新增】账户级熔断（Phase 3）；缺省 = 全关。anchorMode 下强制全旁路。 */
   circuitBreaker?: CircuitBreaker;
+  /**
+   * 【新增 M1】账户级 regime 调仓（按当日大盘 0AMV 切 maxPositions/positionRatio）。
+   * 缺省 / 空 = 零漂移（走源静态 maxPositions/positionRatio）。
+   * 配了之后：按列表顺序首个全条件命中生效、覆盖所有源；无命中 / 缺数据当天不开仓（fail-closed）。
+   * anchorMode 下强制全旁路（保对拍恒等）。
+   */
+  regimes?: RegimeRule[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,6 +255,12 @@ export interface EngineInput {
   trades: EngineTrade[];
   quotes: Map<string, Map<string, EngineQuoteBar>>;
   calendar: string[];
+  /**
+   * 【新增 M1】大盘 0AMV 日序列（key=tradeDate YYYYMMDD）；由 loader 装入，引擎不查库。
+   * 缺省 = 无 regime 数据；config.regimes 缺省时引擎根本不读此字段（零漂移）。
+   * 配了 regimes 但当日缺 key → resolveRegime(null) → fail-closed 当日不开仓。
+   */
+  oamvDaily?: Map<string, OamvBar>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -282,7 +327,8 @@ export type SkipReason =
   | 'cash_short' // cash < alloc + 买费
   | 'cooldown' // 【Phase 3】连亏熔断冷却期内冻结开仓
   | 'drawdown_halt' // 【Phase 3】回撤熔断停开仓
-  | 'sized_out'; // 【Phase 2】source_kelly 负期望源 alloc≈0
+  | 'sized_out' // 【Phase 2】source_kelly 负期望源 alloc≈0
+  | 'regime_flat'; // 【M1】配了 regimes 但当日无 rule 命中 / 缺 0AMV 数据 → 当天不开仓
 
 /** 组合回放汇总指标。 */
 export interface EngineSummary {

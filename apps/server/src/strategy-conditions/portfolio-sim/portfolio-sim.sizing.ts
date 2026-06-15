@@ -27,6 +27,11 @@ export interface ComputeAllocCtx {
   qualityByTrade: Map<EngineTrade, number>;
   /** source_kelly 预算乘子（装载期 computeSourceKellyMult 算一次）。 */
   sourceKellyMult?: number;
+  /**
+   * 【新增 M1】regime 命中时覆盖 base 仓位比例；缺省 = source.positionRatio（零漂移）。
+   * 仅作 base，sizing mult 仍乘在其上。anchorMode 短路不读此字段（regime 旁路）。
+   */
+  effectivePositionRatio?: number;
 }
 
 /** 数值 clamp 到 [lo, hi]。 */
@@ -56,7 +61,8 @@ export function computeAlloc(
   }
 
   const mode = source.sizing?.mode ?? 'fixed';
-  const base = source.positionRatio;
+  // base：regime 命中时用 effectivePositionRatio 覆盖，否则源静态比例（零漂移）。
+  const base = ctx.effectivePositionRatio ?? source.positionRatio;
   const factors = resolveRankSpec(source);
 
   let mult: number;

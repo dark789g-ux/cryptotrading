@@ -18,6 +18,7 @@
  */
 
 import {
+  checkSkip,
   runPortfolioSim,
   sortCandidates,
   TRADING_DAYS_PER_YEAR,
@@ -33,11 +34,14 @@ import {
   EngineInput,
   EngineQuoteBar,
   EngineTrade,
+  OamvBar,
   PortfolioSimConfig,
   PortfolioSimCostRates,
   PortfolioSimSource,
+  RegimeRule,
   SizingConfig,
 } from './portfolio-sim.types';
+import { StrategyConditionItem } from '../../entities/strategy/strategy-condition.entity';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 构造辅助
@@ -1375,5 +1379,292 @@ describe('熔断段集成 · 回撤停', () => {
     // 二者皆触发 → 优先记 cooldown
     expect(byTs.get('NEW')!.status).toBe('skipped');
     expect(byTs.get('NEW')!.skipReason).toBe('cooldown');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// regime 调仓（M1）：按当日大盘 0AMV 切 maxPositions/positionRatio
+// ─────────────────────────────────────────────────────────────────────────────
+describe('regime 调仓集成（M1）', () => {
+  // canonical 例子两条规则
+  const cnd = (
+    field: string,
+    operator: StrategyConditionItem['operator'],
+    value: number,
+  ): StrategyConditionItem => ({ field, operator, value });
+  const RULE_BULL: RegimeRule = {
+    conditions: [cnd('oamv_macd', 'gt', 0), cnd('oamv_dif', 'gt', 0)],
+    maxPositions: 2,
+    positionRatio: 0.45,
+  };
+  const RULE_BEAR: RegimeRule = {
+    conditions: [cnd('oamv_macd', 'lt', 0), cnd('oamv_dif', 'gt', 0)],
+    maxPositions: 5,
+    positionRatio: 0.2,
+  };
+  const oamv = (
+    bars: Record<string, Partial<OamvBar>>,
+  ): Map<string, OamvBar> => {
+    const m = new Map<string, OamvBar>();
+    for (const [d, b] of Object.entries(bars)) {
+      m.set(d, { amvDif: null, amvDea: null, amvMacd: null, close: null, ma240: null, ...b });
+    }
+    return m;
+  };
+
+  it('零漂移：无 regimes → 引擎逐位等于无 regime（fills/dailyRows 全等）', () => {
+    const src = source({ positionRatio: 0.1, maxPositions: 3, rankField: 'none' });
+    const trades = [
+      trade({ tsCode: 'A', buyDate: '20260102', exitDate: '20260110', ret: 0.1 }),
+      trade({ tsCode: 'B', buyDate: '20260102', exitDate: '20260110', ret: -0.05 }),
+    ];
+    const quotes = buildQuotes({
+      A: { '20260102': [10, 10] },
+      B: { '20260102': [10, 10] },
+    });
+    const calendar = ['20260102', '20260110'];
+    const base = runPortfolioSim(input({ config: config([src]), trades, quotes, calendar }));
+    // 传 oamvDaily 但 config.regimes 缺省 → 引擎根本不读 → 应逐位一致
+    const withOamv = runPortfolioSim(
+      input({
+        config: config([src]),
+        trades,
+        quotes,
+        calendar,
+        oamvDaily: oamv({ '20260102': { amvMacd: 1, amvDif: 1 } }),
+      }),
+    );
+    expect(withOamv.fills).toEqual(base.fills);
+    expect(withOamv.dailyRows).toEqual(base.dailyRows);
+    expect(withOamv.summary).toEqual(base.summary);
+  });
+
+  it('命中 RULE_BULL：覆盖 positionRatio=0.45 且 maxPositions=2（第3票 slots_full）', () => {
+    // 源静态 positionRatio=0.1/maxPositions=5，应被 regime 覆盖为 0.45/2。
+    const src = source({ positionRatio: 0.1, maxPositions: 5, rankField: 'pos_120', rankDir: 'desc' });
+    const trades = [
+      trade({ tsCode: 'HIGH', buyDate: '20260102', exitDate: '20260110', rankValue: 9 }),
+      trade({ tsCode: 'MID', buyDate: '20260102', exitDate: '20260110', rankValue: 5 }),
+      trade({ tsCode: 'LOW', buyDate: '20260102', exitDate: '20260110', rankValue: 1 }),
+    ];
+    const quotes = buildQuotes({
+      HIGH: { '20260102': [10, 10] },
+      MID: { '20260102': [10, 10] },
+      LOW: { '20260102': [10, 10] },
+    });
+    const res = runPortfolioSim(
+      input({
+        config: config([src], { regimes: [RULE_BULL, RULE_BEAR] }),
+        trades,
+        quotes,
+        calendar: ['20260102', '20260110'],
+        oamvDaily: oamv({ '20260102': { amvMacd: 2, amvDif: 1 } }), // 命中 BULL
+      }),
+    );
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    // maxPositions=2：HIGH/MID taken、LOW slots_full
+    expect(byTs.get('HIGH')!.status).toBe('taken');
+    expect(byTs.get('MID')!.status).toBe('taken');
+    expect(byTs.get('LOW')!.status).toBe('skipped');
+    expect(byTs.get('LOW')!.skipReason).toBe('slots_full');
+    // positionRatio=0.45 → alloc=0.45×1e6=4.5e5（覆盖了源 0.1）
+    expect(byTs.get('HIGH')!.alloc).toBeCloseTo(0.45e6, 4);
+    expect(byTs.get('HIGH')!.weightEntry).toBeCloseTo(0.45, 8);
+  });
+
+  it('命中 RULE_BEAR：覆盖 positionRatio=0.2 且 maxPositions=5', () => {
+    const src = source({ positionRatio: 0.1, maxPositions: 2, rankField: 'none' });
+    const trades = [
+      trade({ tsCode: 'X', buyDate: '20260102', exitDate: '20260110' }),
+    ];
+    const quotes = buildQuotes({ X: { '20260102': [10, 10] } });
+    const res = runPortfolioSim(
+      input({
+        config: config([src], { regimes: [RULE_BULL, RULE_BEAR] }),
+        trades,
+        quotes,
+        calendar: ['20260102', '20260110'],
+        oamvDaily: oamv({ '20260102': { amvMacd: -2, amvDif: 1 } }), // 命中 BEAR
+      }),
+    );
+    const f = res.fills[0];
+    expect(f.status).toBe('taken');
+    expect(f.alloc).toBeCloseTo(0.2e6, 4); // 0.2 覆盖源 0.1
+  });
+
+  it('无 rule 命中（macd>0 但 dif<0）→ 当日全部 regime_flat', () => {
+    const src = source({ positionRatio: 0.1, maxPositions: 5, rankField: 'none' });
+    const trades = [
+      trade({ tsCode: 'X', buyDate: '20260102', exitDate: '20260110' }),
+      trade({ tsCode: 'Y', buyDate: '20260102', exitDate: '20260110' }),
+    ];
+    const quotes = buildQuotes({
+      X: { '20260102': [10, 10] },
+      Y: { '20260102': [10, 10] },
+    });
+    const res = runPortfolioSim(
+      input({
+        config: config([src], { regimes: [RULE_BULL, RULE_BEAR] }),
+        trades,
+        quotes,
+        calendar: ['20260102', '20260110'],
+        oamvDaily: oamv({ '20260102': { amvMacd: 2, amvDif: -1 } }), // 两条都不命中
+      }),
+    );
+    for (const f of res.fills) {
+      expect(f.status).toBe('skipped');
+      expect(f.skipReason).toBe('regime_flat');
+    }
+  });
+
+  it('当日缺 0AMV 行（fail-closed）→ regime_flat', () => {
+    const src = source({ positionRatio: 0.1, maxPositions: 5, rankField: 'none' });
+    const trades = [trade({ tsCode: 'X', buyDate: '20260102', exitDate: '20260110' })];
+    const quotes = buildQuotes({ X: { '20260102': [10, 10] } });
+    const res = runPortfolioSim(
+      input({
+        config: config([src], { regimes: [RULE_BULL, RULE_BEAR] }),
+        trades,
+        quotes,
+        calendar: ['20260102', '20260110'],
+        oamvDaily: oamv({}), // 当日无 key
+      }),
+    );
+    expect(res.fills[0].status).toBe('skipped');
+    expect(res.fills[0].skipReason).toBe('regime_flat');
+  });
+
+  it('引用列 NULL（ma240 预热段，fail-closed）→ regime_flat', () => {
+    const ruleClose: RegimeRule = {
+      conditions: [cnd('oamv_close', 'gt', 0)], // 用 close 引一个会 NULL 的字段
+      maxPositions: 3,
+      positionRatio: 0.3,
+    };
+    const src = source({ positionRatio: 0.1, rankField: 'none' });
+    const trades = [trade({ tsCode: 'X', buyDate: '20260102', exitDate: '20260110' })];
+    const quotes = buildQuotes({ X: { '20260102': [10, 10] } });
+    const res = runPortfolioSim(
+      input({
+        config: config([src], { regimes: [ruleClose] }),
+        trades,
+        quotes,
+        calendar: ['20260102', '20260110'],
+        oamvDaily: oamv({ '20260102': { close: null } }), // 引用列 NULL
+      }),
+    );
+    expect(res.fills[0].skipReason).toBe('regime_flat');
+  });
+
+  it('anchorMode 旁路：带 regimes 但 anchorMode → regime 不生效、每笔 taken、realizedRetNet ≡ ret', () => {
+    const src = source({ positionRatio: 0.3, maxPositions: 1, rankField: 'none' });
+    const trades = [
+      trade({ tsCode: 'A', buyDate: '20260102', exitDate: '20260110', ret: 0.12 }),
+      trade({ tsCode: 'B', buyDate: '20260102', exitDate: '20260110', ret: -0.07 }),
+    ];
+    const quotes = buildQuotes({
+      A: { '20260102': [10, 10] },
+      B: { '20260102': [10, 10] },
+    });
+    const res = runPortfolioSim(
+      input({
+        config: config([src], { anchorMode: true, regimes: [RULE_BULL, RULE_BEAR] }),
+        trades,
+        quotes,
+        calendar: ['20260102', '20260110'],
+        // 故意给「无命中」的 bar：若 regime 没旁路，会 regime_flat 全 skip
+        oamvDaily: oamv({ '20260102': { amvMacd: 2, amvDif: -1 } }),
+      }),
+    );
+    // anchorMode 下 regime 全旁路 → 每笔必 taken、净收益恒等 ret
+    for (const f of res.fills) {
+      expect(f.status).toBe('taken');
+    }
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    expect(byTs.get('A')!.realizedRetNet).toBeCloseTo(0.12, 12);
+    expect(byTs.get('B')!.realizedRetNet).toBeCloseTo(-0.07, 12);
+  });
+
+  it('frozen 优先于 regime：冷却日即使 regime 无命中，skipReason 是 cooldown 不是 regime_flat', () => {
+    // 复用熔断冷却构造：A 亏触发 until，C 落在冷却期；同时 C 当日 regime 无命中。
+    const src = source({ positionRatio: 0.1, rankField: 'none' });
+    const trades = [
+      trade({ tsCode: 'A', buyDate: '20260102', exitDate: '20260103', ret: -0.1 }),
+      trade({ tsCode: 'B', buyDate: '20260103', exitDate: '20260106', ret: -0.1 }),
+      trade({ tsCode: 'C', buyDate: '20260107', exitDate: '20260110', ret: 0.2 }),
+    ];
+    const calendar = ['20260102', '20260103', '20260106', '20260107', '20260108', '20260110'];
+    const quotes = buildQuotes({
+      A: { '20260102': [10, 10], '20260103': [10, 10] },
+      B: { '20260103': [10, 10], '20260106': [10, 10] },
+      C: { '20260107': [10, 10] },
+    });
+    const cb = cbAllOff({
+      enableCooldown: true,
+      consecutiveLossesThreshold: 2,
+      baseCooldownDays: 5,
+      maxCooldownDays: 5,
+    });
+    const res = runPortfolioSim(
+      input({
+        config: config([src], { circuitBreaker: cb, regimes: [RULE_BULL, RULE_BEAR] }),
+        trades,
+        quotes,
+        calendar,
+        // C 当日（20260107）给无命中 bar；A/B 日给命中 bar 让它们正常开仓
+        oamvDaily: oamv({
+          '20260102': { amvMacd: 2, amvDif: 1 },
+          '20260103': { amvMacd: 2, amvDif: 1 },
+          '20260107': { amvMacd: 2, amvDif: -1 }, // regime 无命中
+        }),
+      }),
+    );
+    const byTs = new Map(res.fills.map((f) => [f.tsCode, f]));
+    expect(byTs.get('A')!.status).toBe('taken');
+    expect(byTs.get('B')!.status).toBe('taken');
+    // C 在冷却期 + regime 无命中 → frozen 优先 → cooldown（不是 regime_flat）
+    expect(byTs.get('C')!.status).toBe('skipped');
+    expect(byTs.get('C')!.skipReason).toBe('cooldown');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// checkSkip 直测：effectiveMaxPositions 覆盖 slots_full（M1）
+// ─────────────────────────────────────────────────────────────────────────────
+describe('checkSkip · effectiveMaxPositions', () => {
+  // checkSkip 只读 position 的 sourceIdx/tsCode/mv；构造最小对象（其余字段引擎不读）。
+  const pos = (tsCode: string): never =>
+    ({ sourceIdx: 0, tsCode, mv: 0 } as never);
+  const opts = (effectiveMaxPositions?: number | null) => ({
+    anchorMode: false,
+    buyFeeRate: 0,
+    effectiveMaxPositions,
+  });
+
+  it('effectiveMaxPositions=2 撞线 → slots_full（覆盖 source.maxPositions=5）', () => {
+    const src = source({ maxPositions: 5, positionRatio: 0.1 });
+    const positions = [pos('A'), pos('B')]; // 已 2 仓
+    const r = checkSkip(trade({ tsCode: 'NEW' }), src, positions, 1e6, 1e6, 1e5, opts(2));
+    expect(r).toBe('slots_full');
+  });
+
+  it('effectiveMaxPositions=5（regime 放宽）→ 不撞线（覆盖 source.maxPositions=2）', () => {
+    const src = source({ maxPositions: 2, positionRatio: 0.1 });
+    const positions = [pos('A'), pos('B')]; // 2 仓，源静态会撞，但 regime 放到 5
+    const r = checkSkip(trade({ tsCode: 'NEW' }), src, positions, 1e6, 1e6, 1e5, opts(5));
+    expect(r).toBeNull();
+  });
+
+  it('缺 effectiveMaxPositions → 回落 source.maxPositions（零漂移）', () => {
+    const src = source({ maxPositions: 2, positionRatio: 0.1 });
+    const positions = [pos('A'), pos('B')];
+    const r = checkSkip(trade({ tsCode: 'NEW' }), src, positions, 1e6, 1e6, 1e5, opts(undefined));
+    expect(r).toBe('slots_full'); // 用 source 的 2
+  });
+
+  it('effectiveMaxPositions=null + source.maxPositions=null → 不限仓', () => {
+    const src = source({ maxPositions: null, positionRatio: 0.1 });
+    const positions = [pos('A'), pos('B'), pos('C')];
+    const r = checkSkip(trade({ tsCode: 'NEW' }), src, positions, 1e6, 1e6, 1e5, opts(null));
+    expect(r).toBeNull();
   });
 });

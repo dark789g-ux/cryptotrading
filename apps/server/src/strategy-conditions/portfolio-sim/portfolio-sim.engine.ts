@@ -28,6 +28,7 @@ import {
   updateDrawdownHalt,
 } from './portfolio-sim.cooldown';
 import { rankAndScore } from './portfolio-sim.ranking';
+import { resolveRegime } from './portfolio-sim.regime';
 import {
   computeAlloc,
   computeSourceKellyMult,
@@ -233,6 +234,17 @@ export function runPortfolioSim(
     const frozenDD = !anchorMode && !!cb?.enableDrawdownHalt && ddHalted;
     const frozen = frozenCooldown || frozenDD;
 
+    // ── regime 解析（按当日大盘 0AMV 切 maxPositions/positionRatio）。
+    //    anchorMode 全旁路（保对拍恒等）；config.regimes 缺省 / 空 → 不解析（零漂移）。
+    //    缺数据 / 无 rule 命中 → regimeNoOpen=true（fail-closed，当日 regime_flat）。
+    let regimeOverride: { maxPositions: number; positionRatio: number } | null = null;
+    let regimeNoOpen = false;
+    if (!anchorMode && config.regimes?.length) {
+      const bar = input.oamvDaily?.get(d) ?? null;
+      regimeOverride = resolveRegime(bar, config.regimes);
+      if (!regimeOverride) regimeNoOpen = true;
+    }
+
     // ── ② 开仓：buy_date == d 的信号，按 source 在 config 中的顺序逐策略处理。
     const dayBuys = buysByDate.get(d) ?? [];
     for (let s = 0; s < config.sources.length; s++) {
@@ -248,16 +260,27 @@ export function runPortfolioSim(
         fill.rankScore = scoreByTrade.get(trade) ?? null;
 
         if (frozen) {
+          // 冻结优先于 regime：熔断日仍标 cooldown/drawdown_halt，不标 regime_flat。
           fill.status = 'skipped';
           fill.skipReason = frozenCooldown ? 'cooldown' : 'drawdown_halt';
           continue;
+        } else if (regimeNoOpen) {
+          // 配了 regimes 但当日无 rule 命中 / 缺 0AMV 数据 → fail-closed 当天不开仓。
+          fill.status = 'skipped';
+          fill.skipReason = 'regime_flat';
+          continue;
         }
+
+        // regime 命中时覆盖 base 比例 / 最大仓数；未配 regimes → 走源静态值（零漂移）。
+        const effPositionRatio = regimeOverride?.positionRatio ?? source.positionRatio;
+        const effMaxPositions = regimeOverride?.maxPositions ?? source.maxPositions;
 
         // alloc 算一次，同时供 checkSkip 与开仓块（删除 checkSkip 内重复计算）。
         const alloc = computeAlloc(trade, source, navRef, {
           anchorMode,
           qualityByTrade,
           sourceKellyMult: sourceKellyMult[s],
+          effectivePositionRatio: effPositionRatio,
         });
 
         // sized_out：仅 source_kelly mult=0（真负期望/全亏源）可达；signal_weighted mult≥floor>0 不触发。
@@ -271,6 +294,7 @@ export function runPortfolioSim(
         const skip = checkSkip(trade, source, positions, navRef, cash, alloc, {
           anchorMode,
           buyFeeRate,
+          effectiveMaxPositions: effMaxPositions,
         });
         if (skip !== null) {
           fill.status = 'skipped';
@@ -418,7 +442,12 @@ export function checkSkip(
   navRef: number,
   cash: number,
   alloc: number,
-  opts: { anchorMode: boolean; buyFeeRate: number },
+  opts: {
+    anchorMode: boolean;
+    buyFeeRate: number;
+    /** 【M1】regime 命中时覆盖 maxPositions；缺省 = source.maxPositions（零漂移）。 */
+    effectiveMaxPositions?: number | null;
+  },
 ): SkipReason | null {
   const { anchorMode, buyFeeRate } = opts;
   const sourceIdx = trade.sourceIdx;
@@ -435,8 +464,10 @@ export function checkSkip(
   }
 
   // ② slots_full（anchorMode 视 maxPositions=null）。
-  if (!anchorMode && source.maxPositions !== null) {
-    if (ownPositions.length >= source.maxPositions) {
+  //    effMax：regime 命中时用 effectiveMaxPositions 覆盖，否则源静态 maxPositions（零漂移）。
+  const effMax = opts.effectiveMaxPositions ?? source.maxPositions;
+  if (!anchorMode && effMax !== null) {
+    if (ownPositions.length >= effMax) {
       return 'slots_full';
     }
   }
