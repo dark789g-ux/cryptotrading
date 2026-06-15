@@ -16,9 +16,19 @@
 
 ## 跨页跳转
 
-- **触发训练**：`QuantJobsView` 右上角「触发训练」打开 `QuantTrainTriggerModal`（位于 `components/quant/`）。提交成功后 `router.push({ name: 'quant-jobs', query: { highlight: jobId } })`，列表会高亮新提交的行。
+- **触发训练 / 备料 / kelly 扫描**：`QuantJobsView` 头部按钮打开对应 Modal（`QuantTrainTriggerModal` / `PrepareModal` 在 `components/quant/`，kelly 扫描在 `KellySweepView`）。**2026-06-15 起这三个入口的提交按钮是「保存草稿」**——提交只建一条 `status=draft` 作业（不入队、worker 不捞），随后 `router.push({ name: 'quant-jobs', query: { highlight: jobId } })` 高亮该草稿行；要真正执行到列表点该行「运行」（见下「作业草稿态」）。
 - **看 run 详情**：`QuantRunsView` 行点击 → `router.push({ name: 'quant-run-detail', params: { id } })`。
 - **返回**：详情页顶部「返回」按钮优先 `router.back()`，无历史时回退到 `quant-runs`。
+
+## 作业草稿态（先建后跑，2026-06-15）
+
+`ml.jobs.status` 新增 `draft`。三个触发入口默认「保存草稿」——只建参数不入队;到作业列表显式点「运行」才发起执行（统一全站「先建后跑」）。
+
+- **建草稿**：`POST /api/quant/jobs` 带 `as_draft: true` → `status=draft`。worker 的 `poll_one()` 是 `WHERE status='pending'`，天然不捞 draft。不传 `as_draft`（或 `false`）仍直接入 `pending`（**向后兼容**，老调用方行为不变）。
+- **发起运行**：作业列表里 `status==='draft'` 行有「运行」按钮 → `POST /api/quant/jobs/:id/dispatch` → `draft→pending`（带 `WHERE status='draft'` 防竞态;worker 随后捞起转 running）。对非草稿调用返回 409「仅草稿任务可发起运行」。
+- **取消草稿**：草稿行「取消」直连置 `cancelled`（**不**写 `cancel_requested`、不走 worker 往返——草稿从未进 worker）。pending/running 仍走原 `cancel_requested` 路径。
+- 前端 `JobStatus` / 状态筛选 `statusOptions` / 状态标签 `statusTagMap` 均含 `draft`（标签「草稿」中性色）；`quantApi.dispatchJob(id)` 封装 dispatch 调用。
+- worker（`poller.py`）/ SSE / migration（draft 仅 alembic 扩 `ck_jobs_status` CHECK）零业务逻辑改动。
 
 ## SSE 连接说明
 
