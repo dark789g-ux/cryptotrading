@@ -26,6 +26,7 @@ import {
   EngineInput,
   EngineQuoteBar,
   EngineTrade,
+  OamvBar,
   PortfolioSimConfig,
   PortfolioSimSource,
   RankFactorKey,
@@ -126,8 +127,12 @@ export class PortfolioSimLoader {
       );
     }
 
+    // ── 4. 大盘 0AMV 日序列（regime 调仓输入；regimes 缺省时引擎不读，装数据无害=零漂移）。
+    //    窗口取 [minBuy, maxExit]——补尾追加的尾日落在窗外、必无新买入，故 oamv 窗口无需补尾（spec §6）。
+    const oamvDaily = await this.fetchOamvSeries(minBuy, maxExit);
+
     return {
-      input: { config, trades, quotes, calendar },
+      input: { config, trades, quotes, calendar, oamvDaily },
       groupTotal: tsCodes.length,
       appendedCalendarDates: appendedDates,
     };
@@ -239,5 +244,56 @@ export class PortfolioSimLoader {
     );
     // cal_date 为 char(8)，恰好 8 字符无 padding（真 DB 已核），仍 trim 防御。
     return rows.map((r) => r.calDate.trim());
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 大盘 0AMV 日序列（regime 调仓）
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * 取 [start, end]（含端点）的大盘 0AMV 日序列，输出 Map<tradeDate, OamvBar>（regime 输入）。
+   *
+   * 列类型混合（真 DB 已核 oamv_daily）：
+   *   - `close` 是 numeric(12,2) → pg 驱动返回 string；
+   *   - `amv_dif/amv_dea/amv_macd/ma240` 是 double precision → 返回 number。
+   * 统一过 `parseNumericString`（先归一为 string 再 parseFloat）对两者都安全，NULL 透传
+   *（amv_* 无缺，ma240 有 239 行预热 NULL；引用 ma240 的 rule 在预热段由引擎 fail-closed → no-open）。
+   *
+   * key = trade_date.trim()（varchar(8) 通常无 padding，仍 trim 防御，与 fetchSseCalendar 同口径）。
+   * regimes 缺省时引擎根本不读此 Map（零漂移），故装数据无副作用。
+   */
+  async fetchOamvSeries(start: string, end: string): Promise<Map<string, OamvBar>> {
+    const rows = await this.dataSource.query<
+      Array<{
+        trade_date: string;
+        amv_dif: number | string | null;
+        amv_dea: number | string | null;
+        amv_macd: number | string | null;
+        close: number | string | null;
+        ma240: number | string | null;
+      }>
+    >(
+      `SELECT trade_date, amv_dif, amv_dea, amv_macd, close, ma240
+         FROM oamv_daily
+        WHERE trade_date BETWEEN $1 AND $2
+        ORDER BY trade_date`,
+      [start, end],
+    );
+
+    // double（number）/ numeric（string）统一过 parseNumericString：number 先归一为 string，NULL 透传。
+    const num = (v: number | string | null): number | null =>
+      v === null || v === undefined ? null : parseNumericString(String(v));
+
+    const map = new Map<string, OamvBar>();
+    for (const r of rows) {
+      map.set(r.trade_date.trim(), {
+        amvDif: num(r.amv_dif),
+        amvDea: num(r.amv_dea),
+        amvMacd: num(r.amv_macd),
+        close: num(r.close),
+        ma240: num(r.ma240),
+      });
+    }
+    return map;
   }
 }

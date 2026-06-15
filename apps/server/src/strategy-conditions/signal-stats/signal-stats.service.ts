@@ -39,6 +39,7 @@ import {
   RANK_FACTOR_REGISTRY,
   VALID_RANK_FACTOR_KEYS,
 } from '../portfolio-sim/portfolio-sim.factor-registry';
+import { validateRegimes } from '../portfolio-sim/portfolio-sim.regime-validator';
 
 /** 方案列表条目：附带该方案最新一次 run 的完整实体（无 run 时为 null）。 */
 export type SignalTestWithLatestRun = SignalTestEntity & {
@@ -577,6 +578,9 @@ export class SignalStatsService {
 
     // circuitBreaker：null 或双触发字段齐全（与 portfolio-sim 同语义）
     this.validateBacktestCircuitBreaker(bc.circuitBreaker);
+
+    // regimes：账户级 regime 调仓（与 portfolio-sim 复用同一 validateRegimes）
+    validateRegimes(bc.regimes, 'backtestConfig.regimes');
   }
 
   private validateBacktestRankSpec(spec: SignalTestBacktestConfig['rankSpec']): void {

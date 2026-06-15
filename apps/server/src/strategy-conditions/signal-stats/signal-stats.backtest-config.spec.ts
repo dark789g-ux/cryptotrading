@@ -345,4 +345,47 @@ describe('SignalStatsService - backtestConfig 校验', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
+
+  describe('regimes（validateRegimes 接线）', () => {
+    const okRegimes = [
+      {
+        conditions: [
+          { field: 'oamv_macd', operator: 'gt' as const, value: 0 },
+          { field: 'oamv_dif', operator: 'gt' as const, value: 0 },
+        ],
+        maxPositions: 2,
+        positionRatio: 0.45,
+      },
+    ];
+
+    it('regimes 缺省 → 通过（零漂移）', async () => {
+      await expect(
+        makeService().create(buildDto(makeBacktestConfig())),
+      ).resolves.toBeDefined();
+    });
+
+    it('合法 regimes → 通过', async () => {
+      await expect(
+        makeService().create(buildDto(makeBacktestConfig({ regimes: okRegimes }))),
+      ).resolves.toBeDefined();
+    });
+
+    it('非法 operator（cross_above）regimes → 400（validator 已接线）', async () => {
+      await expect(
+        makeService().create(
+          buildDto(
+            makeBacktestConfig({
+              regimes: [
+                {
+                  conditions: [{ field: 'oamv_dif', operator: 'cross_above', value: 0 }],
+                  maxPositions: 2,
+                  positionRatio: 0.4,
+                },
+              ] as never,
+            }),
+          ),
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
 });

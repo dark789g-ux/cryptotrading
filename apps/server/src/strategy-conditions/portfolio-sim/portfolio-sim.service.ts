@@ -33,6 +33,7 @@ import {
   PortfolioSimConfig,
   PortfolioSimSource,
 } from './portfolio-sim.types';
+import { validateRegimes } from './portfolio-sim.regime-validator';
 import {
   RANK_FACTOR_REGISTRY,
   VALID_RANK_FACTOR_KEYS,
@@ -313,6 +314,9 @@ export class PortfolioSimService {
 
     // 熔断 circuitBreaker（config 级，若提供）。
     this.validateCircuitBreaker(config.circuitBreaker);
+
+    // regime 调仓（config 级，若提供）。
+    validateRegimes(config.regimes, 'config.regimes');
   }
 
   /**

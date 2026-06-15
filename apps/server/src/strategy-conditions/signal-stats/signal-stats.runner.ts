@@ -388,6 +388,8 @@ export class SignalStatsRunner {
       cost: bc.cost,
       anchorMode: bc.anchorMode,
       circuitBreaker: bc.circuitBreaker ?? undefined,
+      // regime 调仓账户级直透（不进 sources[0]）；缺省 → undefined（引擎不读，零漂移）。
+      regimes: bc.regimes,
     };
   }
 

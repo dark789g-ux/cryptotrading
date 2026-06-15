@@ -636,6 +636,48 @@ describe('PortfolioSimService - circuitBreaker 校验', () => {
   });
 });
 
+// ── regimes 校验（config 级，spec 07 §7；validateRegimes 接线烟测）──────────────
+
+describe('PortfolioSimService - regimes 校验（接线）', () => {
+  const okRegimes = [
+    {
+      conditions: [
+        { field: 'oamv_macd', operator: 'gt' as const, value: 0 },
+        { field: 'oamv_dif', operator: 'gt' as const, value: 0 },
+      ],
+      maxPositions: 2,
+      positionRatio: 0.45,
+    },
+  ];
+
+  it('regimes 未提供 → 通过（零漂移）', async () => {
+    const { svc } = makeService();
+    await expect(svc.create(dto())).resolves.toBeDefined();
+  });
+
+  it('合法 regimes → 通过', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(dto({ config: config({ regimes: okRegimes }) })),
+    ).resolves.toBeDefined();
+  });
+
+  it('非法字段 regimes → 400（validator 已接线）', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.create(
+        dto({
+          config: config({
+            regimes: [
+              { conditions: [{ field: 'rsi', operator: 'gt', value: 0 }], maxPositions: 2, positionRatio: 0.4 },
+            ] as never,
+          }),
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
 // ── findOne / remove ──────────────────────────────────────────────────────
 
 describe('PortfolioSimService - findOne / remove', () => {

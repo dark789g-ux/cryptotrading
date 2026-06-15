@@ -308,6 +308,37 @@ describe('SignalStatsRunner 资金账户层（迷你回测）接线', () => {
       expect(passedConfig.circuitBreaker).toEqual(cb);
     });
 
+    it('regimes 透传到账户级（与 circuitBreaker 同级，不进 sources[0]）', async () => {
+      const { runner, loader } = buildRunner();
+      const regimes = [
+        {
+          conditions: [
+            { field: 'oamv_macd', operator: 'gt' as const, value: 0 },
+            { field: 'oamv_dif', operator: 'gt' as const, value: 0 },
+          ],
+          maxPositions: 2,
+          positionRatio: 0.45,
+        },
+      ];
+      const bc = makeBacktestConfig({ regimes });
+
+      await runner.executeRun(makeTestEntity({ backtestConfig: bc }), 'run-regime');
+
+      const passedConfig = loader.load.mock.calls[0][0] as Record<string, any>;
+      // 账户级原样透传。
+      expect(passedConfig.regimes).toEqual(regimes);
+      // 不进源行。
+      expect(passedConfig.sources[0].regimes).toBeUndefined();
+    });
+
+    it('regimes 缺省 → 透传 undefined（零漂移）', async () => {
+      const { runner, loader } = buildRunner();
+      const bc = makeBacktestConfig(); // 无 regimes
+      await runner.executeRun(makeTestEntity({ backtestConfig: bc }), 'run-no-regime');
+      const passedConfig = loader.load.mock.calls[0][0] as Record<string, any>;
+      expect(passedConfig.regimes).toBeUndefined();
+    });
+
     it('写 equity 前先 DELETE（幂等），逐日行批量 insert', async () => {
       const { runner, equityRepo } = buildRunner();
 

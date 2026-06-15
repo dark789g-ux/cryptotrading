@@ -11,6 +11,7 @@ import type {
   RankSpec,
   SizingConfig,
   CircuitBreaker,
+  RegimeRule,
 } from '../../strategy-conditions/portfolio-sim/portfolio-sim.types';
 
 export interface SignalTestUniverse {
@@ -44,6 +45,11 @@ export interface SignalTestBacktestConfig {
   sizing: SizingConfig;
   /** 账户级熔断；null = 全关。 */
   circuitBreaker: CircuitBreaker | null;
+  /**
+   * 账户级 regime 调仓（spec 2026-06-15）；缺省 / 空 = 不启用（零漂移，走源静态 maxPositions/positionRatio）。
+   * 配了之后：按列表顺序首个全条件命中生效、覆盖所有源；无命中 / 缺数据当天不开仓（fail-closed）。
+   */
+  regimes?: RegimeRule[];
 }
 
 @Entity('signal_test')
