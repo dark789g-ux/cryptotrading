@@ -5,6 +5,8 @@ export const COLUMN_GROUPS = [
   { key: 'ma', label: '均线' },
   { key: 'kdjMacd', label: 'KDJ / MACD' },
   { key: 'risk', label: '风控 / 波动' },
+  { key: 'amv', label: '活跃市值' },
+  { key: 'brick', label: '砖块图' },
   { key: 'signal', label: '策略 / 信号' },
   { key: 'fixed', label: '固定' },
   { key: 'meta', label: '其它' },
@@ -59,6 +61,16 @@ export const COLUMN_KEY_GROUP: Record<string, ColumnGroupKey> = {
   lossAtr14: 'risk',
   low9: 'risk',
   high9: 'risk',
+
+  // 活跃市值
+  amvDif: 'amv',
+  amvDea: 'amv',
+  amvMacd: 'amv',
+
+  // 砖块图
+  brick: 'brick',
+  brickDelta: 'brick',
+  brickXg: 'brick',
 
   // 策略 / 信号
   modelScore: 'signal',
