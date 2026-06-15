@@ -1,0 +1,63 @@
+股票代码,股票名称,行业,类型,理由
+NVDA,英伟达 (NVIDIA),AI芯片与算力,巨头型龙头,AI芯片与算力主线巨头龙头，市值约5万亿美元全球第一，数据中心业务占约90%
+AVGO,博通 (Broadcom),AI芯片与算力,巨头型龙头,AI芯片主线巨头，定制AI加速器(ASIC)龙头，2026年AI芯片营收目标560亿美元
+TSM,台积电 (Taiwan Semiconductor),AI芯片与算力,巨头型龙头,AI芯片主线巨头，先进制程(3nm/2nm)不可替代
+AMD,超威半导体 (Advanced Micro Devices),AI芯片与算力,热点代表股,AI芯片热点代表股，MI系列加速器抢份额，年内涨超117%
+MU,美光科技 (Micron Technology),AI芯片与算力,热点代表股,AI芯片热点代表股，HBM高带宽内存供应商
+MRVL,迈威尔科技 (Marvell Technology),AI芯片与算力,热点代表股,AI芯片热点代表股，黄仁勋称其为未来万亿美元公司
+INTC,英特尔 (Intel),AI芯片与算力,热点代表股,AI芯片热点代表股，年内涨约168%，获Alphabet代工订单
+CEG,星座能源 (Constellation Energy),AI用电/核电,巨头型龙头,AI用电/核电主线巨头，美国最大核电运营商，持有微软三里岛与Meta克林顿核电站PPA
+GEV,GE能源 (GE Vernova),AI用电/核电,巨头型龙头,AI用电主线巨头，年内涨76%，电气化+燃气轮机+核电综合龙头
+VRT,维谛技术 (Vertiv),AI用电/核电,热点代表股,AI用电主线最强热点代表股，年内涨84%，数据中心散热与电源管理纯玩家
+VST,Vistra,AI用电/核电,热点代表股,AI用电热点代表股，独立电厂龙头，与英伟达/KKR成立Helix合资公司
+OKLO,Oklo,AI用电/核电,热点代表股,AI用电热点代表股，小型模块化反应堆(SMR)概念，无营收高投机
+TLN,Talen Energy,AI用电/核电,热点代表股,AI用电热点代表股，持有亚马逊Susquehanna核电PPA
+MSFT,微软 (Microsoft),AI软件与应用,巨头型龙头,AI软件主线巨头，Azure+Copilot生态，AI业务年化营收370亿美元
+ORCL,甲骨文 (Oracle),AI软件与应用,巨头型龙头,AI软件主线巨头，云基础设施营收+84%，Stargate项目核心方
+PLTR,Palantir,AI软件与应用,热点代表股,AI软件/国防主线热点代表股，Q1营收+85%，Golden Dome核心软件商
+XOM,埃克森美孚 (ExxonMobil),能源（油气）,巨头型龙头,能源主线巨头，市值超6000亿美元，受益Permian盆地低成本产量
+CVX,雪佛龙 (Chevron),能源（油气）,巨头型龙头,能源主线巨头，巴菲特伯克希尔重仓股
+LMT,洛克希德·马丁 (Lockheed Martin),防务与航天,巨头型龙头,防务主线巨头，F-35制造商
+RTX,雷神技术 (RTX),防务与航天,巨头型龙头,防务主线巨头，3月创52周新高
+NOC,诺斯罗普·格鲁曼 (Northrop Grumman),防务与航天,巨头型龙头,防务主线巨头
+GD,通用动力 (General Dynamics),防务与航天,巨头型龙头,防务主线巨头
+RKLB,火箭实验室 (Rocket Lab),防务与航天,热点代表股,防务/太空主线热点代表股，小型火箭发射龙头，入选Golden Dome项目，纳入纳斯达克100
+ASTS,AST SpaceMobile,防务与航天,热点代表股,防务/太空主线热点代表股，卫星直连手机概念
+IBM,IBM,量子计算,巨头型龙头,量子计算主线巨头，获10亿美元政府投资，建美国首座专用量子代工厂
+GOOGL,Alphabet (Google),量子计算,巨头型龙头,量子计算/云主线巨头，105量子比特Willow芯片实现纠错突破
+IONQ,IonQ,量子计算,热点代表股,量子计算热点代表股，离子阱龙头，首家营收破1亿美元的纯玩家，年内涨超60%
+RGTI,Rigetti Computing,量子计算,热点代表股,量子计算热点代表股，超导路线，108量子比特Cepheus系统
+QBTS,D-Wave Quantum,量子计算,热点代表股,量子计算热点代表股，量子退火路线，营收+179%
+QUBT,Quantum Computing Inc,量子计算,热点代表股,量子计算热点代表股，量子四杰之一，高投机
+COIN,Coinbase,加密资产与稳定币,巨头型龙头,加密主线巨头，美国最大加密交易所
+MSTR,Strategy (原MicroStrategy),加密资产与稳定币,巨头型龙头,加密主线巨头，持有71万枚比特币的杠杆代理
+CRCL,Circle,加密资产与稳定币,热点代表股,加密主线热点代表股，USDC稳定币发行商，年内涨68%
+HOOD,Robinhood,加密资产与稳定币,热点代表股,加密主线热点代表股，金融科技平台
+BMNR,Bitmine Immersion,加密资产与稳定币,热点代表股,加密主线热点代表股，以太坊金库，一年涨217%
+TSLA,特斯拉 (Tesla),人形机器人,巨头型龙头,人形机器人主线巨头，Optimus为核心，计划Fremont工厂年产100万台
+QCOM,高通 (Qualcomm),人形机器人,热点代表股,人形机器人主线热点代表股(卖铲)，Dragonwing边缘AI芯片
+MP,MP Materials,人形机器人,热点代表股,人形机器人主线热点代表股(卖铲)，稀土供应链
+LLY,礼来 (Eli Lilly),医疗/GLP-1,巨头型龙头,医疗/GLP-1主线巨头，Mounjaro/Zepbound减肥药，疗效领先
+NVO,诺和诺德 (Novo Nordisk),医疗/GLP-1,巨头型龙头,医疗/GLP-1主线巨头，Wegovy HD获FDA批准，减重达20.7%
+VKTX,Viking Therapeutics,医疗/GLP-1,热点代表股,医疗/GLP-1主线热点代表股，减肥药新秀
+JPM,摩根大通 (JPMorgan),金融,巨头型龙头,金融主线巨头，Q1投行费用+28%
+GS,高盛 (Goldman Sachs),金融,巨头型龙头,金融主线巨头，Q1股票交易营收创纪录+27%
+SOFI,SoFi Technologies,金融,热点代表股,金融主线热点代表股，金融科技，推出加密交易
+SPCX,SpaceX,太空经济,巨头型龙头,太空主线巨头，史上最大IPO，估值约2万亿美元
+PL,Planet Labs,太空经济,热点代表股,太空主线热点代表股，卫星影像，营收+42%
+LUNR,Intuitive Machines,太空经济,热点代表股,太空主线热点代表股，月球着陆器
+RDW,Redwire,太空经济,热点代表股,太空主线热点代表股，太空基础设施
+PANW,Palo Alto Networks,网络安全,巨头型龙头,网络安全主线巨头，下一代防火墙龙头，250亿美元收购CyberArk
+CRWD,CrowdStrike,网络安全,巨头型龙头,网络安全主线巨头，Falcon云原生平台，ARR突破52.5亿美元
+FTNT,Fortinet,网络安全,热点代表股,网络安全热点代表股
+NET,Cloudflare,网络安全,热点代表股,网络安全热点代表股
+ZS,Zscaler,网络安全,热点代表股,网络安全热点代表股
+S,SentinelOne,网络安全,热点代表股,网络安全热点代表股，摩根士丹利首选
+OKTA,Okta,网络安全,热点代表股,网络安全热点代表股，身份安全突破
+DDOG,Datadog,网络安全,热点代表股,网络安全/可观测性热点代表股
+CAT,卡特彼勒 (Caterpillar),工业/基础设施,巨头型龙头,工业/基础设施主线巨头，AI数据中心建设受益
+HON,霍尼韦尔 (Honeywell),工业/基础设施,巨头型龙头,工业/基础设施主线巨头
+UNP,联合太平洋 (Union Pacific),工业/基础设施,巨头型龙头,工业/基础设施主线巨头，铁路运输
+BA,波音 (Boeing),工业/基础设施,巨头型龙头,工业/基础设施主线巨头，航空制造
+WMT,沃尔玛 (Walmart),工业/基础设施,防御股,工业/必需消费防御股，年内涨13.7%
+COST,好市多 (Costco),工业/基础设施,防御股,工业/必需消费防御股，年内涨15.7%

@@ -206,6 +206,84 @@ def sync_raw(
 
 
 # ----------------------------------------------------------------------
+# 美股同步子命令（spec 2026-06-16-us-stocks-tab）
+# ----------------------------------------------------------------------
+
+us_symbols_app = typer.Typer(help="美股精选清单（raw.us_symbol）子命令。")
+app.add_typer(us_symbols_app, name="us-symbols")
+
+
+@us_symbols_app.command("seed")  # type: ignore[untyped-decorator]
+def us_symbols_seed(
+    csv_path: str = typer.Option(
+        ...,
+        "--csv",
+        help="精选清单 CSV（列：股票代码/股票名称/行业/类型）。seed 显式置 tracked=true。",
+    ),
+) -> None:
+    """从 CSV 播种 raw.us_symbol（tracked=true）。"""
+
+    setup_logging()
+    from quant_pipeline.sync.us_symbol import seed_us_symbols_from_csv
+
+    rep = seed_us_symbols_from_csv(csv_path)
+    typer.echo(f"us-symbols seed: rows_upserted={rep.rows_upserted} tickers={len(rep.tickers)}")
+
+
+@app.command("us-sync")  # type: ignore[untyped-decorator]
+def us_sync(
+    date_range: str = typer.Option(
+        ..., "--date-range", help="同步区间 YYYYMMDD:YYYYMMDD。"
+    ),
+    tickers: str = typer.Option(
+        "", "--tickers", help="逗号分隔 ticker（如 NVDA,MSFT）；留空时配 --tracked 取库内 tracked 全集。"
+    ),
+    tracked: bool = typer.Option(
+        False, "--tracked", help="同步 raw.us_symbol 中 tracked=true 的全部标的。"
+    ),
+) -> None:
+    """AkShare → raw.us_* 美股同步（CLI 直跑，不写 ml.jobs）。
+
+    与 worker dispatcher 的 'us_sync' run_type 走同一 run_us_sync 入口。
+    空数据 / 因子缺失计入 failed_items（不静默）；errors 非空时 exit 1。
+    """
+
+    setup_logging()
+    try:
+        validate_date_range(date_range)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+
+    tk_tuple: tuple[str, ...] | None
+    if tickers.strip():
+        tk_tuple = tuple(t.strip().upper() for t in tickers.split(",") if t.strip())
+    else:
+        tk_tuple = None
+    if tk_tuple is None and not tracked:
+        typer.echo("须指定 --tickers 或 --tracked", err=True)
+        raise typer.Exit(code=2)
+
+    from quant_pipeline.sync.us_orchestrator import run_us_sync
+
+    outcome = run_us_sync(job_id=None, date_range=date_range, tickers=tk_tuple)
+    typer.echo(
+        f"us-sync {date_range}: tickers_done={outcome.tickers_done} "
+        f"quote_rows={outcome.quote_rows_total} factor_rows={outcome.factor_rows_total} "
+        f"indicator_rows={outcome.indicator_rows_total} "
+        f"failed_items={len(outcome.failed_items)} errors={len(outcome.errors)}"
+    )
+    for fi in outcome.failed_items:
+        typer.echo(
+            f"  ! failed_item ticker={fi.ticker} api={fi.api_name} reason={fi.reason} rule={fi.rule}"
+        )
+    for err in outcome.errors:
+        typer.echo(f"  ! error: {err}", err=True)
+    if outcome.errors:
+        raise typer.Exit(code=1)
+
+
+# ----------------------------------------------------------------------
 # labels 子命令（M2 Part A）
 # ----------------------------------------------------------------------
 

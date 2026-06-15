@@ -125,6 +125,51 @@ def _runner_sync(job: Job) -> None:
         )
 
 
+def _runner_us_sync(job: Job) -> None:
+    """us_sync runner（spec 2026-06-16-us-stocks-tab）：调 us_orchestrator.run_us_sync。
+
+    params：
+      {
+        "date_range": "YYYYMMDD:YYYYMMDD",
+        "tickers": ["NVDA", ...]   # 可选，缺省取 raw.us_symbol tracked=true 全集
+      }
+    空数据 / 因子缺失计入 outcome.failed_items（不静默），job 整体仍判 success。
+    """
+
+    from quant_pipeline.sync.us_orchestrator import run_us_sync
+
+    params = job.params or {}
+    date_range = params.get("date_range")
+    if not isinstance(date_range, str) or ":" not in date_range:
+        raise ValueError(
+            f"us_sync job params.date_range 必须是 'YYYYMMDD:YYYYMMDD'，got {date_range!r}"
+        )
+
+    tickers_raw = params.get("tickers")
+    tickers: tuple[str, ...] | None
+    if tickers_raw is not None:
+        if not isinstance(tickers_raw, list) or not all(isinstance(t, str) for t in tickers_raw):
+            raise ValueError("us_sync job params.tickers 必须是字符串数组（可选）")
+        tickers = tuple(tickers_raw)
+    else:
+        tickers = None
+
+    outcome = run_us_sync(job_id=job.id, date_range=date_range, tickers=tickers)
+
+    if outcome.failed_items or outcome.errors:
+        logger.warning(
+            "us_sync_job_completed_with_issues",
+            extra={
+                "job_id": str(job.id),
+                "quote_rows_total": outcome.quote_rows_total,
+                "factor_rows_total": outcome.factor_rows_total,
+                "indicator_rows_total": outcome.indicator_rows_total,
+                "failed_items_count": len(outcome.failed_items),
+                "errors_count": len(outcome.errors),
+            },
+        )
+
+
 def _runner_labels(job: Job) -> None:
     """labels runner（M2 Part F）：调用 labels.runner.runner_entrypoint。
 
@@ -389,6 +434,8 @@ _ROUTES = {
     "noop": _runner_noop,
     # M1
     "sync": _runner_sync,
+    # 美股同步（spec 2026-06-16-us-stocks-tab）
+    "us_sync": _runner_us_sync,
     "factors": _runner_factors,
     "quality": _runner_quality,
     # M2 Part F

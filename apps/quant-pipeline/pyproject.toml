@@ -13,12 +13,10 @@ dependencies = [
     "alembic>=1.13",
     "pydantic-settings>=2.2",
     "typer>=0.12",
-
     # ---- M1 ----
     "pandas>=2.2",
     "numpy>=1.26",
     "tushare>=1.4",
-
     # ---- M1/M2 加 ----
     # "polars>=0.20",
     "pyarrow>=15",
@@ -30,6 +28,7 @@ dependencies = [
     "shap>=0.45",
     # ---- LSTM：次日方向三分类序列模型（CPU 版即可）----
     "torch>=2.2",
+    "akshare>=1.18.64",
 ]
 
 [project.optional-dependencies]
