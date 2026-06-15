@@ -22,9 +22,9 @@ import { INDICATOR_DESCRIPTORS, buildIndicatorColumns } from '../indicatorColumn
 
 ## 2. 自选股 consumer（`watchlistColumnDefs.ts`）去重
 
-`createWatchlistColumnDefs`（`:63-337`）当前**内联声明了 18 个指标列**（`:237-263`：ma5..ma240 / kdjJ/K/D / dif/dea/macd / bbi / quoteVolume10 / atr14 / lossAtr14 / low9 / high9 / riskRewardRatio / stopLossPct）。改动：
+`createWatchlistColumnDefs`（`:63-337`）当前**内联声明了 19 个指标列**（`:237-263`：ma5/ma30/ma60/ma120/ma240 / kdjJ/kdjK/kdjD / dif/dea/macd / bbi / quoteVolume10 / atr14 / lossAtr14 / low9 / high9 / riskRewardRatio / stopLossPct）。共享目录 `INDICATOR_DESCRIPTORS` = 这 19 条 + 6 条新增（brick/brickDelta/brickXg/amvDif/amvDea/amvMacd）= **25 条**。改动：
 
-- **删除** `:237-263` 这 18 条内联指标列定义。
+- **删除** `:237-263` 这 19 条内联指标列定义。
 - 在同一位置 splice 进共享目录（保留默认可见集）：
 
 ```ts
