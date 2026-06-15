@@ -15,6 +15,7 @@ function cloneSymbolsViewPreferences(value: SymbolsViewColumnPreferences): Symbo
   return {
     crypto: cloneColumnPreferences(value.crypto),
     aShares: cloneColumnPreferences(value.aShares),
+    usStocks: cloneColumnPreferences(value.usStocks),
   }
 }
 
@@ -111,6 +112,7 @@ export function useSymbolColumnPreferences<Row>(
   const preferences = ref<SymbolsViewColumnPreferences>({
     crypto: scope === 'crypto' ? createDefaultScopePreferences(resolvedDefs.value) : [],
     aShares: scope === 'aShares' ? createDefaultScopePreferences(resolvedDefs.value) : [],
+    usStocks: scope === 'usStocks' ? createDefaultScopePreferences(resolvedDefs.value) : [],
   })
 
   const scopePreferences = computed<ColumnPreferenceItem[]>({
@@ -132,6 +134,7 @@ export function useSymbolColumnPreferences<Row>(
       preferences.value = {
         crypto: normalizeScopePreferences(resolvedDefs.value, payload.crypto),
         aShares: normalizeScopePreferences(resolvedDefs.value, payload.aShares),
+        usStocks: normalizeScopePreferences(resolvedDefs.value, payload.usStocks),
       }
       loaded.value = true
       return preferences.value

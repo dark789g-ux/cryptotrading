@@ -8,6 +8,7 @@ export interface ColumnPreferenceItem {
 export interface SymbolsViewColumnPreferences {
   crypto: ColumnPreferenceItem[]
   aShares: ColumnPreferenceItem[]
+  usStocks: ColumnPreferenceItem[]
 }
 
 export const preferencesApi = {

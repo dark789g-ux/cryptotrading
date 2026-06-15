@@ -18,14 +18,18 @@ export const COLUMN_KEY_GROUP: Record<string, ColumnGroupKey> = {
   // 基础
   symbol: 'basic',
   tsCode: 'basic',
+  ticker: 'basic',
   name: 'basic',
   market: 'basic',
   industry: 'basic',
+  theme: 'basic',
+  stockType: 'basic',
 
   // 行情
   close: 'quote',
   pctChg: 'quote',
   amount: 'quote',
+  volume: 'quote',
   turnoverRate: 'quote',
   tradeDate: 'quote',
   openTime: 'quote',

@@ -36,13 +36,24 @@
         >
           活跃市值
         </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === 'usStocks'"
+          class="symbol-tabs__tab"
+          :class="{ 'symbol-tabs__tab--active': activeTab === 'usStocks' }"
+          @click="activeTab = 'usStocks'"
+        >
+          美股
+        </button>
       </div>
     </div>
 
     <keep-alive>
       <crypto-symbols-panel v-if="activeTab === 'crypto'" />
       <a-shares-panel v-else-if="activeTab === 'aShares'" />
-      <active-market-value-panel v-else />
+      <active-market-value-panel v-else-if="activeTab === 'activeMarketValue'" />
+      <us-stocks-panel v-else />
     </keep-alive>
   </div>
 </template>
@@ -54,8 +65,9 @@ import { ref } from 'vue'
 import ASharesPanel from '../../components/symbols/ASharesPanel.vue'
 import CryptoSymbolsPanel from '../../components/symbols/CryptoSymbolsPanel.vue'
 import ActiveMarketValuePanel from '../../components/symbols/ActiveMarketValuePanel.vue'
+import UsStocksPanel from '../../components/symbols/UsStocksPanel.vue'
 
-const activeTab = ref<'crypto' | 'aShares' | 'activeMarketValue'>('crypto')
+const activeTab = ref<'crypto' | 'aShares' | 'activeMarketValue' | 'usStocks'>('crypto')
 </script>
 
 <style scoped>
