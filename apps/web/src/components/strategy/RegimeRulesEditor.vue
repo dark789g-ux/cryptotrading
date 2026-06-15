@@ -87,7 +87,7 @@ const emit = defineEmits<{
 function freshRule(): RegimeRule {
   return {
     conditions: [
-      { field: 'oamv_macd', operator: 'gt', value: undefined, compareField: undefined, compareMode: 'value' },
+      { field: 'oamv_macd', operator: 'gt', value: 0, compareField: undefined, compareMode: 'value' },
     ],
     maxPositions: 2,
     positionRatio: 0.2,
