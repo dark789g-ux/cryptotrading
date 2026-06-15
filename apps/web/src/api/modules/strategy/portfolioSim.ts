@@ -8,6 +8,7 @@
  * （getErrorMessage 解析 body.message）。本模块不吞错、不二次包装，直接冒泡给 store/视图。
  */
 import { API_BASE, post, del, request } from '../../client'
+import type { StrategyConditionItem } from './strategyConditions'
 
 // ── 配置类型（与后端 portfolio-sim.types.ts 对齐）────────────────────────────
 
@@ -89,6 +90,21 @@ export interface CircuitBreaker {
   drawdownResumePct: number
 }
 
+/**
+ * 一条 regime 调仓规则（账户级，镜像后端 RegimeRule）。
+ * 条件命中（内部 AND）时覆盖所有源的 maxPositions/positionRatio。
+ * 条件用大盘 0AMV 字段（oamv_dif/oamv_dea/oamv_macd/oamv_close/oamv_ma240），
+ * 算子限 gt/lt/gte/lte/eq/neq（禁上穿/下穿）；非 0AMV 字段 / 非法算子后端会 400 拒。
+ */
+export interface RegimeRule {
+  /** 0AMV 条件列表（内部 AND，非空由后端校验保证）。复用条件项类型（compareMode 后端忽略）。 */
+  conditions: StrategyConditionItem[]
+  /** 命中时每源最大同时在仓数（正整数，无「不限仓 null」档）。 */
+  maxPositions: number
+  /** 命中时单票仓位占 NAV_ref，(0,1]。 */
+  positionRatio: number
+}
+
 /** 单个信号源（对应后端 PortfolioSimSource）。 */
 export interface PortfolioSimSource {
   /** 既有 signal_test_run 的 id（completed 且 trades>0 才能纳入）。 */
@@ -128,6 +144,11 @@ export interface PortfolioSimConfig {
   anchorMode: boolean
   /** 【新增】账户级熔断（Phase 3）；缺省 = 全关。anchorMode 下强制全旁路。 */
   circuitBreaker?: CircuitBreaker
+  /**
+   * 【新增 M1】账户级 regime 调仓（按当日大盘 0AMV 切 maxPositions/positionRatio）。
+   * 缺省 / 空 = 零漂移（走源静态值）；配了之后未命中市场状态当天不开仓。anchorMode 下旁路。
+   */
+  regimes?: RegimeRule[]
 }
 
 export interface CreatePortfolioSimDto {

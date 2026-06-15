@@ -5,6 +5,7 @@ import type {
   RankSpec,
   SizingConfig,
   CircuitBreaker,
+  RegimeRule,
 } from './portfolioSim'
 
 export interface SignalTestUniverse {
@@ -35,6 +36,11 @@ export interface SignalTestBacktestConfig {
   sizing: SizingConfig
   /** 账户级熔断；null = 全关。 */
   circuitBreaker: CircuitBreaker | null
+  /**
+   * 【新增 M1】账户级 regime 调仓（按当日大盘 0AMV 切 maxPositions/positionRatio）。
+   * 缺省 / 空 = 零漂移；配了之后未命中市场状态当天不开仓。可选，缺省时不下发。
+   */
+  regimes?: RegimeRule[]
 }
 
 export type SignalTestExitMode = 'fixed_n' | 'strategy' | 'trailing_lock' | 'phase_lock'

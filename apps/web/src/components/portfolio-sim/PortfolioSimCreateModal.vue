@@ -118,6 +118,22 @@
           @update="onCircuitBreakerPatch"
         />
       </div>
+
+      <!-- ⑤ regime 调仓（账户级）-->
+      <div class="section">
+        <div class="section__title">
+          regime 调仓（账户级）
+          <n-tooltip>
+            <template #trigger><span class="section__q">?</span></template>
+            按当日大盘 0AMV 切换每源的最大持仓 / 单票仓位：按顺序首个全条件命中生效、覆盖所有源。
+            空 = 不启用（走源静态值）；配了之后未命中市场状态当天不开仓。anchorMode 下强制全旁路。
+          </n-tooltip>
+        </div>
+        <div v-if="anchorMode" class="section__hint">
+          锚点模式下 regime 被强制全旁路（提交时不下发 regimes）。
+        </div>
+        <RegimeRulesEditor v-model="regimes" />
+      </div>
     </div>
 
     <template #actions>
@@ -145,6 +161,7 @@ import {
 import AppModal from '../common/AppModal.vue'
 import PortfolioSimSourceRow from './PortfolioSimSourceRow.vue'
 import CircuitBreakerPanel from './CircuitBreakerPanel.vue'
+import RegimeRulesEditor from '../strategy/RegimeRulesEditor.vue'
 import { signalStatsApi } from '../../api/modules/strategy/signalStats'
 import type { SignalTestWithLatestRun } from '../../api/modules/strategy/signalStats'
 import { usePortfolioSimStore } from '../../stores/portfolioSim'
@@ -153,6 +170,7 @@ import type {
   PortfolioSimSource,
   PortfolioSimCostRates,
   CircuitBreaker,
+  RegimeRule,
 } from '../../api/modules/strategy/portfolioSim'
 import {
   COST_TIER_PRESETS,
@@ -183,6 +201,8 @@ const initialCapital = ref(1_000_000)
 const costTier = ref<CostTier>('realistic')
 const cost = reactive<PortfolioSimCostRates>({ ...COST_PRESET_REALISTIC })
 const circuitBreaker = reactive<CircuitBreaker>({ ...DEFAULT_CIRCUIT_BREAKER })
+// regime 调仓（账户级）：v-model 整体替换列表，故用 ref（区别于熔断的 reactive patch）。
+const regimes = ref<RegimeRule[]>([])
 const submitting = ref(false)
 
 function freshSource(): PortfolioSimSource {
@@ -233,6 +253,7 @@ function resetForm() {
   costTier.value = 'realistic'
   Object.assign(cost, COST_PRESET_REALISTIC)
   Object.assign(circuitBreaker, DEFAULT_CIRCUIT_BREAKER)
+  regimes.value = []
   sources.value = [freshSource()]
   sourceKeys.value = [sourceKeySeq++]
 }
@@ -324,6 +345,12 @@ async function onSubmit() {
   const effectiveCircuitBreaker =
     !anchorMode.value && cbEnabled ? { ...circuitBreaker } : undefined
 
+  // regime：anchorMode 强制全旁路；非锚点且非空时才下发（空=不启用则省略，零漂移）。
+  const effectiveRegimes =
+    !anchorMode.value && regimes.value.length > 0
+      ? regimes.value.map((r) => ({ ...r, conditions: r.conditions.map((c) => ({ ...c })) }))
+      : undefined
+
   const dto: CreatePortfolioSimDto = {
     name: name.value.trim(),
     config: {
@@ -332,6 +359,7 @@ async function onSubmit() {
       cost: effectiveCost,
       anchorMode: anchorMode.value,
       ...(effectiveCircuitBreaker ? { circuitBreaker: effectiveCircuitBreaker } : {}),
+      ...(effectiveRegimes ? { regimes: effectiveRegimes } : {}),
     },
   }
 

@@ -23,6 +23,7 @@ import type {
   RankFactor,
   SizingConfig,
   CircuitBreaker,
+  RegimeRule,
 } from '../../api/modules/strategy/portfolioSim'
 import {
   COST_PRESET_REALISTIC,
@@ -56,6 +57,7 @@ function buildDefaultBacktestConfig(): {
   rankFactors: RankFactor[]
   sizing: SizingConfig
   circuitBreaker: CircuitBreaker
+  regimes: RegimeRule[]
 } {
   return {
     initialCapital: 1_000_000,
@@ -67,6 +69,7 @@ function buildDefaultBacktestConfig(): {
     rankFactors: [],
     sizing: { ...DEFAULT_SIZING },
     circuitBreaker: { ...DEFAULT_CIRCUIT_BREAKER },
+    regimes: [],
   }
 }
 
@@ -101,6 +104,7 @@ export interface SignalTestFormModel {
   btRankFactors: RankFactor[]
   btSizing: SizingConfig
   btCircuitBreaker: CircuitBreaker
+  btRegimes: RegimeRule[]
 }
 
 /** YYYYMMDD → 本地午夜 ms（日历日，沿用既有口径，禁 UTC）。 */
@@ -157,6 +161,7 @@ function buildDefaultModel(): SignalTestFormModel {
     btRankFactors: bt.rankFactors,
     btSizing: bt.sizing,
     btCircuitBreaker: bt.circuitBreaker,
+    btRegimes: bt.regimes,
   }
 }
 
@@ -213,6 +218,7 @@ export function useSignalTestForm(
       form.value.btRankFactors = def.rankFactors
       form.value.btSizing = def.sizing
       form.value.btCircuitBreaker = def.circuitBreaker
+      form.value.btRegimes = def.regimes
       return
     }
     form.value.enableBacktest = true
@@ -227,6 +233,10 @@ export function useSignalTestForm(
     form.value.btCircuitBreaker = bc.circuitBreaker
       ? { ...DEFAULT_CIRCUIT_BREAKER, ...bc.circuitBreaker }
       : { ...DEFAULT_CIRCUIT_BREAKER }
+    form.value.btRegimes = (bc.regimes ?? []).map((r) => ({
+      ...r,
+      conditions: r.conditions.map((c) => ({ ...c })),
+    }))
   }
 
   watch(
@@ -270,7 +280,7 @@ export function useSignalTestForm(
   /** 组装回测配置；enableBacktest 关 → null。开 → 完整合法 config。 */
   function buildBacktestConfig(): SignalTestBacktestConfig | null {
     if (!form.value.enableBacktest) return null
-    return {
+    const config: SignalTestBacktestConfig = {
       initialCapital: form.value.btInitialCapital,
       cost: { ...form.value.btCost },
       anchorMode: form.value.btAnchorMode,
@@ -284,6 +294,14 @@ export function useSignalTestForm(
         ? { ...form.value.btCircuitBreaker }
         : null,
     }
+    // regime：anchorMode 旁路 + 空=不启用 → 不带该字段（零漂移）；否则深拷贝下发。
+    if (!form.value.btAnchorMode && form.value.btRegimes.length > 0) {
+      config.regimes = form.value.btRegimes.map((r) => ({
+        ...r,
+        conditions: r.conditions.map((c) => ({ ...c })),
+      }))
+    }
+    return config
   }
 
   /**

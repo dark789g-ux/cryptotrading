@@ -131,6 +131,147 @@ describe('useSignalTestForm DTO 组装', () => {
     expect(dto.lookback).toBeUndefined()
   })
 
+  it('启用回测 + 无 regime → backtestConfig 不带 regimes（零漂移）', () => {
+    const { api } = setup()
+    api.form.value.name = 'TR1'
+    api.form.value.buyConditions = [{ field: 'close', operator: 'gt', value: 1 } as never]
+    api.form.value.dateRange = BASE_DATE_RANGE
+    api.form.value.enableBacktest = true
+    const bc = api.buildDto().backtestConfig!
+    expect(bc.regimes).toBeUndefined()
+    expect('regimes' in bc).toBe(false)
+  })
+
+  it('启用回测 + 配 regime → backtestConfig.regimes 下发（深拷贝）', () => {
+    const { api } = setup()
+    api.form.value.name = 'TR2'
+    api.form.value.buyConditions = [{ field: 'close', operator: 'gt', value: 1 } as never]
+    api.form.value.dateRange = BASE_DATE_RANGE
+    api.form.value.enableBacktest = true
+    api.form.value.btRegimes = [
+      {
+        conditions: [{ field: 'oamv_macd', operator: 'gt', value: 0 } as never],
+        maxPositions: 2,
+        positionRatio: 0.45,
+      },
+    ]
+    const bc = api.buildDto().backtestConfig!
+    expect(bc.regimes).toBeTruthy()
+    expect(bc.regimes!).toHaveLength(1)
+    expect(bc.regimes![0].maxPositions).toBe(2)
+    expect(bc.regimes![0].positionRatio).toBe(0.45)
+    expect(bc.regimes![0].conditions[0].field).toBe('oamv_macd')
+    // 深拷贝：改 DTO 不回写 form
+    bc.regimes![0].conditions[0].field = 'mutated'
+    expect(api.form.value.btRegimes[0].conditions[0].field).toBe('oamv_macd')
+  })
+
+  it('启用回测 + anchorMode + 配 regime → regimes 旁路不下发', () => {
+    const { api } = setup()
+    api.form.value.name = 'TR3'
+    api.form.value.buyConditions = [{ field: 'close', operator: 'gt', value: 1 } as never]
+    api.form.value.dateRange = BASE_DATE_RANGE
+    api.form.value.enableBacktest = true
+    api.form.value.btAnchorMode = true
+    api.form.value.btRegimes = [
+      {
+        conditions: [{ field: 'oamv_macd', operator: 'gt', value: 0 } as never],
+        maxPositions: 2,
+        positionRatio: 0.45,
+      },
+    ]
+    const bc = api.buildDto().backtestConfig!
+    expect(bc.regimes).toBeUndefined()
+  })
+
+  it('编辑回填带 regimes → btRegimes 回填，提交再下发', () => {
+    const edit: SignalTest = {
+      id: 'rg',
+      name: 'regime 回填',
+      buyConditions: [{ field: 'close', operator: 'gt', value: 1 } as never],
+      exitMode: 'fixed_n',
+      horizonN: 5,
+      exitConditions: null,
+      maxHold: null,
+      bandLockParams: null,
+      phaseLockParams: null,
+      backtestConfig: {
+        initialCapital: 1_000_000,
+        cost: {
+          commissionPerSide: 0,
+          transferPerSide: 0,
+          stampSellBefore20230828: 0,
+          stampSellFrom20230828: 0,
+          slippagePerSide: 0,
+        },
+        anchorMode: false,
+        positionRatio: 0.1,
+        maxPositions: 10,
+        exposureCap: null,
+        rankSpec: { factors: [] },
+        sizing: { mode: 'fixed', floorMult: 0.5, capMult: 1.5, kellyFraction: 0.5, kellyMaxMult: 1 },
+        circuitBreaker: null,
+        regimes: [
+          {
+            conditions: [{ field: 'oamv_dif', operator: 'gt', value: 0 } as never],
+            maxPositions: 3,
+            positionRatio: 0.3,
+          },
+        ],
+      },
+      universe: { type: 'all' },
+      dateStart: '20240101',
+      dateEnd: '20260101',
+      createdAt: '',
+      updatedAt: '',
+    }
+    const { api } = setup(edit)
+    expect(api.form.value.btRegimes).toHaveLength(1)
+    expect(api.form.value.btRegimes[0].maxPositions).toBe(3)
+    const bc = api.buildDto().backtestConfig!
+    expect(bc.regimes).toHaveLength(1)
+    expect(bc.regimes![0].conditions[0].field).toBe('oamv_dif')
+  })
+
+  it('编辑回填 backtestConfig 无 regimes 字段 → btRegimes 为空数组', () => {
+    const edit: SignalTest = {
+      id: 'rg0',
+      name: '无 regime 老回测',
+      buyConditions: [{ field: 'close', operator: 'gt', value: 1 } as never],
+      exitMode: 'fixed_n',
+      horizonN: 5,
+      exitConditions: null,
+      maxHold: null,
+      bandLockParams: null,
+      phaseLockParams: null,
+      backtestConfig: {
+        initialCapital: 1_000_000,
+        cost: {
+          commissionPerSide: 0,
+          transferPerSide: 0,
+          stampSellBefore20230828: 0,
+          stampSellFrom20230828: 0,
+          slippagePerSide: 0,
+        },
+        anchorMode: false,
+        positionRatio: 0.1,
+        maxPositions: 10,
+        exposureCap: null,
+        rankSpec: { factors: [] },
+        sizing: { mode: 'fixed', floorMult: 0.5, capMult: 1.5, kellyFraction: 0.5, kellyMaxMult: 1 },
+        circuitBreaker: null,
+      },
+      universe: { type: 'all' },
+      dateStart: '20240101',
+      dateEnd: '20260101',
+      createdAt: '',
+      updatedAt: '',
+    }
+    const { api } = setup(edit)
+    expect(api.form.value.btRegimes).toEqual([])
+    expect(api.buildDto().backtestConfig!.regimes).toBeUndefined()
+  })
+
   it('编辑回填带 backtestConfig → enableBacktest=true 且字段回填', () => {
     const edit: SignalTest = {
       id: 'x',

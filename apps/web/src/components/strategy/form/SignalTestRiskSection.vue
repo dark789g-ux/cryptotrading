@@ -46,6 +46,15 @@
         :anchor-mode="model.btAnchorMode"
         @update="(p) => patch({ btCircuitBreaker: { ...model.btCircuitBreaker, ...p } })"
       />
+
+      <n-divider>regime 调仓（账户级）</n-divider>
+      <div v-if="model.btAnchorMode" class="risk__off-hint">
+        锚点模式下 regime 被强制全旁路（提交时不下发 regimes）。
+      </div>
+      <RegimeRulesEditor
+        :model-value="model.btRegimes"
+        @update:model-value="(r) => patch({ btRegimes: r })"
+      />
     </template>
 
     <div v-else class="risk__off-hint">
@@ -59,6 +68,7 @@ import { computed, ref, watch } from 'vue'
 import { NFormItem, NSwitch, NSelect, NDivider } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import CircuitBreakerPanel from '../../portfolio-sim/CircuitBreakerPanel.vue'
+import RegimeRulesEditor from '../RegimeRulesEditor.vue'
 import LabelWithTip from '../../backtest/strategy/LabelWithTip.vue'
 import {
   COST_TIER_PRESETS,
