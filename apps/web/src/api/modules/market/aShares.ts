@@ -33,6 +33,18 @@ export interface AShareRow {
   totalMv?: string | null
   circMv?: string | null
   tradeDate: string | null
+  // ── 技术指标列（T1 后端 SELECT 别名，canonical key 与共享 descriptor 一致）──
+  // 数值列 PG NUMERIC/double 经 JSON 返回为 string；brickXg 例外为 boolean（DB brick_xg 是 boolean，
+  // node-postgres 直接解析为 JS boolean，不是数字串）。
+  ma5: string | null; ma30: string | null; ma60: string | null; ma120: string | null; ma240: string | null
+  bbi: string | null
+  kdjJ: string | null; kdjK: string | null; kdjD: string | null
+  dif: string | null; dea: string | null; macd: string | null
+  atr14: string | null; lossAtr14: string | null; low9: string | null; high9: string | null
+  riskRewardRatio: string | null; stopLossPct: string | null
+  quoteVolume10: string | null
+  brick: string | null; brickDelta: string | null; brickXg: boolean | null
+  amvDif: string | null; amvDea: string | null; amvMacd: string | null
   tags?: { id: string; name: string }[]
 }
 

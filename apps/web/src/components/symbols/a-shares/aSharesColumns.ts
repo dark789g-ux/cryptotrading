@@ -6,6 +6,7 @@ import type { AShareRow } from '@/api'
 import { colors } from '../../../styles/tokens'
 import { formatAmount, formatMarketCap, formatNumber, formatPercent, formatTradeDate, trendClass } from './aSharesFormatters'
 import type { SymbolColumnDef } from '../columnTypes'
+import { INDICATOR_DESCRIPTORS, buildIndicatorColumns } from '../indicatorColumnDefs'
 
 interface ASharesColumnsOptions {
   onViewDetail: (row: AShareRow) => void
@@ -107,6 +108,9 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
         )
       },
     },
+    // 共享技术指标列（descriptor 驱动）。A股 全部默认隐藏，不撑默认表宽；
+    // sorter:true（builder 默认）→ remote 表点表头触发 T1 后端排序。
+    ...buildIndicatorColumns<AShareRow>(INDICATOR_DESCRIPTORS, { defaultVisible: false }),
     {
       title: '操作',
       key: 'actions',
