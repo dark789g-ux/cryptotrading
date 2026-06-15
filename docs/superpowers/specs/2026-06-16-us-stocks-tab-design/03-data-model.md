@@ -25,12 +25,14 @@ created_at / updated_at  timestamptz DEFAULT now()
 id        bigserial PK
 ticker    varchar NOT NULL
 trade_date varchar(8) NOT NULL
-open high low close pre_close  numeric(30,10)   -- 不复权(adjust="")
-pct_chg   numeric(30,10) NULL                   -- (close/pre_close-1)*100 百分数, 与 qfq_pct_chg 同量纲
-volume    numeric(30,10) NULL
-amount    numeric(30,10) NULL                   -- 若 AkShare 不给则恒 NULL(合法)
-qfq_open qfq_high qfq_low qfq_close qfq_pre_close qfq_pct_chg  numeric(30,10) NULL  -- 派生
+open high low close  numeric(30,10) NOT NULL    -- 不复权(adjust=""), AkShare 直给
+pre_close numeric(30,10) NULL                   -- 派生: 该 ticker 上一交易日 close (窗口函数 LAG)
+pct_chg   numeric(30,10) NULL                   -- 派生: (close/pre_close-1)*100 百分数, 与 qfq_pct_chg 同量纲
+volume    numeric(30,10) NULL                   -- AkShare 直给
+qfq_open qfq_high qfq_low qfq_close  numeric(30,10) NULL   -- 派生: raw_x × adj_factor / 最新adj_factor
+qfq_pre_close qfq_pct_chg  numeric(30,10) NULL             -- 派生
 UNIQUE(ticker, trade_date)
+-- 注: AkShare stock_us_daily 不给 amount/pre_close (见 02), 故无 amount 列、pre_close 为派生
 ```
 
 ### raw.us_adj_factor（后复权因子）
@@ -39,7 +41,7 @@ UNIQUE(ticker, trade_date)
 id  bigserial PK
 ticker varchar NOT NULL
 trade_date varchar(8) NOT NULL
-adj_factor numeric(30,10) NOT NULL    -- stock_us_daily adjust="hfq-factor"
+adj_factor numeric(30,10) NOT NULL    -- 派生: qfq_close/raw_close (见 02; hfq-factor 接口返回 None)
 updated_at timestamptz DEFAULT now()
 UNIQUE(ticker, trade_date)
 ```

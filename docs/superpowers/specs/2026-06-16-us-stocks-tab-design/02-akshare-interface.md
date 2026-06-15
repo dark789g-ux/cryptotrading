@@ -1,27 +1,40 @@
 # 02 · AkShare 美股接口
 
-> 数据完整性铁律：接口名/字段名进硬断言/落库前**必须落官方文档与真实调用核验**，禁止凭记忆或邻近接口推断。本节区分「已核验」与「实现期必核」。
+> 数据完整性铁律：接口名/字段名进硬断言/落库前必须落源头核验。本节的「真机已核验」段以 `uv run python` 实跑结果为准（2026-06-16，akshare==1.18.64），**取代**早期凭文档的假设。
 
-## 已核验（WebFetch/WebSearch akshare 官方文档）
+## 真机已核验（实跑，权威）
 
-- **`stock_us_daily(symbol, adjust)`**（数据源：新浪）
-  - `symbol`：裸 ticker，如 `"AAPL"`。
-  - `adjust`：`""`（不复权）/`"qfq"`（前复权价）/`"hfq"`（后复权价）/`"qfq-factor"`（前复权因子）/`"hfq-factor"`（后复权因子）。
-  - 无需 token/积分（爬虫源）。
-  - `"hfq-factor"` 语义同 Tushare `adj_factor`（后复权累计因子），可直接套用现有「qfq = 原始价 × 当日因子 / 最新因子」。
-- 另有 `stock_us_hist`（东财源）：字段更丰富但 symbol 是 `105.AAPL` 内部码、**不单独给复权因子** → 不选。
+唯一可靠接口：**`ak.stock_us_daily(symbol, adjust)`**（数据源：**新浪**）。东财系 `stock_us_spot_em` / `stock_us_hist` 在本机网络 **ConnectionError（远端断连）不可用**，不依赖。
 
-## 实现期必核（写进 fail-fast，禁凭印象）
+- `symbol`：**裸 ticker**（`"AAPL"`/`"NVDA"`…）。CSV 全部 62 只均以裸 ticker 成功。
+- 返回列（**实测**）：`date, open, high, low, close, volume` —— **无 `pre_close`、无 `amount`**。`date` 为 datetime，落库转 `YYYYMMDD`。
+- `adjust` 实测：
+  - `""` → **不复权** OHLCV（干净）。✓
+  - `"qfq"` → 前复权 OHLCV。**近窗口干净**（最新日 == 不复权），仅**深历史**（如 1984）有加性伪影致负值——本次窗口 2025-2026 无此问题（实测全正）。
+  - `"hfq-factor"` / `"qfq-factor"` → **返回 `None`**（本版不支持）。**故复权因子无法直接取**。
+- 无需 token/积分（爬虫源）。
 
-1. **`stock_us_daily` 真实返回列名与 symbol 接受格式**：用真实一次调用核验 `adjust=""` 的列（预期 `date/open/high/low/close/volume`，是否带 `amount` 待核），以及裸 `AAPL` 是否全部可用、个别是否需前缀。`raw.us_daily_quote` 的列映射以真实列名为准。
-2. **复权因子语义校验**：文档提到「不复权数据 × factor + adjust」可能含加法项。实现期**用真实数据核验**：对同一 ticker 同时取 `adjust="qfq"`（ground truth）与（`adjust=""` + 因子自算 qfq），断言两者在容差内吻合（既验公式正确、又当回归保护）。若纯乘法不成立，调整 qfq 重算逻辑或直接以 `adjust="qfq"` 校准。
-3. **美股名称/代码列表接口（P2，v1 不必）**：候选 `get_us_stock_name` / `stock_us_spot_em`，确切函数名、字段、代码格式能否对齐 `stock_us_daily` 的裸 ticker——P2 实现全名单同步时再核。v1 用 CSV 播种，不依赖此接口。
+## 复权因子：派生而非直取（已实测验证）
 
-## v1 的 symbol 来源（绕开列表接口）
+因 `hfq-factor` 返回 None，**复权因子由两次抓取派生**：
 
-v1 的 tracked 集来自 `doc/us_stocks_themes (1).csv`（62 只裸 ticker），直接播种 `raw.us_symbol`，**不调** AkShare 名单接口。因此 v1 只硬依赖 `stock_us_daily` 一个接口。
+```text
+raw = stock_us_daily(tk, adjust="")     # 不复权 OHLCV
+qfq = stock_us_daily(tk, adjust="qfq")  # 前复权 OHLCV
+adj_factor_t = qfq.close_t / raw.close_t   # 后复权-style 乘性因子(每日)
+```
+
+实测样本（14 只含 NVDA/MSFT/TSLA/PLTR/COIN/CRCL/BMNR/OKLO/IONQ/LLY/JPM/TLN/GEV，窗口 2025-01-01..2026-06-12）：
+- 因子区间约 `0.96 ~ 1.0`，**最新日恒 = 1.0000**（前复权锚定最新），**窗口内无负 qfq**。
+- 据此**存 raw + 派生 adj_factor**，再用 A 股同款 SQL `qfq_x = raw_x × adj_factor / 最新adj_factor` 重算 qfq_*（最新因子≈1）。
+- **Ground-truth 校验**：重算的 `qfq_close` 应 ≈ 抓取的 `qfq.close`（容差内），作回归护门（替代早期设想的 adjust="qfq" 校验，现就是它本身）。
+
+## 已知数据质量问题
+
+- **`SPCX`**：实测窗口内仅 **1 行**（非真 SpaceX——SpaceX 未上市，此为新浪侧某退市/SPAC 残值）。不报错、会落 1 行；同步后**显式告知用户**该行非真实 SpaceX，由用户决定剔除。
+- 近窗口个别 ticker 行数 < 362（如 CRCL/BMNR 257，2025 年内上市）属正常，非缺失。
 
 ## 限频与稳健
 
-- AkShare 是爬虫源，稳定性/限频弱于官方 API。`akshare_client` 仿 `tushare_client.py` 加：请求间隔（可配 `US_SYNC_MIN_INTERVAL_MS`）、最多 3 次指数退避、空数据双路径 warn。
-- 逐 ticker 串行/低并发（避免被源限流）；62 只全历史可接受。规模扩到全美股的增量策略属 P2。
+- 新浪爬虫源，弱于官方 API。`akshare_client` 加：请求间隔（`US_SYNC_MIN_INTERVAL_MS`，默认 ~200ms）+ 最多 3 次指数退避 + 空数据双路径 warn（`df is None` / `len==0`）。
+- 逐 ticker 低并发串行；62 只全量可接受。扩全美股的增量/名单同步属 P2（依赖东财名单接口，本机暂不可达，P2 再议）。
