@@ -22,8 +22,8 @@
 |---|--------|------|
 | 1 | 迁移范围 | **全量**：个股 `us_sync` + 指数 `us_index_sync` + `us_index_amv_sync`，pyproject 移除 akshare |
 | 2 | 取数实现 | **自建 Yahoo chart 薄封装**（仿现有 akshare_client，stdlib，不引入 yfinance 库及其传递依赖） |
-| 3 | 重灌窗口 | 分析起点 **2025-01-01**；实际 fetch 起点见 §E「热身」决策 |
-| 4 | 旧数据处理 | **清空全部 us_* 行后全新灌**（含 .NDX 指数表与 AMV 成分行，非仅 tracked），统一单源、无孤儿、无跨源拼接 |
+| 3 | 重灌窗口 | 分析起点 **2025-01-01**；**fetch 起点 2024-01-01**（≥250 交易行热身缓冲，保 MA240/AMV 自 2025-01-01 满血） |
+| 4 | 旧数据处理 | **全新灌后删 `trade_date < '20240101'` 全部行**（含 .NDX 指数表与 AMV 成分行，非仅 tracked）；2024 热身段保留（单源 Yahoo），统一单源、无孤儿 |
 
 > 关于窗口：2025-01-01 窗口本身**不触发负值 bug**（负值只在深历史；实测 AVGO 从 20250102 起 0 坏行）。此窗口下迁移的价值是**口径更正确 + 单一数据源 + 未来回填长历史也不再炸**。
 
@@ -114,15 +114,14 @@ guard  : factor.notna().all() and (factor>0).all() and 末位 finite>0
 
 ## E · 清理 + 重灌
 
-**先灌后删（避免中途失败致面板更空）**：
+**fetch 起点 2024-01-01（热身缓冲），分析起点 2025-01-01。先灌后删（避免中途失败致面板更空）**：
 
-1. **CLI 重灌**（路径 A，不依赖重启 server/worker）：依次 `us-sync`、`us-index-sync`、`us-index-amv-sync`，窗口见下「热身」。重灌对在窗口内的现有行是 upsert 覆盖（幂等），不产生空窗。
-2. **校验**：行数 / qfq 非空 / AMV 落库非空通过后，**再**执行清理 migration。
-3. **清理 migration**（`docker exec psql` + 配套 `.ps1`，遵循 migrations 规范）：删除 `us_daily_quote`/`us_adj_factor`/`us_daily_indicator`/`us_index_daily`/`us_index_indicator`/`us_index_amv_daily` 中 `trade_date < fetch_start` 的**全部行**（清掉 pre-window 孤儿，含 4 只 AMV 成分孤儿）。
+1. **CLI 重灌**（路径 A，不依赖重启 server/worker）：依次 `us-sync`、`us-index-sync`，窗口 `20240101:<今日>`；再 `us-index-amv-sync`（分析起点 2025-01-01，其 `resolve_warmup_start` 从已灌的 2024 .NDX + 成分行取热身 → AMV 自 2025-01-01 满血）。重灌对窗口内现有行是 upsert 覆盖（幂等），不产生空窗。
+2. **校验**：行数 / qfq 非空 / 指标自 2025-01-01 满血 / AMV 落库非空通过后，**再**执行清理 migration。
+3. **清理 migration**（`docker exec psql` + 配套 `.ps1`，遵循 migrations 规范）：删除 `us_daily_quote`/`us_adj_factor`/`us_daily_indicator`/`us_index_daily`/`us_index_indicator`/`us_index_amv_daily` 六表中 `trade_date < '20240101'` 的**全部行**（清掉 pre-2024 孤儿，含 4 只 AMV 成分孤儿 FANG/KLAC/LRCX/STX）。2024 热身段保留（单源 Yahoo）。
 4. 因「先灌后删」，任一步失败时旧数据仍在，可重试；清理只在重灌校验通过后发生。
 
-⚠️ **热身决策（请用户在 spec 审阅时确认）**：忠实你「2025-01-01 窗口 + 清空 pre-2025」的两个决策，则 fetch_start = 2025-01-01、不留 pre-2025 热身缓冲。后果：**MA120/MA240 等长回看指标、以及 AMV 的 MACD/MA 在 2025 年大部分时间为 NULL / 热身退化**，直到 2025 年内积累够交易行才生效——这与现有「只灌 2025 的标的」（如 ASTS/BA 363 行）行为一致，`resolve_warmup_start` 因无更早行也只能返回 start（**原 spec 称其会回灌 2024 是错的，已纠正**）。
-- 若要 2025-01-01 起即有满血长指标，需把 fetch_start 提前到约 2024-01-01（~250 交易行热身缓冲），代价是保留一段 2024 数据（单源 Yahoo、非孤儿，但偏离「清空 pre-2025」字面）。**默认按你的字面决策走「无缓冲」**；如需满血指标请在审阅时改选。
+**热身**：fetch 自 2024-01-01 给 ~250 交易行缓冲 → MA240/MA120 等长回看指标与 AMV 的 MA/MACD **自 2025-01-01 即满血**。2024 年内（分析起点之前）的长指标仍热身退化，属可接受。
 
 ## F · 依赖
 
@@ -145,7 +144,7 @@ guard  : factor.notna().all() and (factor>0).all() and 末位 finite>0
 | Yahoo 限频 / 偶发 5xx / 接口变动 | 薄封装限频 + 3 次退避 + query1→query2 兜底；空数据双路径 warn |
 | Yahoo volume 复权语义不明 | 实现期对拆股标的亲验，必要时 client 层还原原始量（见 D） |
 | AMV 量级平移 | 重跑 + 重 baseline golden（见 D/E）；AMV 是相对指标、不做跨源绝对对比 |
-| 长回看指标 / AMV 早期热身退化 | 按字面决策接受（无缓冲）；如需满血指标改用热身缓冲（见 E） |
+| 长回看指标 / AMV 早期热身退化 | fetch 自 2024-01-01 留 ~250 交易行缓冲 → 自 2025-01-01 满血（见 E） |
 | 重灌中途失败致面板更空 | 先灌后删 + 校验通过再清理（见 E） |
 | 二手转述进硬断言 | 关键事实表 file:line，实现期进 migration / 守门前再亲验（CLAUDE.md 数据完整性铁律） |
 
@@ -154,7 +153,7 @@ guard  : factor.notna().all() and (factor>0).all() and 末位 finite>0
 - Python pytest 全绿（含新增 yahoo_client / 因子单测 + 重 baseline 的 AMV）。
 - `uv lock` 后 akshare 不在依赖树；全仓 grep 无 `import akshare` / `ak.` 残留。
 - 清理 migration 幂等、配套 .ps1 可 `docker exec` 执行；先灌后删顺序落实。
-- 真机 e2e：AVGO/NVDA qfq 非空 + 面板/口径切换/K 线副图/AMV 全过，0 failed_items。
+- 真机 e2e：AVGO/NVDA qfq 非空 + 面板/口径切换/K 线副图/AMV 全过 + 指标自 2025-01-01 满血，0 failed_items。
 
 ## 任务清单与文件域切分（供 subagent-driven-development）
 
@@ -165,7 +164,7 @@ guard  : factor.notna().all() and (factor>0).all() and 末位 finite>0
 | T3 指数调用点 + 测试适配 | `sync/us_index.py:54` 调用点；`test_us_index.py` / `test_akshare_index_client.py` 重命名改写 | T1 |
 | T4 AMV 重 baseline | `test_us_index_amv_*` + `amv_parity_golden.json`（重灌后生成） | T1/T2 + 重灌 |
 | T5 依赖 | `pyproject.toml` + `uv lock` | T1（删 client 后） |
-| T6 清理 migration | `migrations/<ts>-*.sql` + `.ps1`（删 `trade_date < fetch_start` 全表行） | — |
-| T7 重灌 + e2e | CLI 三 run_type（先灌）→ 校验 → 清理 → 真机验证 | T1-T6 |
+| T6 清理 migration | `migrations/<ts>-*.sql` + `.ps1`（删六表 `trade_date < '20240101'` 全行） | — |
+| T7 重灌 + e2e | CLI 三 run_type 先灌（us-sync/us-index-sync 窗口 20240101+，AMV 分析起点 2025-01-01）→ 校验 → 清理 → 真机验证 | T1-T6 |
 
 > 注：编排层（run_us_* / dispatcher / cli）与 `sync_us_daily_for_ticker`/`sync_us_index_for_symbol` 对外签名不改；改动落在 client 调用点。
