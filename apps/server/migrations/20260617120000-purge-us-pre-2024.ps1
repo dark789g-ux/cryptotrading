@@ -24,7 +24,7 @@ docker exec -i crypto-postgres psql -U cryptouser -d cryptodb -c `
    UNION ALL SELECT 'us_daily_indicator', count(*) FROM raw.us_daily_indicator WHERE trade_date < '20240101'
    UNION ALL SELECT 'us_index_daily', count(*) FROM raw.us_index_daily WHERE trade_date < '20240101'
    UNION ALL SELECT 'us_index_indicator', count(*) FROM raw.us_index_indicator WHERE trade_date < '20240101'
-   UNION ALL SELECT 'us_index_amv_daily', count(*) FROM raw.us_index_amv_daily WHERE trade_date < '20240101';"
+   UNION ALL SELECT 'us_index_amv_daily', count(*) FROM raw.us_index_amv_daily WHERE trade_date < '20250102';"
 
 Write-Host ""
 Write-Host "执行 pre-2024 清理 migration..."
@@ -43,6 +43,6 @@ docker exec -i crypto-postgres psql -U cryptouser -d cryptodb -c `
    UNION ALL SELECT 'us_daily_indicator<2024', count(*) FROM raw.us_daily_indicator WHERE trade_date < '20240101'
    UNION ALL SELECT 'us_index_daily<2024', count(*) FROM raw.us_index_daily WHERE trade_date < '20240101'
    UNION ALL SELECT 'us_index_indicator<2024', count(*) FROM raw.us_index_indicator WHERE trade_date < '20240101'
-   UNION ALL SELECT 'us_index_amv_daily<2024', count(*) FROM raw.us_index_amv_daily WHERE trade_date < '20240101'
+   UNION ALL SELECT 'us_index_amv_daily<2025', count(*) FROM raw.us_index_amv_daily WHERE trade_date < '20250102'
    UNION ALL SELECT 'us_daily_quote close NULL', count(*) FROM raw.us_daily_quote WHERE close IS NULL
    UNION ALL SELECT 'us_index_daily close NULL', count(*) FROM raw.us_index_daily WHERE close IS NULL;"

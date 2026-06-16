@@ -17,7 +17,7 @@ DELETE FROM raw.us_adj_factor      WHERE trade_date < '20240101';
 DELETE FROM raw.us_daily_indicator WHERE trade_date < '20240101';
 DELETE FROM raw.us_index_daily     WHERE trade_date < '20240101';
 DELETE FROM raw.us_index_indicator WHERE trade_date < '20240101';
-DELETE FROM raw.us_index_amv_daily WHERE trade_date < '20240101';
+DELETE FROM raw.us_index_amv_daily WHERE trade_date < '20250102';  -- AMV 分析起点 2025-01-02（2024 仅热身、不出 AMV 值）
 
 -- 剔除 Yahoo 偶发占位行（close 为 null，非有效交易观测）。dropna 修复后不再产生，
 -- 此处清掉换源初期遗留的少量占位行（如 GEV 首轮重灌写入的 1 行）。指数同理。
