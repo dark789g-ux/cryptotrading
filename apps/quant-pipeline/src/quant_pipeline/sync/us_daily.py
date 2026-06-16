@@ -68,6 +68,9 @@ def sync_us_daily_for_ticker(
     raw["trade_date"] = pd.to_datetime(raw["date"]).dt.strftime("%Y%m%d")
     raw = raw[(raw["trade_date"] >= start_date) & (raw["trade_date"] <= end_date)]
     raw = raw.sort_values("trade_date").drop_duplicates("trade_date", keep="last").reset_index(drop=True)
+    # Yahoo 偶发占位行（timestamp 在但 close/adj_close 为 null，如停牌/数据缺口）：剔除。
+    # 否则单个 NaN 会让下方因子守门一票否决整只 ticker（GEV idx555 实测）。
+    raw = raw[raw["close"].notna() & raw["adj_close"].notna()].reset_index(drop=True)
     if len(raw) == 0:
         return UsDailyReport(ticker=ticker, empty_path="window_empty", factor_empty=True)
 

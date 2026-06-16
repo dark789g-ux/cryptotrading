@@ -93,3 +93,25 @@ def test_guard_nonpositive_adjclose_degrades_to_factor_empty():
     assert "raw.us_daily_indicator" not in captured
     # 但 raw 行情列仍写（未复权）
     assert [r["close"] for r in quote] == [100.0, 110.0]
+
+
+def test_nan_close_placeholder_row_dropped_not_whole_ticker():
+    """Yahoo 偶发占位行（close/adj_close 为 None）只剔除该行，不毁整只 ticker。
+
+    回归 GEV：单个 NaN close 曾让因子守门一票否决整只 → factor_empty。
+    """
+    df = pd.DataFrame({
+        "date": ["20240102", "20240103", "20240104"],
+        "open": [100.0, None, 120.0],
+        "high": [101.0, None, 121.0],
+        "low": [99.0, None, 119.0],
+        "close": [100.0, None, 120.0],   # idx1 占位行
+        "volume": [1000.0, None, 1200.0],
+        "adj_close": [99.0, None, 120.0],
+    })
+    rep, captured = _run_capture(df)
+    assert rep.factor_empty is False
+    quote = captured["raw.us_daily_quote"]
+    # 占位行被剔除 → 只剩 2 行，且都有 qfq
+    assert [r["trade_date"] for r in quote] == ["20240102", "20240104"]
+    assert all(r["qfq_close"] is not None for r in quote)

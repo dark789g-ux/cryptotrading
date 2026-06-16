@@ -64,6 +64,8 @@ def sync_us_index_for_symbol(
         .drop_duplicates("trade_date", keep="last")
         .reset_index(drop=True)
     )
+    # Yahoo 偶发占位行（close 为 null）：剔除，避免污染指标序列。
+    df = df[df["close"].notna()].reset_index(drop=True)
     if len(df) == 0:
         return UsIndexReport(index_code=index_code, empty_path="window_empty")
 
