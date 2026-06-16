@@ -1,11 +1,11 @@
 """Yahoo Finance chart API 美股取数薄封装（stdlib urllib，无第三方）。
 
-仿 akshare_client.py：请求限频 + 指数退避 + 空数据双路径 warn + 重试耗尽 raise。
+沿用原薄封装风格：请求限频 + 指数退避 + 空数据双路径 warn + 重试耗尽 raise。
 权威接口：GET https://query1.finance.yahoo.com/v8/finance/chart/{symbol}
   ?period1=<unix秒>&period2=<unix秒>&interval=1d&events=split%2Cdiv
 仅需 User-Agent 头即返 200（无需 crumb/cookie）；query1 失败退到 query2。
 
-UsFetchResult 归属此处（后续任务删 akshare_client.py），字段同 akshare 版。
+UsFetchResult 归属此处（取代已删除的 akshare_client），字段沿用原契约。
 """
 
 from __future__ import annotations

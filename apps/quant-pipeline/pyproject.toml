@@ -28,7 +28,6 @@ dependencies = [
     "shap>=0.45",
     # ---- LSTM：次日方向三分类序列模型（CPU 版即可）----
     "torch>=2.2",
-    "akshare>=1.18.64",
 ]
 
 [project.optional-dependencies]
