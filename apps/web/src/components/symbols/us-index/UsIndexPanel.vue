@@ -43,9 +43,12 @@ import { CloudDownloadOutline } from '@vicons/ionicons5'
 import KlineChart from '../../kline/KlineChart.vue'
 import UsSyncProgressModal from '../us-stocks/UsSyncProgressModal.vue'
 import { usIndexDailyApi } from '@/api/modules/market/usIndexDaily'
+import { usIndexAmvApi } from '@/api/modules/market/usIndexAmv'
+import type { AmvSeriesRow } from '@/api/modules/market/active-mv'
 import type { KlineChartBar } from '@/api/modules/market/symbols'
 import type { JobStatus } from '@/api/modules/quant'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
+import { mergeKlineWithAmv } from '@/composables/kline/mergeAmv'
 
 interface IndexOption extends SelectOption {
   label: string
@@ -55,8 +58,8 @@ interface IndexOption extends SelectOption {
 // v1 single index; P2 adds .IXIC/.DJI/.INX by appending options.
 const indexOptions: IndexOption[] = [{ label: '纳斯达克100', value: '.NDX' }]
 
-// us index K line: only basic technical subplots (no money flow / no AMV).
-const availableSubplots: SubplotKey[] = ['VOL', 'KDJ', 'MACD']
+// us index K line: basic technical subplots + AMV (活跃市值, 复用 0AMV/0AMV_MACD 渲染键).
+const availableSubplots: SubplotKey[] = ['VOL', 'KDJ', 'MACD', '0AMV', '0AMV_MACD']
 
 const message = useMessage()
 
@@ -76,11 +79,18 @@ async function reload() {
       message.warning('未灌数据，请先同步')
       return
     }
-    bars.value = await usIndexDailyApi.query({
-      index_code: selectedIndex.value,
-      start_date: start,
-      end_date: end,
-    })
+    const [kline, amvRows] = await Promise.all([
+      usIndexDailyApi.query({
+        index_code: selectedIndex.value,
+        start_date: start,
+        end_date: end,
+      }),
+      // AMV 与 K 线同窗（同一 start/end）；AMV 失败降级为空序列，不拖垮主图。
+      usIndexAmvApi
+        .query({ index_code: selectedIndex.value, start_date: start, end_date: end })
+        .catch(() => [] as AmvSeriesRow[]),
+    ])
+    bars.value = mergeKlineWithAmv(kline, amvRows)
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
   }

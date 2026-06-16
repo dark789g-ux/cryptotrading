@@ -22,12 +22,21 @@ import UsIndexPanel from '../UsIndexPanel.vue'
 const getDateRange = vi.fn()
 const query = vi.fn()
 const triggerSync = vi.fn()
+const amvQuery = vi.fn()
 
 vi.mock('@/api/modules/market/usIndexDaily', () => ({
   usIndexDailyApi: {
     getDateRange: (...args: unknown[]) => getDateRange(...args),
     query: (...args: unknown[]) => query(...args),
     triggerSync: (...args: unknown[]) => triggerSync(...args),
+  },
+}))
+
+// AMV is fetched in parallel with the K line inside reload() and merged via
+// mergeKlineWithAmv. Mock it so the panel never hits real fetch in jsdom.
+vi.mock('@/api/modules/market/usIndexAmv', () => ({
+  usIndexAmvApi: {
+    query: (...args: unknown[]) => amvQuery(...args),
   },
 }))
 
@@ -89,15 +98,26 @@ beforeEach(() => {
   getDateRange.mockReset()
   query.mockReset()
   triggerSync.mockReset()
+  amvQuery.mockReset()
   resizeSpy.mockReset()
+  // Default AMV to empty so tests not exercising AMV stay unaffected.
+  amvQuery.mockResolvedValue([])
 })
 
 describe('UsIndexPanel data loading', () => {
-  it('on mount (no keep-alive): getDateRange(.NDX) -> query(range) -> bars to KlineChart', async () => {
+  it('on mount (no keep-alive): getDateRange(.NDX) -> parallel query + AMV(range) -> merged bars to KlineChart', async () => {
     getDateRange.mockResolvedValue({ start: '20200101', end: '20240131' })
     query.mockResolvedValue([
       { open_time: '2024-01-02' },
       { open_time: '2024-01-03' },
+    ])
+    // AMV row for the first bar only; mergeKlineWithAmv binds it via normalizeDateKey.
+    amvQuery.mockResolvedValue([
+      {
+        tradeDate: '20240102',
+        amvOpen: 1, amvHigh: 2, amvLow: 0.5, amvClose: 1.5,
+        amvDif: 0.1, amvDea: 0.05, amvMacd: 0.05, amvZdf: null, signal: 1,
+      },
     ])
 
     const { wrapper } = mountPanel()
@@ -110,8 +130,29 @@ describe('UsIndexPanel data loading', () => {
       start_date: '20200101',
       end_date: '20240131',
     })
+    // AMV fetched in parallel with the SAME window.
+    expect(amvQuery).toHaveBeenCalledWith({
+      index_code: '.NDX',
+      start_date: '20200101',
+      end_date: '20240131',
+    })
     const stub = wrapper.find('.kline-stub')
+    // merge preserves K-line length (2 bars).
     expect(stub.attributes('data-len')).toBe('2')
+  })
+
+  it('AMV query failure degrades to empty series, K line still renders', async () => {
+    getDateRange.mockResolvedValue({ start: '20200101', end: '20240131' })
+    query.mockResolvedValue([{ open_time: '2024-01-02' }])
+    amvQuery.mockRejectedValue(new Error('amv 500'))
+
+    const { wrapper } = mountPanel()
+    await flushPromises()
+    await nextTick()
+
+    expect(query).toHaveBeenCalled()
+    // .catch(()=>[]) degrades — bars still merged (length preserved), no throw.
+    expect(wrapper.find('.kline-stub').attributes('data-len')).toBe('1')
   })
 
   it('empty range: no query, warns', async () => {
