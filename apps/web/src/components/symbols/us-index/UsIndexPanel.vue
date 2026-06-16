@@ -27,6 +27,7 @@
     <us-sync-progress-modal
       v-model:show="showSyncProgress"
       :job-id="syncJobId"
+      subject="美股指数数据"
       @done="handleSyncDone"
     />
   </div>

@@ -1,7 +1,7 @@
 <template>
   <app-modal
     :show="show"
-    title="同步美股数据"
+    :title="'同步' + subject"
     description="复用量化 jobs 进度推送（SSE）跟进同步进度。"
     width="min(560px, 92vw)"
     :mask-closable="false"
@@ -32,10 +32,15 @@ import AppModal from '../../common/AppModal.vue'
 import ProgressLine from '../../quant/ProgressLine.vue'
 import type { JobStatus } from '@/api'
 
-const props = defineProps<{
-  show: boolean
-  jobId: string | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    show: boolean
+    jobId: string | null
+    /** 同步主体名，驱动标题「同步{subject}」与完成/失败/取消消息。默认美股(个股)。 */
+    subject?: string
+  }>(),
+  { subject: '美股数据' },
+)
 
 const emit = defineEmits<{
   'update:show': [value: boolean]
@@ -48,11 +53,11 @@ const running = ref(false)
 function handleDone(state: JobStatus) {
   running.value = false
   if (state === 'success') {
-    message.success('美股数据同步完成')
+    message.success(`${props.subject}同步完成`)
   } else if (state === 'failed') {
-    message.error('美股数据同步失败，请查看量化任务详情')
+    message.error(`${props.subject}同步失败，请查看量化任务详情`)
   } else if (state === 'cancelled') {
-    message.warning('美股数据同步已取消')
+    message.warning(`${props.subject}同步已取消`)
   }
   emit('done', state)
 }
