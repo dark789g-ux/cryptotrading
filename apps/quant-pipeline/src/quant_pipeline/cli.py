@@ -283,6 +283,54 @@ def us_sync(
         raise typer.Exit(code=1)
 
 
+@app.command("us-index-sync")  # type: ignore[untyped-decorator]
+def us_index_sync(
+    date_range: str = typer.Option(
+        ..., "--date-range", help="同步区间 YYYYMMDD:YYYYMMDD。"
+    ),
+    symbols: str = typer.Option(
+        "", "--symbols", help="逗号分隔指数 symbol（如 .NDX）；留空时缺省 .NDX。"
+    ),
+) -> None:
+    """AkShare → raw.us_index_* 美股指数同步（CLI 直跑，不写 ml.jobs）。
+
+    与 worker dispatcher 的 'us_index_sync' run_type 走同一 run_us_index_sync 入口。
+    单次抓取、无 qfq、无 adj_factor（指数无复权概念）。
+    空数据 / 0 行计入 failed_items（不静默）；errors 非空时 exit 1。
+    """
+
+    setup_logging()
+    try:
+        validate_date_range(date_range)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+
+    sym_tuple: tuple[str, ...] | None
+    if symbols.strip():
+        sym_tuple = tuple(s.strip() for s in symbols.split(",") if s.strip())
+    else:
+        sym_tuple = None  # 缺省 → orchestrator 用 ('.NDX',)
+
+    from quant_pipeline.sync.us_index_orchestrator import run_us_index_sync
+
+    outcome = run_us_index_sync(job_id=None, date_range=date_range, symbols=sym_tuple)
+    typer.echo(
+        f"us-index-sync {date_range}: symbols_done={outcome.symbols_done} "
+        f"rows={outcome.rows_total} indicator_rows={outcome.indicator_rows_total} "
+        f"failed_items={len(outcome.failed_items)} errors={len(outcome.errors)}"
+    )
+    for fi in outcome.failed_items:
+        typer.echo(
+            f"  ! failed_item index_code={fi.index_code} api={fi.api_name} "
+            f"reason={fi.reason} rule={fi.rule}"
+        )
+    for err in outcome.errors:
+        typer.echo(f"  ! error: {err}", err=True)
+    if outcome.errors:
+        raise typer.Exit(code=1)
+
+
 # ----------------------------------------------------------------------
 # labels 子命令（M2 Part A）
 # ----------------------------------------------------------------------

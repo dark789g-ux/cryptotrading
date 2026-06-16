@@ -83,3 +83,48 @@ class AkShareClient:
                             "attempts": self.max_attempts, "err": str(last_exc)})
         assert last_exc is not None
         raise last_exc
+
+    def fetch_us_index(self, symbol: str) -> UsFetchResult:
+        """抓单个美股指数日线（新浪 index_us_stock_sina）。
+
+        指数无复权概念：单次抓取、无 qfq、无 adj_factor（见 spec 03）。
+        网络异常重试耗尽则抛出（由 orchestrator 逐 symbol 捕获记 errors，不静默吞）。
+        空数据（None / 0 行）双路径 warn 并返回 empty_path。
+        返回的 df 含 date/open/high/low/close/volume/amount（amount 后续丢弃）。
+        """
+        import akshare as ak  # 延迟 import：避免非 us_index_sync run_type 拖入 akshare
+
+        api_name = "index_us_stock_sina"
+        params = {"symbol": symbol}
+        last_exc: Exception | None = None
+
+        for attempt in range(1, self.max_attempts + 1):
+            self._throttle()
+            try:
+                df = ak.index_us_stock_sina(symbol=symbol)
+            except Exception as exc:  # noqa: BLE001 — 网络/解析异常统一退避重试
+                last_exc = exc
+                logger.warning(
+                    "akshare_fetch_retry",
+                    extra={"api_name": api_name, "params": params,
+                           "attempt": attempt, "err": str(exc)},
+                )
+                time.sleep(0.5 * attempt)
+                continue
+
+            # 空数据双路径 warn（CLAUDE.md 铁律）
+            if df is None:
+                logger.warning("akshare_empty_data_null",
+                               extra={"api_name": api_name, "params": params})
+                return UsFetchResult(df=None, empty_path="data_null")
+            if len(df) == 0:
+                logger.warning("akshare_empty_items_empty",
+                               extra={"api_name": api_name, "params": params})
+                return UsFetchResult(df=None, empty_path="items_empty")
+            return UsFetchResult(df=df, empty_path=None)
+
+        logger.error("akshare_fetch_failed",
+                     extra={"api_name": api_name, "params": params,
+                            "attempts": self.max_attempts, "err": str(last_exc)})
+        assert last_exc is not None
+        raise last_exc
