@@ -22,7 +22,7 @@ open         numeric(30,10)
 high         numeric(30,10)
 low          numeric(30,10)
 close        numeric(30,10)
-volume       numeric(30,10)               -- amount 恒 0 丢弃, 不入库
+volume       numeric(30,10)               -- amount 整列丢弃, 不入库(实测非恒 0,本管线不用)
 updated_at   timestamptz    NOT NULL DEFAULT now()
 CONSTRAINT uq_us_index_daily UNIQUE (index_code, trade_date)
 CREATE INDEX ix_us_index_daily_code  ON raw.us_index_daily (index_code)

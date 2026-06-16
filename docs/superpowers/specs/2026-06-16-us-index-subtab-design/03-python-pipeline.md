@@ -6,7 +6,9 @@
 
 ## 0. 落库前硬约束（`.claude/rules/data-integrity.md`）
 
-实现首步：`uv run python` 实跑 `ak.index_us_stock_sina(symbol=".NDX")`，**亲眼确认**列名（`date/open/high/low/close/volume/amount`）、symbol 带前导点、`amount` 恒 0，再写 fail-fast / 落库。本 spec 的事实虽已一手验证，二次确认是硬规范。
+实现首步：`uv run python` 实跑 `ak.index_us_stock_sina(symbol=".NDX")`，**亲眼确认**列名（`date/open/high/low/close/volume/amount`）、symbol 带前导点，再写 fail-fast / 落库。本 spec 的事实虽已一手验证，二次确认是硬规范。
+
+> 实现期实测订正：`amount` **非恒 0**（早期年份有真实值，近年多为 0），且 `date` 列是 `datetime.date` 对象（非字符串）；本管线**整列丢弃 amount**、`date` 经 `pd.to_datetime(...).dt.strftime('%Y%m%d')` 规整，故二者均不影响实现。
 
 ## 1. akshare_client.py — 加 `fetch_us_index`
 

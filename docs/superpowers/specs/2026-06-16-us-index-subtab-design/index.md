@@ -4,7 +4,7 @@
 
 ## 背景与目标
 
-- **数据源已一手验证**：`ak.index_us_stock_sina(symbol=".NDX")`（akshare 1.18.64）→ 列 `date/open/high/low/close/volume/amount`（`amount` 恒 0 丢弃），约 3099 行回溯到 ~2013，最新 2026-06-15 收 30543.92。无需 token、**无复权概念**。
+- **数据源已一手验证**：`ak.index_us_stock_sina(symbol=".NDX")`（akshare 1.18.64）→ 列 `date/open/high/low/close/volume/amount`（`amount` 整列丢弃；实测非恒 0 但本管线不用），约 3099 行回溯到 ~2013，最新 2026-06-15 收 30543.92。无需 token、**无复权概念**。
 - **采集必须走 Python**（AkShare 是 Python-only）：ths-index-daily 的「NestJS 内 SSE 直连 Tushare」模式**不可照搬**——指数采集走 Python 管线（CLI 首灌 / 派 `us_index_sync` job），NestJS 只读查询 + 派 job。
 - **v1 范围**：二级标签 UI + 纳指100 全量历史 K 线 + 指数采集/存储/查询全链路 + 同步按钮（完整对齐 us-stocks）。
 - **明确推迟（P2）**：更多指数（`.IXIC/.DJI/.INX`，数据源已验证可取，靠多灌一个 `index_code` 即可，无需改 schema）、指数列表/筛选表格。
