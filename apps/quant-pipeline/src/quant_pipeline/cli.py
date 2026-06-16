@@ -332,6 +332,83 @@ def us_index_sync(
 
 
 # ----------------------------------------------------------------------
+# 美股指数 AMV 子命令（spec 2026-06-16-us-index-amv）
+# ----------------------------------------------------------------------
+
+us_index_constituent_app = typer.Typer(help="美股指数成分名单（raw.us_index_constituent）子命令。")
+app.add_typer(us_index_constituent_app, name="us-index-constituent")
+
+
+@us_index_constituent_app.command("seed")  # type: ignore[untyped-decorator]
+def us_index_constituent_seed(
+    csv_path: str = typer.Option(
+        ...,
+        "--csv",
+        help="成分名单 CSV（列：index_code/ticker/name/weight_pct）。name/weight_pct 可空。",
+    ),
+) -> None:
+    """从 CSV upsert raw.us_index_constituent（幂等）。成分不写 raw.us_symbol（零污染）。"""
+
+    setup_logging()
+    from quant_pipeline.sync.us_index_constituent import (
+        seed_us_index_constituent_from_csv,
+    )
+
+    rep = seed_us_index_constituent_from_csv(csv_path)
+    typer.echo(
+        f"us-index-constituent seed: rows_upserted={rep.rows_upserted} tickers={len(rep.tickers)}"
+    )
+
+
+@app.command("us-index-amv-sync")  # type: ignore[untyped-decorator]
+def us_index_amv_sync(
+    date_range: str = typer.Option(
+        ..., "--date-range", help="同步区间 YYYYMMDD:YYYYMMDD。"
+    ),
+    symbols: str = typer.Option(
+        "", "--symbols", help="逗号分隔指数 symbol（如 .NDX）；留空时缺省 .NDX。"
+    ),
+) -> None:
+    """美股指数 AMV 同步（CLI 直跑，不写 ml.jobs）。
+
+    与 worker dispatcher 的 'us_index_amv_sync' run_type 走同一 run_us_index_amv_sync 入口。
+    步骤1 复用 sync_us_daily_for_ticker 灌成分行情（含热身）；步骤2 Σ聚合 + 套公式写 AMV。
+    成分空 / Σ 缺失计入 failed_items / errors（不静默）；errors 非空时 exit 1。
+    """
+
+    setup_logging()
+    try:
+        validate_date_range(date_range)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+
+    sym_tuple: tuple[str, ...] | None
+    if symbols.strip():
+        sym_tuple = tuple(s.strip() for s in symbols.split(",") if s.strip())
+    else:
+        sym_tuple = None  # 缺省 → orchestrator 用 ('.NDX',)
+
+    from quant_pipeline.sync.us_index_amv_orchestrator import run_us_index_amv_sync
+
+    outcome = run_us_index_amv_sync(job_id=None, date_range=date_range, symbols=sym_tuple)
+    typer.echo(
+        f"us-index-amv-sync {date_range}: constituents_done={outcome.constituents_done} "
+        f"quote_rows={outcome.rows_total} amv_rows={outcome.amv_rows_total} "
+        f"failed_items={len(outcome.failed_items)} errors={len(outcome.errors)}"
+    )
+    for fi in outcome.failed_items:
+        typer.echo(
+            f"  ! failed_item index_code={fi.index_code} ticker={fi.ticker} "
+            f"api={fi.api_name} reason={fi.reason} rule={fi.rule}"
+        )
+    for err in outcome.errors:
+        typer.echo(f"  ! error: {err}", err=True)
+    if outcome.errors:
+        raise typer.Exit(code=1)
+
+
+# ----------------------------------------------------------------------
 # labels 子命令（M2 Part A）
 # ----------------------------------------------------------------------
 

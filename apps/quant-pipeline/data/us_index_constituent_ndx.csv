@@ -1,0 +1,102 @@
+index_code,ticker,name,weight_pct
+.NDX,AAPL,Apple Inc.,7.1
+.NDX,ABNB,,
+.NDX,ADBE,,
+.NDX,ADI,,
+.NDX,ADP,,
+.NDX,ADSK,,
+.NDX,AEP,,
+.NDX,ALNY,,
+.NDX,AMAT,"Applied Materials, Inc.",1.98
+.NDX,AMD,"Advanced Micro Devices, Inc.",3.6
+.NDX,AMGN,,
+.NDX,AMZN,"Amazon.com, Inc.",4.24
+.NDX,APP,,
+.NDX,ARM,,
+.NDX,ASML,,
+.NDX,AVGO,Broadcom Inc.,2.99
+.NDX,AXON,,
+.NDX,BKNG,,
+.NDX,BKR,,
+.NDX,CCEP,,
+.NDX,CDNS,,
+.NDX,CEG,,
+.NDX,CHTR,,
+.NDX,CMCSA,,
+.NDX,COST,Costco Wholesale Corporation,1.96
+.NDX,CPRT,,
+.NDX,CRWD,,
+.NDX,CSCO,"Cisco Systems, Inc.",2.17
+.NDX,CSX,,
+.NDX,CTAS,,
+.NDX,CTSH,,
+.NDX,DASH,,
+.NDX,DDOG,,
+.NDX,DXCM,,
+.NDX,EA,,
+.NDX,EXC,,
+.NDX,FANG,,
+.NDX,FAST,,
+.NDX,FER,,
+.NDX,FTNT,,
+.NDX,GEHC,,
+.NDX,GILD,,
+.NDX,GOOG,Alphabet Inc.,3.17
+.NDX,GOOGL,Alphabet Inc.,3.41
+.NDX,HON,,
+.NDX,IDXX,,
+.NDX,INSM,,
+.NDX,INTC,Intel Corporation,2.64
+.NDX,INTU,,
+.NDX,ISRG,,
+.NDX,KDP,,
+.NDX,KHC,,
+.NDX,KLAC,KLA Corporation,1.43
+.NDX,LIN,Linde plc,1.08
+.NDX,LITE,,
+.NDX,LRCX,Lam Research Corporation,2.04
+.NDX,MAR,,
+.NDX,MCHP,,
+.NDX,MDLZ,,
+.NDX,MELI,,
+.NDX,META,"Meta Platforms, Inc.",2.74
+.NDX,MNST,,
+.NDX,MPWR,,
+.NDX,MRVL,"Marvell Technology, Inc.",1.1
+.NDX,MSFT,Microsoft Corporation,4.74
+.NDX,MSTR,,
+.NDX,MU,"Micron Technology, Inc.",5.06
+.NDX,NFLX,"Netflix, Inc.",1.55
+.NDX,NVDA,NVIDIA Corporation,8.14
+.NDX,NXPI,,
+.NDX,ODFL,,
+.NDX,ORLY,,
+.NDX,PANW,"Palo Alto Networks, Inc.",1.03
+.NDX,PAYX,,
+.NDX,PCAR,,
+.NDX,PDD,,
+.NDX,PEP,,
+.NDX,PLTR,Palantir Technologies Inc.,1.36
+.NDX,PYPL,,
+.NDX,QCOM,,
+.NDX,REGN,,
+.NDX,ROP,,
+.NDX,ROST,,
+.NDX,SBUX,,
+.NDX,SHOP,,
+.NDX,SNDK,Sandisk Corporation,1.25
+.NDX,SNPS,,
+.NDX,STX,,
+.NDX,TMUS,,
+.NDX,TRI,,
+.NDX,TSLA,"Tesla, Inc.",3.26
+.NDX,TTWO,,
+.NDX,TXN,Texas Instruments Incorporated,1.22
+.NDX,VRSK,,
+.NDX,VRTX,,
+.NDX,WBD,,
+.NDX,WDAY,,
+.NDX,WDC,,
+.NDX,WMT,Walmart Inc.,2.66
+.NDX,XEL,,
+.NDX,ZS,,

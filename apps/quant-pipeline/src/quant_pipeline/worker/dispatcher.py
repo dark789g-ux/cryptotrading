@@ -221,6 +221,56 @@ def _runner_us_index_sync(job: Job) -> None:
         )
 
 
+def _runner_us_index_amv(job: Job) -> None:
+    """us_index_amv runner（spec 2026-06-16-us-index-amv）：调 run_us_index_amv_sync。
+
+    params：
+      {
+        "date_range": "YYYYMMDD:YYYYMMDD",   # 可选；UI 无参同步 → 兜底默认全量
+        "symbols": [".NDX", ...]             # 可选，缺省 orchestrator 用 ('.NDX',)
+      }
+    镜像 us_index_sync：缺 date_range 不直接 ValueError，而是兜底默认全量，
+    保证「美股指数」面板的无参同步按钮真能跑通。
+    成分取数空 / Σ 缺失计入 outcome.failed_items / errors（不静默），job 整体仍判 success。
+    """
+
+    from quant_pipeline.sync.us_index_amv_orchestrator import run_us_index_amv_sync
+
+    params = job.params or {}
+    date_range = params.get("date_range")
+    if date_range is None:  # UI 无参同步 → 兜底默认全量（保证按钮可用）
+        date_range = f"20100101:{date.today():%Y%m%d}"
+    if not isinstance(date_range, str) or ":" not in date_range:
+        raise ValueError(
+            "us_index_amv_sync job params.date_range 必须是 'YYYYMMDD:YYYYMMDD'，"
+            f"got {date_range!r}"
+        )
+
+    symbols_raw = params.get("symbols")
+    symbols: tuple[str, ...] | None
+    if symbols_raw is not None:
+        if not isinstance(symbols_raw, list) or not all(isinstance(s, str) for s in symbols_raw):
+            raise ValueError("us_index_amv_sync job params.symbols 必须是字符串数组（可选）")
+        symbols = tuple(symbols_raw) if symbols_raw else None
+    else:
+        symbols = None
+
+    outcome = run_us_index_amv_sync(job_id=job.id, date_range=date_range, symbols=symbols)
+
+    if outcome.failed_items or outcome.errors:
+        logger.warning(
+            "us_index_amv_sync_job_completed_with_issues",
+            extra={
+                "job_id": str(job.id),
+                "rows_total": outcome.rows_total,
+                "amv_rows_total": outcome.amv_rows_total,
+                "constituents_done": outcome.constituents_done,
+                "failed_items_count": len(outcome.failed_items),
+                "errors_count": len(outcome.errors),
+            },
+        )
+
+
 def _runner_labels(job: Job) -> None:
     """labels runner（M2 Part F）：调用 labels.runner.runner_entrypoint。
 
@@ -489,6 +539,8 @@ _ROUTES = {
     "us_sync": _runner_us_sync,
     # 美股指数同步（spec 2026-06-16-us-index-subtab）
     "us_index_sync": _runner_us_index_sync,
+    # 美股指数 AMV（spec 2026-06-16-us-index-amv）
+    "us_index_amv_sync": _runner_us_index_amv,
     "factors": _runner_factors,
     "quality": _runner_quality,
     # M2 Part F
