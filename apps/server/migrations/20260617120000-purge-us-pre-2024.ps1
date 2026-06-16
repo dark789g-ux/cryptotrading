@@ -38,9 +38,11 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 Write-Host "==== 校验：执行后应全为 0（幂等，可重复执行） ===="
 docker exec -i crypto-postgres psql -U cryptouser -d cryptodb -c `
-  "SELECT 'us_daily_quote' AS tbl, count(*) FROM raw.us_daily_quote WHERE trade_date < '20240101'
-   UNION ALL SELECT 'us_adj_factor', count(*) FROM raw.us_adj_factor WHERE trade_date < '20240101'
-   UNION ALL SELECT 'us_daily_indicator', count(*) FROM raw.us_daily_indicator WHERE trade_date < '20240101'
-   UNION ALL SELECT 'us_index_daily', count(*) FROM raw.us_index_daily WHERE trade_date < '20240101'
-   UNION ALL SELECT 'us_index_indicator', count(*) FROM raw.us_index_indicator WHERE trade_date < '20240101'
-   UNION ALL SELECT 'us_index_amv_daily', count(*) FROM raw.us_index_amv_daily WHERE trade_date < '20240101';"
+  "SELECT 'us_daily_quote<2024' AS tbl, count(*) FROM raw.us_daily_quote WHERE trade_date < '20240101'
+   UNION ALL SELECT 'us_adj_factor<2024', count(*) FROM raw.us_adj_factor WHERE trade_date < '20240101'
+   UNION ALL SELECT 'us_daily_indicator<2024', count(*) FROM raw.us_daily_indicator WHERE trade_date < '20240101'
+   UNION ALL SELECT 'us_index_daily<2024', count(*) FROM raw.us_index_daily WHERE trade_date < '20240101'
+   UNION ALL SELECT 'us_index_indicator<2024', count(*) FROM raw.us_index_indicator WHERE trade_date < '20240101'
+   UNION ALL SELECT 'us_index_amv_daily<2024', count(*) FROM raw.us_index_amv_daily WHERE trade_date < '20240101'
+   UNION ALL SELECT 'us_daily_quote close NULL', count(*) FROM raw.us_daily_quote WHERE close IS NULL
+   UNION ALL SELECT 'us_index_daily close NULL', count(*) FROM raw.us_index_daily WHERE close IS NULL;"
