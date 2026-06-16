@@ -16,7 +16,7 @@ import logging
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from quant_pipeline.sync.akshare_client import AkShareClient
+from quant_pipeline.sync.yahoo_client import YahooClient
 from quant_pipeline.sync.us_daily import sync_us_daily_for_ticker
 from quant_pipeline.sync.us_index_amv import (
     AmvComputeError,
@@ -67,7 +67,7 @@ def run_us_index_amv_sync(
     job_id: UUID | None,
     date_range: str,
     symbols: tuple[str, ...] | None = None,
-    client: AkShareClient | None = None,
+    client: YahooClient | None = None,
 ) -> UsIndexAmvOutcome:
     """美股指数 AMV 同步入口。
 
@@ -75,7 +75,7 @@ def run_us_index_amv_sync(
     symbols=None → 缺省 ('.NDX',)（v1 硬编码，结构留多指数）。
     """
     start, end = _parse_date_range(date_range)
-    client = client or AkShareClient()
+    client = client or YahooClient()
     outcome = UsIndexAmvOutcome()
 
     index_codes = list(symbols) if symbols else list(DEFAULT_INDEX_CODES)

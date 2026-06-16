@@ -14,7 +14,7 @@ from typing import Any
 
 from quant_pipeline.db.engine import session_scope
 from quant_pipeline.sync._upsert import upsert_rows
-from quant_pipeline.sync.akshare_client import AkShareClient
+from quant_pipeline.sync.yahoo_client import YahooClient
 from quant_pipeline.sync.us_indicators import calc_us_indicators
 
 logger = logging.getLogger(__name__)
@@ -47,11 +47,11 @@ def _f(v: Any) -> float | None:
 
 
 def sync_us_index_for_symbol(
-    *, index_code: str, start_date: str, end_date: str, client: AkShareClient
+    *, index_code: str, start_date: str, end_date: str, client: YahooClient
 ) -> UsIndexReport:
     import pandas as pd
 
-    res = client.fetch_us_index(index_code)
+    res = client.fetch_us_index(index_code, start_date, end_date)
     if res.empty_path is not None:
         return UsIndexReport(index_code=index_code, empty_path=res.empty_path)
 

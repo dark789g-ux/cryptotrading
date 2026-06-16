@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from quant_pipeline.sync.akshare_client import AkShareClient
+from quant_pipeline.sync.yahoo_client import YahooClient
 from quant_pipeline.sync.us_index import sync_us_index_for_symbol
 from quant_pipeline.worker.progress import (
     JobCancelled,
@@ -57,7 +57,7 @@ def run_us_index_sync(
     job_id: UUID | None,
     date_range: str,
     symbols: tuple[str, ...] | None = None,
-    client: AkShareClient | None = None,
+    client: YahooClient | None = None,
 ) -> UsIndexSyncOutcome:
     """美股指数同步入口。
 
@@ -66,7 +66,7 @@ def run_us_index_sync(
     """
 
     start_date, end_date = _parse_date_range(date_range)
-    client = client or AkShareClient()
+    client = client or YahooClient()
     outcome = UsIndexSyncOutcome()
 
     symbol_list = list(symbols) if symbols else list(DEFAULT_INDEX_SYMBOLS)

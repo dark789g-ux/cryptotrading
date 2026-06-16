@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 
 from quant_pipeline.sync import us_index as mod
-from quant_pipeline.sync.akshare_client import UsFetchResult
+from quant_pipeline.sync.yahoo_client import UsFetchResult
 
 
 class _ctx:
@@ -33,8 +33,8 @@ class _ctx:
 def _ohlc_df() -> pd.DataFrame:
     """造一段 8 行升序 OHLC（足够 KDJ/MACD/MA5 出非空值）。
 
-    date 用 datetime.date 风格的 'YYYY-MM-DD' 字符串（akshare 实测 date 列为
-    datetime.date，pd.to_datetime 兼容两者；此处用字符串便于断言）。
+    date 用 'YYYY-MM-DD' 字符串（YahooClient 实际返回 'YYYYMMDD'，但
+    sync_us_index_for_symbol 经 pd.to_datetime 兼容两者；此处用字符串便于断言）。
     """
     dates = [
         "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05",
@@ -53,7 +53,6 @@ def _ohlc_df() -> pd.DataFrame:
             "low": lows,
             "close": closes,
             "volume": vols,
-            "amount": [0] * len(closes),
         }
     )
 
@@ -69,7 +68,7 @@ def test_data_null_path_passthrough() -> None:
     assert rep.empty_path == "data_null"
     assert rep.rows == 0
     assert rep.indicator_rows == 0
-    client.fetch_us_index.assert_called_once_with(".NDX")
+    client.fetch_us_index.assert_called_once_with(".NDX", "20100101", "20261231")
 
 
 def test_window_empty_path() -> None:
