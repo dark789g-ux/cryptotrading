@@ -24,8 +24,10 @@
    组件销毁时 watch 随作用域回收 → promise 永不 resolve → `start()` 永久挂起 → **后续步骤永不触发**。
    同时 [useSSE.ts:17](../../../apps/web/src/composables/hooks/useSSE.ts) 的 `onScopeDispose` abort 当前 fetch。
 
-后端侧：当前正在跑的那一步**会继续跑完写库**（[base-data-sync.controller.ts:34-41](../../../apps/server/src/market-data/base-data-sync/base-data-sync.controller.ts)
-的 `res.on('close')` 只 `unsubscribe`，真正干活在 [base-data-sync.service.ts:273-307](../../../apps/server/src/market-data/base-data-sync/base-data-sync.service.ts)
+后端侧：当前正在跑的那一步**会继续跑完写库**（彼时前端经 `BaseDataSyncController` 的 `res.on('close')`
+只 `unsubscribe`——该控制器是当时手动同步弹窗的 HTTP 入口，弹窗 43fa7be 移除后整条 HTTP 链悬空，已于
+2026-06-16 删除；本编排改造后改由编排器进程内直调 service，不再经控制器。真正干活在
+[base-data-sync.service.ts:273-307](../../../apps/server/src/market-data/base-data-sync/base-data-sync.service.ts)
 脱离的 `setTimeout(async…)` 里，无 abort、无事务），但**没存任何任务状态**——后端只有各 service 私有的内存 `isSyncing` 锁，
 没有任何持久化任务进度表。
 
