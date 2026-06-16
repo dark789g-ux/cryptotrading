@@ -8,7 +8,7 @@
 //
 // 返回字段为驼峰（与后端实体序列化对齐）。steps[i] 的结构 = 前端现有 OneClickStepState，
 // logs[i] = LogEntry（复用 components/sync/oneClickSync.types.ts，不重定义）。
-// run 行顶层 startedAt/updatedAt/finishedAt 是 UTC 墙钟串 'YYYY-MM-DD HH:MM:SS'。
+// run 行顶层 startedAt/updatedAt/finishedAt 是 UTC 墙钟串 'YYYY-MM-DD HH:mm:ssZ'（带尾 Z）。
 
 import { API_BASE, post, request } from '../../client'
 import type {
@@ -38,11 +38,11 @@ export interface OneClickSyncRun {
   errorText: string | null
   cancelRequested: boolean
   createdBy: string | null
-  /** UTC 墙钟串 'YYYY-MM-DD HH:MM:SS'。 */
+  /** UTC 墙钟串 'YYYY-MM-DD HH:mm:ssZ'（带尾 Z）。 */
   startedAt: string
-  /** UTC 墙钟串 'YYYY-MM-DD HH:MM:SS'，每次写回刷新。 */
+  /** UTC 墙钟串 'YYYY-MM-DD HH:mm:ssZ'（带尾 Z），每次写回刷新。 */
   updatedAt: string
-  /** UTC 墙钟串 'YYYY-MM-DD HH:MM:SS'；终态写入，否则 null。 */
+  /** UTC 墙钟串 'YYYY-MM-DD HH:mm:ssZ'（带尾 Z）；终态写入，否则 null。 */
   finishedAt: string | null
 }
 
