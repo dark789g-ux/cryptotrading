@@ -53,7 +53,7 @@
       <crypto-symbols-panel v-if="activeTab === 'crypto'" />
       <a-shares-panel v-else-if="activeTab === 'aShares'" />
       <active-market-value-panel v-else-if="activeTab === 'activeMarketValue'" />
-      <us-stocks-panel v-else />
+      <us-stocks-tabs-container v-else />
     </keep-alive>
   </div>
 </template>
@@ -65,7 +65,7 @@ import { ref } from 'vue'
 import ASharesPanel from '../../components/symbols/ASharesPanel.vue'
 import CryptoSymbolsPanel from '../../components/symbols/CryptoSymbolsPanel.vue'
 import ActiveMarketValuePanel from '../../components/symbols/ActiveMarketValuePanel.vue'
-import UsStocksPanel from '../../components/symbols/UsStocksPanel.vue'
+import UsStocksTabsContainer from '../../components/symbols/UsStocksTabsContainer.vue'
 
 const activeTab = ref<'crypto' | 'aShares' | 'activeMarketValue' | 'usStocks'>('crypto')
 </script>
