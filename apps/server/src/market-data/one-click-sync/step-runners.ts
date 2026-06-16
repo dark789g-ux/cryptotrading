@@ -67,6 +67,17 @@ const PHASE_LABEL_MAP: Record<keyof MoneyFlowSyncSummary, string> = {
   market: '大盘',
 };
 
+/**
+ * base-data「确定性预期空」的 apiName 集合：增量区间 [水位+1, 今日] 内无开市日（周末/节假日）
+ * → base-data-sync 提前返回 no_open_trade_dates。市场本就没开市、无数据可拉，属确定性预期空，
+ * 一键编排判该步「无新数据 success」、不计入失败（约束①：豁免「未来日/无交易日」）。
+ *
+ * ★不含 stk_limit_empty / trade_cal_empty —— 那是「应有数据却空」的异常空，仍按 data-integrity
+ *   规范判 failed。base-data-sync.service 始终把它们 push 进 errors 并 logger.warn（双路径 warn +
+ *   显式 failedItems 在源头完整保留），本处只在 errors **全部**属本集合时才豁免，绝不吞异常空。
+ */
+const BASE_DATA_EXPECTED_EMPTY_API = new Set<string>(['no_open_trade_dates']);
+
 // ── Step0 基础数据（base-data）────────────────────────────────────────
 // 用 base-data 自身的增量默认范围（不复用一键 dateRange）——镜像前端 useBaseDataSync：
 //   [stkLimit.max + 1 天, 今日]；库存空时兜底 [今日-30天, 今日]。
@@ -75,7 +86,15 @@ export async function runBaseData(ctx: StepContext, index: number): Promise<void
   ctx.setStatus(index, 'running');
   ctx.pushLog(key, 'info', '开始基础数据同步');
   try {
-    const range = await resolveBaseDataRange(ctx.services.baseData);
+    const resolved = await resolveBaseDataRange(ctx.services.baseData);
+    if (resolved.kind === 'no-new-day') {
+      // 增量水位已 ≥ 今日：起点落在未来，无新自然日可拉 → 跳过空拉取（避免未来日伪失败）。
+      ctx.patchStep(index, { rowsWritten: 0, percent: 100, message: '已是最新：无新交易日可同步' });
+      ctx.setStatus(index, 'success');
+      ctx.pushLog(key, 'info', '基础数据已是最新（增量起点晚于今日），无新交易日，跳过同步');
+      return;
+    }
+    const range = resolved.range;
     let doneResult: BaseDataSyncEvent | null = null;
     const subject = ctx.services.baseData.startSync({
       start_date: range.startDate,
@@ -102,15 +121,22 @@ export async function runBaseData(ctx: StepContext, index: number): Promise<void
   }
 }
 
-async function resolveBaseDataRange(service: BaseDataSyncService): Promise<SyncRange> {
+/** base-data 增量范围解析结果：可拉的区间，或「无新自然日可拉」（水位已 ≥ 今日）。 */
+type ResolvedBaseDataRange = { kind: 'range'; range: SyncRange } | { kind: 'no-new-day' };
+
+async function resolveBaseDataRange(service: BaseDataSyncService): Promise<ResolvedBaseDataRange> {
   const stored: StoredRange = await service.getStoredRange();
   const max = stored.stkLimit?.max ?? null;
   const end = todayYyyymmdd();
   if (max && /^\d{8}$/.test(max)) {
     const start = shiftYyyymmdd(max, 1);
-    return { startDate: start, endDate: start > end ? start : end };
+    // 水位 ≥ 今日 → 起点落在未来：不再造 [明日,明日] 空区间（那会触发 stk_limit_empty 伪失败），
+    // 直接告知调用方「无新自然日」。
+    if (start > end) return { kind: 'no-new-day' };
+    return { kind: 'range', range: { startDate: start, endDate: end } };
   }
-  return { startDate: shiftYyyymmdd(end, -30), endDate: end };
+  // 库存空：兜底近 30 天。
+  return { kind: 'range', range: { startDate: shiftYyyymmdd(end, -30), endDate: end } };
 }
 
 function applyBaseDataDone(
@@ -136,6 +162,18 @@ function applyBaseDataDone(
   }
   const errs = res?.errors ?? [];
   if (errs.length > 0) {
+    // 「确定性预期空」豁免：errors **全部**属 no_open_trade_dates（区间无开市日，如周末/节假日）
+    // → 判该步 success、不计入失败、不落 error 项。混入任何异常空（stk_limit_empty 等）则不豁免。
+    if (errs.every((e) => BASE_DATA_EXPECTED_EMPTY_API.has(e.apiName))) {
+      ctx.patchStep(index, { message: '无新交易日：区间内无开市日，无新数据' });
+      ctx.pushLog(
+        key,
+        'info',
+        `区间内无开市日（${errs.map((e) => e.apiName).join(',')}），无新交易日数据，判为成功`,
+      );
+      ctx.setStatus(index, 'success');
+      return;
+    }
     for (const e of errs) {
       const item: OneClickErrorItem = {
         step: key,

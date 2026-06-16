@@ -139,6 +139,12 @@ function errorSubject<E>(errorEvent: E): Subject<E> {
   return s;
 }
 
+/** 今日 YYYYMMDD（本地午夜）—— 镜像 step-runners.todayYyyymmdd，供「水位已到今日」用例造水位。 */
+function todayYmd(): string {
+  const n = new Date();
+  return `${n.getFullYear()}${String(n.getMonth() + 1).padStart(2, '0')}${String(n.getDate()).padStart(2, '0')}`;
+}
+
 interface Mocks {
   baseData: { startSync: jest.Mock; getStoredRange: jest.Mock };
   aShares: { startSync: jest.Mock };
@@ -359,6 +365,88 @@ describe('OneClickSyncOrchestratorService', () => {
     expect(step0?.rowsWritten).toBe(8); // 走 done 分支，rowsWritten = result.success
     // 后续 7 步全部继续并成功
     expect(statuses.slice(1)).toEqual(Array(7).fill('success'));
+    expect(repo.rows[0].status).toBe('failed');
+  });
+
+  it('base-data 水位已到今日（增量起点落未来）→ 跳过同步，该步 success 且不调 startSync', async () => {
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    const today = todayYmd();
+    // stkLimit.max = 今日 → start = 明日 > end(今日) → resolveBaseDataRange 判 no-new-day
+    mocks.baseData.getStoredRange = jest.fn().mockResolvedValue({
+      stkLimit: { min: '20260101', max: today },
+      suspend: { min: null, max: null },
+      tradeCal: { min: null, max: null },
+    });
+    const svc = await buildModule(mocks, repo);
+
+    const run = await svc.startRun('20260601', '20260610', null);
+    await flushUntil(() => repo.rows[0]?.status !== 'running');
+
+    const statuses = statusesOf(repo, run.id);
+    expect(statuses[0]).toBe('success'); // 无新交易日 → success（非 failed）
+    expect(mocks.baseData.startSync).not.toHaveBeenCalled(); // 未发起空拉取
+    expect(repo.rows[0].steps?.[0]?.rowsWritten).toBe(0);
+    // 后续 7 步照常成功，run 终态 success
+    expect(statuses.slice(1)).toEqual(Array(7).fill('success'));
+    expect(repo.rows[0].status).toBe('success');
+  });
+
+  it('base-data done errors 全为 no_open_trade_dates（区间无开市日）→ 该步 success，不落 error 项', async () => {
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    // 模拟周末/节假日：base-data-sync 提前返回 no_open_trade_dates；success 仍含 trade_cal 写入行数。
+    mocks.baseData.startSync = jest.fn(() =>
+      doneSubject({
+        type: 'done',
+        message: '同步完成，1 项失败',
+        result: {
+          success: 2,
+          skipped: 0,
+          warnings: [],
+          errors: [{ apiName: 'no_open_trade_dates', params: { start_date: '20260613', end_date: '20260614' } }],
+        },
+      }),
+    );
+    const svc = await buildModule(mocks, repo);
+
+    const run = await svc.startRun('20260601', '20260610', null);
+    await flushUntil(() => repo.rows[0]?.status !== 'running');
+
+    const statuses = statusesOf(repo, run.id);
+    expect(statuses[0]).toBe('success'); // 确定性预期空 → success
+    const step0 = repo.rows[0].steps?.[0];
+    expect(step0?.errors ?? []).toHaveLength(0); // 预期空不落 error 项（UI 不显失败）
+    expect(step0?.rowsWritten).toBe(2); // rowsWritten 仍取 result.success（trade_cal 已写）
+    expect(repo.rows[0].status).toBe('success'); // 全 run success
+  });
+
+  it('base-data done errors 混入异常空（no_open_trade_dates + stk_limit_empty）→ 仍 failed（不吞异常空）', async () => {
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    mocks.baseData.startSync = jest.fn(() =>
+      doneSubject({
+        type: 'done',
+        message: 'ok',
+        result: {
+          success: 3,
+          skipped: 0,
+          warnings: [],
+          errors: [
+            { apiName: 'no_open_trade_dates', params: {} },
+            { apiName: 'stk_limit_empty', params: { trade_date: '20260610' } },
+          ],
+        },
+      }),
+    );
+    const svc = await buildModule(mocks, repo);
+
+    const run = await svc.startRun('20260601', '20260610', null);
+    await flushUntil(() => repo.rows[0]?.status !== 'running');
+
+    expect(statusesOf(repo, run.id)[0]).toBe('failed'); // 混入异常空 → 不豁免
+    const step0 = repo.rows[0].steps?.[0];
+    expect(step0?.errors).toHaveLength(2); // 两项均记录为 warn 级 error 项
     expect(repo.rows[0].status).toBe('failed');
   });
 
