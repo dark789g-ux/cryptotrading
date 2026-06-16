@@ -23,7 +23,7 @@ Symbols 工作台现有三 Tab（加密标的 / A 股数据 / 活跃市值），
 
 - **冒烟测试**：CLI 直跑 `us_sync` 同步 1–2 只（如 NVDA/MSFT），验 `raw.us_*` 落库 + qfq 非空 + 指标非空。
 - **真实灌数**：从 CSV 播种 `raw.us_symbol`（tracked=true），CLI 直跑全 62 只、`[20250101, 20260612]`。走 CLI 而非 worker/web，**不重启**用户在跑的 dev 服务。
-- **已知数据问题**：`SPCX`(SpaceX) 未上市，AkShare 预期取不到 → 进 `failed_items`，同步后如实报告，不静默。
+- **SPCX 说明**：`SPCX` = 真 SpaceX（2026-06-12 Nasdaq IPO），窗口末日 `20260612` 恰为其 IPO 日 → 实测仅 1 行属**正常**（非 failed_item）；end_date 推近重灌补后续交易日。（早期凭"SpaceX 未上市"误判已订正。）
 
 ## 关键事实（已落源头核对，禁二手转述）
 
@@ -60,5 +60,5 @@ Symbols 工作台现有三 Tab（加密标的 / A 股数据 / 活跃市值），
 - Python pytest：`akshare_client` 空数据双路径 warn + 0 行→`failed_items`；`us_daily` fetcher 幂等 upsert；指标 TS↔Python 抽样对拍在容差内。
 - NestJS jest：us-stocks query（priceMode 选 qfq/raw 列、排序映射）、tracked toggle、sync enqueue 写对 run_type。
 - 前端 vitest + **必跑 `pnpm --filter @cryptotrading/web build`**（SFC 编译，type-check 查不出）。
-- 真机/CLI e2e：冒烟（1–2 只落库 + qfq/指标非空）→ 真实灌数（62 只、`[20250101,20260612]`，SPCX 进 failed_items）→ 面板渲染 + 口径切换 + 列偏好持久化后恢复默认。
+- 真机/CLI e2e：冒烟（1–2 只落库 + qfq/指标非空）→ 真实灌数（62 只、`[20250101,20260612]`，0 failed_items；SPCX 1 行属正常）→ 面板渲染 + 口径切换 + 列偏好持久化后恢复默认。
 - **改 NestJS 代码后必须重启**（`nest start` 无 watch）；本次真实灌数走 CLI 不依赖重启。

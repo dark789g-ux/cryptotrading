@@ -40,7 +40,7 @@ for ticker in tickers:
 ```
 
 - **禁止 `.catch(()=>[])` 静默吞错**：异常/0 行必进 `failed_items`（apiName `us_daily_empty`/`us_factor_empty`/`us_symbol_empty`），上层汇总返回，不伪装成功。
-- `SPCX` 实测仅 1 行（非真 SpaceX，见 [02](./02-akshare-interface.md#已知数据质量问题)）：会落 1 行，结束如实告知用户。
+- `SPCX` 实测仅 1 行（真 SpaceX，2026-06-12 IPO=窗口末日，见 [02](./02-akshare-interface.md#已知数据质量问题)）：1 行属正常落库，**非** failed_item。
 
 ## 3. 前复权与指标
 
