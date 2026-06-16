@@ -28,6 +28,8 @@ import { UsSymbolEntity } from './entities/raw/us-symbol.entity';
 import { UsDailyQuoteEntity } from './entities/raw/us-daily-quote.entity';
 import { UsAdjFactorEntity } from './entities/raw/us-adj-factor.entity';
 import { UsDailyIndicatorEntity } from './entities/raw/us-daily-indicator.entity';
+import { UsIndexDailyQuoteEntity } from './entities/raw/us-index-daily-quote.entity';
+import { UsIndexDailyIndicatorEntity } from './entities/raw/us-index-daily-indicator.entity';
 import { TradeCalEntity } from './entities/raw/trade-cal.entity';
 import { StkLimitEntity } from './entities/raw/stk-limit.entity';
 import { SuspendEntity } from './entities/raw/suspend.entity';
@@ -129,6 +131,9 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           UsDailyQuoteEntity,
           UsAdjFactorEntity,
           UsDailyIndicatorEntity,
+          // ---- 美股指数二级 Tab：raw.us_index_* 两表（Python 写, NestJS 读，spec 2026-06-16-us-index-subtab）----
+          UsIndexDailyQuoteEntity,
+          UsIndexDailyIndicatorEntity,
           // ---- M1 Part C 新增：Python sync 拥有的 6 张 raw 表（只读 entity）----
           TradeCalEntity,
           StkLimitEntity,
