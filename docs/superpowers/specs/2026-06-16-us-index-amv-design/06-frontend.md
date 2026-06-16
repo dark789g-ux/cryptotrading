@@ -23,7 +23,7 @@ export const usIndexAmvApi = {
     post<{ jobId: string }>(`${API_BASE}/us-index-amv/sync`, body),
 }
 ```
-- 复用 `AmvSeriesRow` 类型（[active-mv.ts:18-32]：`tradeDate, amvOpen/High/Low/Close, amvDif/Dea/Macd,
+- 复用 `AmvSeriesRow` 类型（[api/modules/market/active-mv.ts:18-32](apps/web/src/api/modules/market/active-mv.ts:18)：`tradeDate, amvOpen/High/Low/Close, amvDif/Dea/Macd,
   amvZdf, signal, memberCount?`）—— 后端 `getSeries` 返回严格同构。
 
 ## 2. 改 `UsIndexPanel.vue`（两处）

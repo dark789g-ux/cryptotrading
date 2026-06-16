@@ -9,7 +9,7 @@
 | **公式 parity（核心）** | amv-formula.ts 中 **6 个 export 函数** `td_sma/td_ema/calc_macd/calc_amv_series/calc_zdf/calc_signal` 各喂 checked-in golden fixture（由 TS 跑出），逐元素 `approx(rel=1e-9)`。`ma5`（未 export，不可单测）经 `calc_amv_series` 端到端间接覆盖。含 NaN/边界/`v3≤0`/`amv_close≤0` 用例。 |
 | Σ 聚合 | 构造多 ticker × 多日 `us_daily_quote` 假数据，验 `SUM(close*volume)` + `member_count` 正确；NULL close/volume 被排除。 |
 | 空数据双路径 | 成分取数 `empty_path∈{data_null,items_empty,window_empty}` → 进 failed_items(rule=`us_daily_empty`)；`factor_empty` **不**计 AMV 失败。 |
-| warmup 口径 | 同一终点、不同起点（全量 vs 近窗 +150 **交易行** warmup，按 `.NDX` 表取）算出的 `[start,end]` 段**全列** `amv_close` **与 amv_dif/dea/macd/signal** 一致（`rel≤1e-6`）。**必须验 MACD 列**——慢线 EMA(26) 衰减比 td_sma 慢，只验 amv_close 会漏掉 MACD 在两种跑法下的种子残差（见 [04 §3](./04-python-pipeline.md#3-warmup递归指标必须否则增量窗口口径漂移)）。 |
+| warmup 口径 | 同一终点、不同起点（全量 vs 近窗 +150 **交易行** warmup，按 `.NDX` 表取）算出的 `[start,end]` 段须全列一致。度量分列定（**必须验 MACD 列**——慢线 EMA(26) 衰减比 td_sma 慢，只验 amv_close 会漏 MACD 种子残差）：① `amv_close` 裸相对误差 `rel≤1e-9`；② `signal` 整数列**完全相等**；③ `amv_dif/dea/macd` 用**按 amv_close 量级归一化的绝对残差** `≤1e-6`（**不用裸相对误差**——DIF=EMA_fast−EMA_slow 自然穿越 0，过零点处裸 rel 是度量伪影非真漂移；实测 150 行 warmup 该归一残差 ~5e-7 贴线、欠热身 20 行爆表 ~3e-3，度量有判别力。见 [04 §3](./04-python-pipeline.md#3-warmup递归指标必须否则增量窗口口径漂移)）。 |
 | **不 ×1000** | 断言 `us_index_amv.py` 传给 `calc_amv_series` 的 volume 即 `Σ(close*volume)`，未额外 ×1000（防误抄 A 股口径）。 |
 | seed | `seed_us_index_constituent_from_csv` upsert 101 行、幂等（重跑不增行）。 |
 
