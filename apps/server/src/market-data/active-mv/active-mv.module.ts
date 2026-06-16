@@ -32,5 +32,6 @@ import { ThsIndexAmvService } from './industry-amv.service'
   ],
   controllers: [ActiveMvController],
   providers: [ActiveMvService, StockAmvService, ThsIndexAmvService],
+  exports: [ActiveMvService],
 })
 export class ActiveMvModule {}

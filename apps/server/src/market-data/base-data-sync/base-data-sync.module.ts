@@ -11,5 +11,6 @@ import { BaseDataSyncController } from './base-data-sync.controller';
   imports: [TypeOrmModule.forFeature([TradeCalEntity, StkLimitEntity, SuspendEntity])],
   controllers: [BaseDataSyncController],
   providers: [BaseDataSyncService, TushareClientService],
+  exports: [BaseDataSyncService],
 })
 export class BaseDataSyncModule {}

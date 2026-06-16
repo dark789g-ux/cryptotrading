@@ -23,5 +23,6 @@ import { TushareClientService } from '../a-shares/services/tushare-client.servic
   ])],
   controllers: [MoneyFlowController, MoneyFlowSyncController],
   providers: [MoneyFlowService, MoneyFlowSyncService, TushareClientService],
+  exports: [MoneyFlowSyncService],
 })
 export class MoneyFlowModule {}

@@ -9,5 +9,6 @@ import { TushareClientService } from '../a-shares/services/tushare-client.servic
   imports: [TypeOrmModule.forFeature([OamvDailyEntity])],
   controllers: [OamvController],
   providers: [OamvService, TushareClientService],
+  exports: [OamvService],
 })
 export class OamvModule {}

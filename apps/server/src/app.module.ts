@@ -79,6 +79,8 @@ import { BaseDataSyncModule } from './market-data/base-data-sync/base-data-sync.
 import { OamvModule } from './market-data/oamv/oamv.module';
 import { OamvDailyEntity } from './entities/oamv/oamv-daily.entity';
 import { ActiveMvModule } from './market-data/active-mv/active-mv.module';
+import { OneClickSyncModule } from './market-data/one-click-sync/one-click-sync.module';
+import { OneClickSyncRunEntity } from './entities/market-data/one-click-sync-run.entity';
 import { SignalRollingIndicatorModule } from './market-data/signal-rolling-indicator/signal-rolling-indicator.module';
 import { SignalRollingIndicatorEntity } from './entities/strategy/signal-rolling-indicator.entity';
 import { StockAmvDailyEntity } from './entities/active-mv/stock-amv-daily.entity';
@@ -212,6 +214,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           PortfolioSimRunEntity,
           PortfolioSimDailyEntity,
           PortfolioSimFillEntity,
+          // 一键同步后端托管编排进度行（spec 2026-06-16-one-click-sync-backend-orchestration）
+          OneClickSyncRunEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],
@@ -242,6 +246,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     BaseDataSyncModule,
     OamvModule,
     ActiveMvModule,
+    OneClickSyncModule,
     SignalRollingIndicatorModule,
     DailyReviewModule,
     QuantModule,

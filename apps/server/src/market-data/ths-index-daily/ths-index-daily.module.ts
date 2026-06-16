@@ -25,5 +25,6 @@ import { TushareClientService } from '../a-shares/services/tushare-client.servic
     ThsIndexDailyIndicatorService,
     TushareClientService,
   ],
+  exports: [ThsIndexDailySyncService],
 })
 export class ThsIndexDailyModule {}
