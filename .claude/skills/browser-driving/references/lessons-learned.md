@@ -6,6 +6,11 @@
 
 ---
 
+## 2026-06-16: webbridge navigate 是整页重载——清空 SPA 的 Pinia/内存态，测「SPA 内切页 store 存活」要用 router.push
+**Symptom**: 验「切走某视图再切回进度是否保留」，用 webbridge `navigate` 切到别的路由再 navigate 回来，读 Pinia store 仍有数据——但这没真正测到"组件销毁后 store 内存存活"，因为 navigate 每次整页重载、JS 状态(含 Pinia)被清空，数据是靠页面 onMounted 的后端拉取(fetchActive)重新拉回来的。
+**Cause**: webbridge `navigate` 走浏览器级整页导航(document 重载、app 重新 boot)，不是 SPA 路由内跳转；Pinia/内存 ref 全部重置。
+**Lesson**: 两条恢复路径分开测：① 真·SPA 内切页(store 内存存活)——`evaluate` 里 `router.push('/other')` 再 `router.push('/back')`，**不重载**，验 store 单例跨路由存活；② 刷新/换设备恢复(store 清空靠后端还原)——用 `navigate`(整页重载)再读 store，验 onMounted 的 fetch 把状态拉回。navigate 测到的是更强的 ②(通常蕴含 ① 也成立)，但要测 bug 复现的精确机制时别把两者混为一谈。
+
 ## 2026-06-14: 驱动后端异步 job——状态轮询直接打 DB，别经 webbridge evaluate
 **Symptom**: 经 webbridge evaluate 轮询 portfolio-sim run 进度，后台 poll 循环首轮 curl 迟迟不返回（卡在 iter 1）；但 run 本身已在数秒内 success（DB 直查得到）。随后 trigger evaluate 也卡，而 daemon `status` 却健康（running+connected）。
 **Cause**: 先前一条悬空的 evaluate 堵了该 session 的页面命令队列（同 2026-06-10 根因——页面命令排在悬空命令之后）；且后端 job 极快（loader 数秒跑完），等 webbridge 反而比直查 DB 慢。
