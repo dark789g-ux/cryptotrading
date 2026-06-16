@@ -35,13 +35,17 @@ describe('createUsStocksColumnDefs · 美股列定义', () => {
     }
   })
 
-  it('US 指标子集排除 brick*/amv_*，且为 19 列', () => {
-    expect(US_INDICATOR_KEYS).toHaveLength(19)
-    for (const k of US_INDICATOR_KEYS) {
-      expect(k.startsWith('brick')).toBe(false)
-      expect(k.startsWith('amv')).toBe(false)
+  it('US 指标子集严格对齐后端 17 个指标，排除 quoteVolume10/lossAtr14/brick*/amv*', () => {
+    expect(US_INDICATOR_KEYS).toHaveLength(17)
+    for (const k of ['quoteVolume10', 'lossAtr14', 'brick', 'brickDelta', 'brickXg', 'amvDif', 'amvDea', 'amvMacd']) {
+      expect(US_INDICATOR_KEYS).not.toContain(k)
     }
-    // 子集严格小于全集（全集含 brick/amv）
+    const expected = [
+      'ma5', 'ma30', 'ma60', 'ma120', 'ma240', 'bbi', 'kdjJ', 'kdjK', 'kdjD',
+      'dif', 'dea', 'macd', 'atr14', 'low9', 'high9', 'riskRewardRatio', 'stopLossPct',
+    ]
+    expect([...US_INDICATOR_KEYS].sort()).toEqual([...expected].sort())
+    // 子集严格小于全集（全集含 quoteVolume10/lossAtr14/brick/amv）
     expect(US_INDICATOR_KEYS.length).toBeLessThan(INDICATOR_DESCRIPTORS.length)
   })
 

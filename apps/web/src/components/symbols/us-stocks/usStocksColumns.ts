@@ -14,11 +14,20 @@ interface UsStocksColumnsOptions {
 }
 
 /**
- * 美股适用的指标 descriptor 子集：MA/KDJ/MACD/BBI/ATR/low-high9/stop/rr + 10日成交额。
- * 显式排除 A 股专属的 brick 与 amv 系列 descriptor（美股数据源无这些字段）。
+ * 美股适用的指标 descriptor 子集：与后端 raw.us_daily_indicator 实算的 17 个指标严格对齐
+ * （MA5/30/60/120/240、BBI、KDJ.K/D/J、DIF/DEA/MACD、ATR14、Low9/High9、RR、Stop%）。
+ * 用显式 allow-list 而非 deny-list：美股不算 10日成交额(quoteVolume10)、Loss ATR14，
+ * 以及 A 股专属的 brick 与 amv 系列，这些 key 若留在选择器里会渲染空列。
  */
+const US_INDICATOR_KEYS = new Set<string>([
+  'ma5', 'ma30', 'ma60', 'ma120', 'ma240',
+  'bbi', 'kdjJ', 'kdjK', 'kdjD',
+  'dif', 'dea', 'macd',
+  'atr14', 'low9', 'high9',
+  'riskRewardRatio', 'stopLossPct',
+])
 const US_INDICATOR_DESCRIPTORS: IndicatorDescriptor[] = INDICATOR_DESCRIPTORS.filter(
-  (d) => !d.key.startsWith('brick') && !d.key.startsWith('amv'),
+  (d) => US_INDICATOR_KEYS.has(d.key),
 )
 
 function getPctChangeColor(value: string | null) {
