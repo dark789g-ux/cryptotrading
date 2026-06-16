@@ -1,7 +1,10 @@
 /**
  * UsIndexPanel unit test (spec 04 §2).
  *
- *  - on activation: getDateRange -> query, bars fed to KlineChart.
+ *  - on mount (NO KeepAlive wrapper — mirrors the lazy n-tab-pane nesting where
+ *    UsIndexPanel mounts after the keep-alive is already active, so onActivated does
+ *    NOT fire on first mount; first-screen load must come from onMounted): getDateRange
+ *    -> query, bars fed to KlineChart. (Regression lock for the e2e-caught blank-chart bug.)
  *  - empty range: warns "未灌数据，请先同步", no query.
  *  - sync button: triggerSync (no body) -> opens UsSyncProgressModal with jobId.
  *  - resize expose forwards to inner KlineChart ref.
@@ -10,7 +13,7 @@
  * api module @/api/modules/market/usIndexDaily is fully mocked.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { defineComponent, h, KeepAlive, nextTick, ref } from 'vue'
+import { defineComponent, h, nextTick, ref } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { NConfigProvider, NMessageProvider } from 'naive-ui'
 
@@ -62,10 +65,10 @@ function mountPanel() {
         h(NConfigProvider, null, {
           default: () =>
             h(NMessageProvider, null, {
-              default: () =>
-                h(KeepAlive, null, {
-                  default: () => h(UsIndexPanel, { ref: panelRef }),
-                }),
+              // No KeepAlive on purpose: in production UsIndexPanel is NOT a direct
+              // keep-alive child (it sits behind n-tabs show:lazy), so onMounted must
+              // drive the first load. Wrapping in KeepAlive here would mask that.
+              default: () => h(UsIndexPanel, { ref: panelRef }),
             }),
         })
     },
@@ -90,7 +93,7 @@ beforeEach(() => {
 })
 
 describe('UsIndexPanel data loading', () => {
-  it('on activation: getDateRange(.NDX) -> query(range) -> bars to KlineChart', async () => {
+  it('on mount (no keep-alive): getDateRange(.NDX) -> query(range) -> bars to KlineChart', async () => {
     getDateRange.mockResolvedValue({ start: '20200101', end: '20240131' })
     query.mockResolvedValue([
       { open_time: '2024-01-02' },

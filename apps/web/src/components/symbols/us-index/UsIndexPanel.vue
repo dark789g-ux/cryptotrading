@@ -35,7 +35,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'UsIndexPanel' })
 
-import { onActivated, ref, watch } from 'vue'
+import { onActivated, onMounted, ref, watch } from 'vue'
 import { NButton, NIcon, NSelect, useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import { CloudDownloadOutline } from '@vicons/ionicons5'
@@ -104,7 +104,14 @@ function handleSyncDone(state: JobStatus) {
   }
 }
 
-// keep-alive + lazy n-tab-pane: load on activation (onMounted does not re-run on switch back).
+// 首屏加载：本面板懒挂载在容器(keep-alive)已激活之后，activated 事件已过 →
+// onActivated 不会在首次挂载触发，故首屏必须用 onMounted。
+onMounted(() => {
+  void reload()
+})
+
+// 从其它顶层 Tab 切回 Symbols 时刷新（onMounted 不重跑）。
+// 当前嵌套下 onActivated 不在首次挂载触发，与 onMounted 不重复加载。
 onActivated(() => {
   void reload()
 })
