@@ -157,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { NButton, NCheckbox, NDatePicker, NProgress, NSpin, useMessage } from 'naive-ui'
 import { useOneClickSync, type OneClickStepStatus } from './useOneClickSync'
 
@@ -242,10 +242,6 @@ watch(
     })
   },
 )
-
-onUnmounted(() => {
-  // 由 useSSE 自动 abort（onScopeDispose），这里只是兜底
-})
 
 defineExpose({ ctrl })
 </script>
