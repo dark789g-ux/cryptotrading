@@ -1,7 +1,7 @@
 """raw.us_daily_quote / us_adj_factor / us_daily_indicator —— 美股逐 ticker 同步。
 
-每只 ticker：抓不复权(adjust="") + 前复权(adjust="qfq")，
-派生复权因子 factor=qfq_close/raw_close（见 spec 02），
+每只 ticker：单次抓 Yahoo 日线（含 close 与 adj_close），
+派生乘法复权因子 factor = adj_close / close（恒正，永不为负），
 按 A 股同款 qfq_x = raw_x × factor / 最新factor 算前复权，
 用前复权价算技术指标（us_indicators，移植自 indicators.ts）。
 """
@@ -15,7 +15,7 @@ from typing import Any
 
 from quant_pipeline.db.engine import session_scope
 from quant_pipeline.sync._upsert import upsert_rows
-from quant_pipeline.sync.akshare_client import AkShareClient
+from quant_pipeline.sync.yahoo_client import YahooClient
 from quant_pipeline.sync.us_indicators import calc_us_indicators
 
 logger = logging.getLogger(__name__)
@@ -56,11 +56,11 @@ def _f(v: Any) -> float | None:
 
 
 def sync_us_daily_for_ticker(
-    *, ticker: str, start_date: str, end_date: str, client: AkShareClient
+    *, ticker: str, start_date: str, end_date: str, client: YahooClient
 ) -> UsDailyReport:
     import pandas as pd
 
-    raw_res = client.fetch_us_daily(ticker, adjust="")
+    raw_res = client.fetch_us_daily(ticker, start_date, end_date)
     if raw_res.empty_path is not None:
         return UsDailyReport(ticker=ticker, empty_path=raw_res.empty_path, factor_empty=True)
 
@@ -75,31 +75,22 @@ def sync_us_daily_for_ticker(
     pre_close = raw_close.shift(1)
     pct_chg = (raw_close / pre_close - 1.0) * 100.0
 
-    # ---- 前复权因子（派生） ----
+    # ---- 前复权因子（Yahoo adj_close / close：乘法、恒正，永不为负） ----
     factor_empty = True
     factor_series = None
-    qfq_res = client.fetch_us_daily(ticker, adjust="qfq")
-    if qfq_res.empty_path is None:
-        qfq = qfq_res.df.copy()
-        qfq["trade_date"] = pd.to_datetime(qfq["date"]).dt.strftime("%Y%m%d")
-        qfq = qfq.drop_duplicates("trade_date", keep="last").set_index("trade_date")
-        td = raw["trade_date"]
-        if td.isin(qfq.index).all():
-            qfq_close_aligned = qfq.loc[td.tolist(), "close"].astype(float).reset_index(drop=True)
-            f = qfq_close_aligned / raw_close.reset_index(drop=True)
-            if f.notna().all() and (f > 0).all() and math.isfinite(float(f.iloc[-1])) and float(f.iloc[-1]) > 0:
-                factor_series = f
-                factor_empty = False
-                latest = float(f.iloc[-1])
-                if abs(latest - 1.0) > 0.05:
-                    logger.warning("us_factor_latest_not_one",
-                                   extra={"ticker": ticker, "latest_factor": latest})
-            else:
-                logger.warning("us_factor_invalid", extra={"ticker": ticker})
-        else:
-            logger.warning("us_qfq_coverage_gap",
-                           extra={"ticker": ticker, "raw_rows": len(raw),
-                                  "qfq_rows": int(td.isin(qfq.index).sum())})
+    adj_close = raw["adj_close"].astype(float).reset_index(drop=True)
+    f = adj_close / raw_close.reset_index(drop=True)
+    if f.notna().all() and (f > 0).all() and math.isfinite(float(f.iloc[-1])) and float(f.iloc[-1]) > 0:
+        factor_series = f
+        factor_empty = False
+        latest = float(f.iloc[-1])
+        if abs(latest - 1.0) > 0.05:
+            logger.warning("us_factor_latest_not_one",
+                           extra={"ticker": ticker, "latest_factor": latest})
+    else:
+        # 乘法因子下守门是恒成立的不变量哨兵；触发即 Yahoo adj_close 异常
+        # （含 NaN / 非正）→ factor_empty 走 us_factor_empty failed_item，fail-loud。
+        logger.warning("us_factor_invalid", extra={"ticker": ticker})
     if factor_empty:
         logger.warning("us_factor_empty", extra={"ticker": ticker})
 

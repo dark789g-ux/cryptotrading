@@ -1,7 +1,7 @@
 """美股同步编排器：遍历 tracked ticker → 抓行情/因子/指标，CLI 与 worker 共用入口。
 
 run_type='us_sync'（spec 01/04）。逐 ticker：
-- 抓不复权 + 前复权 → us_daily_quote / us_adj_factor / us_daily_indicator
+- 单次抓 Yahoo 日线（含 adj_close）→ us_daily_quote / us_adj_factor / us_daily_indicator
 - 空数据 / 因子缺失 → failed_items（apiName us_daily_empty / us_factor_empty），不静默
 - 异常逐 ticker 捕获记 errors，不中断整批
 """
@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
-from quant_pipeline.sync.akshare_client import AkShareClient
+from quant_pipeline.sync.yahoo_client import YahooClient
 from quant_pipeline.sync.us_daily import sync_us_daily_for_ticker
 from quant_pipeline.sync.us_symbol import list_tracked_tickers
 from quant_pipeline.worker.progress import (
@@ -57,7 +57,7 @@ def run_us_sync(
     job_id: UUID | None,
     date_range: str,
     tickers: tuple[str, ...] | None = None,
-    client: AkShareClient | None = None,
+    client: YahooClient | None = None,
 ) -> UsSyncOutcome:
     """美股同步入口。
 
@@ -66,7 +66,7 @@ def run_us_sync(
     """
 
     start_date, end_date = _parse_date_range(date_range)
-    client = client or AkShareClient()
+    client = client or YahooClient()
     outcome = UsSyncOutcome()
 
     ticker_list = list(tickers) if tickers else list_tracked_tickers()
