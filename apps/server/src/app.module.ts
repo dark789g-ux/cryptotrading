@@ -30,6 +30,8 @@ import { UsAdjFactorEntity } from './entities/raw/us-adj-factor.entity';
 import { UsDailyIndicatorEntity } from './entities/raw/us-daily-indicator.entity';
 import { UsIndexDailyQuoteEntity } from './entities/raw/us-index-daily-quote.entity';
 import { UsIndexDailyIndicatorEntity } from './entities/raw/us-index-daily-indicator.entity';
+import { UsIndexAmvDailyEntity } from './entities/raw/us-index-amv-daily.entity';
+import { UsIndexConstituentEntity } from './entities/raw/us-index-constituent.entity';
 import { TradeCalEntity } from './entities/raw/trade-cal.entity';
 import { StkLimitEntity } from './entities/raw/stk-limit.entity';
 import { SuspendEntity } from './entities/raw/suspend.entity';
@@ -72,6 +74,7 @@ import { MoneyFlowModule } from './market-data/money-flow/money-flow.module';
 import { IndexCatalogModule } from './market-data/index-catalog/index-catalog.module';
 import { ThsIndexDailyModule } from './market-data/ths-index-daily/ths-index-daily.module';
 import { UsIndexDailyModule } from './market-data/us-index-daily/us-index-daily.module';
+import { UsIndexAmvModule } from './market-data/us-index-amv/us-index-amv.module';
 import { BaseDataSyncModule } from './market-data/base-data-sync/base-data-sync.module';
 import { OamvModule } from './market-data/oamv/oamv.module';
 import { OamvDailyEntity } from './entities/oamv/oamv-daily.entity';
@@ -135,6 +138,9 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           // ---- 美股指数二级 Tab：raw.us_index_* 两表（Python 写, NestJS 读，spec 2026-06-16-us-index-subtab）----
           UsIndexDailyQuoteEntity,
           UsIndexDailyIndicatorEntity,
+          // ---- 美股指数活跃市值（AMV）：raw.us_index_amv_daily + raw.us_index_constituent（Python 写, NestJS 读 / 派 job，spec 2026-06-16-us-index-amv）----
+          UsIndexAmvDailyEntity,
+          UsIndexConstituentEntity,
           // ---- M1 Part C 新增：Python sync 拥有的 6 张 raw 表（只读 entity）----
           TradeCalEntity,
           StkLimitEntity,
@@ -232,6 +238,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     IndexCatalogModule,
     ThsIndexDailyModule,
     UsIndexDailyModule,
+    UsIndexAmvModule,
     BaseDataSyncModule,
     OamvModule,
     ActiveMvModule,
