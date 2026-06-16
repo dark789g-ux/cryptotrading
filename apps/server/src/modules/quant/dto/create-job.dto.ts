@@ -75,6 +75,8 @@ export const ALLOWED_RUN_TYPES: readonly MlJobRunType[] = [
   'us_sync',
   // 美股指数 AkShare 同步（spec 2026-06-16-us-index-subtab-design 02）。同上不属 LABEL_REF / FEATURE_SET。
   'us_index_sync',
+  // 美股指数活跃市值（AMV）同步（spec 2026-06-16-us-index-amv-design 02）。同上不属 LABEL_REF / FEATURE_SET。
+  'us_index_amv_sync',
 ] as const;
 
 /**

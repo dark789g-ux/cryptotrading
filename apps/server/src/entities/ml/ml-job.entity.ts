@@ -50,7 +50,9 @@ export type MlJobRunType =
   // 美股 AkShare 同步（spec 2026-06-16-us-stocks-tab-design 05；Python worker 路由 us_sync）
   | 'us_sync'
   // 美股指数 AkShare 同步（spec 2026-06-16-us-index-subtab-design 02；Python worker 路由 us_index_sync）
-  | 'us_index_sync';
+  | 'us_index_sync'
+  // 美股指数活跃市值（AMV）同步（spec 2026-06-16-us-index-amv-design 02；Python worker 路由 us_index_amv_sync）
+  | 'us_index_amv_sync';
 
 @Entity({ schema: 'ml', name: 'jobs' })
 @Index(['status', 'priority', 'createdAt'])
