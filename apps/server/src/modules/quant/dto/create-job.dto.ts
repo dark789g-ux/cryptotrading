@@ -73,6 +73,8 @@ export const ALLOWED_RUN_TYPES: readonly MlJobRunType[] = [
   // 美股 AkShare 同步（spec 2026-06-16-us-stocks-tab-design 05）。
   // 不属 LABEL_REF / FEATURE_SET run_type，create() 直接落 pending，无 labelRef / feature_set 校验。
   'us_sync',
+  // 美股指数 AkShare 同步（spec 2026-06-16-us-index-subtab-design 02）。同上不属 LABEL_REF / FEATURE_SET。
+  'us_index_sync',
 ] as const;
 
 /**
