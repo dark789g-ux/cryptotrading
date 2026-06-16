@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from quant_pipeline.worker.dispatcher import _ROUTES, _runner_us_index_sync
+from quant_pipeline.worker.dispatcher import _ROUTES, _runner_us_index_sync, _runner_us_sync
 from quant_pipeline.worker.poller import Job
 
 
@@ -68,3 +68,42 @@ def test_us_index_runner_non_colon_date_range_raises() -> None:
     job = _make_job({"date_range": "20100101-20261231"})
     with pytest.raises(ValueError, match="date_range"):
         _runner_us_index_sync(job)
+
+
+def _make_us_sync_job(params: dict) -> Job:
+    return Job(
+        id=uuid4(),
+        run_type="us_sync",
+        params=params,
+        attempts=1,
+        max_attempts=3,
+    )
+
+
+def test_us_sync_route_is_implemented() -> None:
+    """us_sync 路由必须指向 _runner_us_sync。"""
+
+    runner = _ROUTES.get("us_sync")
+    assert runner is not None
+    assert getattr(runner, "__name__", None) == "_runner_us_sync"
+
+
+def test_us_sync_runner_missing_date_range_defaults_no_raise() -> None:
+    """UI 无参同步：缺 date_range → 兜底默认全量，不 raise（同 us_index_sync）。"""
+
+    job = _make_us_sync_job({})  # 无 date_range
+    today = f"{date.today():%Y%m%d}"
+    with patch("quant_pipeline.sync.us_orchestrator.run_us_sync") as run_mock:
+        _runner_us_sync(job)
+    run_mock.assert_called_once()
+    kwargs = run_mock.call_args.kwargs
+    assert kwargs["date_range"] == f"20100101:{today}"
+    assert kwargs["tickers"] is None
+
+
+def test_us_sync_runner_non_colon_date_range_raises() -> None:
+    """非冒号串（显式传了坏值）→ ValueError。"""
+
+    job = _make_us_sync_job({"date_range": "20100101-20261231"})
+    with pytest.raises(ValueError, match="date_range"):
+        _runner_us_sync(job)

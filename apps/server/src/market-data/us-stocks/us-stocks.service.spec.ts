@@ -45,7 +45,7 @@ describe('UsStocksService.sync — 派 ml.jobs(us_sync)', () => {
 
     const [dto] = quant.create.mock.calls[0];
     expect(dto.params).toEqual({
-      date_range: ['20250101', '20260612'],
+      date_range: '20250101:20260612',
       tickers: ['NVDA', 'MSFT'],
     });
   });

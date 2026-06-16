@@ -131,7 +131,7 @@ def _runner_us_sync(job: Job) -> None:
 
     params：
       {
-        "date_range": "YYYYMMDD:YYYYMMDD",
+        "date_range": "YYYYMMDD:YYYYMMDD",   # 可选，缺省兜底默认全量 20100101:today(同 us_index_sync)
         "tickers": ["NVDA", ...]   # 可选，缺省取 raw.us_symbol tracked=true 全集
       }
     空数据 / 因子缺失计入 outcome.failed_items（不静默），job 整体仍判 success。
@@ -141,6 +141,8 @@ def _runner_us_sync(job: Job) -> None:
 
     params = job.params or {}
     date_range = params.get("date_range")
+    if date_range is None:  # UI 无参同步 → 兜底默认全量(保证按钮可用, 同 us_index_sync)
+        date_range = f"20100101:{date.today():%Y%m%d}"
     if not isinstance(date_range, str) or ":" not in date_range:
         raise ValueError(
             f"us_sync job params.date_range 必须是 'YYYYMMDD:YYYYMMDD'，got {date_range!r}"

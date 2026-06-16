@@ -243,7 +243,8 @@ export class UsStocksService {
       if (range[0] > range[1]) {
         throw new BadRequestException(`dateRange 起始 ${range[0]} 不得晚于结束 ${range[1]}`);
       }
-      params.date_range = range;
+      // 存冒号串(非数组!): Python _runner_us_sync 严格要 'YYYYMMDD:YYYYMMDD'(dispatcher.py)
+      params.date_range = `${range[0]}:${range[1]}`;
     }
 
     if (body?.tickers !== undefined) {
