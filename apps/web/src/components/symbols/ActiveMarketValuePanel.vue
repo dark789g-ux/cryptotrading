@@ -1,9 +1,26 @@
 <template>
   <div class="active-mv-panel">
     <div class="panel-header">
-      <div>
+      <div class="panel-header-main">
         <h2 class="panel-title">活跃市值（0AMV）</h2>
         <p class="panel-subtitle">中证A股指数 930903.CSI 活跃市值指标</p>
+        <!-- 0AMV 计算公式（默认收起）。口径锚定后端 oamv.service.ts calc0amv：常数 OAMVN=10 / OAMVK=0.87 -->
+        <n-collapse class="formula-collapse">
+          <n-collapse-item title="计算公式" name="formula">
+            <div class="formula-body">
+              <p class="formula-line"><span class="formula-var">V1</span> = SMA(成交额, 10) ÷ 1,000,000</p>
+              <p class="formula-line"><span class="formula-var">V3</span> = MA(REF(收盘, 1), 5)</p>
+              <p class="formula-line">
+                <span class="formula-var">0AMV</span>(开 / 高 / 低 / 收) = V1 × 当日对应价 ÷ V3 × 0.1 × 0.87
+              </p>
+              <p class="formula-note">
+                数据源：中证A股指数 930903.CSI 日线（Tushare index_daily）。成交额取 amount（千元）× 1000 转为元；
+                SMA 为通达信式递推 SMA(X, 10, 1) = (X + 9 × 前值) ÷ 10；常数 OAMVK = 0.87。
+                副图 MA / KDJ / MACD 均为 0AMV 这条 OHLC 序列上再计算的标准指标。
+              </p>
+            </div>
+          </n-collapse-item>
+        </n-collapse>
       </div>
       <n-button :loading="syncing" @click="handleSync">
         <template #icon><n-icon><sync-outline /></n-icon></template>
@@ -91,7 +108,7 @@
 defineOptions({ name: 'ActiveMarketValuePanel' })
 
 import { computed, onActivated, ref } from 'vue'
-import { NButton, NCard, NEmpty, NIcon, NSpin, NTag, NText, useMessage } from 'naive-ui'
+import { NButton, NCard, NCollapse, NCollapseItem, NEmpty, NIcon, NSpin, NTag, NText, useMessage } from 'naive-ui'
 import { SyncOutline } from '@vicons/ionicons5'
 import KlineChart from '@/components/kline/KlineChart.vue'
 import RegimeBadge from '@/components/regime/RegimeBadge.vue'
@@ -170,6 +187,11 @@ onActivated(() => {
   gap: 16px;
 }
 
+.panel-header-main {
+  flex: 1;
+  min-width: 0;
+}
+
 .panel-title {
   margin: 0;
   font-size: 22px;
@@ -179,6 +201,38 @@ onActivated(() => {
 .panel-subtitle {
   margin: 6px 0 0;
   color: var(--color-text-secondary);
+}
+
+/* 0AMV 计算公式折叠块 */
+.formula-collapse {
+  margin-top: 10px;
+  max-width: 720px;
+}
+
+.formula-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.formula-line {
+  margin: 0;
+  font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+.formula-var {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.formula-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-muted);
 }
 
 .amv-caption {
