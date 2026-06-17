@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { StrategyConditionEntity } from '../entities/strategy/strategy-condition.entity';
+import type { StrategyConditionItem } from '../entities/strategy/strategy-condition.entity';
+import { isKdjField, isCustomKdjParams } from './kdj-params';
 import { StrategyConditionRunEntity } from '../entities/strategy/strategy-condition-run.entity';
 import { StrategyConditionHitEntity } from '../entities/strategy/strategy-condition-hit.entity';
 import { CreateStrategyConditionDto } from './dto/create-strategy-condition.dto';
@@ -33,6 +35,7 @@ export class StrategyConditionsService {
   ) {}
 
   async create(userId: string, dto: CreateStrategyConditionDto): Promise<StrategyConditionEntity> {
+    this.validateConditions(dto.conditions as StrategyConditionItem[] | undefined);
     const entity = this.repo.create({
       name: dto.name,
       targetType: dto.targetType as any,
@@ -40,6 +43,28 @@ export class StrategyConditionsService {
       userId,
     });
     return this.repo.save(entity);
+  }
+
+  /**
+   * 保存前兜底校验：自定义 KDJ（参数≠9/3/3）在「比较指标」（compareMode='field'）模式下，
+   * 比较对象 compareField 必须也是 KDJ 字段——否则会出现「实时重算 KDJ vs 预存列」的混算，v1 不支持。
+   * 前端已在 UI 层限制，后端不信前端，保存时再拒绝一次。
+   * conditions 为 undefined（update 的部分更新未带 conditions）直接返回不校验。
+   */
+  private validateConditions(conditions: StrategyConditionItem[] | undefined): void {
+    if (conditions === undefined) return;
+    for (const item of conditions) {
+      if (
+        isCustomKdjParams(item.kdjParams) &&
+        item.compareMode === 'field' &&
+        item.compareField &&
+        !isKdjField(item.compareField)
+      ) {
+        throw new BadRequestException(
+          `自定义 KDJ 参数的条件在「比较指标」模式下，比较对象必须也是 KDJ 字段（kdj_j/kdj_k/kdj_d），当前为 "${item.compareField}"`,
+        );
+      }
+    }
   }
 
   async findAll(userId: string, targetType?: string): Promise<StrategyConditionWithLastRun[]> {
@@ -127,6 +152,7 @@ export class StrategyConditionsService {
   }
 
   async update(id: string, userId: string, dto: UpdateStrategyConditionDto): Promise<StrategyConditionEntity> {
+    this.validateConditions(dto.conditions as StrategyConditionItem[] | undefined);
     const entity = await this.findEntity(id, userId);
     Object.assign(entity, dto);
     return this.repo.save(entity);
