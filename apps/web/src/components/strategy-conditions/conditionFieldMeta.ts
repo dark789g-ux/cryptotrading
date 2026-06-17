@@ -23,6 +23,8 @@ export type FieldOption = Omit<SelectOption, 'label' | 'value'> & {
   valueUnit?: string;
   /** 用户输入（UI）→ StrategyConditionItem.value（DB 原始量纲）的乘数；无则透传 */
   valueToStorageFactor?: number;
+  /** 是否为 KDJ 字段（kdj_j/kdj_k/kdj_d）；A 股可行内配置 N/M1/M2 参数 */
+  isKdj?: boolean;
 };
 
 export function formatFieldSelectLabel(f: FieldOption): string {
@@ -30,9 +32,9 @@ export function formatFieldSelectLabel(f: FieldOption): string {
 }
 
 export const A_SHARE_FIELDS: FieldOption[] = [
-  { label: 'KDJ_J', value: 'kdj_j', supportsCross: true },
-  { label: 'KDJ_K', value: 'kdj_k', supportsCross: true },
-  { label: 'KDJ_D', value: 'kdj_d', supportsCross: true },
+  { label: 'KDJ_J', value: 'kdj_j', supportsCross: true, isKdj: true },
+  { label: 'KDJ_K', value: 'kdj_k', supportsCross: true, isKdj: true },
+  { label: 'KDJ_D', value: 'kdj_d', supportsCross: true, isKdj: true },
   { label: 'MACD_DIF', value: 'macd_dif', supportsCross: true },
   { label: 'MACD_DEA', value: 'macd_dea', supportsCross: true },
   { label: 'MACD_HIST', value: 'macd_hist', supportsCross: true },
@@ -81,9 +83,9 @@ export const A_SHARE_FIELDS: FieldOption[] = [
 ];
 
 export const CRYPTO_FIELDS: FieldOption[] = [
-  { label: 'KDJ_J', value: 'kdj_j', supportsCross: true },
-  { label: 'KDJ_K', value: 'kdj_k', supportsCross: true },
-  { label: 'KDJ_D', value: 'kdj_d', supportsCross: true },
+  { label: 'KDJ_J', value: 'kdj_j', supportsCross: true, isKdj: true },
+  { label: 'KDJ_K', value: 'kdj_k', supportsCross: true, isKdj: true },
+  { label: 'KDJ_D', value: 'kdj_d', supportsCross: true, isKdj: true },
   { label: 'MACD_DIF', value: 'macd_dif', supportsCross: true },
   { label: 'MACD_DEA', value: 'macd_dea', supportsCross: true },
   { label: 'MACD_HIST', value: 'macd_hist', supportsCross: true },
@@ -120,6 +122,17 @@ export function getFieldDef(
 ): FieldOption | undefined {
   const fields = targetType === 'a-share' ? A_SHARE_FIELDS : CRYPTO_FIELDS;
   return fields.find((f) => f.value === field);
+}
+
+/** KDJ 字段集合（kdj_j/kdj_k/kdj_d），按 key 判定，与 FieldOption.isKdj 等价 */
+export const KDJ_FIELD_VALUES = new Set(['kdj_j', 'kdj_k', 'kdj_d']);
+
+/** KDJ 默认参数 N/M1/M2；缺省视为 9/3/3，等于默认时不持久化 kdjParams */
+export const DEFAULT_KDJ_PARAMS = { n: 9, m1: 3, m2: 3 } as const;
+
+/** 是否为 KDJ 字段（供行内参数框 / 比较约束复用，避免散落魔法字符串） */
+export function isKdjField(field: string): boolean {
+  return KDJ_FIELD_VALUES.has(field);
 }
 
 export function getFieldLabel(field: string, targetType: 'a-share' | 'crypto'): string {

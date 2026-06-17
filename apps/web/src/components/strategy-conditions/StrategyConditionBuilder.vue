@@ -18,6 +18,7 @@
       <condition-rows
         v-model:conditions="form.conditions"
         :target-type="form.targetType"
+        :enable-kdj-params="true"
         default-operator="lt"
         default-compare-mode="field"
       />
