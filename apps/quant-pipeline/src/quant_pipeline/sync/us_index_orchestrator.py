@@ -90,7 +90,7 @@ def run_us_index_sync(
                 outcome.failed_items.append(
                     UsIndexFailedItem(
                         index_code=index_code,
-                        api_name="index_us_stock_sina",
+                        api_name="yahoo_chart(index)",
                         reason=rep.empty_path,
                         rule="us_index_empty",
                     )

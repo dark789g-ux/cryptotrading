@@ -190,6 +190,9 @@ class YahooClient:
 
         ticker 裸传（AAPL→AAPL）。start_date/end_date 为 YYYYMMDD。
         返回 df 列：date/open/high/low/close/volume/adj_close（全小写）。
+        语义注意：Yahoo 的 `close`/`volume` 是**拆股回溯调整**值（非 as-traded、
+        未按 dividend 调整）；`adj_close` 是 split+dividend 调整。下游 AMV 用
+        Σ(close×volume) 拆股因子相消故正确；前复权由 adj_close/close 派生亦正确。
         网络异常重试耗尽则抛出（由 orchestrator 逐 ticker 捕获记 errors，不静默吞）。
         空数据（error/无 result → data_null；timestamp 空 → items_empty）双路径 warn。
         """

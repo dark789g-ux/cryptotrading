@@ -130,7 +130,7 @@ def run_us_index_amv_sync(
                         UsIndexAmvFailedItem(
                             index_code=index_code,
                             ticker=ticker,
-                            api_name="stock_us_daily",
+                            api_name="yahoo_chart",
                             reason=rep.empty_path,
                             rule="us_daily_empty",
                         )

@@ -94,12 +94,12 @@ def run_us_sync(
             outcome.tickers_done += 1
             if rep.empty_path is not None:
                 outcome.failed_items.append(
-                    UsFailedItem(ticker=ticker, api_name="stock_us_daily",
+                    UsFailedItem(ticker=ticker, api_name="yahoo_chart",
                                  reason=rep.empty_path, rule="us_daily_empty")
                 )
             elif rep.factor_empty:
                 outcome.failed_items.append(
-                    UsFailedItem(ticker=ticker, api_name="stock_us_daily(qfq)",
+                    UsFailedItem(ticker=ticker, api_name="yahoo_chart(adj_close)",
                                  reason="factor_unavailable", rule="us_factor_empty")
                 )
         except JobCancelled:

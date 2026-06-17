@@ -103,14 +103,18 @@ guard  : factor.notna().all() and (factor>0).all() and 末位 finite>0
   指标(输入 qfq)    → us_daily_indicator
 ```
 
-收益：少一次网络抓取；删 coverage-gap；深历史不再触发 factor_empty。`raw.close/volume` 仍写**未复权原始值**，保住 AMV 语义。数据模型零改（沿用既有 nullable 列）。窗口切片（旧 :69）保留，但 fetch 已按 period1/period2 取窗，切片成为冗余保险。
+收益：少一次网络抓取；删 coverage-gap；深历史不再触发 factor_empty。数据模型零改（沿用既有 nullable 列）。窗口切片（旧 :69）保留，但 fetch 已按 period1/period2 取窗，切片成为冗余保险。
+
+> **实现修订（实测，权威，取代早期"未复权原始值"假设）**：Yahoo 的 `close`/`volume` 是**拆股回溯调整**值（实测 NVDA 2024-01-02 close=48.17=as-traded÷10、跨 2024-06-10 10:1 拆股 pct_chg 连续无 ÷10 跳变），非 as-traded、非 dividend 调整。① **AMV 正确**：Σ(close×volume) 拆股因子相消，且分析窗口 2025+ 在 2024 拆股之后、窗口内无拆股 → 双重正确。② **前复权正确**：adj_close 本就 split+div 调整。③ ⚠️ **已知语义漂移**：『不复权』展示口径对拆股股的拆股前历史行（如 AVGO/NVDA 2024-上半年）显示的是拆股调整值、非真 as-traded——相对 AkShare 旧源的漂移，低影响（非默认口径、窄历史窗），如需真 as-traded 需用 split events 还原（未做）。
+>
+> **占位行剔除（实现新增）**：因子计算前剔除 `close`/`adj_close` 为 null 的 Yahoo 偶发占位行（GEV 实测 1 行），避免单个 NaN 让守门一票否决整只。
 
 ## D · 指数 + AMV
 
 - **指数 `.NDX`**：[us_index.py](../../apps/quant-pipeline/src/quant_pipeline/sync/us_index.py) 仅改 `fetch_us_index` 调用点（:54 传入窗口），其余零改；落 raw.us_index_daily / us_index_indicator。
 - **AMV**：[us_index_amv.py](../../apps/quant-pipeline/src/quant_pipeline/sync/us_index_amv.py) 代码零改（读 `Σ(close×volume)` + .NDX 点位）。AMV 成分（含上文 FANG/KLAC/LRCX/STX）经 `sync_us_daily_for_ticker` 走同一新取数路径。但**数值会变**：Yahoo 的 close/volume 与新浪不同 → AMV 绝对量级整体平移。
-  - ⚠️ **volume 语义必须实测确认**：摸底子代理提出「Yahoo 拆股后可能给调整后 volume」的疑虑（二手转述）。实现期对一只拆过股标的（NVDA / AVGO，2024 年 10:1）亲验：写入 `raw.us_daily_quote.volume` 必须是**未复权原始成交量**；若 Yahoo 返回调整后量，则在 client 层用拆股因子还原。
-  - AMV golden 对拍基准（`amv_parity_golden.json`）锁算法自洽、非跨源绝对值；换源后量级变，**需重跑并重新 baseline**。
+  - ✅ **volume/close 语义（已实测确认）**：Yahoo `close`/`volume` 均为拆股回溯调整值（见 §C 实现修订）。AMV 因 Σ(close×volume) 拆股因子相消 + 窗口 2025+ 无拆股 → 正确，**无需还原原始量**。
+  - ✅ **AMV golden 实测无需重 baseline**：`amv_parity_golden.json` 锁算法自洽（合成输入、跨源无关，`calc_amv_series` 本次未改）→ `test_us_index_amv_formula` 6/6 直接绿。
 
 ## E · 清理 + 重灌
 
@@ -142,8 +146,8 @@ guard  : factor.notna().all() and (factor>0).all() and 末位 finite>0
 | 风险 | 缓解 |
 |------|------|
 | Yahoo 限频 / 偶发 5xx / 接口变动 | 薄封装限频 + 3 次退避 + query1→query2 兜底；空数据双路径 warn |
-| Yahoo volume 复权语义不明 | 实现期对拆股标的亲验，必要时 client 层还原原始量（见 D） |
-| AMV 量级平移 | 重跑 + 重 baseline golden（见 D/E）；AMV 是相对指标、不做跨源绝对对比 |
+| Yahoo close/volume 拆股回溯调整（已实测） | AMV Σ(close×volume) 相消 + 窗口 2025+ 无拆股 → 正确；『不复权』口径对拆股股拆股前历史=拆股调整值（已知漂移，见 §C） |
+| AMV golden | 实测无需重 baseline（算法自洽、跨源无关），6/6 绿 |
 | 长回看指标 / AMV 早期热身退化 | fetch 自 2024-01-01 留 ~250 交易行缓冲 → 自 2025-01-01 满血（见 E） |
 | 重灌中途失败致面板更空 | 先灌后删 + 校验通过再清理（见 E） |
 | 二手转述进硬断言 | 关键事实表 file:line，实现期进 migration / 守门前再亲验（CLAUDE.md 数据完整性铁律） |
