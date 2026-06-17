@@ -58,11 +58,14 @@ def run_us_index_sync(
     date_range: str,
     symbols: tuple[str, ...] | None = None,
     client: YahooClient | None = None,
+    write_start: str | None = None,
 ) -> UsIndexSyncOutcome:
     """美股指数同步入口。
 
     job_id=None → CLI 直跑（不写 ml.jobs）；否则回写进度。
     symbols=None → 缺省 ('.NDX',)（v1 硬编码，无 catalog/tracked 查询）。
+    write_start（spec 04 约束B）：默认 None → 等于 date_range 的 start（行为不变）；
+    透传给 sync_us_index_for_symbol，仅写 trade_date >= write_start 的行。
     """
 
     start_date, end_date = _parse_date_range(date_range)
@@ -81,7 +84,7 @@ def run_us_index_sync(
         try:
             rep = sync_us_index_for_symbol(
                 index_code=index_code, start_date=start_date, end_date=end_date,
-                client=client,
+                client=client, write_start=write_start,
             )
             outcome.rows_total += rep.rows
             outcome.indicator_rows_total += rep.indicator_rows

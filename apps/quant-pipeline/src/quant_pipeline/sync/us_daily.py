@@ -17,6 +17,7 @@ from quant_pipeline.db.engine import session_scope
 from quant_pipeline.sync._upsert import upsert_rows
 from quant_pipeline.sync.yahoo_client import YahooClient
 from quant_pipeline.sync.us_indicators import calc_us_indicators
+from quant_pipeline.sync.us_session import is_today_unclosed_et, today_et_yyyymmdd
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +57,20 @@ def _f(v: Any) -> float | None:
 
 
 def sync_us_daily_for_ticker(
-    *, ticker: str, start_date: str, end_date: str, client: YahooClient
+    *, ticker: str, start_date: str, end_date: str, client: YahooClient,
+    write_start: str | None = None,
 ) -> UsDailyReport:
+    """逐 ticker 抓 Yahoo 日线 → 派生因子/qfq/指标 → upsert 三表。
+
+    write_start（spec 04 约束B）：默认 None = 等于 start_date，**保持现有 CLI/单 job
+    us_sync 行为完全不变**。非 None 时仍抓取 [start_date,end_date] 全序列并在全序列上
+    算 pre_close/pct_chg/qfq/指标（warmup 恒满），**仅 upsert trade_date >= write_start
+    的行**（quote/factor/indicator 三段各自切片）。切片必在全序列算完之后，否则窗口首行
+    pre_close 因 shift(1) 丢成 NaN。
+    """
     import pandas as pd
+
+    effective_write_start = write_start or start_date
 
     raw_res = client.fetch_us_daily(ticker, start_date, end_date)
     if raw_res.empty_path is not None:
@@ -71,6 +83,11 @@ def sync_us_daily_for_ticker(
     # Yahoo 偶发占位行（timestamp 在但 close/adj_close 为 null，如停牌/数据缺口）：剔除。
     # 否则单个 NaN 会让下方因子守门一票否决整只 ticker（GEV idx555 实测）。
     raw = raw[raw["close"].notna() & raw["adj_close"].notna()].reset_index(drop=True)
+    # 双保险（spec 04 约束A）：今日（美东）未收盘时，丢弃 trade_date == 美东当日 的在长半根
+    # bar（盘中抓到的未完成日线）。仅当日未收盘才丢；历史日期 / 收盘后不受影响——对所有
+    # 调用方（含现有 us_sync）生效，属根因修复。
+    if is_today_unclosed_et():
+        raw = raw[raw["trade_date"] != today_et_yyyymmdd()].reset_index(drop=True)
     if len(raw) == 0:
         return UsDailyReport(ticker=ticker, empty_path="window_empty", factor_empty=True)
 
@@ -134,6 +151,8 @@ def sync_us_daily_for_ticker(
         })
 
     report = UsDailyReport(ticker=ticker, factor_empty=factor_empty)
+    # 约束B：全序列算完后，仅写 trade_date >= effective_write_start 的行（三段各自切）。
+    quote_rows = [r for r in quote_rows if r["trade_date"] >= effective_write_start]
     with session_scope() as session:
         report.quote_rows = upsert_rows(
             session, table=QUOTE_TABLE, rows=quote_rows,
@@ -149,6 +168,7 @@ def sync_us_daily_for_ticker(
          "adj_factor": _f(factor_series.iloc[i])}
         for i in range(n)
     ]
+    factor_rows = [r for r in factor_rows if r["trade_date"] >= effective_write_start]
     with session_scope() as session:
         report.factor_rows = upsert_rows(
             session, table=FACTOR_TABLE, rows=factor_rows,
@@ -168,7 +188,9 @@ def sync_us_daily_for_ticker(
         for k, v in indic[i].items():
             row[k] = _f(v)
         indic_rows.append(row)
+    # update_cols 取全序列 indic[0]（不依赖切片），切片只裁落库行。
     indicator_update = tuple(indic[0].keys()) if indic else ()
+    indic_rows = [r for r in indic_rows if r["trade_date"] >= effective_write_start]
     with session_scope() as session:
         report.indicator_rows = upsert_rows(
             session, table=INDICATOR_TABLE, rows=indic_rows,

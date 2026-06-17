@@ -58,11 +58,15 @@ def run_us_sync(
     date_range: str,
     tickers: tuple[str, ...] | None = None,
     client: YahooClient | None = None,
+    write_start: str | None = None,
 ) -> UsSyncOutcome:
     """美股同步入口。
 
     job_id=None → CLI 直跑（不写 ml.jobs）；否则回写进度。
     tickers=None → 取 raw.us_symbol where tracked。
+    write_start（spec 04 约束B）：默认 None → 等于 date_range 的 start（现有 CLI/单 job
+    行为不变）；非 None 时抓取仍用全 [start,end]、指标全序列算，仅写 trade_date >=
+    write_start 的行，透传给 sync_us_daily_for_ticker。
     """
 
     start_date, end_date = _parse_date_range(date_range)
@@ -86,7 +90,8 @@ def run_us_sync(
             raise JobCancelled
         try:
             rep = sync_us_daily_for_ticker(
-                ticker=ticker, start_date=start_date, end_date=end_date, client=client
+                ticker=ticker, start_date=start_date, end_date=end_date, client=client,
+                write_start=write_start,
             )
             outcome.quote_rows_total += rep.quote_rows
             outcome.factor_rows_total += rep.factor_rows

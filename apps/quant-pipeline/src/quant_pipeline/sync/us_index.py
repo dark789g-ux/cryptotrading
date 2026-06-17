@@ -16,6 +16,7 @@ from quant_pipeline.db.engine import session_scope
 from quant_pipeline.sync._upsert import upsert_rows
 from quant_pipeline.sync.yahoo_client import YahooClient
 from quant_pipeline.sync.us_indicators import calc_us_indicators
+from quant_pipeline.sync.us_session import is_today_unclosed_et, today_et_yyyymmdd
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,18 @@ def _f(v: Any) -> float | None:
 
 
 def sync_us_index_for_symbol(
-    *, index_code: str, start_date: str, end_date: str, client: YahooClient
+    *, index_code: str, start_date: str, end_date: str, client: YahooClient,
+    write_start: str | None = None,
 ) -> UsIndexReport:
+    """抓指数日线 → 算指标 → upsert 两表（daily + indicator）。
+
+    write_start（spec 04 约束B）：默认 None = 等于 start_date，保持现有 CLI/单 job 行为
+    不变。非 None 时仍在全序列上算指标（warmup 恒满），仅 upsert trade_date >= write_start
+    的行（daily/indicator 两段各自切片，全序列算完后切）。
+    """
     import pandas as pd
+
+    effective_write_start = write_start or start_date
 
     res = client.fetch_us_index(index_code, start_date, end_date)
     if res.empty_path is not None:
@@ -66,6 +76,9 @@ def sync_us_index_for_symbol(
     )
     # Yahoo 偶发占位行（close 为 null）：剔除，避免污染指标序列。
     df = df[df["close"].notna()].reset_index(drop=True)
+    # 双保险（spec 04 约束A）：今日（美东）未收盘时丢弃美东当日在长 bar（盘中未完成半根）。
+    if is_today_unclosed_et():
+        df = df[df["trade_date"] != today_et_yyyymmdd()].reset_index(drop=True)
     if len(df) == 0:
         return UsIndexReport(index_code=index_code, empty_path="window_empty")
 
@@ -85,6 +98,8 @@ def sync_us_index_for_symbol(
         })
 
     report = UsIndexReport(index_code=index_code)
+    # 约束B：全序列算完后仅写 trade_date >= effective_write_start 的行。
+    daily_rows = [r for r in daily_rows if r["trade_date"] >= effective_write_start]
     with session_scope() as session:
         report.rows = upsert_rows(
             session, table=DAILY_TABLE, rows=daily_rows,
@@ -108,6 +123,7 @@ def sync_us_index_for_symbol(
             row[k] = _f(v)
         indic_rows.append(row)
     indicator_update = tuple(indic[0].keys()) if indic else ()
+    indic_rows = [r for r in indic_rows if r["trade_date"] >= effective_write_start]
     with session_scope() as session:
         report.indicator_rows = upsert_rows(
             session, table=INDICATOR_TABLE, rows=indic_rows,

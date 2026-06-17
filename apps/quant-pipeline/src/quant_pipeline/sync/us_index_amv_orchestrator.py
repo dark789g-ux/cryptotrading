@@ -68,13 +68,20 @@ def run_us_index_amv_sync(
     date_range: str,
     symbols: tuple[str, ...] | None = None,
     client: YahooClient | None = None,
+    write_start: str | None = None,
 ) -> UsIndexAmvOutcome:
     """美股指数 AMV 同步入口。
 
     job_id=None → CLI 直跑（不写 ml.jobs）；否则回写进度。
     symbols=None → 缺省 ('.NDX',)（v1 硬编码，结构留多指数）。
+    write_start（spec 04 约束B）：默认 None → 等于 date_range 的 start（行为不变）。
+    AMV 的写窗口起点 = effective_write_start：warmup 从它往前推 150 交易行
+    （resolve_warmup_start），AMV 行只写 trade_date >= effective_write_start。
+    **成分行情仍按全史 [fetch_start,end] 抓取入 us_daily_quote**（spec §75），不传
+    write_start——AMV 在全史上算指标（warmup 恒满），只裁 AMV 写窗口。
     """
     start, end = _parse_date_range(date_range)
+    effective_write_start = write_start or start
     client = client or YahooClient()
     outcome = UsIndexAmvOutcome()
 
@@ -103,7 +110,8 @@ def run_us_index_amv_sync(
             )
             continue
 
-        fetch_start = resolve_warmup_start(index_code, start)
+        # warmup 从写窗口起点往前推（resolve_warmup_start 按交易行查 .NDX 表）。
+        fetch_start = resolve_warmup_start(index_code, effective_write_start)
 
         # ---- 步骤1：逐 ticker 取成分行情 [fetch_start, end] → raw.us_daily_quote ----
         if job_id is not None:
@@ -171,7 +179,7 @@ def run_us_index_amv_sync(
         try:
             amv_rep = compute_and_write_amv(
                 index_code=index_code,
-                start=start,
+                start=effective_write_start,
                 end=end,
                 fetch_start=fetch_start,
                 tickers=tickers,
