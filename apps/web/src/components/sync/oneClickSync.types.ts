@@ -92,6 +92,34 @@ export const US_STEP_LABELS: Record<string, string> = {
   'us-index-amv': '美股指数 AMV',
 }
 
+/** 美股三步固定顺序（与后端 result_payload.steps 同序，用于空 payload 兜底）。 */
+export const US_STEP_KEYS: readonly string[] = [
+  'us-stocks',
+  'us-index-daily',
+  'us-index-amv',
+]
+
+/** 美股空步骤（pending 初始态，带 US_STEP_LABELS 补 label）。 */
+export function emptyUsStep(step: string): OneClickStepState {
+  return {
+    step,
+    label: US_STEP_LABELS[step] ?? '',
+    status: 'pending',
+    percent: 0,
+    phase: '',
+    message: '',
+    rowsWritten: 0,
+    errors: [],
+    startedAt: null,
+    finishedAt: null,
+  }
+}
+
+/** result_payload 为空/缺 steps 时的兜底：三步 pending（避免渲染空白）。 */
+export function buildInitialUsSteps(): OneClickStepState[] {
+  return US_STEP_KEYS.map(emptyUsStep)
+}
+
 export function emptyStep(step: OneClickStepKey): OneClickStepState {
   return {
     step,

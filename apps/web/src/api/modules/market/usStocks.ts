@@ -87,6 +87,21 @@ export interface UsStockSyncResult {
   jobId: string
 }
 
+/** POST /api/us-stocks/one-click-sync body：dateRange 为 [startDate, endDate]（YYYYMMDD）。 */
+export interface UsOneClickSyncBody {
+  dateRange: [string, string]
+}
+
+/**
+ * 美股一键同步：POST /api/us-stocks/one-click-sync → 入队 1 条 ml.jobs(run_type='us_one_click_sync')，
+ * 返回 jobId；前端用 jobId 轮询 GET /api/quant/jobs/:id 的 resultPayload 渲染三步进度（spec 06-frontend）。
+ */
+export async function startUsOneClickSync(
+  body: UsOneClickSyncBody,
+): Promise<{ jobId: string }> {
+  return post<{ jobId: string }>(`${API_BASE}/us-stocks/one-click-sync`, body)
+}
+
 export const usStocksApi = {
   getSummary: () => request<UsStockSummary>(`${API_BASE}/us-stocks/summary`),
   getFilterOptions: () => request<UsStockFilterOptions>(`${API_BASE}/us-stocks/filter-options`),

@@ -146,6 +146,7 @@ export type JobRunType =
   | 'seed_avg'
   | 'train_e2e'
   | 'kelly_sweep'
+  | 'us_one_click_sync'
 
 export type JobStatus =
   | 'draft'
@@ -203,6 +204,12 @@ export interface JobRow {
   warnings?: WarningItem[]
   /** 列表接口仅返回的总数（不带明细），用于列表页打小红点 */
   warnings_count?: number
+  /**
+   * job 的结果载荷（jsonb）。GET /quant/jobs/:id 返回完整实体含此字段；
+   * us_one_click_sync 把逐步骤进度态（steps/logs/summary）写进这里，前端轮询读取渲染。
+   * 形态见 spec 01-architecture-and-dataflow「result_payload 步骤态 schema」；job 刚建未写时可能为 {}。
+   */
+  resultPayload?: Record<string, unknown>
 }
 
 export interface JobListQuery {
