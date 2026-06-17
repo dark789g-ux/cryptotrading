@@ -12,6 +12,7 @@ import { StrategyConditionsController } from './strategy-conditions.controller';
 import { StrategyConditionsService } from './strategy-conditions.service';
 import { StrategyConditionsRunner } from './strategy-conditions.runner';
 import { StrategyConditionsQueryBuilder } from './strategy-conditions.query-builder';
+import { KdjRecomputeService } from './kdj-recompute.service';
 import { SignalStatsController } from './signal-stats/signal-stats.controller';
 import { SignalStatsService } from './signal-stats/signal-stats.service';
 import { SignalStatsRunner } from './signal-stats/signal-stats.runner';
@@ -39,6 +40,8 @@ import { PortfolioSimModule } from './portfolio-sim/portfolio-sim.module';
     StrategyConditionsQueryBuilder,
     StrategyConditionsRunner,
     StrategyConditionsService,
+    // KDJ 自定义参数实时重算（T3）：供 runner 注入，同模块 provider 无需 export。
+    KdjRecomputeService,
     SignalStatsService,
     SignalStatsRunner,
     SignalStatsEnumerator,
