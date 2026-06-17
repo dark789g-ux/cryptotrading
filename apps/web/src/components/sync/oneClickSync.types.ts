@@ -1,5 +1,7 @@
 // 一键同步相关类型与常量（从 useOneClickSync.ts 抽出，保持单文件 ≤500 行）
 
+import type { ComputedRef, Ref } from 'vue'
+
 export type OneClickStepKey =
   | 'base-data'
   | 'a-shares'
@@ -12,14 +14,16 @@ export type OneClickStepKey =
 export type OneClickStepStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped'
 
 export interface OneClickErrorItem {
-  step: OneClickStepKey
+  // step 放宽为 string：A 股传 OneClickStepKey，美股传 'us-stocks' 等，面板渲染 key-agnostic
+  step: string
   level: 'warn' | 'error'
   apiName?: string
   message: string
 }
 
 export interface OneClickStepState {
-  step: OneClickStepKey
+  // step 放宽为 string：兼容 A 股 OneClickStepKey 与美股步骤 key（'us-stocks' 等）
+  step: string
   label: string
   status: OneClickStepStatus
   percent: number
@@ -33,7 +37,8 @@ export interface OneClickStepState {
 
 export interface LogEntry {
   ts: number
-  step: OneClickStepKey | 'system'
+  // step 放宽为 string：覆盖 A 股 key、'system' 及美股步骤 key
+  step: string
   level: 'info' | 'warn' | 'error'
   text: string
 }
@@ -43,6 +48,24 @@ export interface OneClickSummary {
   totalMs: number
   errors: OneClickErrorItem[]
   cancelled: boolean
+}
+
+/**
+ * 一键同步面板（OneClickSyncPanel.vue）的 controller 接口。
+ * A 股 useOneClickSync 与美股 useUsOneClickSync 共同实现，面板 prop 用它解耦具体 controller。
+ */
+export interface OneClickPanelController {
+  dateRange: Ref<[number, number] | null>
+  running: ComputedRef<boolean>
+  steps: ComputedRef<OneClickStepState[]>
+  totalPercent: ComputedRef<number>
+  logEntries: ComputedRef<LogEntry[]>
+  currentStepIndex: ComputedRef<number>
+  elapsedMs: ComputedRef<number>
+  summary: ComputedRef<OneClickSummary | null>
+  canStart: ComputedRef<boolean>
+  start: () => Promise<void>
+  cancel: () => Promise<void>
 }
 
 export interface OneClickMessageApi {
@@ -61,6 +84,12 @@ export const STEP_LABELS: Record<OneClickStepKey, string> = {
   'industry-amv': '行业指数 AMV',
   'concept-amv': '板块（概念）AMV',
   oamv: '大盘 0AMV（中证全指）',
+}
+
+export const US_STEP_LABELS: Record<string, string> = {
+  'us-stocks': '美股个股',
+  'us-index-daily': '美股指数日线',
+  'us-index-amv': '美股指数 AMV',
 }
 
 export function emptyStep(step: OneClickStepKey): OneClickStepState {
