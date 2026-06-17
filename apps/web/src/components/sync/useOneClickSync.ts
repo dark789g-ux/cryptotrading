@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { useOneClickSyncStore } from '@/stores/oneClickSync'
 import {
+  STEP_LABELS,
   toYYYYMMDD,
   type LogEntry,
   type OneClickErrorItem,
@@ -21,6 +22,15 @@ export type {
 } from './oneClickSync.types'
 
 /**
+ * 后端持久化的 step 对象不带 label（其 OneClickStepState 无此字段，见
+ * apps/server/.../one-click-sync/types.ts），而前端类型/模板按带 label 渲染步骤名。
+ * 适配层在此按 step key 用静态 STEP_LABELS 补全，否则步骤行/summary 只显示「1.」无名字。
+ */
+function withLabel(s: OneClickStepState): OneClickStepState {
+  return { ...s, label: STEP_LABELS[s.step] ?? '' }
+}
+
+/**
  * useOneClickSync —— 「一键同步」面板控制器（后端托管改造后的瘦身版）。
  *
  * 编排已搬到后端进程内（spec §4），本 composable 退化成「视图适配层」：
@@ -38,7 +48,7 @@ export function useOneClickSync(message: OneClickMessageApi) {
 
   // ---- 直接透传 store getter（形状与旧实现一致，Panel 模板不动）----
   const running = computed(() => store.running)
-  const steps = computed<OneClickStepState[]>(() => store.steps)
+  const steps = computed<OneClickStepState[]>(() => store.steps.map(withLabel))
   const totalPercent = computed(() => store.totalPercent)
   const logEntries = computed<LogEntry[]>(() => store.logs)
   const currentStepIndex = computed(() => store.currentStepIndex)
@@ -55,7 +65,7 @@ export function useOneClickSync(message: OneClickMessageApi) {
     const allErrors: OneClickErrorItem[] = []
     for (const s of run.steps) allErrors.push(...s.errors)
     return {
-      steps: run.steps.map(s => ({ ...s, errors: [...s.errors] })),
+      steps: run.steps.map(s => ({ ...withLabel(s), errors: [...s.errors] })),
       totalMs: store.elapsedMs,
       errors: allErrors,
       cancelled: run.status === 'cancelled',
