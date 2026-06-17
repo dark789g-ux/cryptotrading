@@ -42,6 +42,24 @@ describe('ALLOWED_RUN_TYPES 集合契约', () => {
     expect(FEATURE_SET_RUN_TYPES.has('labels')).toBe(false);
     expect(FEATURE_SET_RUN_TYPES.has('prepare')).toBe(false);
   });
+
+  it('包含美股一键同步 us_one_click_sync（spec 2026-06-17-us-sync-tab-design 02）', () => {
+    expect(ALLOWED_RUN_TYPES).toContain('us_one_click_sync');
+  });
+});
+
+describe('validateCreateJob — us_one_click_sync（美股一键同步）', () => {
+  it('接受 run_type="us_one_click_sync"（非 LABEL_REF / FEATURE_SET，无额外字段要求）', () => {
+    const out = validateCreateJob({ run_type: 'us_one_click_sync', params: {} });
+    expect(out.runType).toBe('us_one_click_sync');
+    expect(out.labelRef).toBeUndefined();
+  });
+
+  it('拒绝形近的未知 run_type "us_one_click_sync_extra"', () => {
+    expect(() =>
+      validateCreateJob({ run_type: 'us_one_click_sync_extra', params: {} }),
+    ).toThrow(BadRequestException);
+  });
 });
 
 describe('validateCreateJob — train_e2e 已废弃', () => {

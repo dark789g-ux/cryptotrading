@@ -77,6 +77,8 @@ export const ALLOWED_RUN_TYPES: readonly MlJobRunType[] = [
   'us_index_sync',
   // 美股指数活跃市值（AMV）同步（spec 2026-06-16-us-index-amv-design 02）。同上不属 LABEL_REF / FEATURE_SET。
   'us_index_amv_sync',
+  // 美股一键同步（spec 2026-06-17-us-sync-tab-design 02）。同上不属 LABEL_REF / FEATURE_SET。
+  'us_one_click_sync',
 ] as const;
 
 /**
