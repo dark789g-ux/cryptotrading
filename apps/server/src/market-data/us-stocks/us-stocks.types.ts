@@ -145,3 +145,14 @@ export interface UsStockSyncBody {
   /** 限定同步的 ticker 列表；缺省时同步全部 tracked */
   tickers?: string[];
 }
+
+/**
+ * `POST /api/us-stocks/one-click-sync` 请求体（写 ml.jobs run_type='us_one_click_sync'）。
+ *
+ * dateRange **必填**（区别于 sync()，一键同步无「缺省全量」语义，必须带窗口）。
+ * 不传 tickers/symbols：编排器内部固定 tracked 全集 + `.NDX`。
+ */
+export interface UsOneClickSyncBody {
+  /** [startDate, endDate]，YYYYMMDD；必填 */
+  dateRange: [string, string];
+}

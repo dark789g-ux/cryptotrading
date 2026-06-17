@@ -3,7 +3,12 @@ import { AdminOnly } from '../../auth/decorators/admin-only.decorator';
 import { CurrentUserParam as CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UsStocksService } from './us-stocks.service';
 import { UsStocksSymbolsService } from './us-stocks-symbols.service';
-import { UsStockQueryBody, UsStockSyncBody, UsStockTrackedUpdateBody } from './us-stocks.types';
+import {
+  UsOneClickSyncBody,
+  UsStockQueryBody,
+  UsStockSyncBody,
+  UsStockTrackedUpdateBody,
+} from './us-stocks.types';
 
 type CurrentUserPayload = { id: string };
 
@@ -64,5 +69,11 @@ export class UsStocksController {
   @AdminOnly()
   sync(@Body() body: UsStockSyncBody, @CurrentUser() user: CurrentUserPayload) {
     return this.usStocksService.sync(body ?? {}, user?.id ?? null);
+  }
+
+  @Post('one-click-sync')
+  @AdminOnly()
+  oneClickSync(@Body() body: UsOneClickSyncBody, @CurrentUser() user: CurrentUserPayload) {
+    return this.usStocksService.oneClickSync(body, user?.id ?? null);
   }
 }

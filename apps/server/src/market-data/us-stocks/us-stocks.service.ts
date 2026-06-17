@@ -11,6 +11,7 @@ import {
 } from './utils/us-stocks-format.util';
 import { appendUsStocksSort, buildUsStocksBaseQuery } from './data-access/us-stocks-query.sql';
 import {
+  UsOneClickSyncBody,
   UsStockFilterOptions,
   UsStockKlineRow,
   UsStockQueryBody,
@@ -256,6 +257,46 @@ export class UsStocksService {
 
     const dto: ValidatedCreateJob = {
       runType: 'us_sync',
+      params,
+      priority: 100,
+      maxAttempts: 1,
+    };
+    const job = await this.quantJobs.create(dto, createdBy);
+    return { jobId: job.id };
+  }
+
+  /**
+   * 派 us_one_click_sync 作业（写一行 ml.jobs，复用 QuantJobsService.create）。
+   *
+   * 与 sync() 不同：dateRange **必填**（一键同步无「缺省全量」语义，必须带窗口）；
+   * 不传 tickers/symbols（编排器内部固定 tracked 全集 + `.NDX`）。
+   * us_one_click_sync 不属 LABEL_REF / FEATURE_SET run_type，create() 不展开 labelRef / 不校验 feature_set，
+   * 直接落 pending。params 用 snake_case 冒号串 `date_range`（Python worker 读）。
+   */
+  async oneClickSync(
+    body: UsOneClickSyncBody,
+    createdBy: string | null,
+  ): Promise<{ jobId: string }> {
+    const range = body?.dateRange;
+    if (
+      !Array.isArray(range) ||
+      range.length !== 2 ||
+      !YYYYMMDD_RE.test(range[0]) ||
+      !YYYYMMDD_RE.test(range[1])
+    ) {
+      throw new BadRequestException('dateRange 必填，且必须是 [YYYYMMDD, YYYYMMDD] 二元组');
+    }
+    if (range[0] > range[1]) {
+      throw new BadRequestException(`dateRange 起始 ${range[0]} 不得晚于结束 ${range[1]}`);
+    }
+
+    // 存冒号串(非数组!): Python 编排器严格要 'YYYYMMDD:YYYYMMDD'(同 us_sync 口径)
+    const params: Record<string, unknown> = {
+      date_range: `${range[0]}:${range[1]}`,
+    };
+
+    const dto: ValidatedCreateJob = {
+      runType: 'us_one_click_sync',
       params,
       priority: 100,
       maxAttempts: 1,

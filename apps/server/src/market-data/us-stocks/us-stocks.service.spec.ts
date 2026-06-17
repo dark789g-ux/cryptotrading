@@ -78,6 +78,54 @@ describe('UsStocksService.sync — 派 ml.jobs(us_sync)', () => {
   });
 });
 
+describe('UsStocksService.oneClickSync — 派 ml.jobs(us_one_click_sync)', () => {
+  it('合法 dateRange → run_type=us_one_click_sync，params.date_range 冒号串，priority/maxAttempts，透传 createdBy，返回 jobId', async () => {
+    const quant = makeQuantJobsMock('job-ocs');
+    const svc = new UsStocksService(null as never, makeDataSourceMock() as never, quant as never);
+
+    const res = await svc.oneClickSync({ dateRange: ['20250101', '20260612'] }, 'user-1');
+
+    expect(res).toEqual({ jobId: 'job-ocs' });
+    expect(quant.create).toHaveBeenCalledTimes(1);
+    const [dto, createdBy] = quant.create.mock.calls[0];
+    expect(dto.runType).toBe('us_one_click_sync');
+    expect(dto.params).toEqual({ date_range: '20250101:20260612' });
+    expect(dto.priority).toBe(100);
+    expect(dto.maxAttempts).toBe(1);
+    expect(createdBy).toBe('user-1');
+  });
+
+  it('不传 tickers/symbols（params 仅含 date_range）', async () => {
+    const quant = makeQuantJobsMock();
+    const svc = new UsStocksService(null as never, makeDataSourceMock() as never, quant as never);
+    await svc.oneClickSync({ dateRange: ['20250101', '20260612'] }, 'admin');
+    const [dto] = quant.create.mock.calls[0];
+    expect(Object.keys(dto.params)).toEqual(['date_range']);
+  });
+
+  it('createdBy 可为 null（内部调用）', async () => {
+    const quant = makeQuantJobsMock();
+    const svc = new UsStocksService(null as never, makeDataSourceMock() as never, quant as never);
+    await svc.oneClickSync({ dateRange: ['20250101', '20260612'] }, null);
+    expect(quant.create.mock.calls[0][1]).toBeNull();
+  });
+
+  it.each([
+    [undefined],
+    [{}],
+    [{ dateRange: ['2025-01-01', '20260612'] }],
+    [{ dateRange: ['20250101'] }],
+    [{ dateRange: ['20250101', '20250102', '20250103'] }],
+    [{ dateRange: '20250101:20260612' }],
+    [{ dateRange: ['20260612', '20250101'] }],
+  ])('非法/缺失 dateRange (%s) → 400 且不派 job', async (body) => {
+    const quant = makeQuantJobsMock();
+    const svc = new UsStocksService(null as never, makeDataSourceMock() as never, quant as never);
+    await expect(svc.oneClickSync(body as never, 'u')).rejects.toBeInstanceOf(BadRequestException);
+    expect(quant.create).not.toHaveBeenCalled();
+  });
+});
+
 describe('UsStocksService.getKlines — 日期区间参数化', () => {
   const ticker = 'NVDA';
 
