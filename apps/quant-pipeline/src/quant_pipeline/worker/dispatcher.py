@@ -271,6 +271,34 @@ def _runner_us_index_amv(job: Job) -> None:
         )
 
 
+def _runner_us_one_click_sync(job: Job) -> None:
+    """us_one_click_sync runner（spec 2026-06-17-us-sync-tab §03）：
+
+    把美股三步同步（us_sync → us_index_sync → us_index_amv_sync）串成一条 job，
+    转调 sync.us_one_click_orchestrator.run_us_one_click_sync。
+
+    params：
+      { "date_range": "YYYYMMDD:YYYYMMDD" }   # 必填（前端日期选择器必选）
+    与 _runner_us_sync 同款冒号串校验；缺/坏值 → ValueError（致命错误，置 failed）。
+
+    编排器内部独占 update_progress + result_payload 增量写；单步失败不中断、不抛
+    （明细落 result_payload.steps[].errors，job 整体仍判 success）。取消由编排器
+    每步 check_cancel_requested → JobCancelled，dispatcher 捕获置 cancelled。
+    """
+
+    from quant_pipeline.sync.us_one_click_orchestrator import run_us_one_click_sync
+
+    params = job.params or {}
+    date_range = params.get("date_range")
+    if not isinstance(date_range, str) or ":" not in date_range:
+        raise ValueError(
+            "us_one_click_sync job params.date_range 必须是 'YYYYMMDD:YYYYMMDD'，"
+            f"got {date_range!r}"
+        )
+
+    run_us_one_click_sync(job_id=job.id, date_range=date_range)
+
+
 def _runner_labels(job: Job) -> None:
     """labels runner（M2 Part F）：调用 labels.runner.runner_entrypoint。
 
@@ -514,6 +542,28 @@ def _update_job_result(job_id: UUID, result: dict[str, Any]) -> None:
         )
 
 
+def update_job_result_partial(job_id: UUID, payload: dict[str, Any]) -> None:
+    """增量写 ml.jobs.result_payload（spec 03）：整对象覆盖写。
+
+    与 _update_job_result 同款 SQL，但供编排器在 job 运行期间**多次**调用
+    （每次步骤态变化 / 追加日志后整体覆盖写库，前端轮询 GET /api/quant/jobs/:id
+    读取）。不发 NOTIFY、不动终态——终态由 dispatcher 的 _finalize_job 负责。
+    """
+
+    rp = json.dumps(payload, ensure_ascii=False)
+    with session_scope() as session:
+        session.execute(
+            text(
+                """
+                UPDATE ml.jobs
+                SET result_payload = CAST(:rp AS jsonb)
+                WHERE id = :id
+                """
+            ),
+            {"id": job_id, "rp": rp},
+        )
+
+
 def _update_job_error(job_id: UUID, error_text: str) -> None:
     """单独写 error_text（不触发终态、不发 NOTIFY）。
 
@@ -541,6 +591,8 @@ _ROUTES = {
     "us_index_sync": _runner_us_index_sync,
     # 美股指数 AMV（spec 2026-06-16-us-index-amv）
     "us_index_amv_sync": _runner_us_index_amv,
+    # 美股一键同步（spec 2026-06-17-us-sync-tab §03）：三步串成一条 job
+    "us_one_click_sync": _runner_us_one_click_sync,
     "factors": _runner_factors,
     "quality": _runner_quality,
     # M2 Part F

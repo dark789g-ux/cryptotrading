@@ -408,6 +408,82 @@ def us_index_amv_sync(
         raise typer.Exit(code=1)
 
 
+@app.command("us-one-click-sync")  # type: ignore[untyped-decorator]
+def us_one_click_sync(
+    date_range: str = typer.Option(
+        ..., "--date-range", help="同步区间 YYYYMMDD:YYYYMMDD（用户写库窗口）。"
+    ),
+) -> None:
+    """美股一键同步（CLI 直跑，不写 ml.jobs）：三步串跑离线冒烟。
+
+    与 worker dispatcher 的 'us_one_click_sync' run_type 走同一 run_us_one_click_sync 入口。
+    job_id=None → 编排器不写进度 / result_payload；三步子调用同样 job_id=None。
+    步骤态/异常透出到日志（编排器内部 logger）；本命令打印各步 outcome 摘要。
+    """
+
+    setup_logging()
+    try:
+        validate_date_range(date_range)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+
+    # 复用编排器的解析 + end-cap，直接顺序跑三步并打印摘要（不经 ml.jobs / result_payload）。
+    from quant_pipeline.sync.us_index_amv_orchestrator import run_us_index_amv_sync
+    from quant_pipeline.sync.us_index_orchestrator import run_us_index_sync
+    from quant_pipeline.sync.us_one_click_orchestrator import (
+        US_RETENTION_START,
+        _parse_date_range,
+    )
+    from quant_pipeline.sync.us_orchestrator import run_us_sync
+    from quant_pipeline.sync.us_session import cap_to_last_closed_session
+
+    user_start, user_end = _parse_date_range(date_range)
+    capped_end = cap_to_last_closed_session(user_end)
+    fetch_range = f"{US_RETENTION_START}:{capped_end}"
+    typer.echo(
+        f"us-one-click-sync window=[{user_start},{capped_end}] fetch={fetch_range}"
+    )
+
+    any_error = False
+
+    us = run_us_sync(
+        job_id=None, date_range=fetch_range, tickers=None, write_start=user_start
+    )
+    typer.echo(
+        f"  step1 us-stocks: quote_rows={us.quote_rows_total} "
+        f"tickers_done={us.tickers_done} "
+        f"failed_items={len(us.failed_items)} errors={len(us.errors)}"
+    )
+    any_error = any_error or bool(us.errors)
+
+    idx = run_us_index_sync(
+        job_id=None, date_range=fetch_range, symbols=None, write_start=user_start
+    )
+    typer.echo(
+        f"  step2 us-index-daily: rows={idx.rows_total} "
+        f"symbols_done={idx.symbols_done} "
+        f"failed_items={len(idx.failed_items)} errors={len(idx.errors)}"
+    )
+    any_error = any_error or bool(idx.errors)
+
+    amv = run_us_index_amv_sync(
+        job_id=None, date_range=fetch_range, symbols=None, write_start=user_start
+    )
+    typer.echo(
+        f"  step3 us-index-amv: amv_rows={amv.amv_rows_total} "
+        f"quote_rows={amv.rows_total} constituents_done={amv.constituents_done} "
+        f"failed_items={len(amv.failed_items)} errors={len(amv.errors)}"
+    )
+    any_error = any_error or bool(amv.errors)
+
+    for label, oc in (("step1", us), ("step2", idx), ("step3", amv)):
+        for err in oc.errors:
+            typer.echo(f"  ! {label} error: {err}", err=True)
+    if any_error:
+        raise typer.Exit(code=1)
+
+
 # ----------------------------------------------------------------------
 # labels 子命令（M2 Part A）
 # ----------------------------------------------------------------------
