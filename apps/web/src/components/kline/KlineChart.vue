@@ -6,29 +6,29 @@
       :granularity="granularity"
       :range="range ?? null"
       :disabled-range="disabledRange"
-      :prefs-key="prefsKey"
-      :available-subplots="availableSubplots"
+      :prefs="prefs"
+      :update="update"
+      :reset="reset"
       @update:range="onRangeUpdate"
-      @update:prefs="onPrefsUpdate"
     />
     <div ref="chartRef" class="kline-chart" :style="chartStyle" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import KlineChartToolbar from './KlineChartToolbar.vue'
 import { buildKlineChartGraphics, buildKlineChartOption } from '../../composables/kline/klineChartOptions'
 import {
   ALL_SUBPLOT_KEYS,
-  defaultPrefsFor,
-  normalizePrefs,
   resolveVisibleSubplots,
+  type IndicatorSubplotParams,
   type SubplotConfig,
   type SubplotKey,
   type SubplotPrefs,
 } from '../../composables/kline/subplotConfig'
+import { useKlineChartPrefs } from '../../composables/kline/useKlineChartPrefs'
 import type { KlineChartBar } from '@/api'
 import { useTheme } from '../../composables/hooks/useTheme'
 
@@ -50,6 +50,7 @@ const props = withDefaults(
     disabledRange?: boolean
     prefsKey?: string
     availableSubplots?: SubplotKey[]
+    recalcIndicators?: (params?: IndicatorSubplotParams) => Promise<void>
   }>(),
   {
     currentTs: '',
@@ -66,6 +67,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'update:range', value: [number, number] | null): void
+  (e: 'update:prefs', value: SubplotPrefs): void
 }>()
 
 const { echartsTheme } = useTheme()
@@ -76,12 +78,11 @@ let pendingGraphicFrame: number | null = null
 let pendingGraphicIdx: number | null = null
 let lastGraphicIdx: number | null = null
 
-// 工具栏 mount 时会 emit 一次当前持久化偏好，覆盖此初始值
-const localPrefs = ref<SubplotPrefs>(
-  normalizePrefs(null, props.prefsKey, props.availableSubplots),
-)
+const { prefs, update, reset } = useKlineChartPrefs(props.prefsKey, props.availableSubplots)
 
-const subplots = computed<SubplotConfig[]>(() => resolveVisibleSubplots(localPrefs.value))
+let isReverting = false
+
+const subplots = computed<SubplotConfig[]>(() => resolveVisibleSubplots(prefs.value))
 
 const wrapperStyle = computed(() => ({
   width: '100%',
@@ -191,16 +192,46 @@ function onRangeUpdate(value: [number, number] | null) {
   emit('update:range', value)
 }
 
-function onPrefsUpdate(value: SubplotPrefs) {
-  localPrefs.value = value
-}
-
 watch(
   () => [props.data, props.currentTs, props.sliderStart, echartsTheme.value, subplots.value] as const,
   () => {
     void renderChart()
   },
   { immediate: true, deep: true },
+)
+
+watch(
+  prefs,
+  (val) => {
+    emit('update:prefs', val)
+  },
+  { deep: true },
+)
+
+onMounted(() => {
+  emit('update:prefs', prefs.value)
+})
+
+watch(
+  () => prefs.value.params,
+  async (newParams, oldParams) => {
+    if (isReverting) return
+    if (!props.recalcIndicators) return
+
+    try {
+      await props.recalcIndicators(newParams)
+    } catch (err) {
+      isReverting = true
+      try {
+        update({ params: oldParams })
+      } finally {
+        await nextTick()
+        isReverting = false
+      }
+      throw err
+    }
+  },
+  { deep: true },
 )
 
 watch(
@@ -219,7 +250,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
 })
 
-defineExpose({ resize: handleResize, renderChart })
+defineExpose({ resize: handleResize, renderChart, prefs })
 </script>
 
 <style scoped>

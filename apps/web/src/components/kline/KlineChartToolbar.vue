@@ -51,13 +51,13 @@
 
           <div class="subplot-panel__list">
             <div
-              v-for="(key, idx) in prefs.order"
+              v-for="(key, idx) in props.prefs.order"
               :key="key"
               class="subplot-row"
             >
               <div class="subplot-row__left">
                 <n-checkbox
-                  :checked="prefs.visibility[key]"
+                  :checked="props.prefs.visibility[key]"
                   @update:checked="(v: boolean) => onVisibilityChange(key, v)"
                 >
                   {{ key === 'KDJ' ? kdjDisplayName : key }}
@@ -66,7 +66,7 @@
 
               <div class="subplot-row__mid">
                 <n-input-number
-                  :value="prefs.heightPct[key]"
+                  :value="props.prefs.heightPct[key]"
                   :min="4"
                   :max="20"
                   :step="1"
@@ -101,7 +101,7 @@
                   </template>
 
                   <kdj-params-editor
-                    :params="prefs.params?.KDJ"
+                    :params="props.prefs.params?.KDJ"
                     :default-params="DEFAULT_KDJ_PARAMS"
                     :ranges="KDJ_PARAM_RANGES"
                     @confirm="onKdjConfirm"
@@ -125,7 +125,7 @@
                 <n-button
                   text
                   size="tiny"
-                  :disabled="idx === prefs.order.length - 1"
+                  :disabled="idx === props.prefs.order.length - 1"
                   aria-label="下移"
                   @click="moveDown(idx)"
                 >
@@ -149,7 +149,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import {
   NButton,
   NCheckbox,
@@ -165,15 +165,14 @@ import {
   SettingsOutline,
 } from '@vicons/ionicons5'
 import {
-  ALL_SUBPLOT_KEYS,
   DEFAULT_KDJ_PARAMS,
   KDJ_PARAM_RANGES,
   isDefaultKdjParams,
   type KdjSubplotParams,
+  type RawSubplotPrefs,
   type SubplotKey,
   type SubplotPrefs,
 } from '@/composables/kline/subplotConfig'
-import { useKlineChartPrefs } from '@/composables/kline/useKlineChartPrefs'
 import KdjParamsEditor from './KdjParamsEditor.vue'
 
 type Granularity = 'date' | 'hour' | 'minute'
@@ -183,35 +182,28 @@ const props = withDefaults(
     granularity: Granularity
     range: [number, number] | null
     disabledRange?: boolean
-    prefsKey: string
-    availableSubplots?: SubplotKey[]
+    prefs: SubplotPrefs
+    update: (partial: RawSubplotPrefs) => void
+    reset: () => void
   }>(),
   {
     disabledRange: false,
-    availableSubplots: () => [...ALL_SUBPLOT_KEYS],
   },
 )
 
 const emit = defineEmits<{
   (e: 'update:range', value: [number, number] | null): void
-  (e: 'update:prefs', value: SubplotPrefs): void
 }>()
 
 const showKdjPopover = ref(false)
 
-// availableSubplots 仅在挂载期决定 hook 行为；在组件生命周期中视为稳定
-const { prefs, update, reset } = useKlineChartPrefs(
-  props.prefsKey,
-  props.availableSubplots,
-)
-
 function onKdjConfirm(params: KdjSubplotParams): void {
-  update({ params: { KDJ: params } })
+  props.update({ params: { KDJ: params } })
   showKdjPopover.value = false
 }
 
 const kdjDisplayName = computed(() => {
-  const kdj = prefs.value.params?.KDJ
+  const kdj = props.prefs.params?.KDJ
   if (kdj && !isDefaultKdjParams(kdj)) {
     return `KDJ(${kdj.n},${kdj.m1},${kdj.m2})`
   }
@@ -223,49 +215,35 @@ function onRangeUpdate(value: [number, number] | null): void {
 }
 
 function onVisibilityChange(key: SubplotKey, visible: boolean): void {
-  update({ visibility: { ...prefs.value.visibility, [key]: visible } })
+  props.update({ visibility: { ...props.prefs.visibility, [key]: visible } })
 }
 
 function onHeightChange(key: SubplotKey, value: number | null): void {
   if (value == null || !Number.isFinite(value)) return
-  update({ heightPct: { ...prefs.value.heightPct, [key]: value } })
+  props.update({ heightPct: { ...props.prefs.heightPct, [key]: value } })
 }
 
 function moveUp(idx: number): void {
   if (idx <= 0) return
-  const next = [...prefs.value.order]
+  const next = [...props.prefs.order]
   const tmp = next[idx - 1]
   next[idx - 1] = next[idx]
   next[idx] = tmp
-  update({ order: next })
+  props.update({ order: next })
 }
 
 function moveDown(idx: number): void {
-  const next = [...prefs.value.order]
+  const next = [...props.prefs.order]
   if (idx >= next.length - 1) return
   const tmp = next[idx + 1]
   next[idx + 1] = next[idx]
   next[idx] = tmp
-  update({ order: next })
+  props.update({ order: next })
 }
 
 function onReset(): void {
-  reset()
+  props.reset()
 }
-
-// prefs 任何变化（含 update / reset）→ 立刻 emit，不等 popover 关闭
-watch(
-  prefs,
-  (val) => {
-    emit('update:prefs', val)
-  },
-  { deep: true },
-)
-
-// 组件挂载时把持久化值告诉父组件（让父组件依此初始化图表）
-onMounted(() => {
-  emit('update:prefs', prefs.value)
-})
 </script>
 
 <style scoped>

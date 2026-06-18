@@ -1,42 +1,79 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { defineComponent, h, nextTick } from 'vue'
+import { defineComponent, h, nextTick, ref } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { NButton, NConfigProvider, NInputNumber } from 'naive-ui'
 
 import KlineChartToolbar from './KlineChartToolbar.vue'
 import KdjParamsEditor from './KdjParamsEditor.vue'
-import { DEFAULT_KDJ_PARAMS } from '@/composables/kline/subplotConfig'
+import {
+  ALL_SUBPLOT_KEYS,
+  DEFAULT_KDJ_PARAMS,
+  type IndicatorSubplotParams,
+  type RawSubplotPrefs,
+  type SubplotKey,
+  type SubplotPrefs,
+} from '@/composables/kline/subplotConfig'
+
+function defaultTestPrefs(params?: IndicatorSubplotParams): SubplotPrefs {
+  const visible: SubplotKey[] = ['VOL', 'KDJ']
+  return {
+    order: visible,
+    visibility: Object.fromEntries(
+      ALL_SUBPLOT_KEYS.map((k) => [k, visible.includes(k)]),
+    ) as Record<SubplotKey, boolean>,
+    heightPct: { VOL: 8, KDJ: 8, MACD: 8, BRICK: 6, FLOW: 10, '0AMV': 8, '0AMV_MACD': 8 },
+    params,
+  }
+}
 
 function mountToolbar(props: {
   granularity?: 'date' | 'hour' | 'minute'
   range?: [number, number] | null
-  prefsKey?: string
+  prefs?: SubplotPrefs
 } = {}) {
   const onUpdateRange = vi.fn()
-  const onUpdatePrefs = vi.fn()
 
   const Wrapper = defineComponent({
     setup() {
-      return () =>
-        h(
-          NConfigProvider,
-          null,
-          {
-            default: () =>
-              h(KlineChartToolbar, {
-                granularity: props.granularity ?? 'date',
-                range: props.range ?? null,
-                prefsKey: props.prefsKey ?? 'test-toolbar',
-                'onUpdate:range': onUpdateRange,
-                'onUpdate:prefs': onUpdatePrefs,
-              }),
-          },
-        )
+      const prefs = ref<SubplotPrefs>(props.prefs ?? defaultTestPrefs())
+      const update = vi.fn((partial: RawSubplotPrefs) => {
+        if (partial.order !== undefined) prefs.value.order = partial.order
+        if (partial.visibility !== undefined) {
+          prefs.value.visibility = { ...prefs.value.visibility, ...partial.visibility }
+        }
+        if (partial.heightPct !== undefined) {
+          prefs.value.heightPct = { ...prefs.value.heightPct, ...partial.heightPct }
+        }
+        if ('params' in partial) {
+          prefs.value.params = partial.params as IndicatorSubplotParams | undefined
+        }
+      })
+      const reset = vi.fn(() => {
+        prefs.value = defaultTestPrefs()
+      })
+
+      return {
+        prefs,
+        update,
+        reset,
+        render: () =>
+          h(KlineChartToolbar, {
+            granularity: props.granularity ?? 'date',
+            range: props.range ?? null,
+            prefs: prefs.value,
+            update,
+            reset,
+            'onUpdate:range': onUpdateRange,
+          }),
+      }
+    },
+    render() {
+      return this.render()
     },
   })
 
   const wrapper = mount(Wrapper, { attachTo: document.body })
-  return { wrapper, onUpdateRange, onUpdatePrefs }
+  return { wrapper, onUpdateRange }
 }
 
 function mockLocalStorage() {
@@ -125,14 +162,11 @@ describe('KlineChartToolbar KDJ 参数设置', () => {
     expect(text).not.toContain('KDJ(')
   })
 
-  it('修改参数 → 点确定 → update:prefs 携带 params.KDJ', async () => {
-    const { wrapper, onUpdatePrefs } = mountToolbar()
+  it('修改参数 → 点确定 → update 被调用并携带 params.KDJ', async () => {
+    const { wrapper } = mountToolbar()
     lastWrapper = wrapper
     await flushPromises()
     await nextTick()
-
-    // 清除初始 mount 与 watch 触发的事件，避免干扰
-    onUpdatePrefs.mockClear()
 
     await openKdjEditor(wrapper)
 
@@ -149,18 +183,17 @@ describe('KlineChartToolbar KDJ 参数设置', () => {
     await flushPromises()
     await nextTick()
 
-    expect(onUpdatePrefs).toHaveBeenCalled()
-    const lastCall = onUpdatePrefs.mock.calls[onUpdatePrefs.mock.calls.length - 1][0]
+    const updateFn = wrapper.vm.update as ReturnType<typeof vi.fn>
+    expect(updateFn).toHaveBeenCalled()
+    const lastCall = updateFn.mock.calls[updateFn.mock.calls.length - 1][0]
     expect(lastCall.params).toEqual({ KDJ: { n: 14, m1: 5, m2: 3 } })
   })
 
   it('点取消 → 不更新 params.KDJ', async () => {
-    const { wrapper, onUpdatePrefs } = mountToolbar()
+    const { wrapper } = mountToolbar()
     lastWrapper = wrapper
     await flushPromises()
     await nextTick()
-
-    onUpdatePrefs.mockClear()
 
     await openKdjEditor(wrapper)
 
@@ -175,8 +208,8 @@ describe('KlineChartToolbar KDJ 参数设置', () => {
     await flushPromises()
     await nextTick()
 
-    // 取消不改变 prefs，因此不应有携带自定义 KDJ 参数的 update:prefs
-    const callsWithKdj = onUpdatePrefs.mock.calls.filter(
+    const updateFn = wrapper.vm.update as ReturnType<typeof vi.fn>
+    const callsWithKdj = updateFn.mock.calls.filter(
       (call) => call[0].params?.KDJ != null,
     )
     expect(callsWithKdj).toHaveLength(0)
@@ -202,15 +235,9 @@ describe('KlineChartToolbar KDJ 参数设置', () => {
   })
 
   it('存在非默认 KDJ 参数时行名显示 KDJ(n,m1,m2)', async () => {
-    const storage = mockLocalStorage()
-    storage['kline-chart-prefs:test-kdj-name'] = JSON.stringify({
-      order: ['VOL', 'KDJ'],
-      visibility: { VOL: true, KDJ: true },
-      heightPct: { VOL: 8, KDJ: 8 },
-      params: { KDJ: { n: 14, m1: 5, m2: 3 } },
+    const { wrapper } = mountToolbar({
+      prefs: defaultTestPrefs({ KDJ: { n: 14, m1: 5, m2: 3 } }),
     })
-
-    const { wrapper } = mountToolbar({ prefsKey: 'test-kdj-name' })
     lastWrapper = wrapper
     await flushPromises()
     await nextTick()
@@ -221,15 +248,9 @@ describe('KlineChartToolbar KDJ 参数设置', () => {
   })
 
   it('KDJ 参数为默认值时仍显示 "KDJ"', async () => {
-    const storage = mockLocalStorage()
-    storage['kline-chart-prefs:test-kdj-default'] = JSON.stringify({
-      order: ['VOL', 'KDJ'],
-      visibility: { VOL: true, KDJ: true },
-      heightPct: { VOL: 8, KDJ: 8 },
-      params: { KDJ: DEFAULT_KDJ_PARAMS },
+    const { wrapper } = mountToolbar({
+      prefs: defaultTestPrefs({ KDJ: DEFAULT_KDJ_PARAMS }),
     })
-
-    const { wrapper } = mountToolbar({ prefsKey: 'test-kdj-default' })
     lastWrapper = wrapper
     await flushPromises()
     await nextTick()
