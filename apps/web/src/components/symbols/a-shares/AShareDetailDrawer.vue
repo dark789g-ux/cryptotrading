@@ -35,6 +35,7 @@
               :range="klineRange"
               prefs-key="a-share"
               :available-subplots="aShareAvailableSubplots"
+              :recalc-indicators="recalcKdjIndicators"
               @update:range="onKlineRangeChange"
             />
             <!-- 0AMV 副图合规标注（spec §8/§11）：信号未回测校准 -->
@@ -59,8 +60,9 @@ import {
   useMessage,
 } from 'naive-ui'
 import KlineChart from '../../kline/KlineChart.vue'
-import { type AShareKlineBar, type AShareRow } from '@/api'
+import { aSharesApi, type AShareKlineBar, type AShareRow } from '@/api'
 import type { AmvSeriesRow } from '@/api/modules/market/active-mv'
+import type { IndicatorSubplotParams } from '@/composables/kline/subplotConfig'
 import { AMV_CAPTION_BASE } from '@/composables/kline/amvCaption'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { mergeKlineWithMoneyFlow, type MoneyFlowRowLike } from '@/composables/kline/mergeMoneyFlow'
@@ -146,6 +148,29 @@ async function reloadKlineOnly() {
     message.error(err instanceof Error ? err.message : String(err))
   } finally {
     loading.value = false
+  }
+}
+
+async function recalcKdjIndicators(params?: IndicatorSubplotParams): Promise<void> {
+  const tsCode = props.row?.tsCode
+  if (!tsCode) return
+  const rangeDates = currentRangeDates()
+  const limit = rangeDates ? RANGE_LIMIT : DEFAULT_LIMIT
+  try {
+    const rawKline = await aSharesApi.recalcKlines(
+      tsCode,
+      limit,
+      props.priceMode,
+      rangeDates ?? undefined,
+      { kdjParams: params?.KDJ },
+    )
+    klineRows.value = mergeKlineWithAmv(
+      mergeKlineWithMoneyFlow(rawKline, cachedFlowRows.value),
+      cachedAmvRows.value,
+    )
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : String(err))
+    throw err
   }
 }
 

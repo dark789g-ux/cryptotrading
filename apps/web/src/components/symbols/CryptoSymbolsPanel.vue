@@ -99,6 +99,7 @@
           :range="klineRange"
           prefs-key="crypto"
           :available-subplots="cryptoAvailableSubplots"
+          :recalc-indicators="recalcKdjIndicators"
           @update:range="onKlineRangeChange"
         />
         <n-empty v-else description="No kline data" style="padding: 40px 0" />
@@ -143,6 +144,7 @@ import type { NumericCondition, NumericConditionFieldOption } from '../common/nu
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { useKlineRangePicker } from '@/composables/kline/useKlineRangePicker'
 import { sliceTimestampBarsByRange } from '@/composables/kline/klineDateRange'
+import type { IndicatorSubplotParams } from '@/composables/kline/subplotConfig'
 import { klinesApi, symbolApi, type KlineChartBar, type SymbolRow } from '@/api'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { createCryptoColumnDefs } from './cryptoColumns'
@@ -364,6 +366,20 @@ async function openChart(symbol: string) {
     message.error(err instanceof Error ? err.message : String(err))
   }
 }
+
+async function recalcKdjIndicators(params?: IndicatorSubplotParams): Promise<void> {
+  const symbol = selectedSymbol.value
+  if (!symbol) return
+  try {
+    const result = await klinesApi.recalcKlines(symbol, selectedInterval.value, { kdjParams: params?.KDJ })
+    klineData.value = result
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : String(err))
+    throw err
+  }
+}
+
+defineExpose({ openChart, recalcKdjIndicators })
 
 async function handleSaveColumnPreferences() {
   try {
