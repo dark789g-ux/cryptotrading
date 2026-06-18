@@ -21,11 +21,28 @@ export interface SubplotConfig {
   heightPct: number
 }
 
+/** KDJ 指标参数（RSV 周期 n、K 平滑 m1、D 平滑 m2） */
+export interface KdjSubplotParams {
+  n: number
+  m1: number
+  m2: number
+}
+
+/** 指标副图参数联合类型。当前仅 KDJ，后续可扩展 MACD 等。 */
+export type IndicatorSubplotParams = KdjSubplotParams
+
 export interface SubplotPrefs {
   /** 用户拖拽后的顺序，未在此列表中的 key 落到末尾按 ALL_SUBPLOT_KEYS 顺序补齐 */
   order: SubplotKey[]
   visibility: Record<SubplotKey, boolean>
   heightPct: Record<SubplotKey, number>
+  /** 自定义指标参数；等于默认值时省略，保持持久化精简 */
+  params?: IndicatorSubplotParams
+}
+
+/** 外部输入的偏好（如 localStorage 原始值 / update 入参），params 允许 partial */
+export type RawSubplotPrefs = Partial<Omit<SubplotPrefs, 'params'>> & {
+  params?: Partial<IndicatorSubplotParams> | undefined
 }
 
 export const ALL_SUBPLOT_KEYS: readonly SubplotKey[] = [
@@ -65,6 +82,20 @@ export const DEFAULT_SUBPLOT_ORDER: readonly SubplotKey[] = [
   '0AMV_MACD',
 ]
 
+/** KDJ 默认参数：与 Tushare / 常见行情软件保持一致（9, 3, 3） */
+export const DEFAULT_KDJ_PARAMS: KdjSubplotParams = {
+  n: 9,
+  m1: 3,
+  m2: 3,
+}
+
+/** KDJ 各参数合法范围（闭区间） */
+export const KDJ_PARAM_RANGES: Record<keyof KdjSubplotParams, readonly [number, number]> = {
+  n: [2, 100],
+  m1: [1, 50],
+  m2: [1, 50],
+}
+
 /**
  * 三个调用点的默认偏好。
  * - a-share: 全开（FLOW 即资金净流入，A 股有数据可展示）
@@ -92,11 +123,54 @@ export function defaultPrefsFor(prefsKey: string): SubplotPrefs {
 }
 
 /**
+ * 判断给定 KDJ 参数是否等于默认值。
+ * 支持 partial 输入：未提供的字段视为默认。
+ */
+export function isDefaultKdjParams(p?: Partial<KdjSubplotParams> | null): boolean {
+  if (!p) return true
+  return (
+    (p.n === undefined || p.n === DEFAULT_KDJ_PARAMS.n) &&
+    (p.m1 === undefined || p.m1 === DEFAULT_KDJ_PARAMS.m1) &&
+    (p.m2 === undefined || p.m2 === DEFAULT_KDJ_PARAMS.m2)
+  )
+}
+
+function clampOrDefault(
+  value: unknown,
+  defaultValue: number,
+  [min, max]: readonly [number, number],
+): number {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < min || n > max) return defaultValue
+  return n
+}
+
+/**
+ * 将任意输入归一化为合法的 KDJ 参数。
+ * 缺失字段用默认值补齐；越界 / 非数字值回退到默认值。
+ */
+export function normalizeIndicatorParams(
+  p?: Partial<IndicatorSubplotParams> | null,
+): IndicatorSubplotParams {
+  const input = p ?? {}
+  return {
+    n: clampOrDefault(input.n, DEFAULT_KDJ_PARAMS.n, KDJ_PARAM_RANGES.n),
+    m1: clampOrDefault(input.m1, DEFAULT_KDJ_PARAMS.m1, KDJ_PARAM_RANGES.m1),
+    m2: clampOrDefault(input.m2, DEFAULT_KDJ_PARAMS.m2, KDJ_PARAM_RANGES.m2),
+  }
+}
+
+/**
  * 把外部传入的偏好与默认值合并，补齐缺失字段（持久化前后版本兼容）。
  * 同时按 availableSubplots 过滤：未在白名单的 key 不出现在结果中。
+ *
+ * params 处理规则：
+ * - 合法自定义参数会被保留
+ * - 等于默认值的参数会被省略，避免无意义持久化
+ * - 越界 / 非法参数会被清理回默认值并省略
  */
 export function normalizePrefs(
-  raw: Partial<SubplotPrefs> | null | undefined,
+  raw: RawSubplotPrefs | null | undefined,
   prefsKey: string,
   availableSubplots: readonly SubplotKey[] = ALL_SUBPLOT_KEYS,
 ): SubplotPrefs {
@@ -126,7 +200,16 @@ export function normalizePrefs(
     if (!Number.isFinite(v) || v < 4 || v > 20) heightPct[k] = defaults.heightPct[k]
   }
 
-  return { order, visibility, heightPct }
+  const result: SubplotPrefs = { order, visibility, heightPct }
+
+  if (raw?.params != null) {
+    const normalized = normalizeIndicatorParams(raw.params)
+    if (!isDefaultKdjParams(normalized)) {
+      result.params = normalized
+    }
+  }
+
+  return result
 }
 
 /**

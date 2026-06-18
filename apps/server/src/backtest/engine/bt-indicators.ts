@@ -3,6 +3,7 @@
  */
 
 import { KlineBarRow } from './models';
+import { calcKdjSeries, KdjPoint } from '../../indicators/kdj';
 
 // ─────────────────────────────────────────────────────────────
 // 砖型图指标预计算（通达信公式精确翻译）
@@ -82,24 +83,10 @@ export function precomputeAllKdj(
   n: number,
   m1: number,
   m2: number,
-): Map<string, Array<{ k: number; d: number; j: number }>> {
-  const result = new Map<string, Array<{ k: number; d: number; j: number }>>();
+): Map<string, KdjPoint[]> {
+  const result = new Map<string, KdjPoint[]>();
   for (const [symbol, df] of data) {
-    const arr: Array<{ k: number; d: number; j: number }> = new Array(df.length);
-    let k = 50, d = 50;
-    for (let i = 0; i < df.length; i++) {
-      const start = Math.max(0, i - n + 1);
-      let highN = -Infinity, lowN = Infinity;
-      for (let s = start; s <= i; s++) {
-        if (df[s].high > highN) highN = df[s].high;
-        if (df[s].low < lowN) lowN = df[s].low;
-      }
-      const rsv = highN === lowN ? 50 : ((df[i].close - lowN) / (highN - lowN)) * 100;
-      k = ((m1 - 1) * k + rsv) / m1;
-      d = ((m2 - 1) * d + k) / m2;
-      arr[i] = { k, d, j: 3 * k - 2 * d };
-    }
-    result.set(symbol, arr);
+    result.set(symbol, calcKdjSeries(df, n, m1, m2));
   }
   return result;
 }

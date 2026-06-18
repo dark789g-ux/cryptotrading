@@ -10,14 +10,17 @@
  *  - update 写入做 200ms debounce，避免拖动 input-number 时高频 setItem
  *  - 不订阅 storage 事件，跨窗口同步不在本次范围
  *  - 初始化失败一律回退 defaultPrefsFor → normalizePrefs，保证调用方拿到合法值
+ *  - params 支持深合并；update({ params: undefined }) 显式清除已持久化的自定义参数
  */
 
 import { ref, type Ref } from 'vue'
 import {
   defaultPrefsFor,
   normalizePrefs,
+  normalizeIndicatorParams,
   type SubplotKey,
   type SubplotPrefs,
+  type RawSubplotPrefs,
 } from './subplotConfig'
 
 const STORAGE_PREFIX = 'kline-chart-prefs'
@@ -27,14 +30,14 @@ function storageKey(prefsKey: string): string {
   return `${STORAGE_PREFIX}:${prefsKey}`
 }
 
-function safeReadRaw(prefsKey: string): Partial<SubplotPrefs> | null {
+function safeReadRaw(prefsKey: string): RawSubplotPrefs | null {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return null
     const raw = window.localStorage.getItem(storageKey(prefsKey))
     if (raw == null) return null
     const parsed = JSON.parse(raw) as unknown
     if (parsed && typeof parsed === 'object') {
-      return parsed as Partial<SubplotPrefs>
+      return parsed as RawSubplotPrefs
     }
     return null
   } catch {
@@ -53,7 +56,7 @@ function safeWrite(prefsKey: string, value: SubplotPrefs): void {
 
 export interface UseKlineChartPrefsReturn {
   prefs: Ref<SubplotPrefs>
-  update: (partial: Partial<SubplotPrefs>) => void
+  update: (partial: RawSubplotPrefs) => void
   reset: () => void
 }
 
@@ -73,7 +76,7 @@ export function useKlineChartPrefs(
     }, DEBOUNCE_MS)
   }
 
-  function update(partial: Partial<SubplotPrefs>): void {
+  function update(partial: RawSubplotPrefs): void {
     const merged: SubplotPrefs = {
       order: partial.order ?? prefs.value.order,
       visibility: partial.visibility
@@ -83,7 +86,17 @@ export function useKlineChartPrefs(
         ? { ...prefs.value.heightPct, ...partial.heightPct }
         : prefs.value.heightPct,
     }
-    // 再过一次 normalize，防止上层传入越界 heightPct 或非法 order
+
+    if ('params' in partial) {
+      merged.params =
+        partial.params === undefined
+          ? undefined
+          : normalizeIndicatorParams({ ...prefs.value.params, ...partial.params })
+    } else {
+      merged.params = prefs.value.params
+    }
+
+    // 再过一次 normalize，防止上层传入越界 heightPct / 非法 order / 非法 params
     prefs.value = normalizePrefs(merged, prefsKey, availableSubplots)
     scheduleWrite()
   }
