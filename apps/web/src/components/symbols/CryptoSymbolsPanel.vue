@@ -91,15 +91,15 @@
       <n-drawer-content :title="`${selectedSymbol} · ${selectedInterval.toUpperCase()}`" closable>
         <kline-chart
           v-if="klineData.length"
-          :data="klineData"
+          :data="displayKlineData"
           height="700px"
           :slider-start="70"
           show-toolbar
           :granularity="cryptoGranularity"
-          :range="null"
-          disabled-range
+          :range="klineRange"
           prefs-key="crypto"
           :available-subplots="cryptoAvailableSubplots"
+          @update:range="onKlineRangeChange"
         />
         <n-empty v-else description="No kline data" style="padding: 40px 0" />
       </n-drawer-content>
@@ -141,6 +141,8 @@ import KlineChart from '../kline/KlineChart.vue'
 import NumericConditionFilter from '../common/NumericConditionFilter.vue'
 import type { NumericCondition, NumericConditionFieldOption } from '../common/numericConditionFilterTypes'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
+import { useKlineRangePicker } from '@/composables/kline/useKlineRangePicker'
+import { sliceTimestampBarsByRange } from '@/composables/kline/klineDateRange'
 import { klinesApi, symbolApi, type KlineChartBar, type SymbolRow } from '@/api'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { createCryptoColumnDefs } from './cryptoColumns'
@@ -172,6 +174,15 @@ const showChartDrawer = ref(false)
 const showColumnSettings = ref(false)
 const selectedSymbol = ref('')
 const klineData = ref<KlineChartBar[]>([])
+
+// 工具栏日期选择器：A 类客户端裁切。后端 /klines/:symbol/:interval 返回全量历史（已握全量），
+// 无需服务端重查；选区由 displayKlineData 响应裁切（date 粒度比本地日历日 / hour 粒度比 instant）。
+const { range: klineRange, onRangeUpdate: onKlineRangeChange, reset: resetKlineRange } =
+  useKlineRangePicker()
+
+const displayKlineData = computed<KlineChartBar[]>(() =>
+  sliceTimestampBarsByRange(klineData.value, klineRange.value, cryptoGranularity.value),
+)
 const conditions = ref<NumericCondition[]>([])
 const fieldOptions = ref<NumericConditionFieldOption[]>([])
 const sortKey = ref<string | null>(null)
@@ -345,6 +356,7 @@ const handleSort = (sorter: DataTableSortState | DataTableSortState[] | null) =>
 async function openChart(symbol: string) {
   selectedSymbol.value = symbol
   showChartDrawer.value = true
+  resetKlineRange() // 新标的：清空选区，回默认窗口（全量历史）
   klineData.value = []
   try {
     klineData.value = await klinesApi.getKlines(symbol, selectedInterval.value)

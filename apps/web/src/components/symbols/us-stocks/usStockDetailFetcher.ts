@@ -6,11 +6,15 @@
 
 import { usStocksApi, type UsStockKlineBar } from '@/api/modules/market/usStocks'
 
-/** Drawer 首次加载 / 切换 row / priceMode 切换时调用：拉美股 K 线 */
+/**
+ * Drawer 首次加载 / 切换 row / priceMode 切换 / 选区重查时调用：拉美股 K 线。
+ * range（YYYYMMDD，工具栏选了区间时传）透传给后端按 trade_date 闭区间过滤。
+ */
 export async function fetchUsStockKline(
   ticker: string,
   limit: number,
   priceMode: 'qfq' | 'raw',
+  range?: { startDate?: string; endDate?: string },
 ): Promise<UsStockKlineBar[]> {
-  return usStocksApi.getKlines(ticker, limit, priceMode)
+  return usStocksApi.getKlines(ticker, limit, priceMode, range)
 }

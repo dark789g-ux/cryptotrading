@@ -89,6 +89,7 @@ import { watchlistApi } from '@/api'
 import type { KlineChartBar } from '@/api'
 import { AMV_CAPTION_INDUSTRY } from '@/composables/kline/amvCaption'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
+import { useKlineRangePicker } from '@/composables/kline/useKlineRangePicker'
 import { useWatchlistStore } from '@/stores/watchlist'
 import type { BarChartRow, TrendFetchResult } from './money-flow.types'
 
@@ -149,30 +150,18 @@ const klineBars = ref<KlineChartBar[]>([])
 const loading = ref(false)
 let skipNextEmit = false
 
-// kline 模式日期范围（与 KlineChart 工具栏双向绑定）
-const klineRange = ref<[number, number] | null>(null)
+// kline 模式日期范围（与 KlineChart 工具栏双向绑定）。B 类服务端重查：选了区间 → 用 start/end
+// 重查；清空 → no-op（保留当前数据，与接入前行为一致）。ms→YYYYMMDD 转换收口在 composable。
+const { range: klineRange, onRangeUpdate: onKlineRangeChange } = useKlineRangePicker((r) => {
+  if (!r) return
+  loadTrend({ start_date: r.startDate, end_date: r.endDate })
+})
 
-// 与 FlowDateControl.toYYYYMMDD 同语义：本地日历日（CLAUDE.md 例外条款）
-function tsToYYYYMMDD(ts: number): string {
-  const d = new Date(ts)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}${m}${day}`
-}
-
+// 首次进入 kline 模式：用近 120 天默认窗口触发首屏加载。
+// onKlineRangeChange 会置位 range 并经 composable 的 onApply 重查（取代旧的手动 loadTrend）。
 function initKlineRangeDefault() {
   const now = Date.now()
-  klineRange.value = [now - 120 * 86400000, now]
-}
-
-function onKlineRangeChange(value: [number, number] | null) {
-  klineRange.value = value
-  if (!value) return
-  loadTrend({
-    start_date: tsToYYYYMMDD(value[0]),
-    end_date: tsToYYYYMMDD(value[1]),
-  })
+  onKlineRangeChange([now - 120 * 86400000, now])
 }
 
 // 成分股相关
@@ -367,14 +356,9 @@ watch(() => props.visible, (v) => {
       skipNextEmit = true
       loadLatest()
     } else {
+      // kline 模式：FlowDateControl 已移除，由 KlineChart 工具栏管理；
+      // 用默认 120 天窗口触发首屏加载（initKlineRangeDefault 内置 onApply 重查）。
       initKlineRangeDefault()
-      const range = klineRange.value
-      if (range) {
-        loadTrend({
-          start_date: tsToYYYYMMDD(range[0]),
-          end_date: tsToYYYYMMDD(range[1]),
-        })
-      }
     }
   }
 })

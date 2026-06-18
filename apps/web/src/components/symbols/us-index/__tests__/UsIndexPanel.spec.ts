@@ -40,16 +40,48 @@ vi.mock('@/api/modules/market/usIndexAmv', () => ({
   },
 }))
 
-// Stub KlineChart: expose resize spy + record received :data.
+// Stub KlineChart: expose resize spy + record received :data (len + first/last open_time)
+// and re-emit update:range so range-filter wiring can be driven from tests.
 const resizeSpy = vi.fn()
 const KlineChartStub = defineComponent({
   name: 'KlineChart',
-  props: { data: { type: Array, default: () => [] } },
+  props: {
+    data: { type: Array, default: () => [] },
+    range: { type: Array, default: null },
+  },
+  emits: ['update:range'],
   setup(props, { expose }) {
     expose({ resize: resizeSpy })
-    return () => h('div', { class: 'kline-stub', 'data-len': props.data.length })
+    return () => {
+      const arr = props.data as Array<{ open_time?: string }>
+      return h('div', {
+        class: 'kline-stub',
+        'data-len': arr.length,
+        'data-first': arr[0]?.open_time ?? '',
+        'data-last': arr[arr.length - 1]?.open_time ?? '',
+      })
+    }
   },
 })
+
+// Local-calendar-day helpers mirroring the component's msToDateStr (getFullYear/Month/Date).
+// Both bar open_time strings and picker ms are derived from the SAME local calendar day so
+// the round-trip is TZ-independent.
+function fmtLocal(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+function dayStr(i: number): string {
+  return fmtLocal(new Date(2020, 0, 1 + i))
+}
+function dayMs(i: number): number {
+  return new Date(2020, 0, 1 + i).getTime()
+}
+function dayBars(n: number): Array<{ open_time: string }> {
+  return Array.from({ length: n }, (_, i) => ({ open_time: dayStr(i) }))
+}
 
 // Stub UsSyncProgressModal: render show + jobId so we can assert open state.
 const SyncModalStub = defineComponent({
@@ -153,6 +185,57 @@ describe('UsIndexPanel data loading', () => {
     expect(query).toHaveBeenCalled()
     // .catch(()=>[]) degrades — bars still merged (length preserved), no throw.
     expect(wrapper.find('.kline-stub').attributes('data-len')).toBe('1')
+  })
+
+  it('default view (no range) caps at the most-recent DEFAULT_BAR_COUNT (200) bars', async () => {
+    getDateRange.mockResolvedValue({ start: '20200101', end: '20240131' })
+    query.mockResolvedValue(dayBars(250))
+
+    const { wrapper } = mountPanel()
+    await flushPromises()
+    await nextTick()
+
+    const stub = wrapper.find('.kline-stub')
+    // 250 fetched, but only the last 200 are rendered (perf default).
+    expect(stub.attributes('data-len')).toBe('200')
+    expect(stub.attributes('data-first')).toBe(dayStr(50)) // 250 - 200 = index 50
+    expect(stub.attributes('data-last')).toBe(dayStr(249))
+  })
+
+  it('selecting a date range filters bars to that inclusive local-calendar window', async () => {
+    getDateRange.mockResolvedValue({ start: '20200101', end: '20240131' })
+    query.mockResolvedValue(dayBars(250))
+
+    const { wrapper } = mountPanel()
+    await flushPromises()
+    await nextTick()
+
+    // Drive the toolbar range picker: pick days [10, 20] inclusive (11 bars).
+    wrapper.findComponent({ name: 'KlineChart' }).vm.$emit('update:range', [dayMs(10), dayMs(20)])
+    await nextTick()
+
+    const stub = wrapper.find('.kline-stub')
+    expect(stub.attributes('data-len')).toBe('11')
+    expect(stub.attributes('data-first')).toBe(dayStr(10))
+    expect(stub.attributes('data-last')).toBe(dayStr(20))
+  })
+
+  it('clearing the range (null) falls back to the most-recent 200 bars', async () => {
+    getDateRange.mockResolvedValue({ start: '20200101', end: '20240131' })
+    query.mockResolvedValue(dayBars(250))
+
+    const { wrapper } = mountPanel()
+    await flushPromises()
+    await nextTick()
+
+    const chart = wrapper.findComponent({ name: 'KlineChart' })
+    chart.vm.$emit('update:range', [dayMs(10), dayMs(20)])
+    await nextTick()
+    expect(wrapper.find('.kline-stub').attributes('data-len')).toBe('11')
+
+    chart.vm.$emit('update:range', null)
+    await nextTick()
+    expect(wrapper.find('.kline-stub').attributes('data-len')).toBe('200')
   })
 
   it('empty range: no query, warns', async () => {

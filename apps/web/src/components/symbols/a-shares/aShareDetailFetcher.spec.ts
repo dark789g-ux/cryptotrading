@@ -52,7 +52,7 @@ describe('aShareDetailFetcher', () => {
     // 并发：两个 API 都被调用，且仅各一次
     expect(getKlinesMock).toHaveBeenCalledTimes(1)
     expect(queryStocksMock).toHaveBeenCalledTimes(1)
-    expect(getKlinesMock).toHaveBeenCalledWith(TS_CODE, LIMIT, 'qfq')
+    expect(getKlinesMock).toHaveBeenCalledWith(TS_CODE, LIMIT, 'qfq', undefined)
     expect(queryStocksMock).toHaveBeenCalledWith({ ts_code: TS_CODE, limit: LIMIT })
 
     // K 线已 merge moneyFlow，按 open_time（'YYYY-MM-DD'）归一化与 flow tradeDate 对齐
@@ -87,8 +87,29 @@ describe('aShareDetailFetcher', () => {
     const result = await fetchAShareKlineOnly(TS_CODE, LIMIT, 'raw')
 
     expect(getKlinesMock).toHaveBeenCalledTimes(1)
-    expect(getKlinesMock).toHaveBeenCalledWith(TS_CODE, LIMIT, 'raw')
+    expect(getKlinesMock).toHaveBeenCalledWith(TS_CODE, LIMIT, 'raw', undefined)
     expect(queryStocksMock).not.toHaveBeenCalled()
     expect(result).toBe(klineFixture)
+  })
+
+  it('fetchAShareDetail 传 range 时透传给 getKlines（资金流仍按 limit，无 range）', async () => {
+    getKlinesMock.mockResolvedValue([])
+    queryStocksMock.mockResolvedValue([])
+    const range = { startDate: '20240101', endDate: '20240201' }
+
+    await fetchAShareDetail(TS_CODE, 1000, 'qfq', range)
+
+    expect(getKlinesMock).toHaveBeenCalledWith(TS_CODE, 1000, 'qfq', range)
+    // 资金流接口仅支持 limit（无 range），选区时靠放大的 limit 尽量覆盖窗口
+    expect(queryStocksMock).toHaveBeenCalledWith({ ts_code: TS_CODE, limit: 1000 })
+  })
+
+  it('fetchAShareKlineOnly 透传 range', async () => {
+    getKlinesMock.mockResolvedValue([])
+    const range = { startDate: '20240101', endDate: '20240201' }
+
+    await fetchAShareKlineOnly(TS_CODE, 1000, 'raw', range)
+
+    expect(getKlinesMock).toHaveBeenCalledWith(TS_CODE, 1000, 'raw', range)
   })
 })

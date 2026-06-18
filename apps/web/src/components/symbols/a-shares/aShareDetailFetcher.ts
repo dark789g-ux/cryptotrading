@@ -23,14 +23,22 @@ export interface AShareDetailFetchResult {
   amvRows: AmvSeriesRow[]
 }
 
-/** Drawer 首次加载 / 切换 row 时调用：并行拉 K 线 + 资金流 + 活跃市值 */
+/**
+ * Drawer 首次加载 / 切换 row / 选区重查时调用：并行拉 K 线 + 资金流 + 活跃市值。
+ *
+ * range（YYYYMMDD，工具栏选了区间时传）只透传给 K 线接口（后端按 trade_date 闭区间过滤）；
+ * 资金流 / AMV 接口仅支持 limit（无 range），故调用方选区时把 limit 放大（如 1000）以让这两路
+ * 「最近 N 根」尽量覆盖所选窗口。所选区间早于最近 limit 根时，资金流 / AMV 副图按缺日降级为
+ * null（既有 mergeKlineWith* 行为），不影响 K 线主图。
+ */
 export async function fetchAShareDetail(
   tsCode: string,
   limit: number,
   priceMode: 'qfq' | 'raw',
+  range?: { startDate?: string; endDate?: string },
 ): Promise<AShareDetailFetchResult> {
   const [kline, flowRows, amvRows] = await Promise.all([
-    aSharesApi.getKlines(tsCode, limit, priceMode),
+    aSharesApi.getKlines(tsCode, limit, priceMode, range),
     moneyFlowApi.queryStocks({ ts_code: tsCode, limit }),
     // AMV 失败不应拖垮 K 线主图：吞错降级为空序列（副图缺日填 null）
     activeMvApi.getStock(tsCode, limit).catch(() => [] as AmvSeriesRow[]),
@@ -42,11 +50,12 @@ export async function fetchAShareDetail(
   }
 }
 
-/** priceMode 切换时调用：只重拉 K 线，资金流 / AMV 由调用方缓存复用 */
+/** priceMode 切换时调用：只重拉 K 线（透传当前 range），资金流 / AMV 由调用方缓存复用 */
 export async function fetchAShareKlineOnly(
   tsCode: string,
   limit: number,
   priceMode: 'qfq' | 'raw',
+  range?: { startDate?: string; endDate?: string },
 ): Promise<AShareKlineBar[]> {
-  return aSharesApi.getKlines(tsCode, limit, priceMode)
+  return aSharesApi.getKlines(tsCode, limit, priceMode, range)
 }

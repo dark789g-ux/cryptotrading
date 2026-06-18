@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { Repository } from 'typeorm'
+import {
+  Between,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Repository,
+  type FindOptionsWhere,
+} from 'typeorm'
 import { OamvDailyEntity } from '../../entities/oamv/oamv-daily.entity'
 import { TushareClientService } from '../a-shares/services/tushare-client.service'
 import { buildIndicatorArrays } from './oamv-indicators'
@@ -286,9 +292,27 @@ export class OamvService {
   }
 
   /**
-   * 查询 0AMV 数据
+   * 查询 0AMV 数据。
+   * - 传 range（startDate/endDate，YYYYMMDD）：按 trade_date 闭区间过滤、升序返回，忽略 days
+   *   （trade_date 为 varchar(8) YYYYMMDD，字典序即时间序；MA/KDJ/MACD 是 sync 后全量重算落库的
+   *   存值，窗口读取直接返回、无需热身重算）。
+   * - 不传 range：取最近 days 条、升序返回（面板默认"看近期象限"窗口）。
    */
-  async get0amvData(days: number = 250): Promise<OamvDailyEntity[]> {
+  async get0amvData(
+    days: number = 250,
+    range?: { startDate?: string; endDate?: string },
+  ): Promise<OamvDailyEntity[]> {
+    if (range && (range.startDate || range.endDate)) {
+      const where: FindOptionsWhere<OamvDailyEntity> = {}
+      if (range.startDate && range.endDate) {
+        where.tradeDate = Between(range.startDate, range.endDate)
+      } else if (range.startDate) {
+        where.tradeDate = MoreThanOrEqual(range.startDate)
+      } else if (range.endDate) {
+        where.tradeDate = LessThanOrEqual(range.endDate)
+      }
+      return this.repo.find({ where, order: { tradeDate: 'ASC' } })
+    }
     const rows = await this.repo.find({
       order: { tradeDate: 'DESC' },
       take: days,

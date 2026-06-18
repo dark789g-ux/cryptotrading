@@ -32,10 +32,10 @@
             :slider-start="35"
             show-toolbar
             granularity="date"
-            :range="null"
-            disabled-range
+            :range="klineRange"
             prefs-key="us-stock"
             :available-subplots="usStockAvailableSubplots"
+            @update:range="onKlineRangeChange"
           />
         </div>
       </div>
@@ -57,6 +57,8 @@ import {
 import KlineChart from '../../kline/KlineChart.vue'
 import { type UsStockKlineBar, type UsStockRow } from '@/api'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
+import { useKlineRangePicker, type KlineRangeDates } from '@/composables/kline/useKlineRangePicker'
+import { msToYyyymmdd } from '@/composables/kline/klineDateRange'
 import { fetchUsStockKline } from './usStockDetailFetcher'
 import { formatTradeDate } from '../a-shares/aSharesFormatters'
 
@@ -73,16 +75,31 @@ const emit = defineEmits<{ (e: 'update:show', value: boolean): void }>()
 
 const message = useMessage()
 
+// 默认窗口取最近 DEFAULT_LIMIT 根；选了区间则把 limit 放大到 RANGE_LIMIT（后端 safeLimit 硬上限），
+// 覆盖约 4 年交易日——区间跨度超出时回区间内最近 RANGE_LIMIT 根（已知边界）。
+const DEFAULT_LIMIT = 360
+const RANGE_LIMIT = 1000
+
 const loading = ref(false)
 const klineRows = ref<UsStockKlineBar[]>([])
 
-async function loadDetail() {
+// B 类服务端重查：选区间 → 以 start/end 重查；清空 → 回默认窗口（limit=DEFAULT_LIMIT）。
+const { range: klineRange, onRangeUpdate: onKlineRangeChange, reset: resetKlineRange } =
+  useKlineRangePicker((r) => loadDetail(r))
+
+function currentRangeDates(): KlineRangeDates | null {
+  const r = klineRange.value
+  return r ? { startDate: msToYyyymmdd(r[0]), endDate: msToYyyymmdd(r[1]) } : null
+}
+
+async function loadDetail(rangeDates: KlineRangeDates | null) {
   const ticker = props.row?.ticker
   if (!ticker) return
   loading.value = true
   klineRows.value = []
   try {
-    klineRows.value = await fetchUsStockKline(ticker, 360, props.priceMode)
+    const limit = rangeDates ? RANGE_LIMIT : DEFAULT_LIMIT
+    klineRows.value = await fetchUsStockKline(ticker, limit, props.priceMode, rangeDates ?? undefined)
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
   } finally {
@@ -95,10 +112,13 @@ watch(
   ([show, ticker]) => {
     if (!show) {
       klineRows.value = []
+      resetKlineRange()
       return
     }
     if (!ticker) return
-    void loadDetail()
+    // 切 row / 打开：回默认窗口（清空选区）后加载
+    resetKlineRange()
+    void loadDetail(null)
   },
 )
 
@@ -106,7 +126,8 @@ watch(
   () => props.priceMode,
   () => {
     if (!props.show || !props.row?.ticker) return
-    void loadDetail()
+    // priceMode 切换沿用当前选区重拉
+    void loadDetail(currentRangeDates())
   },
 )
 

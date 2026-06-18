@@ -75,15 +75,15 @@
             <n-empty v-else-if="!klineData.length" description="暂无 K 线数据" class="chart-empty" />
             <kline-chart
               v-else
-              :data="klineData"
+              :data="displayKlineData"
               height="100%"
               :slider-start="35"
               show-toolbar
               :granularity="watchlistGranularity"
-              :range="null"
-              disabled-range
+              :range="klineRange"
               prefs-key="watchlist"
               :available-subplots="watchlistAvailableSubplots"
+              @update:range="onKlineRangeChange"
             />
           </div>
         </div>
@@ -114,6 +114,8 @@ import WatchlistAddSymbolsModal from './WatchlistAddSymbolsModal.vue'
 import WatchlistTableSettings from './WatchlistTableSettings.vue'
 import KlineChart from '@/components/kline/KlineChart.vue'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
+import { useKlineRangePicker, type KlineRangeDates } from '@/composables/kline/useKlineRangePicker'
+import { sliceTimestampBarsByRange } from '@/composables/kline/klineDateRange'
 import { createWatchlistColumnDefs, isWatchlistAShare } from './watchlistColumnDefs'
 import { useWatchlistColumnPreferences } from '@/composables/watchlist/useWatchlistColumnPreferences'
 
@@ -135,6 +137,41 @@ const watchlistGranularity = computed<'date' | 'hour' | 'minute'>(() => {
   if (isWatchlistAShare(selectedSymbol.value)) return 'date'
   return store.interval === '1d' ? 'date' : 'hour'
 })
+
+// 默认窗口取最近 DEFAULT_LIMIT 根；A 股选区时把 limit 放大到 RANGE_LIMIT（后端硬上限，约 4 年交易日）。
+const DEFAULT_LIMIT = 360
+const RANGE_LIMIT = 1000
+
+// 工具栏日期选择器：A 股走 B 类服务端重查（onApply 重拉）；crypto 走 A 类客户端裁切（已握全量历史，
+// displayKlineData 响应 range 裁切，onApply 对 crypto 是 no-op）。
+const { range: klineRange, onRangeUpdate: onKlineRangeChange, reset: resetKlineRange } =
+  useKlineRangePicker((r) => {
+    if (isWatchlistAShare(selectedSymbol.value)) void reloadAShareKline(r)
+  })
+
+// 实际喂图数据：未选区间→全量（A 股最近 DEFAULT_LIMIT 根 / crypto 全历史）；
+// 选了区间→A 股用服务端已过滤的 klineData，crypto 按本地选区裁切全量历史。
+const displayKlineData = computed<KlineChartBar[]>(() => {
+  const range = klineRange.value
+  if (!range) return klineData.value
+  if (isWatchlistAShare(selectedSymbol.value)) return klineData.value
+  return sliceTimestampBarsByRange(klineData.value, range, watchlistGranularity.value)
+})
+
+// A 股 B 类重查：选区间→以 start/end 重拉（limit 放大）；清空→回默认窗口（limit=DEFAULT_LIMIT）。
+async function reloadAShareKline(rangeDates: KlineRangeDates | null) {
+  const symbol = selectedSymbol.value
+  if (!symbol || !isWatchlistAShare(symbol)) return
+  loadingKline.value = true
+  try {
+    const limit = rangeDates ? RANGE_LIMIT : DEFAULT_LIMIT
+    klineData.value = await aSharesApi.getKlines(symbol, limit, 'qfq', rangeDates ?? undefined)
+  } catch (err: unknown) {
+    console.error(err)
+  } finally {
+    loadingKline.value = false
+  }
+}
 
 const columnDefs = computed(() => createWatchlistColumnDefs({
   scoresMap,
@@ -261,12 +298,13 @@ function handleSort(sorter: DataTableSortState | DataTableSortState[] | null) {
 async function openChart(symbol: string) {
   selectedSymbol.value = symbol
   showChartDrawer.value = true
+  resetKlineRange() // 新标的：清空选区，回各自默认窗口
   loadingKline.value = true
   klineData.value = []
   try {
     klineData.value = isWatchlistAShare(symbol)
-      ? await aSharesApi.getKlines(symbol, 360, 'qfq')
-      : await klinesApi.getKlines(symbol, store.interval)
+      ? await aSharesApi.getKlines(symbol, DEFAULT_LIMIT, 'qfq') // A 股：有界默认窗口
+      : await klinesApi.getKlines(symbol, store.interval) // crypto：后端返回全量历史，A 类客户端裁切
   } catch (err: unknown) {
     console.error(err)
   } finally {

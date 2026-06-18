@@ -10,9 +10,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 如果有更简单的方案，说出来；在该反驳时要反驳
 - 如果有不清楚的地方，停下来，说明哪里困惑，然后提问
 
-## 子代理派发
-- 在用 Agent 工具派发 subagent_type: Explore 时显式传 model: sonnet
-
 ## 工作方法（踩坑沉淀）
 - **写 spec 时计数/清单类"伪事实"当场落源头数**：进文档的列数、字段清单、行号等具体计数，写时即去权威源（实体 / 真文件 / 真 DB）数一遍，别凭印象写再让实现者反查。
 - **驱动 naive-ui 等响应式 UI 做批量操作要分多次调用**：一个 eval / 批次里连点多个会改同一响应式状态的控件（如多组"全选"），Vue 响应式未 flush 会让前面的操作被后面覆盖、只生效最后一个。一次一个动作分多次调用（让响应式 flush），或直接验数据层 payload / 网络响应——比连点更稳更准。

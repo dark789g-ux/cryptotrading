@@ -17,11 +17,13 @@
 
     <kline-chart
       ref="klineRef"
-      :data="bars"
+      :data="displayBars"
+      :range="range"
       :available-subplots="availableSubplots"
       prefs-key="us-index"
       :height="'640px'"
       show-toolbar
+      @update:range="onRangeUpdate"
     />
 
     <us-sync-progress-modal
@@ -36,7 +38,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'UsIndexPanel' })
 
-import { onActivated, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onMounted, ref, watch } from 'vue'
 import { NButton, NIcon, NSelect, useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import { CloudDownloadOutline } from '@vicons/ionicons5'
@@ -49,6 +51,8 @@ import type { KlineChartBar } from '@/api/modules/market/symbols'
 import type { JobStatus } from '@/api/modules/quant'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { mergeKlineWithAmv } from '@/composables/kline/mergeAmv'
+import { sliceDateStringBarsByRange } from '@/composables/kline/klineDateRange'
+import { useKlineRangePicker } from '@/composables/kline/useKlineRangePicker'
 
 interface IndexOption extends SelectOption {
   label: string
@@ -63,9 +67,27 @@ const availableSubplots: SubplotKey[] = ['VOL', 'KDJ', 'MACD', '0AMV', '0AMV_MAC
 
 const message = useMessage()
 
+// 未选区间时默认只渲染最近 N 根 K 线：全量（NDX ~3000+ 根）一次性喂给 ECharts
+// 会让 setOption 构建 18×N 量级的 series 数组而卡顿；这里裁到近端窗口。
+const DEFAULT_BAR_COUNT = 200
+
 const selectedIndex = ref('.NDX')
-const bars = ref<KlineChartBar[]>([])
+// 全量合并数据（K 线 + AMV，trade_date ASC）；displayBars 在其上派生显示窗口。
+const allBars = ref<KlineChartBar[]>([])
 const klineRef = ref<{ resize: () => void } | null>(null)
+
+// 工具栏日期选择器（A 类客户端裁切）：range=[startMs, endMs] 本地午夜 ms，null = 未选。
+// ms→日历日转换与裁切逻辑收口在共享 util（见 klineDateRange.ts，本地 getter / datetime.md 例外）。
+const { range, onRangeUpdate, reset: resetRange } = useKlineRangePicker()
+
+// 实际喂给图表的数据：
+// - 未选区间 → 仅最近 DEFAULT_BAR_COUNT 根（本面板特有性能默认，不外溢到其它调用方）。
+// - 选了区间 → 按本地日历日闭区间过滤（open_time 为 'YYYY-MM-DD' 字面串，共享 util 裁切）。
+const displayBars = computed<KlineChartBar[]>(() => {
+  const bars = allBars.value
+  if (!range.value) return bars.slice(-DEFAULT_BAR_COUNT)
+  return sliceDateStringBarsByRange(bars, range.value)
+})
 
 const syncing = ref(false)
 const showSyncProgress = ref(false)
@@ -75,7 +97,7 @@ async function reload() {
   try {
     const { start, end } = await usIndexDailyApi.getDateRange(selectedIndex.value)
     if (!start || !end) {
-      bars.value = []
+      allBars.value = []
       message.warning('未灌数据，请先同步')
       return
     }
@@ -90,7 +112,7 @@ async function reload() {
         .query({ index_code: selectedIndex.value, start_date: start, end_date: end })
         .catch(() => [] as AmvSeriesRow[]),
     ])
-    bars.value = mergeKlineWithAmv(kline, amvRows)
+    allBars.value = mergeKlineWithAmv(kline, amvRows)
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
   }
@@ -127,8 +149,9 @@ onActivated(() => {
   void reload()
 })
 
-// reload on index switch.
+// 切换指数：清空区间回到默认近端窗口（不同指数日期覆盖不同），再重载。
 watch(selectedIndex, () => {
+  resetRange()
   void reload()
 })
 

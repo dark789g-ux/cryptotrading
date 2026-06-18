@@ -32,10 +32,10 @@
               :slider-start="35"
               show-toolbar
               granularity="date"
-              :range="null"
-              disabled-range
+              :range="klineRange"
               prefs-key="a-share"
               :available-subplots="aShareAvailableSubplots"
+              @update:range="onKlineRangeChange"
             />
             <!-- 0AMV 副图合规标注（spec §8/§11）：信号未回测校准 -->
             <n-text :depth="3" class="amv-caption">{{ AMV_CAPTION_BASE }}</n-text>
@@ -65,6 +65,8 @@ import { AMV_CAPTION_BASE } from '@/composables/kline/amvCaption'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { mergeKlineWithMoneyFlow, type MoneyFlowRowLike } from '@/composables/kline/mergeMoneyFlow'
 import { mergeKlineWithAmv } from '@/composables/kline/mergeAmv'
+import { useKlineRangePicker, type KlineRangeDates } from '@/composables/kline/useKlineRangePicker'
+import { msToYyyymmdd } from '@/composables/kline/klineDateRange'
 import { fetchAShareDetail, fetchAShareKlineOnly } from './aShareDetailFetcher'
 import { formatTradeDate } from './aSharesFormatters'
 
@@ -83,6 +85,11 @@ const emit = defineEmits<{ (e: 'update:show', value: boolean): void }>()
 
 const message = useMessage()
 
+// 默认窗口取最近 DEFAULT_LIMIT 根；选了区间则把 limit 放大到 RANGE_LIMIT（后端 safeLimit 硬上限），
+// 覆盖约 4 年交易日——区间跨度超出时回区间内最近 RANGE_LIMIT 根（区间名不副实的边界，已知）。
+const DEFAULT_LIMIT = 360
+const RANGE_LIMIT = 1000
+
 const loading = ref(false)
 const klineRows = ref<AShareKlineBar[]>([])
 // 缓存最近一次的资金流 raw 行，供 priceMode 切换路径复用
@@ -90,8 +97,18 @@ const cachedFlowRows = ref<MoneyFlowRowLike[]>([])
 // 缓存最近一次的 AMV 序列，供 priceMode 切换路径复用（重 merge 不重拉）
 const cachedAmvRows = ref<AmvSeriesRow[]>([])
 
-/** Drawer 打开 / row 切换：并行拉 K 线 + 资金流 */
-async function loadDetail() {
+// B 类服务端重查：选区间 → 以 start/end 重查（limit 放大）；清空 → 回默认窗口（limit=DEFAULT_LIMIT）。
+const { range: klineRange, onRangeUpdate: onKlineRangeChange, reset: resetKlineRange } =
+  useKlineRangePicker((r) => loadDetail(r))
+
+// 当前选区的 YYYYMMDD 表示（priceMode 切换路径需据此带上区间重拉 K 线）。
+function currentRangeDates(): KlineRangeDates | null {
+  const r = klineRange.value
+  return r ? { startDate: msToYyyymmdd(r[0]), endDate: msToYyyymmdd(r[1]) } : null
+}
+
+/** Drawer 打开 / row 切换 / 选区重查：并行拉 K 线 + 资金流 + AMV（K 线带 range） */
+async function loadDetail(rangeDates: KlineRangeDates | null) {
   const tsCode = props.row?.tsCode
   if (!tsCode) return
   loading.value = true
@@ -99,7 +116,8 @@ async function loadDetail() {
   cachedFlowRows.value = []
   cachedAmvRows.value = []
   try {
-    const result = await fetchAShareDetail(tsCode, 360, props.priceMode)
+    const limit = rangeDates ? RANGE_LIMIT : DEFAULT_LIMIT
+    const result = await fetchAShareDetail(tsCode, limit, props.priceMode, rangeDates ?? undefined)
     klineRows.value = result.kline
     cachedFlowRows.value = result.flowRows
     cachedAmvRows.value = result.amvRows
@@ -110,13 +128,15 @@ async function loadDetail() {
   }
 }
 
-/** priceMode 切换：只重拉 K 线，资金流由缓存重新 merge */
+/** priceMode 切换：只重拉 K 线（带当前选区），资金流由缓存重新 merge */
 async function reloadKlineOnly() {
   const tsCode = props.row?.tsCode
   if (!tsCode) return
   loading.value = true
   try {
-    const rawKline = await fetchAShareKlineOnly(tsCode, 360, props.priceMode)
+    const rangeDates = currentRangeDates()
+    const limit = rangeDates ? RANGE_LIMIT : DEFAULT_LIMIT
+    const rawKline = await fetchAShareKlineOnly(tsCode, limit, props.priceMode, rangeDates ?? undefined)
     // 把缓存的资金流 + AMV 挂回新 K 线（开发模式下若日期格式漂移 R3 探针会触发）
     klineRows.value = mergeKlineWithAmv(
       mergeKlineWithMoneyFlow(rawKline, cachedFlowRows.value),
@@ -136,10 +156,13 @@ watch(
       klineRows.value = []
       cachedFlowRows.value = []
       cachedAmvRows.value = []
+      resetKlineRange()
       return
     }
     if (!tsCode) return
-    void loadDetail()
+    // 切 row / 打开：回默认窗口（清空选区）后加载
+    resetKlineRange()
+    void loadDetail(null)
   },
 )
 

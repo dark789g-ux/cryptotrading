@@ -30,6 +30,8 @@
         description="No kline data"
         style="padding: 40px 0"
       />
+      <!-- Tier 3 豁免日期选择器：本图以回测某根 K 线为锚点取前 100/后 30 根（窗口 ~130 根），
+           配 :current-ts 高亮信号 K 线；语义是"看信号 K 线上下文"，按日期裁会把锚点/信号裁掉，故保持 disabled-range。 -->
       <kline-chart
         v-else
         :data="klineData"

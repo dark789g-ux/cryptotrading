@@ -20,9 +20,17 @@ export class OamvController {
     return { success: true, ...result }
   }
 
+  // days：未选区间时取最近 N 条（面板默认"看近期象限"）；
+  // startDate/endDate（YYYYMMDD）：工具栏日期选择器选了区间时按 trade_date 闭区间过滤，
+  // 有区间则忽略 days（见 service）。
   @Get('data')
-  async get0amvData(@Query('days') days?: string) {
+  async get0amvData(
+    @Query('days') days?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
     const daysNum = days ? parseInt(days, 10) : 250
-    return this.oamvService.get0amvData(daysNum)
+    const range = startDate || endDate ? { startDate, endDate } : undefined
+    return this.oamvService.get0amvData(daysNum, range)
   }
 }

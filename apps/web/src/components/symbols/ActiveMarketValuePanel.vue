@@ -91,10 +91,10 @@
           height="600px"
           show-toolbar
           granularity="date"
-          :range="null"
-          disabled-range
+          :range="oamvRange"
           prefs-key="oamv"
           :available-subplots="oamvAvailableSubplots"
+          @update:range="onOamvRangeChange"
         />
         <n-empty v-else description="暂无数据，请先同步" />
         <!-- 0AMV 副图合规标注（spec §7/§8）：信号未回测校准 -->
@@ -117,6 +117,8 @@ import { AMV_CAPTION_BASE } from '@/composables/kline/amvCaption'
 import { oamvApi, type OamvData } from '@/api/modules/market/oamv'
 import { regimeEngineApi, type RegimeTodaySummary } from '@/api/modules/strategy/regimeEngine'
 import type { KlineChartBar } from '@/api/modules/market/symbols'
+import { useKlineRangePicker, type KlineRangeDates } from '@/composables/kline/useKlineRangePicker'
+import { msToYyyymmdd } from '@/composables/kline/klineDateRange'
 import { mapOamvToChartBar } from './oamvChartMapping'
 
 const message = useMessage()
@@ -132,10 +134,22 @@ const regimeData = ref<RegimeTodaySummary | null>(null)
 
 const chartData = computed<KlineChartBar[]>(() => oamvData.value.map(mapOamvToChartBar))
 
-async function loadData() {
+// 默认窗口取最近 DEFAULT_DAYS 条（面板定位"看近期象限"）；选了区间则按 trade_date 闭区间重查（后端忽略 days）。
+const DEFAULT_DAYS = 250
+
+// B 类服务端重查：选区间 → 以 start/end 重查；清空 → 回默认窗口（days=DEFAULT_DAYS）。
+const { range: oamvRange, onRangeUpdate: onOamvRangeChange } = useKlineRangePicker((r) => loadData(r))
+
+function currentRangeDates(): KlineRangeDates | null {
+  const r = oamvRange.value
+  return r ? { startDate: msToYyyymmdd(r[0]), endDate: msToYyyymmdd(r[1]) } : null
+}
+
+// rangeDates 默认沿用当前选区：onActivated 重激活时保留用户已选区间，不被重置回默认窗口。
+async function loadData(rangeDates: KlineRangeDates | null = currentRangeDates()) {
   loading.value = true
   try {
-    oamvData.value = await oamvApi.getData(250)
+    oamvData.value = await oamvApi.getData(DEFAULT_DAYS, rangeDates ?? undefined)
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : '加载数据失败')
   } finally {

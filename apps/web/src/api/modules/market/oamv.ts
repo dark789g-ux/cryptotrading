@@ -49,7 +49,16 @@ export const oamvApi = {
     return post<OamvSyncResult>(`${API_BASE}/oamv/sync`, params)
   },
 
-  getData(days: number = 250): Promise<OamvData[]> {
-    return request<OamvData[]>(`${API_BASE}/oamv/data?days=${days}`)
+  // range（YYYYMMDD）：工具栏日期选择器选了区间时传，后端按 trade_date 闭区间过滤并忽略 days；
+  // 未选区间（默认）只传 days，取最近 N 条。
+  getData(
+    days: number = 250,
+    range?: { startDate?: string; endDate?: string },
+  ): Promise<OamvData[]> {
+    const qs = new URLSearchParams()
+    qs.set('days', String(days))
+    if (range?.startDate) qs.set('startDate', range.startDate)
+    if (range?.endDate) qs.set('endDate', range.endDate)
+    return request<OamvData[]>(`${API_BASE}/oamv/data?${qs.toString()}`)
   },
 }

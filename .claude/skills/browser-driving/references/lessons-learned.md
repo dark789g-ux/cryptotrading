@@ -6,6 +6,16 @@
 
 ---
 
+## 2026-06-18: 测父组件 @event 接线——在子组件实例上 emit，别去驱动那个脆弱控件
+**Symptom**: 要验「日期选择器 update:range → 父组件按新区间发请求」。直接驱动 n-date-picker（开日历翻月点格）脆；父组件的 handler（如 onOamvRangeChange）在 `<script setup>` 里、没 defineExpose、setupState 也未必拿得到，难直接调。
+**Cause**: `<script setup>` 顶层函数不一定挂到可调用的 exposed/setupState；而触发链其实是「子组件 emit('update:range') → 父模板 @update:range 绑定的 handler」。
+**Lesson**: 找到子组件的根 DOM（如 KlineChart 的 `.kline-chart-wrapper`）→ `el.__vueParentComponent`（即该子组件实例）→ `inst.emit('update:range', payload)`，直接触发父组件的 `@update:range` handler，绕开脆弱控件。payload 用本地午夜 ms（`new Date(y,m,d).getTime()`）。先 `network start --filter <api>` 再 emit，用 `network list` 抓出站请求 URL（GET 的 query 参数就在 URL 里，比 requestBody 稳）验证端到端。补「设 exposed ref / Pinia action 直取」之外的第三条：**emit 子组件事件测父接线**。
+
+## 2026-06-18: 直 fetch 验证要实体 ID 时，用已知规范值，别从 data-table DOM 里抠
+**Symptom**: 想 `evaluate` 内直 fetch `/api/klines/<symbol>/...` 验后端，去 `.n-data-table-tr`/`.n-data-table-td` 抠首行 symbol——第一次抠到的是价格列（`0.521000`）不是 symbol，第二次同一选择器 cell 又空（虚拟滚动/重渲），连撞 2-3 个往返。
+**Cause**: data-table 列顺序不定、虚拟滚动、tab 切换后重渲，DOM 抠实体值既不稳又易抠错列。
+**Lesson**: 直 fetch 验证只是要个能打通接口的实体 ID 时，**直接用已知规范值**（crypto 用 `BTCUSDT`、A 股用 `000001.SZ`、美股用 `AVGO`），或打 list 接口（`/api/.../symbols`）取，别从 data-table DOM 抠。多备几个候选循环试（BTCUSDT→ETHUSDT→…取第一个有数据的），一发命中。延续 [虚拟滚动藏选项] / [@e ref 跨快照重编号]：data-table DOM 只配合 @e 点击，别拿来当数据源。
+
 ## 2026-06-16: webbridge navigate 是整页重载——清空 SPA 的 Pinia/内存态，测「SPA 内切页 store 存活」要用 router.push
 **Symptom**: 验「切走某视图再切回进度是否保留」，用 webbridge `navigate` 切到别的路由再 navigate 回来，读 Pinia store 仍有数据——但这没真正测到"组件销毁后 store 内存存活"，因为 navigate 每次整页重载、JS 状态(含 Pinia)被清空，数据是靠页面 onMounted 的后端拉取(fetchActive)重新拉回来的。
 **Cause**: webbridge `navigate` 走浏览器级整页导航(document 重载、app 重新 boot)，不是 SPA 路由内跳转；Pinia/内存 ref 全部重置。

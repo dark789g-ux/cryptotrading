@@ -8,6 +8,8 @@
   >
     <template #default="{ maximized }">
       <n-spin :show="loading">
+        <!-- Tier 3 豁免日期选择器：本图取单笔交易 signalDate-30~exitDate+20 的固定上下文，
+             并在买/卖那根 bar 注入买卖点标注；按日期裁会破坏标注语义，故保持 disabled-range。 -->
         <KlineChart
           v-if="bars.length"
           :data="bars"
