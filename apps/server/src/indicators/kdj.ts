@@ -15,6 +15,33 @@ export interface KdjPoint {
   j: number;
 }
 
+/** KDJ 默认参数（通达信标准 9/3/3）。 */
+export const DEFAULT_KDJ_PARAMS = { n: 9, m1: 3, m2: 3 };
+
+/** 对单点 KDJ 值做 4 位小数取整，与 DB 预存列精度保持一致。 */
+export function roundKdjPoint(p: KdjPoint): KdjPoint {
+  return {
+    k: parseFloat(p.k.toFixed(4)),
+    d: parseFloat(p.d.toFixed(4)),
+    j: parseFloat(p.j.toFixed(4)),
+  };
+}
+
+/**
+ * 参数是否为自定义（≠ 9/3/3）。
+ * - 缺省（undefined）→ false（用默认列）
+ * - n/m1/m2 任一不等于 9/3/3 → true
+ * - 全等 9/3/3 → false
+ */
+export function isCustomKdjParams(p?: { n: number; m1: number; m2: number }): boolean {
+  if (!p) return false;
+  return (
+    p.n !== DEFAULT_KDJ_PARAMS.n ||
+    p.m1 !== DEFAULT_KDJ_PARAMS.m1 ||
+    p.m2 !== DEFAULT_KDJ_PARAMS.m2
+  );
+}
+
 /**
  * 计算整条 KDJ 序列。
  *

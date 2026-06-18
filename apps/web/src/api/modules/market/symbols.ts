@@ -1,5 +1,12 @@
 import { API_BASE, patch, post, request } from '../../client'
 
+/** KDJ 指标参数（RSV 周期 n、K 平滑 m1、D 平滑 m2） */
+export interface KdjSubplotParams {
+  n: number
+  m1: number
+  m2: number
+}
+
 export interface TradeOnBar {
   type: 'entry' | 'exit'
   symbol: string
@@ -143,4 +150,9 @@ export const symbolApi = {
 export const klinesApi = {
   getKlines: (symbol: string, interval = '1d') =>
     request<KlineChartBar[]>(`${API_BASE}/klines/${symbol}/${interval}`),
+  recalcKlines: (
+    symbol: string,
+    interval = '1d',
+    body: { kdjParams?: KdjSubplotParams } = {},
+  ) => post<KlineChartBar[]>(`${API_BASE}/klines/${symbol}/${interval}/recalc`, body),
 }

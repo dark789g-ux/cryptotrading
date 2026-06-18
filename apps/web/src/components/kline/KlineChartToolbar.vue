@@ -60,7 +60,7 @@
                   :checked="prefs.visibility[key]"
                   @update:checked="(v: boolean) => onVisibilityChange(key, v)"
                 >
-                  {{ key }}
+                  {{ key === 'KDJ' ? kdjDisplayName : key }}
                 </n-checkbox>
               </div>
 
@@ -78,6 +78,37 @@
               </div>
 
               <div class="subplot-row__right">
+                <n-popover
+                  v-if="key === 'KDJ'"
+                  v-model:show="showKdjPopover"
+                  trigger="click"
+                  placement="right"
+                  :width="200"
+                  :show-arrow="false"
+                >
+                  <template #trigger>
+                    <n-button
+                      text
+                      size="tiny"
+                      aria-label="KDJ 参数"
+                    >
+                      <template #icon>
+                        <n-icon :size="14">
+                          <CogOutline />
+                        </n-icon>
+                      </template>
+                    </n-button>
+                  </template>
+
+                  <kdj-params-editor
+                    :params="prefs.params?.KDJ"
+                    :default-params="DEFAULT_KDJ_PARAMS"
+                    :ranges="KDJ_PARAM_RANGES"
+                    @confirm="onKdjConfirm"
+                    @cancel="showKdjPopover = false"
+                  />
+                </n-popover>
+
                 <n-button
                   text
                   size="tiny"
@@ -118,7 +149,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   NButton,
   NCheckbox,
@@ -130,14 +161,20 @@ import {
 import {
   ChevronDownOutline,
   ChevronUpOutline,
+  CogOutline,
   SettingsOutline,
 } from '@vicons/ionicons5'
 import {
   ALL_SUBPLOT_KEYS,
+  DEFAULT_KDJ_PARAMS,
+  KDJ_PARAM_RANGES,
+  isDefaultKdjParams,
+  type KdjSubplotParams,
   type SubplotKey,
   type SubplotPrefs,
 } from '@/composables/kline/subplotConfig'
 import { useKlineChartPrefs } from '@/composables/kline/useKlineChartPrefs'
+import KdjParamsEditor from './KdjParamsEditor.vue'
 
 type Granularity = 'date' | 'hour' | 'minute'
 
@@ -160,11 +197,26 @@ const emit = defineEmits<{
   (e: 'update:prefs', value: SubplotPrefs): void
 }>()
 
+const showKdjPopover = ref(false)
+
 // availableSubplots 仅在挂载期决定 hook 行为；在组件生命周期中视为稳定
 const { prefs, update, reset } = useKlineChartPrefs(
   props.prefsKey,
   props.availableSubplots,
 )
+
+function onKdjConfirm(params: KdjSubplotParams): void {
+  update({ params: { KDJ: params } })
+  showKdjPopover.value = false
+}
+
+const kdjDisplayName = computed(() => {
+  const kdj = prefs.value.params?.KDJ
+  if (kdj && !isDefaultKdjParams(kdj)) {
+    return `KDJ(${kdj.n},${kdj.m1},${kdj.m2})`
+  }
+  return 'KDJ'
+})
 
 function onRangeUpdate(value: [number, number] | null): void {
   emit('update:range', value)

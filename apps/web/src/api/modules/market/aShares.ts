@@ -1,6 +1,6 @@
 import { API_BASE, del, post, put, request } from '../../client'
 import { appendQueryParam } from '../../query'
-import type { KlineChartBar } from './symbols'
+import type { KdjSubplotParams, KlineChartBar } from './symbols'
 
 export type ASharePriceMode = 'qfq' | 'raw'
 export type NumericConditionPayload =
@@ -162,6 +162,18 @@ export const aSharesApi = {
     if (range?.startDate) qs.set('startDate', range.startDate)
     if (range?.endDate)   qs.set('endDate', range.endDate)
     return request<AShareKlineBar[]>(`${API_BASE}/a-shares/${encodeURIComponent(tsCode)}/klines?${qs.toString()}`)
+  },
+  recalcKlines: (
+    tsCode: string, limit = 300, priceMode: ASharePriceMode = 'qfq',
+    range?: { startDate?: string; endDate?: string },
+    body: { kdjParams?: KdjSubplotParams } = {},
+  ) => {
+    const qs = new URLSearchParams()
+    qs.set('limit', String(limit))
+    qs.set('priceMode', priceMode)
+    if (range?.startDate) qs.set('startDate', range.startDate)
+    if (range?.endDate)   qs.set('endDate', range.endDate)
+    return post<AShareKlineBar[]>(`${API_BASE}/a-shares/${encodeURIComponent(tsCode)}/klines/recalc?${qs.toString()}`, body)
   },
   sync: (body: AShareSyncBody = {}) =>
     post<AShareSyncResult>(`${API_BASE}/a-shares/sync`, body),

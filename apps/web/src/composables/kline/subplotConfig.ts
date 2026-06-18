@@ -21,15 +21,14 @@ export interface SubplotConfig {
   heightPct: number
 }
 
-/** KDJ 指标参数（RSV 周期 n、K 平滑 m1、D 平滑 m2） */
-export interface KdjSubplotParams {
-  n: number
-  m1: number
-  m2: number
-}
+import type { KdjSubplotParams } from '@/api/modules/market/symbols'
 
-/** 指标副图参数联合类型。当前仅 KDJ，后续可扩展 MACD 等。 */
-export type IndicatorSubplotParams = KdjSubplotParams
+export type { KdjSubplotParams }
+
+/** 指标副图参数集合。当前仅 KDJ，后续可扩展 MACD 等。 */
+export interface IndicatorSubplotParams {
+  KDJ?: KdjSubplotParams
+}
 
 export interface SubplotPrefs {
   /** 用户拖拽后的顺序，未在此列表中的 key 落到末尾按 ALL_SUBPLOT_KEYS 顺序补齐 */
@@ -41,8 +40,12 @@ export interface SubplotPrefs {
 }
 
 /** 外部输入的偏好（如 localStorage 原始值 / update 入参），params 允许 partial */
+export type PartialIndicatorSubplotParams = {
+  [K in keyof IndicatorSubplotParams]?: Partial<NonNullable<IndicatorSubplotParams[K]>>
+}
+
 export type RawSubplotPrefs = Partial<Omit<SubplotPrefs, 'params'>> & {
-  params?: Partial<IndicatorSubplotParams> | undefined
+  params?: PartialIndicatorSubplotParams | undefined
 }
 
 export const ALL_SUBPLOT_KEYS: readonly SubplotKey[] = [
@@ -91,7 +94,7 @@ export const DEFAULT_KDJ_PARAMS: KdjSubplotParams = {
 
 /** KDJ 各参数合法范围（闭区间） */
 export const KDJ_PARAM_RANGES: Record<keyof KdjSubplotParams, readonly [number, number]> = {
-  n: [2, 100],
+  n: [2, 99],
   m1: [1, 50],
   m2: [1, 50],
 }
@@ -145,19 +148,26 @@ function clampOrDefault(
   return n
 }
 
-/**
- * 将任意输入归一化为合法的 KDJ 参数。
- * 缺失字段用默认值补齐；越界 / 非数字值回退到默认值。
- */
-export function normalizeIndicatorParams(
-  p?: Partial<IndicatorSubplotParams> | null,
-): IndicatorSubplotParams {
+function normalizeKdjParams(p?: Partial<KdjSubplotParams> | null): KdjSubplotParams {
   const input = p ?? {}
   return {
     n: clampOrDefault(input.n, DEFAULT_KDJ_PARAMS.n, KDJ_PARAM_RANGES.n),
     m1: clampOrDefault(input.m1, DEFAULT_KDJ_PARAMS.m1, KDJ_PARAM_RANGES.m1),
     m2: clampOrDefault(input.m2, DEFAULT_KDJ_PARAMS.m2, KDJ_PARAM_RANGES.m2),
   }
+}
+
+/**
+ * 将任意输入归一化为合法的指标参数集合。
+ * KDJ 缺失字段用默认值补齐；越界 / 非数字值回退到默认值。
+ * 等于默认值时省略，保持持久化精简。
+ */
+export function normalizeIndicatorParams(
+  p?: PartialIndicatorSubplotParams | null,
+): IndicatorSubplotParams {
+  const kdj = normalizeKdjParams(p?.KDJ)
+  if (isDefaultKdjParams(kdj)) return {}
+  return { KDJ: kdj }
 }
 
 /**
@@ -204,7 +214,7 @@ export function normalizePrefs(
 
   if (raw?.params != null) {
     const normalized = normalizeIndicatorParams(raw.params)
-    if (!isDefaultKdjParams(normalized)) {
+    if (normalized.KDJ != null && !isDefaultKdjParams(normalized.KDJ)) {
       result.params = normalized
     }
   }

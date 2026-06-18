@@ -10,12 +10,12 @@
 
 import { precomputeAllKdj } from '../backtest/engine/bt-indicators';
 import { KlineBarRow } from '../backtest/engine/models';
+import { KdjPoint } from '../indicators/kdj';
+
+export { DEFAULT_KDJ_PARAMS, isCustomKdjParams } from '../indicators/kdj';
 
 /** KDJ 在策略条件 field 体系中的字段键。 */
 export const KDJ_FIELD_KEYS = ['kdj_j', 'kdj_k', 'kdj_d'] as const;
-
-/** KDJ 默认参数（通达信标准 9/3/3）。 */
-export const DEFAULT_KDJ_PARAMS = { n: 9, m1: 3, m2: 3 };
 
 export interface KdjParams {
   n: number;
@@ -28,32 +28,11 @@ export function isKdjField(field: string): boolean {
   return (KDJ_FIELD_KEYS as readonly string[]).includes(field);
 }
 
-/**
- * 参数是否为自定义（≠ 9/3/3）。
- * - 缺省（undefined）→ false（用默认列）
- * - n/m1/m2 任一不等于 9/3/3 → true
- * - 全等 9/3/3 → false
- */
-export function isCustomKdjParams(p?: KdjParams): boolean {
-  if (!p) return false;
-  return (
-    p.n !== DEFAULT_KDJ_PARAMS.n ||
-    p.m1 !== DEFAULT_KDJ_PARAMS.m1 ||
-    p.m2 !== DEFAULT_KDJ_PARAMS.m2
-  );
-}
-
 /** 单条序列重算 KDJ 所需的最小行（仅 high/low/close）。 */
 export interface KdjBar {
   high: number;
   low: number;
   close: number;
-}
-
-interface KdjPoint {
-  k: number;
-  d: number;
-  j: number;
 }
 
 /**

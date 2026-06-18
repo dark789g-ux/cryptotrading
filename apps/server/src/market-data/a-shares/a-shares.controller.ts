@@ -3,6 +3,7 @@ import { Response } from 'express';
 import { AdminOnly } from '../../auth/decorators/admin-only.decorator';
 import { CurrentUserParam as CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { ASharesFilterPresetsService } from './services/a-shares-filter-presets.service';
+import { KdjParamsDto, validateKdjParams } from '../klines/dto/kdj-params.dto';
 import { ASharesService, QueryASharesDto, SyncASharesDto } from './a-shares.service';
 
 type CurrentUserPayload = { id: string };
@@ -66,6 +67,28 @@ export class ASharesController {
       Number(limit),
       priceMode === 'raw' ? 'raw' : 'qfq',
       (startDate || endDate) ? { startDate, endDate } : undefined,
+    );
+  }
+
+  @Post(':tsCode/klines/recalc')
+  recalcKlines(
+    @Param('tsCode') tsCode: string,
+    @Query('limit') limit: string | undefined,
+    @Query('priceMode') priceMode: 'qfq' | 'raw' | undefined,
+    @Query('startDate') startDate: string | undefined,
+    @Query('endDate') endDate: string | undefined,
+    @Body() body: { kdjParams?: KdjParamsDto },
+  ) {
+    const kdjParams = body.kdjParams != null ? validateKdjParams(body.kdjParams) : undefined;
+    return this.aSharesService.recalcKlines(
+      tsCode,
+      {
+        limit: Number(limit),
+        priceMode: priceMode === 'raw' ? 'raw' : 'qfq',
+        startDate,
+        endDate,
+      },
+      kdjParams,
     );
   }
 

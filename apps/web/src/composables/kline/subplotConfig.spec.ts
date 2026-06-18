@@ -10,39 +10,37 @@ import {
 } from './subplotConfig'
 
 describe('normalizeIndicatorParams', () => {
-  it('空值返回默认 KDJ 参数', () => {
-    expect(normalizeIndicatorParams()).toEqual(DEFAULT_KDJ_PARAMS)
-    expect(normalizeIndicatorParams(null)).toEqual(DEFAULT_KDJ_PARAMS)
+  it('空值返回空对象（默认参数被省略）', () => {
+    expect(normalizeIndicatorParams()).toEqual({})
+    expect(normalizeIndicatorParams(null)).toEqual({})
   })
 
   it('完整合法参数原样返回', () => {
-    const p = { n: 14, m1: 5, m2: 3 }
+    const p = { KDJ: { n: 14, m1: 5, m2: 3 } }
     expect(normalizeIndicatorParams(p)).toEqual(p)
   })
 
   it('partial 参数用默认值补齐', () => {
-    expect(normalizeIndicatorParams({ n: 20 })).toEqual({
-      n: 20,
-      m1: DEFAULT_KDJ_PARAMS.m1,
-      m2: DEFAULT_KDJ_PARAMS.m2,
+    expect(normalizeIndicatorParams({ KDJ: { n: 20 } })).toEqual({
+      KDJ: { n: 20, m1: DEFAULT_KDJ_PARAMS.m1, m2: DEFAULT_KDJ_PARAMS.m2 },
     })
   })
 
-  it('越界值回退到默认值', () => {
+  it('越界值回退到默认值并省略', () => {
     expect(
       normalizeIndicatorParams({
-        n: KDJ_PARAM_RANGES.n[0] - 1,
-        m1: KDJ_PARAM_RANGES.m1[1] + 1,
-        m2: 0,
+        KDJ: {
+          n: KDJ_PARAM_RANGES.n[0] - 1,
+          m1: KDJ_PARAM_RANGES.m1[1] + 1,
+          m2: 0,
+        },
       }),
-    ).toEqual(DEFAULT_KDJ_PARAMS)
+    ).toEqual({})
   })
 
-  it('非数字 / NaN / Infinity 回退到默认值', () => {
-    expect(normalizeIndicatorParams({ n: NaN, m1: Infinity, m2: -Infinity })).toEqual(
-      DEFAULT_KDJ_PARAMS,
-    )
-    expect(normalizeIndicatorParams({ n: 'x' as unknown as number })).toEqual(DEFAULT_KDJ_PARAMS)
+  it('非数字 / NaN / Infinity 回退到默认值并省略', () => {
+    expect(normalizeIndicatorParams({ KDJ: { n: NaN, m1: Infinity, m2: -Infinity } })).toEqual({})
+    expect(normalizeIndicatorParams({ KDJ: { n: 'x' as unknown as number } })).toEqual({})
   })
 })
 
@@ -73,20 +71,20 @@ describe('normalizePrefs — params 处理', () => {
   const available: readonly SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK']
 
   it('保留合法的自定义 params', () => {
-    const raw = { params: { n: 14, m1: 5, m2: 3 } }
+    const raw = { params: { KDJ: { n: 14, m1: 5, m2: 3 } } }
     const prefs = normalizePrefs(raw, 'a-share', available)
     expect(prefs.params).toEqual(raw.params)
   })
 
   it('默认值 params 被省略', () => {
-    const prefs = normalizePrefs({ params: DEFAULT_KDJ_PARAMS }, 'a-share', available)
+    const prefs = normalizePrefs({ params: { KDJ: DEFAULT_KDJ_PARAMS } }, 'a-share', available)
     expect(prefs.params).toBeUndefined()
     expect('params' in prefs).toBe(false)
   })
 
   it('越界 params 被清理回默认值并省略', () => {
     const prefs = normalizePrefs(
-      { params: { n: 1, m1: 999, m2: 0 } },
+      { params: { KDJ: { n: 1, m1: 999, m2: 0 } } },
       'a-share',
       available,
     )
@@ -97,12 +95,12 @@ describe('normalizePrefs — params 处理', () => {
     const raw = {
       visibility: { KDJ: false } as Record<SubplotKey, boolean>,
       heightPct: { KDJ: 12 } as Record<SubplotKey, number>,
-      params: { n: 14 },
+      params: { KDJ: { n: 14 } },
     }
     const prefs = normalizePrefs(raw, 'a-share', available)
     expect(prefs.visibility.KDJ).toBe(false)
     expect(prefs.heightPct.KDJ).toBe(12)
-    expect(prefs.params).toEqual({ n: 14, m1: 3, m2: 3 })
+    expect(prefs.params).toEqual({ KDJ: { n: 14, m1: 3, m2: 3 } })
   })
 
   it('无 raw params 时结果不含 params', () => {

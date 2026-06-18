@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Subject } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
+import { calcKdjSeries, isCustomKdjParams, roundKdjPoint } from '../../indicators/kdj';
 import {
   asNullableNumber,
   asNumber,
@@ -294,6 +295,45 @@ export class ASharesService {
         brickChart: brick == null || brickDelta == null
           ? undefined
           : { brick, delta: brickDelta, xg: row.brickXg === true },
+      };
+    });
+  }
+
+  async recalcKlines(
+    tsCode: string,
+    query: {
+      limit?: number;
+      priceMode?: 'qfq' | 'raw';
+      startDate?: string;
+      endDate?: string;
+    },
+    kdjParams?: { n: number; m1: number; m2: number },
+  ): Promise<AShareKlineRow[]> {
+    const rows = await this.getKlines(
+      tsCode,
+      query.limit,
+      query.priceMode === 'raw' ? 'raw' : 'qfq',
+      (query.startDate || query.endDate) ? { startDate: query.startDate, endDate: query.endDate } : undefined,
+    );
+
+    if (!kdjParams || !isCustomKdjParams(kdjParams)) {
+      return rows;
+    }
+
+    const kdjSeries = calcKdjSeries(
+      rows.map((r) => ({ high: r.high, low: r.low, close: r.close })),
+      kdjParams.n,
+      kdjParams.m1,
+      kdjParams.m2,
+    );
+
+    return rows.map((row, index) => {
+      const kdj = roundKdjPoint(kdjSeries[index]);
+      return {
+        ...row,
+        'KDJ.K': kdj.k,
+        'KDJ.D': kdj.d,
+        'KDJ.J': kdj.j,
       };
     });
   }
