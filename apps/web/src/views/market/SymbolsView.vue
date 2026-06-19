@@ -71,7 +71,12 @@ const activeTab = ref<'crypto' | 'aShares' | 'activeMarketValue' | 'usStocks'>('
 </script>
 
 <style scoped>
-.symbols-view { max-width: 1400px; }
+/* 宽表工作台：覆盖全局 .workspace-page 的 min(100%, 1480px) 限宽，
+   让 Symbols 面板占满内容区水平空间 */
+.symbols-view {
+  width: 100%;
+  max-width: none;
+}
 .symbols-header { align-items: center; }
 .page-subtitle { margin: 6px 0 0; color: var(--color-text-secondary); }
 
