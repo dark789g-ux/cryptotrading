@@ -1,6 +1,6 @@
 # Symbols 视图 Columns 列设置按钮迁入各视图 Filters
 
-> 日期：2026-06-19 ｜ 域：symbols（市场标的页）｜ 状态：设计待审
+> 日期：2026-06-19 ｜ 域：symbols（市场标的页）｜ 状态：设计待审（r2，已据自审修订）
 
 ## 背景与目标
 
@@ -12,7 +12,7 @@
 
 **目标**：把 Columns 按钮从共享 layout 迁入三个视图各自的 filters 组件（位于「重置」按钮左边），让每个视图拥有自己专属的列设置入口；同时从 layout 删除共享按钮，避免重复。
 
-## 现状（摸底事实，file:line 为证）
+## 现状（摸底事实，file:line 为证 — 自审已逐行核对零偏移）
 
 ### Columns 按钮当前位置
 `apps/web/src/components/symbols/SymbolsPanelLayout.vue`
@@ -35,9 +35,13 @@
 
 ## 设计
 
-### 接线方式：v-model 平移（方案 1）
+### 接线方式：单向 emit（filters → Panel）
 
-filters 新增 `showColumnSettings` prop + `update:showColumnSettings` emit。Panel 把现有 `showColumnSettings` ref 的绑定从 `<symbols-panel-layout>` 平移到 `<*-filters>`；`ColumnSettingsDrawer` 仍在 Panel 根、绑定不变。
+filters 新增 `update:showColumnSettings` emit，**不接 prop**。点「列设置」→ `emit('update:showColumnSettings', true)`；Panel 用 `@update:show-column-settings="val => showColumnSettings = val"` 监听，把 ref 置 true。`ColumnSettingsDrawer` 仍在 Panel 根、绑定不变；drawer 关闭由 drawer 自己 emit `update:show(false)` → Panel ref=false，filters 不参与、无需感知开关状态。
+
+> 为何不用完整 v-model（prop + emit 对称）：filters 永远只「通知打开」，从不读取或响应开关状态，接 prop 是死代码；且 v-model 的「双向」语义与单向通知不匹配。单向 emit 更诚实地表达 filters 只负责「点按钮 → 通知打开」。
+>
+> （r2 变更：初版方案 1 为 v-model 平移，自审指出 filters 不读 prop 即死代码，故改为单向 emit。功能等价，filters 职责更干净。）
 
 数据流（改后）：
 
@@ -45,7 +49,7 @@ filters 新增 `showColumnSettings` prop + `update:showColumnSettings` emit。Pa
 [用户点 filters 里的「列设置」]
         │  emit('update:showColumnSettings', true)
         ▼
-[Panel 的 showColumnSettings ref = true]
+[Panel @update:show-column-settings 监听 → showColumnSettings ref = true]
         │  v-model:show
         ▼
 [ColumnSettingsDrawer 打开] ──(用户改完点保存)──▶ drawer emit update:show(false)
@@ -55,8 +59,8 @@ filters 新增 `showColumnSettings` prop + `update:showColumnSettings` emit。Pa
 ```
 
 淘汰方案：
-- 方案 2（filters 仅 emit 单向 `openColumnSettings`）：省一个 prop，但与既有 v-model 模式不一致，未真正省事。
-- 方案 3（连 drawer 一起搬进 filters）：破坏 Panel 持有 query / columns / scope 的职责边界，过度。
+- 完整 v-model 对称（filters 同时接 `showColumnSettings` prop + emit）：filters 不读 prop → 死代码，且双向语义与单向通知不匹配。
+- 连 drawer 一起搬进 filters：破坏 Panel 持有 query / columns / scope 的职责边界，过度。
 
 ### 改动清单
 
@@ -71,18 +75,18 @@ ASharesFilters .filter-actions
 按钮规格：
 - `secondary` + `SettingsOutline` 图标 + 中文文案「列设置」（三视图统一中文）
 - 点击 `emit('update:showColumnSettings', true)`
-- 新增 props：`showColumnSettings?: boolean`
-- 新增 emits：`'update:showColumnSettings': [boolean]`
+- **在各 filters 的 `defineEmits<{...}>()` 字面量中新增**：`'update:showColumnSettings': [value: boolean]`
+- **不**新增 prop（单向 emit，filters 无需感知开关状态）
 
 涉及文件：
 - `apps/web/src/components/symbols/a-shares/ASharesFilters.vue`
 - `apps/web/src/components/symbols/us-stocks/UsStocksFilters.vue`
 - `apps/web/src/components/symbols/crypto/CryptoSymbolsFilters.vue`
 
-**2. 三个 Panel** — 接线平移
-- 从 `<symbols-panel-layout>` 移除 `v-model:showColumnSettings`
-- 加到各自 `<*-filters>` 上（`v-model:show-column-settings="showColumnSettings"`）
-- `ColumnSettingsDrawer` 保持 Panel 根、绑定不变
+**2. 三个 Panel** — 接线从 layout 平移到 filters（单向监听）
+- 从 `<symbols-panel-layout>` 移除 `v-model:showColumnSettings`（ASharesPanel / CryptoSymbolsPanel 现 camelCase）与 `v-model:show-column-settings`（UsStocksPanel 现 kebab）
+- 在各自 `*-filters` 上加 `@update:show-column-settings="val => showColumnSettings = val"`（模板事件监听统一 kebab，Vue 标准，消除原 camel/kebab 分歧）
+- `ColumnSettingsDrawer` 保持 Panel 根、`v-model:show` 绑定不变
 
 涉及文件：
 - `apps/web/src/components/symbols/ASharesPanel.vue`
@@ -98,14 +102,17 @@ ASharesFilters .filter-actions
 - header-left 仅剩 Refresh + 视图切换
 
 **4. 测试**
-- `SymbolsPanelLayout.spec.ts`：删 Columns 按钮断言（「3 个 button」→「2 个」、删 `update:showColumnSettings` 用例 L109-116）
-- 三个 filters 各补单测：mount → 点「列设置」→ 断言 emit `update:showColumnSettings(true)`
+- `SymbolsPanelLayout.spec.ts`：
+  - L81-89 的 header 按钮计数用例：`toHaveLength(3)` → `toHaveLength(2)`，删 `expect(buttons[1].text()).toContain('Columns')`（删按钮后 `buttons[1]` 变为视图切换按钮，旧断言会失败）
+  - 删 L109-116 的「Columns 按钮触发 `update:showColumnSettings(true)`」整段用例
+- 三个 filters 各补单测：用最小占位 props 集合 mount（必填 props 传空字符串 / 空数组 / null 占位；ASharesFilters 有 14 个必填 prop），点「列设置」→ 断言 emit `update:showColumnSettings(true)`
 
 ## 不在范围（YAGNI）
 
 - 列设置**内容** / scope 逻辑（早已各视图独立，本次只动按钮位置与归属）
 - 活跃市值 tab、`CandleRunSymbolMetrics`（均不经 SymbolsPanelLayout）
 - crypto filters 现有 `Reset` / `Apply` 英文文案中文化（既有不一致，不顺带改；本次仅统一新增的 columns 按钮文案为中文）
+  - **权衡**：迁移后 CryptoSymbolsFilters 会呈中英混排（新增「列设置」中文 + 既有 Reset / Filters / Apply 英文），为最小改动有意保留；如需全中文化留后续单独工单。
 - 视图切换 / split 布局等 layout 其它能力（不动）
 
 ## 验证标准
@@ -114,5 +121,5 @@ ASharesFilters .filter-actions
 2. layout header 不再有 Columns 按钮（无重复）
 3. 任一视图点「列设置」→ 仅打开**本视图**的 drawer，列改动仅影响本 scope（切到其它视图不受影响）
 4. keep-alive 切 tab 不误关 drawer、不串 scope
-5. 单测：layout 不再断言 Columns 按钮；三 filters 各有「点按钮 → emit」用例
+5. 单测：layout 的 L81-89 计数改 2、L109-116 删除；三 filters 各有「点按钮 → emit」用例
 6. 门禁：`pnpm --filter @cryptotrading/web type-check` 绿、`pnpm --filter @cryptotrading/web test`（vitest）绿
