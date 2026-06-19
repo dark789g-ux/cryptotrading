@@ -1,8 +1,22 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { defineComponent, h } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import type { VueWrapper } from '@vue/test-utils'
 import KlineChart from './KlineChart.vue'
+
+const mockEchartsInstance = {
+  setOption: vi.fn(),
+  dispose: vi.fn(),
+  resize: vi.fn(),
+  on: vi.fn(),
+  off: vi.fn(),
+}
+
+vi.mock('echarts', () => ({
+  init: vi.fn(() => mockEchartsInstance),
+  use: vi.fn(),
+  registerTheme: vi.fn(),
+}))
 import {
   ALL_SUBPLOT_KEYS,
   DEFAULT_SUBPLOT_HEIGHT_PCT,
@@ -11,6 +25,7 @@ import {
   type SubplotKey,
   type SubplotPrefs,
 } from '@/composables/kline/subplotConfig'
+import type { KlineChartBar } from '@/api'
 
 const ToolbarStub = defineComponent({
   name: 'KlineChartToolbar',
@@ -29,6 +44,23 @@ const ToolbarStub = defineComponent({
 
 const mountedWrappers: VueWrapper[] = []
 
+function makeBar(overrides?: Partial<KlineChartBar>): KlineChartBar {
+  return {
+    open_time: '2026-06-18',
+    open: 1,
+    high: 2,
+    low: 0.5,
+    close: 1.5,
+    volume: 100,
+    MA5: 1,
+    MA30: 1,
+    MA60: 1,
+    MA120: 1,
+    MA240: 1,
+    ...overrides,
+  } as KlineChartBar
+}
+
 function createPrefs(params?: IndicatorSubplotParams): SubplotPrefs {
   const visible: SubplotKey[] = ['VOL', 'KDJ']
   return {
@@ -44,7 +76,20 @@ function createPrefs(params?: IndicatorSubplotParams): SubplotPrefs {
 function mountChart(opts: {
   recalcIndicators?: (params?: IndicatorSubplotParams) => Promise<void>
   errorHandler?: (err: unknown) => void
+  initialParams?: IndicatorSubplotParams
 } = {}) {
+  if (opts.initialParams !== undefined) {
+    const raw = JSON.stringify(createPrefs(opts.initialParams))
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn(() => raw),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+      clear: vi.fn(),
+      key: vi.fn(),
+      length: 0,
+    })
+  }
+
   const errorHandler = opts.errorHandler ?? vi.fn()
   const wrapper = mount(KlineChart, {
     props: {
@@ -133,6 +178,99 @@ describe('KlineChart recalcIndicators', () => {
     await toolbar.vm.applyUpdate({ params: { KDJ: { n: 14, m1: 5, m2: 3 } } })
     await flushPromises()
     expect(getPrefs(wrapper).params).toEqual({ KDJ: { n: 14, m1: 5, m2: 3 } })
+    expect(recalc).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('KlineChart auto recalc on initial data', () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe = vi.fn()
+        disconnect = vi.fn()
+        unobserve = vi.fn()
+      },
+    )
+  })
+
+  afterEach(() => {
+    mountedWrappers.forEach((w) => w.unmount())
+    mountedWrappers.length = 0
+    vi.restoreAllMocks()
+  })
+
+  it('默认参数下，data 从空变非空不会触发 recalc', async () => {
+    const recalc = vi.fn(async () => {})
+    const { wrapper } = mountChart({ recalcIndicators: recalc })
+    await flushPromises()
+
+    await wrapper.setProps({ data: [makeBar()] })
+    await flushPromises()
+
+    expect(recalc).not.toHaveBeenCalled()
+  })
+
+  it('自定义 KDJ 参数下，data 从空变非空会触发一次 recalc', async () => {
+    const recalc = vi.fn(async () => {})
+    const { wrapper } = mountChart({
+      recalcIndicators: recalc,
+      initialParams: { KDJ: { n: 6, m1: 2, m2: 2 } },
+    })
+    await flushPromises()
+
+    expect(getPrefs(wrapper).params).toEqual({ KDJ: { n: 6, m1: 2, m2: 2 } })
+    expect(recalc).not.toHaveBeenCalled()
+
+    await wrapper.setProps({ data: [makeBar()] })
+    await flushPromises()
+
+    expect(recalc).toHaveBeenCalledTimes(1)
+    expect(recalc).toHaveBeenCalledWith({ KDJ: { n: 6, m1: 2, m2: 2 } })
+  })
+
+  it('自定义参数下 recalc 失败不会重置参数，只打印 console.error', async () => {
+    const recalc = vi.fn().mockRejectedValueOnce(new Error('auto recalc failed'))
+    const { wrapper } = mountChart({
+      recalcIndicators: recalc,
+      initialParams: { KDJ: { n: 6, m1: 2, m2: 2 } },
+    })
+    await flushPromises()
+
+    expect(getPrefs(wrapper).params).toEqual({ KDJ: { n: 6, m1: 2, m2: 2 } })
+
+    await wrapper.setProps({ data: [makeBar()] })
+    await flushPromises()
+
+    expect(recalc).toHaveBeenCalledTimes(1)
+    expect(getPrefs(wrapper).params).toEqual({ KDJ: { n: 6, m1: 2, m2: 2 } })
+    expect(consoleErrorSpy).toHaveBeenCalled()
+  })
+
+  it('data 长度不变时（push / 整体替换）不会重复触发 recalc', async () => {
+    const recalc = vi.fn(async () => {})
+    const { wrapper } = mountChart({
+      recalcIndicators: recalc,
+      initialParams: { KDJ: { n: 6, m1: 2, m2: 2 } },
+    })
+    await flushPromises()
+
+    await wrapper.setProps({ data: [makeBar()] })
+    await flushPromises()
+    expect(recalc).toHaveBeenCalledTimes(1)
+
+    // push 到现有数组（长度不变）
+    const newData = [...wrapper.props('data'), makeBar({ open_time: '2026-06-19' })]
+    await wrapper.setProps({ data: newData })
+    await flushPromises()
+    expect(recalc).toHaveBeenCalledTimes(1)
+
+    // 整体替换为同长度数组
+    await wrapper.setProps({ data: [makeBar({ open_time: '2026-06-20' })] })
+    await flushPromises()
     expect(recalc).toHaveBeenCalledTimes(1)
   })
 })
