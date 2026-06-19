@@ -62,6 +62,12 @@
         </button>
       </div>
       <div class="filter-actions">
+        <n-button secondary @click="emit('update:showColumnSettings', true)">
+          <template #icon>
+            <n-icon><settings-outline /></n-icon>
+          </template>
+          列设置
+        </n-button>
         <n-button @click="emit('reset')">重置</n-button>
         <numeric-condition-filter
           :conditions="advancedConditions"
@@ -79,7 +85,7 @@
 
 <script setup lang="ts">
 import { NButton, NCard, NIcon, NInput, NInputNumber, NSelect } from 'naive-ui'
-import { SearchOutline } from '@vicons/ionicons5'
+import { SearchOutline, SettingsOutline } from '@vicons/ionicons5'
 import NumericConditionFilter from '../../common/NumericConditionFilter.vue'
 import type { NumericConditionFieldOption } from '../../common/numericConditionFilterTypes'
 import type { Condition, SelectOption } from './types'
@@ -104,6 +110,7 @@ const emit = defineEmits<{
   'update:advancedConditions': [value: Condition[]]
   apply: []
   reset: []
+  'update:showColumnSettings': [value: boolean]
 }>()
 
 const advancedFieldOptions: NumericConditionFieldOption[] = [

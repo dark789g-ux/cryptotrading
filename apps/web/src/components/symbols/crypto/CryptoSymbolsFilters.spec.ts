@@ -170,4 +170,16 @@ describe('CryptoSymbolsFilters props / emits', () => {
 
     expect(wrapper.emitted('reset')).toHaveLength(1)
   })
+
+  it('列设置 按钮触发 update:showColumnSettings(true)', async () => {
+    const wrapper = mountFilters()
+
+    const buttons = wrapper.findAllComponents(NButton)
+    const columnSettingsButton = buttons.find(btn => btn.text() === '列设置')
+    expect(columnSettingsButton).toBeDefined()
+    await columnSettingsButton!.vm.$emit('click')
+
+    expect(wrapper.emitted('update:showColumnSettings')).toHaveLength(1)
+    expect(wrapper.emitted('update:showColumnSettings')![0]).toEqual([true])
+  })
 })

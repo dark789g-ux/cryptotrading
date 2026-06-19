@@ -32,6 +32,12 @@
         @update:value="handleStrategyChange"
       />
       <div class="filter-actions">
+        <n-button secondary @click="emit('update:showColumnSettings', true)">
+          <template #icon>
+            <n-icon><settings-outline /></n-icon>
+          </template>
+          列设置
+        </n-button>
         <n-button @click="emit('reset')">Reset</n-button>
         <numeric-condition-filter
           :conditions="conditions"
@@ -55,7 +61,7 @@
 
 <script setup lang="ts">
 import { NButton, NCard, NIcon, NInput, NSelect, NTag } from 'naive-ui'
-import { SearchOutline } from '@vicons/ionicons5'
+import { SearchOutline, SettingsOutline } from '@vicons/ionicons5'
 import NumericConditionFilter from '../../common/NumericConditionFilter.vue'
 import type { NumericCondition, NumericConditionFieldOption } from '../../common/numericConditionFilterTypes'
 import type { Condition, SelectOption } from './types'
@@ -77,6 +83,7 @@ const emit = defineEmits<{
   'update:conditions': [value: Condition[]]
   apply: []
   reset: []
+  'update:showColumnSettings': [value: boolean]
 }>()
 
 const opLabels: Record<NumericCondition['op'], string> = {
