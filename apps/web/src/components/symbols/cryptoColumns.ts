@@ -6,7 +6,7 @@ import type { SymbolRow } from '@/api'
 import type { SymbolColumnDef } from './columnTypes'
 
 interface CryptoColumnsOptions {
-  onViewChart: (row: SymbolRow) => void | Promise<void>
+  onViewChart?: (row: SymbolRow) => void | Promise<void>
 }
 
 const formatFixed = (value: number | null | undefined, digits: number) =>
@@ -74,24 +74,28 @@ export function createCryptoColumnDefs(options: CryptoColumnsOptions): SymbolCol
         )
       },
     },
-    {
-      title: 'Action',
-      key: 'actions',
-      width: 70,
-      fixed: 'right',
-      defaultVisible: true,
-      locked: true,
-      render: (row) =>
-        h(NTooltip, null, {
-          trigger: () =>
-            h(
-              NButton,
-              { size: 'small', onClick: () => options.onViewChart(row) },
-              { icon: () => h(NIcon, null, () => h(TrendingUpOutline)) },
-            ),
-          default: () => 'Open chart',
-        }),
-    },
+    ...(options.onViewChart
+      ? [
+          {
+            title: 'Action',
+            key: 'actions',
+            width: 70,
+            fixed: 'right' as const,
+            defaultVisible: true,
+            locked: true,
+            render: (row: SymbolRow) =>
+              h(NTooltip, null, {
+                trigger: () =>
+                  h(
+                    NButton,
+                    { size: 'small', onClick: () => options.onViewChart!(row) },
+                    { icon: () => h(NIcon, null, () => h(TrendingUpOutline)) },
+                  ),
+                default: () => 'Open chart',
+              }),
+          },
+        ]
+      : []),
   ]
 }
 
