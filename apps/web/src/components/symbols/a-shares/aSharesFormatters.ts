@@ -83,3 +83,12 @@ export function formatUTCDateTime(input: string | number | Date): string {
   const ss = String(d.getUTCSeconds()).padStart(2, '0')
   return `${y}-${m}-${day} ${hh}:${mm}:${ss}`
 }
+
+/**
+ * 量比（保留2位 + "倍"后缀；null 或非有限数时返回 '-'，避免拼出 '-倍'）。
+ */
+export function formatVolumeRatio(value: string | null): string {
+  if (value == null) return '-'
+  const formatted = formatNumber(value, 2)
+  return formatted === '-' ? '-' : `${formatted}倍`
+}

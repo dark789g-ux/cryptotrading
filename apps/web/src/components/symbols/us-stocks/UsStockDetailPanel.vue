@@ -1,23 +1,30 @@
 <template>
   <div class="us-stock-detail-panel">
     <div class="chart-panel">
-      <div v-if="loading" class="chart-center">
-        <n-spin />
-      </div>
-      <n-empty v-else-if="!klineRows.length" description="暂无K线数据" class="chart-empty" />
-      <kline-chart
-        v-else
-        :data="klineRows"
-        height="100%"
-        :slider-start="35"
-        show-toolbar
-        granularity="date"
-        :range="klineRange"
-        prefs-key="us-stock"
-        :available-subplots="usStockAvailableSubplots"
-        :recalc-indicators="recalcKdjIndicators"
-        @update:range="onKlineRangeChange"
-      />
+      <KlineWithInfoPanel storage-key="kline_info_panel_expanded_us_stock" info-title="标的信息">
+        <template #kline>
+          <div v-if="loading" class="chart-center">
+            <n-spin />
+          </div>
+          <n-empty v-else-if="!klineRows.length" description="暂无K线数据" class="chart-empty" />
+          <kline-chart
+            v-else
+            :data="klineRows"
+            height="100%"
+            :slider-start="35"
+            show-toolbar
+            granularity="date"
+            :range="klineRange"
+            prefs-key="us-stock"
+            :available-subplots="usStockAvailableSubplots"
+            :recalc-indicators="recalcKdjIndicators"
+            @update:range="onKlineRangeChange"
+          />
+        </template>
+        <template #info>
+          <UsStockInfoFields :row="row" />
+        </template>
+      </KlineWithInfoPanel>
     </div>
   </div>
 </template>
@@ -26,6 +33,8 @@
 import { ref, watch } from 'vue'
 import { NEmpty, NSpin, useMessage } from 'naive-ui'
 import KlineChart from '../../kline/KlineChart.vue'
+import KlineWithInfoPanel from '../KlineWithInfoPanel.vue'
+import UsStockInfoFields from './UsStockInfoFields.vue'
 import { usStocksApi, type UsStockKlineBar, type UsStockRow } from '@/api'
 import type { IndicatorSubplotParams, SubplotKey } from '@/composables/kline/subplotConfig'
 import { useKlineRangePicker, type KlineRangeDates } from '@/composables/kline/useKlineRangePicker'

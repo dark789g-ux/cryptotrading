@@ -8,18 +8,25 @@
           </div>
           <n-empty v-else-if="!klineRows.length" description="暂无K线数据" class="chart-empty" />
           <div v-else class="chart-with-caption">
-            <kline-chart
-              :data="klineRows"
-              height="100%"
-              :slider-start="35"
-              show-toolbar
-              granularity="date"
-              :range="klineRange"
-              prefs-key="a-share"
-              :available-subplots="aShareAvailableSubplots"
-              :recalc-indicators="recalcKdjIndicators"
-              @update:range="onKlineRangeChange"
-            />
+            <KlineWithInfoPanel storage-key="kline_info_panel_expanded_a_share" info-title="标的信息">
+              <template #kline>
+                <kline-chart
+                  :data="klineRows"
+                  height="100%"
+                  :slider-start="35"
+                  show-toolbar
+                  granularity="date"
+                  :range="klineRange"
+                  prefs-key="a-share"
+                  :available-subplots="aShareAvailableSubplots"
+                  :recalc-indicators="recalcKdjIndicators"
+                  @update:range="onKlineRangeChange"
+                />
+              </template>
+              <template #info>
+                <AStockInfoFields :row="row" />
+              </template>
+            </KlineWithInfoPanel>
             <!-- 0AMV 副图合规标注（spec §8/§11）：信号未回测校准 -->
             <n-text :depth="3" class="amv-caption">{{ AMV_CAPTION_BASE }}</n-text>
           </div>
@@ -36,6 +43,8 @@ defineOptions({ name: 'AShareDetailPanel' })
 import { ref, watch } from 'vue'
 import { NEmpty, NSpin, NText, useMessage } from 'naive-ui'
 import KlineChart from '../../kline/KlineChart.vue'
+import KlineWithInfoPanel from '../KlineWithInfoPanel.vue'
+import AStockInfoFields from './AStockInfoFields.vue'
 import { aSharesApi, type AShareKlineBar, type AShareRow } from '@/api'
 import type { AmvSeriesRow } from '@/api/modules/market/active-mv'
 import type { IndicatorSubplotParams } from '@/composables/kline/subplotConfig'
@@ -52,12 +61,17 @@ const aShareAvailableSubplots: SubplotKey[] = [
   'VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW', '0AMV', '0AMV_MACD',
 ]
 
-const props = defineProps<{
-  row: AShareRow | null
-  priceMode: 'qfq' | 'raw'
-  /** 外部容器是否可见；用于 Drawer 场景在关闭时清空状态、打开时重新加载。split-right slot 等常驻场景可不传，默认为 true。 */
-  visible?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    row: AShareRow | null
+    priceMode: 'qfq' | 'raw'
+    /** 外部容器是否可见；用于 Drawer 场景在关闭时清空状态、打开时重新加载。split-right slot 等常驻场景可不传，默认为 true。 */
+    visible?: boolean
+  }>(),
+  {
+    visible: true,
+  },
+)
 
 const message = useMessage()
 
@@ -149,9 +163,9 @@ async function recalcKdjIndicators(params?: IndicatorSubplotParams): Promise<voi
 }
 
 watch(
-  () => [props.visible ?? true, props.row?.tsCode] as const,
+  () => [props.visible, props.row?.tsCode] as const,
   ([visible, tsCode]) => {
-    if (!visible) {
+    if (visible === false) {
       klineRows.value = []
       cachedFlowRows.value = []
       cachedAmvRows.value = []
@@ -169,7 +183,7 @@ watch(
 watch(
   () => props.priceMode,
   () => {
-    if (!(props.visible ?? true) || !props.row?.tsCode) return
+    if (props.visible === false || !props.row?.tsCode) return
     void reloadKlineOnly()
   },
 )

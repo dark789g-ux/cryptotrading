@@ -55,7 +55,7 @@ function mountToolbar(props: {
   range?: [number, number] | null
   data?: KlineChartBar[]
   prefs?: SubplotPrefs
-} = {}) {
+} = {}, slots?: { actions?: () => ReturnType<typeof h> }) {
   const onUpdateRange = vi.fn()
 
   const Wrapper = defineComponent({
@@ -82,15 +82,19 @@ function mountToolbar(props: {
         update,
         reset,
         render: () =>
-          h(KlineChartToolbar, {
-            granularity: props.granularity ?? 'date',
-            range: props.range ?? null,
-            data: props.data ?? [],
-            prefs: prefs.value,
-            update,
-            reset,
-            'onUpdate:range': onUpdateRange,
-          }),
+          h(
+            KlineChartToolbar,
+            {
+              granularity: props.granularity ?? 'date',
+              range: props.range ?? null,
+              data: props.data ?? [],
+              prefs: prefs.value,
+              update,
+              reset,
+              'onUpdate:range': onUpdateRange,
+            },
+            slots,
+          ),
       }
     },
     render() {
@@ -370,5 +374,47 @@ describe('KlineChartToolbar 时间范围同步', () => {
 
     expect(onUpdateRange).toHaveBeenCalledTimes(1)
     expect(onUpdateRange).toHaveBeenCalledWith(range)
+  })
+})
+
+describe('KlineChartToolbar actions 具名插槽', () => {
+  let lastWrapper: ReturnType<typeof mountToolbar>['wrapper'] | null = null
+
+  afterEach(() => {
+    if (lastWrapper) {
+      lastWrapper.unmount()
+      lastWrapper = null
+    }
+    document.body.innerHTML = ''
+    vi.restoreAllMocks()
+  })
+
+  it('传入 actions 插槽内容渲染到 .kline-toolbar__actions 内', async () => {
+    const { wrapper } = mountToolbar(
+      {},
+      { actions: () => h('button', { class: 'info-trigger' }, '信息面板') },
+    )
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    const actionsEl = wrapper.find('.kline-toolbar__actions')
+    expect(actionsEl.exists()).toBe(true)
+    expect(actionsEl.find('button.info-trigger').exists()).toBe(true)
+    expect(actionsEl.text()).toContain('信息面板')
+  })
+
+  it('不传 actions 插槽时副图设置齿轮仍在且 .kline-toolbar__actions 存在', async () => {
+    const { wrapper } = mountToolbar()
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    const actionsEl = wrapper.find('.kline-toolbar__actions')
+    expect(actionsEl.exists()).toBe(true)
+    const settingsBtn = wrapper
+      .findAllComponents(NButton)
+      .find((b) => b.attributes('aria-label') === '副图设置')
+    expect(settingsBtn).toBeTruthy()
   })
 })

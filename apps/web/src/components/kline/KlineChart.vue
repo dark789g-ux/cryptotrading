@@ -11,18 +11,21 @@
       :update="update"
       :reset="reset"
       @update:range="onRangeUpdate"
-    />
+    >
+      <template v-if="hasActionsSlot" #actions><slot name="actions" /></template>
+    </kline-chart-toolbar>
     <div ref="chartRef" class="kline-chart" :style="chartStyle" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, useSlots, watch } from 'vue'
 import * as echarts from 'echarts'
 import KlineChartToolbar from './KlineChartToolbar.vue'
 import { buildKlineChartGraphics, buildKlineChartOption } from '../../composables/kline/klineChartOptions'
 import {
   ALL_SUBPLOT_KEYS,
+  isDefaultKdjParams,
   resolveVisibleSubplots,
   type IndicatorSubplotParams,
   type SubplotConfig,
@@ -72,6 +75,8 @@ const emit = defineEmits<{
 }>()
 
 const { echartsTheme } = useTheme()
+const slots = useSlots()
+const hasActionsSlot = computed(() => !!slots.actions)
 const chartRef = ref<HTMLElement | null>(null)
 let chartInstance: echarts.ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
@@ -199,6 +204,29 @@ watch(
     void renderChart()
   },
   { immediate: true, deep: true },
+)
+
+// 数据首次就绪后，若用户保存了自定义 KDJ 参数，自动按该参数重算。
+// 独立于渲染 watch，只观察长度变化，避免父组件原地修改数组元素导致误判。
+watch(
+  () => props.data.length,
+  async (nextLen, prevLen) => {
+    if (!props.recalcIndicators) return
+    if (prevLen !== undefined && prevLen > 0) return
+    if (nextLen === 0) return
+
+    const kdjParams = prefs.value.params?.KDJ
+    if (!kdjParams || isDefaultKdjParams(kdjParams)) return
+
+    try {
+      await props.recalcIndicators(prefs.value.params)
+    } catch (err) {
+      // 父组件的 recalcIndicators 已在内部调用 message.error 并 rethrow。
+      // 这里 catch 只是为了避免未处理的 rejection；不再额外弹提示。
+      console.error('[KlineChart] auto recalc failed:', err)
+    }
+  },
+  { immediate: true },
 )
 
 watch(

@@ -144,6 +144,7 @@
           </div>
         </div>
       </n-popover>
+      <slot name="actions" />
     </div>
   </div>
 </template>
