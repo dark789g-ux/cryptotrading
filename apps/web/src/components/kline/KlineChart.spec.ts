@@ -14,7 +14,7 @@ import {
 
 const ToolbarStub = defineComponent({
   name: 'KlineChartToolbar',
-  props: ['granularity', 'range', 'disabledRange', 'prefsKey', 'availableSubplots', 'prefs', 'update', 'reset'],
+  props: ['granularity', 'range', 'disabledRange', 'prefsKey', 'availableSubplots', 'prefs', 'update', 'reset', 'data'],
   emits: ['update:range'],
   setup(props) {
     return {
