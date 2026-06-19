@@ -231,7 +231,7 @@ const simpleColumns = computed<DataTableColumns<AShareRow>>(() => {
 
 function splitRowProps(row: AShareRow) {
   return {
-    style: 'cursor: pointer',
+    style: 'cursor: pointer;',
     onClick: () => {
       selectedDetailRow.value = row
     },

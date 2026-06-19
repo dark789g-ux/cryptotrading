@@ -84,8 +84,6 @@ async function recalcKdjIndicators(params?: IndicatorSubplotParams): Promise<voi
   }
 }
 
-defineExpose({ recalcKdjIndicators })
-
 watch(
   () => [props.row?.symbol, props.interval] as const,
   () => void loadKlines(),
@@ -107,5 +105,11 @@ watch(
   display: flex;
   flex: 1;
   justify-content: center;
+}
+
+@media (max-width: 960px) {
+  .crypto-symbol-detail-panel {
+    min-height: 520px;
+  }
 }
 </style>

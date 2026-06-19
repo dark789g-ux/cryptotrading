@@ -26,7 +26,7 @@
  */
 defineOptions({ name: 'ResizableSplitPane' })
 
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -50,12 +50,32 @@ const dividerRef = ref<HTMLElement | null>(null)
 
 // 内部维护一个与 prop 同步的比例值，拖拽时直接修改它，结束后再通知父组件。
 const innerRatio = ref(props.leftWidth)
+
+function clampRatio(ratio: number, containerWidth: number): number {
+  const minWidthPx = Math.max(0, props.minWidthPx)
+  const maxWidthPx = props.maxRatio * containerWidth
+  const minRatio = containerWidth > 0 ? minWidthPx / containerWidth : 0
+  const maxRatio = containerWidth > 0 ? maxWidthPx / containerWidth : props.maxRatio
+  return Math.max(minRatio, Math.min(maxRatio, ratio))
+}
+
+function syncRatioToContainer() {
+  if (!containerRef.value) return
+  const width = containerRef.value.getBoundingClientRect().width
+  innerRatio.value = clampRatio(innerRatio.value, width)
+}
+
 watch(
   () => props.leftWidth,
   (value) => {
     innerRatio.value = value
+    nextTick(syncRatioToContainer)
   },
 )
+
+onMounted(() => {
+  syncRatioToContainer()
+})
 
 const cssVars = computed(() => ({
   '--left-ratio': innerRatio.value,
@@ -69,13 +89,24 @@ function updateNarrow() {
   isNarrow.value = narrowMediaQuery?.matches ?? false
 }
 
+let resizeObserver: ResizeObserver | null = null
+
 onMounted(() => {
   updateNarrow()
   narrowMediaQuery?.addEventListener('change', updateNarrow)
+
+  if (containerRef.value && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => syncRatioToContainer())
+    resizeObserver.observe(containerRef.value)
+  }
 })
 
 onBeforeUnmount(() => {
   narrowMediaQuery?.removeEventListener('change', updateNarrow)
+  if (resizeObserver && containerRef.value) {
+    resizeObserver.unobserve(containerRef.value)
+    resizeObserver.disconnect()
+  }
 })
 
 let isDragging = false
@@ -116,13 +147,8 @@ function onPointerMove(event: PointerEvent) {
   if (!isDragging || containerStartWidth <= 0) return
 
   const deltaX = event.clientX - startX
-  const minWidthPx = Math.max(0, props.minWidthPx)
-  const maxWidthPx = props.maxRatio * containerStartWidth
-
-  let newLeftPx = startRatio * containerStartWidth + deltaX
-  newLeftPx = Math.max(minWidthPx, Math.min(maxWidthPx, newLeftPx))
-
-  innerRatio.value = newLeftPx / containerStartWidth
+  const newRatio = (startRatio * containerStartWidth + deltaX) / containerStartWidth
+  innerRatio.value = clampRatio(newRatio, containerStartWidth)
 }
 
 function onPointerUp() {

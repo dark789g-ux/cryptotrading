@@ -109,6 +109,27 @@ describe('ResizableSplitPane', () => {
     expect(container.style.getPropertyValue('--left-ratio')).toBe('0.4')
   })
 
+  it('prop leftWidth 超过 maxRatio 时会被钳制到 maxRatio', async () => {
+    const wrapper = mountPane({ leftWidth: 0.4 })
+    await wrapper.setProps({ leftWidth: 0.9 })
+    await nextTick()
+    await nextTick()
+    const container = getContainer(wrapper)
+
+    expect(container.style.getPropertyValue('--left-ratio')).toBe('0.6')
+  })
+
+  it('prop leftWidth 对应的像素小于 minWidthPx 时会被钳制到 minWidthPx', async () => {
+    const wrapper = mountPane({ leftWidth: 0.4 })
+    await wrapper.setProps({ leftWidth: 0.1 })
+    await nextTick()
+    await nextTick()
+    const container = getContainer(wrapper)
+
+    // 最小宽度 240px / 1000px = 0.24
+    expect(container.style.getPropertyValue('--left-ratio')).toBe('0.24')
+  })
+
   it('pointerdown 时给 body 添加 user-select:none 与 col-resize 光标；pointerup 后移除', async () => {
     const wrapper = mountPane()
     const divider = getDivider(wrapper)

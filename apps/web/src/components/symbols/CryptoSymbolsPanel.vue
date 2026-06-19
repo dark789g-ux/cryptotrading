@@ -113,6 +113,7 @@ import { useStrategyConditionsStore } from '@/stores/strategyConditions'
 import { strategyConditionsApi } from '@/api/modules/strategy/strategyConditions'
 import { useCryptoSymbolsQuery } from './crypto/useCryptoSymbolsQuery'
 import SymbolsPanelLayout from './SymbolsPanelLayout.vue'
+import { formatNumber } from './a-shares/aSharesFormatters'
 
 const message = useMessage()
 
@@ -194,7 +195,7 @@ const {
 const simpleColumns = computed<DataTableColumns<SymbolRow>>(() => [
   { title: '股票名称', key: 'name', sorter: true, render: row => row.name ?? '-' },
   { title: '股票代码', key: 'symbol', sorter: true, render: row => row.symbol },
-  { title: '现价', key: 'close', sorter: true, render: row => (row.close == null ? '-' : Number(row.close).toPrecision(6)) },
+  { title: '现价', key: 'close', sorter: true, render: row => (row.close == null ? '-' : formatNumber(row.close, 2)) },
 ])
 
 function splitRowProps(row: SymbolRow) {
