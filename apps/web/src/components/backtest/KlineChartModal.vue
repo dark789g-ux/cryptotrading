@@ -44,6 +44,7 @@
         disabled-range
         prefs-key="backtest"
         :available-subplots="backtestAvailableSubplots"
+        :recalc-indicators="recalcKdjIndicators"
       />
     </template>
   </n-modal>
@@ -54,7 +55,7 @@ import { computed, ref, watch } from 'vue'
 import { NButton, NEmpty, NIcon, NModal, NSpin, useMessage } from 'naive-ui'
 import { ContractOutline, ExpandOutline } from '@vicons/ionicons5'
 import KlineChart from '../kline/KlineChart.vue'
-import type { SubplotKey } from '@/composables/kline/subplotConfig'
+import type { IndicatorSubplotParams, SubplotKey } from '@/composables/kline/subplotConfig'
 import { backtestApi, type KlineChartBar } from '@/api'
 
 // 回测 K 线无活跃市值数据源：显式排除 0AMV / 0AMV_MACD，保持默认布局与接入前一致
@@ -114,6 +115,27 @@ const loadKline = async () => {
     loading.value = false
   }
 
+}
+
+async function recalcKdjIndicators(params?: IndicatorSubplotParams): Promise<void> {
+  const runId = props.runId
+  const ts = props.ts?.trim() ?? ''
+  const symbol = props.symbol?.trim() ?? ''
+  if (!runId || !ts || !symbol) return
+
+  loading.value = true
+  try {
+    klineData.value = await backtestApi.recalcKlineChart(
+      runId,
+      { symbol, ts, before: 100, after: 30 },
+      { kdjParams: params?.KDJ },
+    )
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : String(err))
+    throw err
+  } finally {
+    loading.value = false
+  }
 }
 
 watch(

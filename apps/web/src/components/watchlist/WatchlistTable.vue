@@ -83,6 +83,7 @@
               :range="klineRange"
               prefs-key="watchlist"
               :available-subplots="watchlistAvailableSubplots"
+              :recalc-indicators="recalcKdjIndicators"
               @update:range="onKlineRangeChange"
             />
           </div>
@@ -97,6 +98,7 @@ import { computed, ref, watch } from 'vue'
 import {
   NButton, NDataTable, NDrawer, NDrawerContent, NEmpty, NIcon, NSpin, NTag,
   type DataTableSortState,
+  useMessage,
 } from 'naive-ui'
 import { AddOutline, RefreshOutline, SettingsOutline } from '@vicons/ionicons5'
 import { useWatchlistStore } from '@/stores/watchlist'
@@ -113,14 +115,15 @@ import { strategyConditionsApi } from '@/api/modules/strategy/strategyConditions
 import WatchlistAddSymbolsModal from './WatchlistAddSymbolsModal.vue'
 import WatchlistTableSettings from './WatchlistTableSettings.vue'
 import KlineChart from '@/components/kline/KlineChart.vue'
-import type { SubplotKey } from '@/composables/kline/subplotConfig'
+import type { IndicatorSubplotParams, SubplotKey } from '@/composables/kline/subplotConfig'
 import { useKlineRangePicker, type KlineRangeDates } from '@/composables/kline/useKlineRangePicker'
-import { sliceTimestampBarsByRange } from '@/composables/kline/klineDateRange'
+import { msToYyyymmdd, sliceTimestampBarsByRange } from '@/composables/kline/klineDateRange'
 import { createWatchlistColumnDefs, isWatchlistAShare } from './watchlistColumnDefs'
 import { useWatchlistColumnPreferences } from '@/composables/watchlist/useWatchlistColumnPreferences'
 
 const store = useWatchlistStore()
 const strategyStore = useStrategyConditionsStore()
+const message = useMessage()
 const showSettings = ref(false)
 const showAddModal = ref(false)
 const showChartDrawer = ref(false)
@@ -170,6 +173,38 @@ async function reloadAShareKline(rangeDates: KlineRangeDates | null) {
     console.error(err)
   } finally {
     loadingKline.value = false
+  }
+}
+
+async function recalcKdjIndicators(params?: IndicatorSubplotParams): Promise<void> {
+  const symbol = selectedSymbol.value
+  if (!symbol) return
+  try {
+    if (isWatchlistAShare(symbol)) {
+      const rangeDates = klineRangeToDates()
+      const limit = rangeDates ? RANGE_LIMIT : DEFAULT_LIMIT
+      klineData.value = await aSharesApi.recalcKlines(
+        symbol,
+        limit,
+        'qfq',
+        rangeDates ?? undefined,
+        { kdjParams: params?.KDJ },
+      )
+    } else {
+      klineData.value = await klinesApi.recalcKlines(symbol, store.interval, { kdjParams: params?.KDJ })
+    }
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : String(err))
+    throw err
+  }
+}
+
+function klineRangeToDates(): KlineRangeDates | null {
+  const r = klineRange.value
+  if (!r) return null
+  return {
+    startDate: msToYyyymmdd(r[0]),
+    endDate: msToYyyymmdd(r[1]),
   }
 }
 

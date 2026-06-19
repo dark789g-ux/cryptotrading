@@ -9,6 +9,11 @@ import {
 } from 'typeorm'
 import { OamvDailyEntity } from '../../entities/oamv/oamv-daily.entity'
 import { TushareClientService } from '../a-shares/services/tushare-client.service'
+import {
+  calcKdjSeries,
+  isCustomKdjParams,
+  roundKdjPoint,
+} from '../../indicators/kdj'
 import { buildIndicatorArrays } from './oamv-indicators'
 import type { OamvCalcResult, TushareIndexDaily } from './oamv.types'
 
@@ -318,5 +323,46 @@ export class OamvService {
       take: days,
     })
     return rows.reverse()
+  }
+
+  /**
+   * 按自定义 KDJ 参数重新计算 0AMV 指标序列。
+   *
+   * - 复用 get0amvData() 的查询逻辑（已按 trade_date ASC 排列）；
+   * - 仅当 kdjParams 为有效自定义参数时，用 calcKdjSeries 重算 KDJ 序列；
+   * - 替换 kdjK / kdjD / kdjJ 三列，其余字段（MACD/MA/0AMV OHLC 等）保持原值；
+   * - 返回字段形状与 get0amvData() 完全一致（OamvDailyEntity 数组）。
+   */
+  async recalcKlines(
+    days: number = 250,
+    range?: { startDate?: string; endDate?: string },
+    kdjParams?: { n: number; m1: number; m2: number },
+  ): Promise<OamvDailyEntity[]> {
+    const rows = await this.get0amvData(days, range)
+
+    if (!kdjParams || !isCustomKdjParams(kdjParams)) {
+      return rows
+    }
+
+    const kdjSeries = calcKdjSeries(
+      rows.map((r) => ({
+        high: parseFloat(r.high),
+        low: parseFloat(r.low),
+        close: parseFloat(r.close),
+      })),
+      kdjParams.n,
+      kdjParams.m1,
+      kdjParams.m2,
+    )
+
+    return rows.map((row, index) => {
+      const kdj = roundKdjPoint(kdjSeries[index])
+      return {
+        ...row,
+        kdjK: kdj.k,
+        kdjD: kdj.d,
+        kdjJ: kdj.j,
+      }
+    })
   }
 }

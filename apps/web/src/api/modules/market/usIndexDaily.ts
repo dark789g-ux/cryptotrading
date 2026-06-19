@@ -1,5 +1,5 @@
 import { API_BASE, post, request } from '../../client'
-import type { KlineChartBar } from './symbols'
+import type { KdjSubplotParams, KlineChartBar } from './symbols'
 
 export interface UsIndexDailyQuery {
   index_code: string
@@ -22,6 +22,13 @@ export const usIndexDailyApi = {
     request<KlineChartBar[]>(
       `${API_BASE}/us-index-daily?index_code=${encodeURIComponent(params.index_code)}` +
         `&start_date=${params.start_date}&end_date=${params.end_date}`,
+    ),
+
+  recalc: (params: UsIndexDailyQuery, body: { kdjParams?: KdjSubplotParams } = {}) =>
+    post<KlineChartBar[]>(
+      `${API_BASE}/us-index-daily/recalc?index_code=${encodeURIComponent(params.index_code)}` +
+        `&start_date=${params.start_date}&end_date=${params.end_date}`,
+      body,
     ),
 
   getDateRange: (index_code: string) =>

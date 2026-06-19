@@ -20,6 +20,7 @@
           granularity="date"
           prefs-key="signal-kline"
           :available-subplots="availableSubplots"
+          :recalc-indicators="recalcKdjIndicators"
         />
         <n-empty v-else-if="!loading" description="无 K 线数据" />
       </n-spin>
@@ -36,7 +37,7 @@ import AppModal from '@/components/common/AppModal.vue'
 import KlineChart from '@/components/kline/KlineChart.vue'
 import { aSharesApi } from '@/api/modules/market/aShares'
 import type { KlineChartBar, TradeOnBar } from '@/api/modules/market/symbols'
-import type { SubplotKey } from '@/composables/kline/subplotConfig'
+import type { IndicatorSubplotParams, SubplotKey } from '@/composables/kline/subplotConfig'
 import type { SignalTestTrade } from '@/api/modules/strategy/signalStats'
 import { exitReasonLabel, fmtRetPct, fmtTradeDate } from './signalStatsFormatters'
 
@@ -101,6 +102,27 @@ async function load() {
     entryTs.value = fmtTradeDate(t.buyDate)
   } finally {
     if (my === reqSeq) loading.value = false
+  }
+}
+
+async function recalcKdjIndicators(params?: IndicatorSubplotParams): Promise<void> {
+  const t = props.trade
+  if (!t) return
+  try {
+    const range = {
+      startDate: shiftYmd(t.signalDate, -30),
+      endDate: shiftYmd(t.exitDate, +20),
+    }
+    const raw = await aSharesApi.recalcKlines(
+      t.tsCode,
+      500,
+      'qfq',
+      range,
+      { kdjParams: params?.KDJ },
+    )
+    bars.value = injectMarkers(raw, t)
+  } catch (err: unknown) {
+    throw err
   }
 }
 

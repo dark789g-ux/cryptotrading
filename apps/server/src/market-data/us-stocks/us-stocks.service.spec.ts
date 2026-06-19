@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { calcKdjSeries, roundKdjPoint } from '../../indicators/kdj';
 import { UsStocksService } from './us-stocks.service';
 
 /**
@@ -170,5 +171,175 @@ describe('UsStocksService.getKlines — 日期区间参数化', () => {
   it('qfq 口径选 qfq 价列', async () => {
     const { sql } = await callKlines([ticker, 300, 'qfq', undefined]);
     expect(sql).toContain('q.qfq_open AS open');
+  });
+});
+
+
+// ── 工具：构造模拟 DB 行 ──────────────────────────────────────────────────────
+
+interface MockUsStockRow {
+  tradeDate: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  pctChg: number;
+  volume: number;
+  dif: number | null;
+  dea: number | null;
+  macd: number | null;
+  kdjK: number;
+  kdjD: number;
+  kdjJ: number;
+  bbi: number | null;
+  ma5: number | null;
+  ma30: number | null;
+  ma60: number | null;
+  ma120: number | null;
+  ma240: number | null;
+  atr14: number | null;
+  low9: number | null;
+  high9: number | null;
+  stopLossPct: number | null;
+  riskRewardRatio: number | null;
+}
+
+function makeMockRows(count = 12): MockUsStockRow[] {
+  const rows: MockUsStockRow[] = [];
+  for (let i = 0; i < count; i++) {
+    const base = 100 + i * 2;
+    rows.push({
+      tradeDate: `202401${String(i + 1).padStart(2, '0')}`,
+      open: base,
+      high: base + 3,
+      low: base - 1,
+      close: base + (i % 3) - 1,
+      pctChg: (i % 5) - 2,
+      volume: 1000000 + i * 10000,
+      dif: 0.5 + i * 0.1,
+      dea: 0.3 + i * 0.05,
+      macd: 0.2 + i * 0.05,
+      kdjK: 50 + i,
+      kdjD: 45 + i,
+      kdjJ: 60 + i,
+      bbi: base + 1,
+      ma5: base + 0.5,
+      ma30: base - 0.5,
+      ma60: base - 1.5,
+      ma120: base - 3,
+      ma240: base - 5,
+      atr14: 2 + i * 0.1,
+      low9: base - 2,
+      high9: base + 4,
+      stopLossPct: 0.05,
+      riskRewardRatio: 2,
+    });
+  }
+  return rows;
+}
+
+// ── 测试套件：recalcKlines ────────────────────────────────────────────────────
+
+describe('UsStocksService.recalcKlines', () => {
+  const ticker = 'NVDA';
+
+  it('不传 kdjParams 时返回与 getKlines 完全相同的数据', async () => {
+    const ds = makeDataSourceMock();
+    ds.query.mockResolvedValue(makeMockRows());
+    const svc = new UsStocksService(null as never, ds as never, null as never);
+
+    const fromGet = await svc.getKlines(ticker, 300, 'qfq', undefined);
+    const fromRecalc = await svc.recalcKlines(ticker, { priceMode: 'qfq' }, undefined);
+
+    expect(fromRecalc).toEqual(fromGet);
+  });
+
+  it('自定义 KDJ 参数会改变 KDJ 三列，其余列保持不变', async () => {
+    const ds = makeDataSourceMock();
+    ds.query.mockResolvedValue(makeMockRows());
+    const svc = new UsStocksService(null as never, ds as never, null as never);
+
+    const defaultRows = await svc.recalcKlines(ticker, { priceMode: 'qfq' }, undefined);
+    const customRows = await svc.recalcKlines(
+      ticker,
+      { priceMode: 'qfq' },
+      { n: 6, m1: 2, m2: 2 },
+    );
+
+    expect(customRows).toHaveLength(defaultRows.length);
+
+    for (let i = 0; i < customRows.length; i++) {
+      const custom = customRows[i];
+      const baseline = defaultRows[i];
+
+      expect(custom['KDJ.K']).not.toEqual(baseline['KDJ.K']);
+      expect(custom['KDJ.D']).not.toEqual(baseline['KDJ.D']);
+      expect(custom['KDJ.J']).not.toEqual(baseline['KDJ.J']);
+
+      expect(custom.open_time).toEqual(baseline.open_time);
+      expect(custom.open).toEqual(baseline.open);
+      expect(custom.high).toEqual(baseline.high);
+      expect(custom.low).toEqual(baseline.low);
+      expect(custom.close).toEqual(baseline.close);
+      expect(custom.pctChg).toEqual(baseline.pctChg);
+      expect(custom.volume).toEqual(baseline.volume);
+      expect(custom.DIF).toEqual(baseline.DIF);
+      expect(custom.DEA).toEqual(baseline.DEA);
+      expect(custom.MACD).toEqual(baseline.MACD);
+      expect(custom.BBI).toEqual(baseline.BBI);
+      expect(custom.MA5).toEqual(baseline.MA5);
+      expect(custom.MA30).toEqual(baseline.MA30);
+      expect(custom.MA60).toEqual(baseline.MA60);
+      expect(custom.MA120).toEqual(baseline.MA120);
+      expect(custom.MA240).toEqual(baseline.MA240);
+      expect(custom.atr_14).toEqual(baseline.atr_14);
+      expect(custom.low_9).toEqual(baseline.low_9);
+      expect(custom.high_9).toEqual(baseline.high_9);
+      expect(custom.stop_loss_pct).toEqual(baseline.stop_loss_pct);
+      expect(custom.risk_reward_ratio).toEqual(baseline.risk_reward_ratio);
+    }
+  });
+
+  it('显式传入默认参数 9/3/3 时不触发重算，结果与 getKlines 一致', async () => {
+    const ds = makeDataSourceMock();
+    ds.query.mockResolvedValue(makeMockRows());
+    const svc = new UsStocksService(null as never, ds as never, null as never);
+
+    const fromGet = await svc.getKlines(ticker, 300, 'qfq', undefined);
+    const fromRecalc = await svc.recalcKlines(
+      ticker,
+      { priceMode: 'qfq' },
+      { n: 9, m1: 3, m2: 3 },
+    );
+
+    expect(fromRecalc).toEqual(fromGet);
+  });
+
+  it('自定义 KDJ 结果按 4 位小数取整，并与 calcKdjSeries 取整后一致', async () => {
+    const ds = makeDataSourceMock();
+    const mockRows = makeMockRows();
+    ds.query.mockResolvedValue(mockRows);
+    const svc = new UsStocksService(null as never, ds as never, null as never);
+
+    const kdjParams = { n: 6, m1: 2, m2: 2 };
+    const out = await svc.recalcKlines(ticker, { priceMode: 'qfq' }, kdjParams);
+
+    const expected = calcKdjSeries(
+      mockRows.map((r) => ({ high: r.high, low: r.low, close: r.close })),
+      kdjParams.n,
+      kdjParams.m1,
+      kdjParams.m2,
+    ).map(roundKdjPoint);
+
+    expect(out).toHaveLength(expected.length);
+    for (let i = 0; i < out.length; i++) {
+      expect(out[i]['KDJ.K']).toBeCloseTo(expected[i].k, 4);
+      expect(out[i]['KDJ.D']).toBeCloseTo(expected[i].d, 4);
+      expect(out[i]['KDJ.J']).toBeCloseTo(expected[i].j, 4);
+
+      expect(out[i]['KDJ.K']).toEqual(parseFloat(out[i]['KDJ.K']!.toFixed(4)));
+      expect(out[i]['KDJ.D']).toEqual(parseFloat(out[i]['KDJ.D']!.toFixed(4)));
+      expect(out[i]['KDJ.J']).toEqual(parseFloat(out[i]['KDJ.J']!.toFixed(4)));
+    }
   });
 });

@@ -1,5 +1,5 @@
 import { API_BASE, post, put, request } from '../../client'
-import type { KlineChartBar } from './symbols'
+import type { KdjSubplotParams, KlineChartBar } from './symbols'
 import type { NumericConditionPayload } from './aShares'
 
 // 美股价格口径：qfq=前复权（默认，技术分析口径）/ raw=不复权。
@@ -118,6 +118,18 @@ export const usStocksApi = {
     if (range?.startDate) qs.set('startDate', range.startDate)
     if (range?.endDate)   qs.set('endDate', range.endDate)
     return request<UsStockKlineBar[]>(`${API_BASE}/us-stocks/${encodeURIComponent(ticker)}/klines?${qs.toString()}`)
+  },
+  recalcKlines: (
+    ticker: string, limit = 300, priceMode: UsStockPriceMode = 'qfq',
+    range?: { startDate?: string; endDate?: string },   // YYYYMMDD
+    body: { kdjParams?: KdjSubplotParams } = {},
+  ) => {
+    const qs = new URLSearchParams()
+    qs.set('limit', String(limit))
+    qs.set('priceMode', priceMode)
+    if (range?.startDate) qs.set('startDate', range.startDate)
+    if (range?.endDate)   qs.set('endDate', range.endDate)
+    return post<UsStockKlineBar[]>(`${API_BASE}/us-stocks/${encodeURIComponent(ticker)}/klines/recalc?${qs.toString()}`, body)
   },
   listSymbols: () => request<UsSymbol[]>(`${API_BASE}/us-stocks/symbols`),
   toggleTracked: (items: Array<{ ticker: string; tracked: boolean }>) =>

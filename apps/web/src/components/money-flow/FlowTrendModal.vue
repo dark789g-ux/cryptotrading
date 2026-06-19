@@ -34,6 +34,7 @@
                 :range="klineRange"
                 prefs-key="money-flow-kline"
                 :available-subplots="availableSubplots"
+                :recalc-indicators="recalcKdjIndicators"
                 @update:range="onKlineRangeChange"
               />
               <!-- 0AMV 副图合规标注（spec §8/§11）：信号未回测校准 + 成分股当前快照。
@@ -85,10 +86,12 @@ import FlowDateControl from './FlowDateControl.vue'
 import FlowTrendChart from './FlowTrendChart.vue'
 import KlineChart from '@/components/kline/KlineChart.vue'
 import { moneyFlowApi, type MoneyFlowMemberRow, type MoneyFlowQueryParams } from '@/api/modules/market/moneyFlow'
+import { thsIndexDailyApi } from '@/api/modules/market/thsIndexDaily'
 import { watchlistApi } from '@/api'
 import type { KlineChartBar } from '@/api'
 import { AMV_CAPTION_INDUSTRY } from '@/composables/kline/amvCaption'
-import type { SubplotKey } from '@/composables/kline/subplotConfig'
+import type { IndicatorSubplotParams, SubplotKey } from '@/composables/kline/subplotConfig'
+import { msToYyyymmdd } from '@/composables/kline/klineDateRange'
 import { useKlineRangePicker } from '@/composables/kline/useKlineRangePicker'
 import { useWatchlistStore } from '@/stores/watchlist'
 import type { BarChartRow, TrendFetchResult } from './money-flow.types'
@@ -299,6 +302,49 @@ async function loadTrend(params: MoneyFlowQueryParams) {
     resetTrendState()
   } finally {
     loading.value = false
+  }
+}
+
+async function recalcKdjIndicators(params?: IndicatorSubplotParams): Promise<void> {
+  if (props.chartMode !== 'kline' || klineBars.value.length === 0) return
+  const tsCode = props.tsCode
+  if (!tsCode) return
+
+  let startDate: string | undefined
+  let endDate: string | undefined
+  if (klineRange.value) {
+    startDate = msToYyyymmdd(klineRange.value[0])
+    endDate = msToYyyymmdd(klineRange.value[1])
+  } else {
+    startDate = klineBars.value[0]?.open_time?.replace(/-/g, '')
+    endDate = klineBars.value[klineBars.value.length - 1]?.open_time?.replace(/-/g, '')
+  }
+  if (!startDate || !endDate) return
+
+  try {
+    const recalc = await thsIndexDailyApi.recalc(
+      { ts_code: tsCode, start_date: startDate, end_date: endDate },
+      { kdjParams: params?.KDJ },
+    )
+    const kdjMap = new Map(
+      recalc.map((bar) => [
+        bar.open_time,
+        { k: bar['KDJ.K'], d: bar['KDJ.D'], j: bar['KDJ.J'] },
+      ]),
+    )
+    klineBars.value = klineBars.value.map((bar) => {
+      const kdj = kdjMap.get(bar.open_time)
+      if (!kdj) return bar
+      return {
+        ...bar,
+        'KDJ.K': kdj.k,
+        'KDJ.D': kdj.d,
+        'KDJ.J': kdj.j,
+      }
+    })
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : String(err))
+    throw err
   }
 }
 

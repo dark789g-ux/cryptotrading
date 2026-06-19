@@ -1,15 +1,19 @@
 import {
+  Body,
   Controller,
   Get,
   Logger,
   NotFoundException,
   Param,
+  Post,
   Query,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CurrentUserParam as CurrentUser } from '../auth/decorators/current-user.decorator';
 import { calcBrickChartPoints, type BrickChartPoint } from '../indicators/brick-chart';
+import { calcKdjSeries, roundKdjPoint } from '../indicators/kdj';
+import { KdjParamsDto, validateKdjParams } from '../market-data/klines/dto/kdj-params.dto';
 import { BacktestCandleLogEntity } from '../entities/backtest/backtest-candle-log.entity';
 import { BacktestRunEntity } from '../entities/backtest/backtest-run.entity';
 import { KlineEntity } from '../entities/symbol/kline.entity';
@@ -121,12 +125,73 @@ export class KlineChartController {
     @Query('before') beforeRaw?: string,
     @Query('after') afterRaw?: string,
   ): Promise<KlineChartBar[]> {
+    const { bars, run, sym } = await this.fetchBars(
+      user,
+      runId,
+      symbol,
+      tsRaw,
+      beforeRaw,
+      afterRaw,
+    );
+    if (!bars.length) return bars;
+    await this.decorateBars(bars, run, sym);
+    return bars;
+  }
+
+  @Post('recalc')
+  async recalcChart(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('runId') runId: string,
+    @Query('symbol') symbol?: string,
+    @Query('ts') tsRaw?: string,
+    @Query('before') beforeRaw?: string,
+    @Query('after') afterRaw?: string,
+    @Body() body: { kdjParams?: KdjParamsDto } = {},
+  ): Promise<KlineChartBar[]> {
+    const { bars, run, sym } = await this.fetchBars(
+      user,
+      runId,
+      symbol,
+      tsRaw,
+      beforeRaw,
+      afterRaw,
+    );
+    if (!bars.length) return bars;
+
+    const kdjParams = body.kdjParams != null ? validateKdjParams(body.kdjParams) : undefined;
+    if (kdjParams) {
+      const kdjSeries = calcKdjSeries(
+        bars.map((bar) => ({ high: bar.high, low: bar.low, close: bar.close })),
+        kdjParams.n,
+        kdjParams.m1,
+        kdjParams.m2,
+      );
+      bars.forEach((bar, index) => {
+        const kdj = roundKdjPoint(kdjSeries[index]);
+        bar['KDJ.K'] = kdj.k;
+        bar['KDJ.D'] = kdj.d;
+        bar['KDJ.J'] = kdj.j;
+      });
+    }
+
+    await this.decorateBars(bars, run, sym);
+    return bars;
+  }
+
+  private async fetchBars(
+    user: CurrentUserPayload,
+    runId: string,
+    symbol: string | undefined,
+    tsRaw: string | undefined,
+    beforeRaw: string | undefined,
+    afterRaw: string | undefined,
+  ): Promise<{ bars: KlineChartBar[]; run: BacktestRunEntity; sym: string }> {
     const run = await this.runRepo.findOneBy({ id: runId, userId: user.id } as any);
     if (!run) throw new NotFoundException(`Backtest run ${runId} not found`);
-    if (!symbol?.trim()) return [];
+    if (!symbol?.trim()) return { bars: [], run, sym: '' };
 
     const ts = parseUTC(tsRaw);
-    if (!ts) return [];
+    if (!ts) return { bars: [], run, sym: '' };
 
     const interval = run.timeframe;
     const before = Math.min(500, Math.max(1, parseInt(beforeRaw ?? '100', 10) || 100));
@@ -154,77 +219,7 @@ export class KlineChartController {
       ]);
 
       const bars = [...preBars.reverse(), ...postBars].map(toBar);
-      if (!bars.length) return bars;
-
-      const deltaMinRaw = run.configSnapshot?.brickDeltaMin;
-      const deltaMin = typeof deltaMinRaw === 'number' ? deltaMinRaw : Number(deltaMinRaw ?? 0) || 0;
-      const brickChart = calcBrickChartPoints(
-        bars.map((bar) => ({
-          high: bar.high,
-          low: bar.low,
-          close: bar.close,
-        })),
-        deltaMin,
-      );
-      bars.forEach((bar, index) => {
-        bar.brickChart = brickChart[index];
-      });
-
-      const minTs = parseUTC(bars[0].open_time)!;
-      const maxTs = parseUTC(bars[bars.length - 1].open_time)!;
-
-      const candleLogs = await this.candleLogRepo
-        .createQueryBuilder('cl')
-        .where('cl.run_id = :runId', { runId })
-        .andWhere('cl.ts >= :minTs', { minTs })
-        .andWhere('cl.ts <= :maxTs', { maxTs })
-        .getMany();
-
-      const tradeMap = new Map<string, TradeOnBar[]>();
-      for (const log of candleLogs) {
-        const key = fmtTs(log.ts);
-        const trades: TradeOnBar[] = [];
-
-        for (const entry of log.entriesJson as RawEntry[]) {
-          if (entry.symbol === sym) {
-            trades.push({
-              type: 'entry',
-              symbol: entry.symbol,
-              price: entry.price,
-              shares: entry.shares,
-              reason: entry.reason,
-              kellyRaw: entry.kellyRaw,
-              kellyAdjusted: entry.kellyAdjusted,
-              positionRatio: entry.positionRatio,
-              windowWinRate: entry.windowWinRate,
-              windowOdds: entry.windowOdds,
-            });
-          }
-        }
-
-        for (const exit of log.exitsJson as RawExit[]) {
-          if (exit.symbol === sym) {
-            trades.push({
-              type: 'exit',
-              symbol: exit.symbol,
-              price: exit.price,
-              shares: exit.shares,
-              reason: exit.reason,
-              pnl: exit.pnl,
-              isHalf: exit.isHalf,
-            });
-          }
-        }
-
-        if (trades.length) tradeMap.set(key, trades);
-      }
-
-      for (const bar of bars) {
-        const trades = tradeMap.get(bar.open_time);
-        if (trades) bar.trades = trades;
-      }
-
-      return bars;
+      return { bars, run, sym };
     } catch (err) {
       const error = err as Error;
       this.logger.error(
@@ -232,6 +227,78 @@ export class KlineChartController {
         error.stack,
       );
       throw err;
+    }
+  }
+
+  private async decorateBars(bars: KlineChartBar[], run: BacktestRunEntity, sym: string): Promise<void> {
+    if (!bars.length || !sym) return;
+
+    const deltaMinRaw = run.configSnapshot?.brickDeltaMin;
+    const deltaMin = typeof deltaMinRaw === 'number' ? deltaMinRaw : Number(deltaMinRaw ?? 0) || 0;
+    const brickChart = calcBrickChartPoints(
+      bars.map((bar) => ({
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+      })),
+      deltaMin,
+    );
+    bars.forEach((bar, index) => {
+      bar.brickChart = brickChart[index];
+    });
+
+    const minTs = parseUTC(bars[0].open_time)!;
+    const maxTs = parseUTC(bars[bars.length - 1].open_time)!;
+
+    const candleLogs = await this.candleLogRepo
+      .createQueryBuilder('cl')
+      .where('cl.run_id = :runId', { runId: run.id })
+      .andWhere('cl.ts >= :minTs', { minTs })
+      .andWhere('cl.ts <= :maxTs', { maxTs })
+      .getMany();
+
+    const tradeMap = new Map<string, TradeOnBar[]>();
+    for (const log of candleLogs) {
+      const key = fmtTs(log.ts);
+      const trades: TradeOnBar[] = [];
+
+      for (const entry of log.entriesJson as RawEntry[]) {
+        if (entry.symbol === sym) {
+          trades.push({
+            type: 'entry',
+            symbol: entry.symbol,
+            price: entry.price,
+            shares: entry.shares,
+            reason: entry.reason,
+            kellyRaw: entry.kellyRaw,
+            kellyAdjusted: entry.kellyAdjusted,
+            positionRatio: entry.positionRatio,
+            windowWinRate: entry.windowWinRate,
+            windowOdds: entry.windowOdds,
+          });
+        }
+      }
+
+      for (const exit of log.exitsJson as RawExit[]) {
+        if (exit.symbol === sym) {
+          trades.push({
+            type: 'exit',
+            symbol: exit.symbol,
+            price: exit.price,
+            shares: exit.shares,
+            reason: exit.reason,
+            pnl: exit.pnl,
+            isHalf: exit.isHalf,
+          });
+        }
+      }
+
+      if (trades.length) tradeMap.set(key, trades);
+    }
+
+    for (const bar of bars) {
+      const trades = tradeMap.get(bar.open_time);
+      if (trades) bar.trades = trades;
     }
   }
 }

@@ -1,4 +1,5 @@
 import { API_BASE, post, request } from '../../client'
+import type { KdjSubplotParams } from './symbols'
 
 export interface OamvDateRange {
   min: string | null
@@ -60,5 +61,17 @@ export const oamvApi = {
     if (range?.startDate) qs.set('startDate', range.startDate)
     if (range?.endDate) qs.set('endDate', range.endDate)
     return request<OamvData[]>(`${API_BASE}/oamv/data?${qs.toString()}`)
+  },
+
+  recalc(
+    days: number = 250,
+    range?: { startDate?: string; endDate?: string },
+    body: { kdjParams?: KdjSubplotParams } = {},
+  ): Promise<OamvData[]> {
+    const qs = new URLSearchParams()
+    qs.set('days', String(days))
+    if (range?.startDate) qs.set('startDate', range.startDate)
+    if (range?.endDate) qs.set('endDate', range.endDate)
+    return post<OamvData[]>(`${API_BASE}/oamv/recalc?${qs.toString()}`, body)
   },
 }

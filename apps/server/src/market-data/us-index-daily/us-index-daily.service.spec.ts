@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { calcKdjSeries, roundKdjPoint } from '../../indicators/kdj';
 import { UsIndexDailyService } from './us-index-daily.service';
 
 /**
@@ -203,5 +204,155 @@ describe('UsIndexDailyService.sync — 派 ml.jobs(us_index_sync)', () => {
     await expect(svc.sync({ symbols: ['.NDX', ''] }, 'u')).rejects.toBeInstanceOf(
       BadRequestException,
     );
+  });
+});
+
+
+// ── 工具：构造模拟 DB 行 ──────────────────────────────────────────────────────
+
+interface MockUsIndexRow {
+  tradeDate: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  ma5: number | null;
+  ma30: number | null;
+  ma60: number | null;
+  ma120: number | null;
+  ma240: number | null;
+  bbi: number | null;
+  kdjK: number;
+  kdjD: number;
+  kdjJ: number;
+  dif: number | null;
+  dea: number | null;
+  macd: number | null;
+}
+
+function makeMockRows(count = 12): MockUsIndexRow[] {
+  const rows: MockUsIndexRow[] = [];
+  for (let i = 0; i < count; i++) {
+    const base = 100 + i * 2;
+    rows.push({
+      tradeDate: `202401${String(i + 1).padStart(2, '0')}`,
+      open: base,
+      high: base + 3,
+      low: base - 1,
+      close: base + (i % 3) - 1,
+      volume: 1000000 + i * 10000,
+      ma5: base + 0.5,
+      ma30: base - 0.5,
+      ma60: base - 1.5,
+      ma120: base - 3,
+      ma240: base - 5,
+      bbi: base + 1,
+      kdjK: 50 + i,
+      kdjD: 45 + i,
+      kdjJ: 60 + i,
+      dif: 0.5 + i * 0.1,
+      dea: 0.3 + i * 0.05,
+      macd: 0.2 + i * 0.05,
+    });
+  }
+  return rows;
+}
+
+// ── 测试套件：recalcKlines ────────────────────────────────────────────────────
+
+describe('UsIndexDailyService.recalcKlines', () => {
+  const indexCode = '.NDX';
+  const startDate = '20240101';
+  const endDate = '20240131';
+
+  it('不传 kdjParams 时返回与 getKlines 完全相同的数据', async () => {
+    const ds = makeDataSourceMock(makeMockRows());
+    const svc = new UsIndexDailyService(ds as never, makeQuantJobsMock() as never);
+
+    const fromGet = await svc.getKlines(indexCode, startDate, endDate);
+    const fromRecalc = await svc.recalcKlines(indexCode, { startDate, endDate });
+
+    expect(fromRecalc).toEqual(fromGet);
+  });
+
+  it('自定义 KDJ 参数会改变 KDJ 三列，其余列保持不变', async () => {
+    const ds = makeDataSourceMock(makeMockRows());
+    const svc = new UsIndexDailyService(ds as never, makeQuantJobsMock() as never);
+
+    const defaultRows = await svc.recalcKlines(indexCode, { startDate, endDate });
+    const customRows = await svc.recalcKlines(
+      indexCode,
+      { startDate, endDate },
+      { n: 6, m1: 2, m2: 2 },
+    );
+
+    expect(customRows).toHaveLength(defaultRows.length);
+
+    for (let i = 0; i < customRows.length; i++) {
+      const custom = customRows[i];
+      const baseline = defaultRows[i];
+
+      expect(custom['KDJ.K']).not.toEqual(baseline['KDJ.K']);
+      expect(custom['KDJ.D']).not.toEqual(baseline['KDJ.D']);
+      expect(custom['KDJ.J']).not.toEqual(baseline['KDJ.J']);
+
+      expect(custom.open_time).toEqual(baseline.open_time);
+      expect(custom.open).toEqual(baseline.open);
+      expect(custom.high).toEqual(baseline.high);
+      expect(custom.low).toEqual(baseline.low);
+      expect(custom.close).toEqual(baseline.close);
+      expect(custom.volume).toEqual(baseline.volume);
+      expect(custom.MA5).toEqual(baseline.MA5);
+      expect(custom.MA30).toEqual(baseline.MA30);
+      expect(custom.MA60).toEqual(baseline.MA60);
+      expect(custom.MA120).toEqual(baseline.MA120);
+      expect(custom.MA240).toEqual(baseline.MA240);
+      expect(custom.BBI).toEqual(baseline.BBI);
+      expect(custom.DIF).toEqual(baseline.DIF);
+      expect(custom.DEA).toEqual(baseline.DEA);
+      expect(custom.MACD).toEqual(baseline.MACD);
+    }
+  });
+
+  it('显式传入默认参数 9/3/3 时不触发重算，结果与 getKlines 一致', async () => {
+    const ds = makeDataSourceMock(makeMockRows());
+    const svc = new UsIndexDailyService(ds as never, makeQuantJobsMock() as never);
+
+    const fromGet = await svc.getKlines(indexCode, startDate, endDate);
+    const fromRecalc = await svc.recalcKlines(
+      indexCode,
+      { startDate, endDate },
+      { n: 9, m1: 3, m2: 3 },
+    );
+
+    expect(fromRecalc).toEqual(fromGet);
+  });
+
+  it('自定义 KDJ 结果按 4 位小数取整，并与 calcKdjSeries 取整后一致', async () => {
+    const mockRows = makeMockRows();
+    const ds = makeDataSourceMock(mockRows);
+    const svc = new UsIndexDailyService(ds as never, makeQuantJobsMock() as never);
+
+    const kdjParams = { n: 6, m1: 2, m2: 2 };
+    const out = await svc.recalcKlines(indexCode, { startDate, endDate }, kdjParams);
+
+    const expected = calcKdjSeries(
+      mockRows.map((r) => ({ high: r.high, low: r.low, close: r.close })),
+      kdjParams.n,
+      kdjParams.m1,
+      kdjParams.m2,
+    ).map(roundKdjPoint);
+
+    expect(out).toHaveLength(expected.length);
+    for (let i = 0; i < out.length; i++) {
+      expect(out[i]['KDJ.K']).toBeCloseTo(expected[i].k, 4);
+      expect(out[i]['KDJ.D']).toBeCloseTo(expected[i].d, 4);
+      expect(out[i]['KDJ.J']).toBeCloseTo(expected[i].j, 4);
+
+      expect(out[i]['KDJ.K']).toEqual(parseFloat(out[i]['KDJ.K']!.toFixed(4)));
+      expect(out[i]['KDJ.D']).toEqual(parseFloat(out[i]['KDJ.D']!.toFixed(4)));
+      expect(out[i]['KDJ.J']).toEqual(parseFloat(out[i]['KDJ.J']!.toFixed(4)));
+    }
   });
 });

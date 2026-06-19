@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import {
+  calcKdjSeries,
+  isCustomKdjParams,
+  roundKdjPoint,
+} from '../../indicators/kdj';
 import { ThsIndexDailyQueryDto } from './dto/query.dto';
 import type { ThsIndexDailyKlineRow } from './ths-index-daily.types';
 
@@ -112,6 +117,42 @@ export class ThsIndexDailyService {
           brick == null || brickDelta == null
             ? undefined
             : { brick, delta: brickDelta, xg: r.brickXg === true },
+      };
+    });
+  }
+
+  /**
+   * 按自定义 KDJ 参数重新计算同花顺指数 K 线指标。
+   *
+   * - 复用 getKlines() 的查询结果（已按 trade_date ASC 排列）；
+   * - 仅当 kdjParams 为有效自定义参数时，用 calcKdjSeries 重算 KDJ 序列；
+   * - 其余字段（MA/MACD/BBI/brickChart 等）保持原值；
+   * - 返回字段形状与 getKlines() 完全一致。
+   */
+  async recalcKlines(
+    dto: ThsIndexDailyQueryDto,
+    kdjParams?: { n: number; m1: number; m2: number },
+  ): Promise<ThsIndexDailyKlineRow[]> {
+    const rows = await this.getKlines(dto);
+
+    if (!kdjParams || !isCustomKdjParams(kdjParams)) {
+      return rows;
+    }
+
+    const kdjSeries = calcKdjSeries(
+      rows.map((r) => ({ high: r.high, low: r.low, close: r.close })),
+      kdjParams.n,
+      kdjParams.m1,
+      kdjParams.m2,
+    );
+
+    return rows.map((row, index) => {
+      const kdj = roundKdjPoint(kdjSeries[index]);
+      return {
+        ...row,
+        'KDJ.K': kdj.k,
+        'KDJ.D': kdj.d,
+        'KDJ.J': kdj.j,
       };
     });
   }

@@ -9,7 +9,7 @@ import type { SymbolColumnDef } from '../columnTypes'
 import { INDICATOR_DESCRIPTORS, buildIndicatorColumns } from '../indicatorColumnDefs'
 
 interface ASharesColumnsOptions {
-  onViewDetail: (row: AShareRow) => void
+  onViewDetail?: (row: AShareRow) => void
   priceMode: 'qfq' | 'raw'
   /** 评分映射 tsCode → score；传 ref 本身（不解包），render 内读 .value 建立渲染层依赖 */
   scoresMap: Ref<Map<string, number>>
@@ -111,24 +111,28 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
     // 共享技术指标列（descriptor 驱动）。A股 全部默认隐藏，不撑默认表宽；
     // sorter:true（builder 默认）→ remote 表点表头触发 T1 后端排序。
     ...buildIndicatorColumns<AShareRow>(INDICATOR_DESCRIPTORS, { defaultVisible: false }),
-    {
-      title: '操作',
-      key: 'actions',
-      width: 70,
-      fixed: 'right',
-      defaultVisible: true,
-      locked: true,
-      render: (row) =>
-        h(NTooltip, null, {
-          trigger: () =>
-            h(
-              NButton,
-              { size: 'small', onClick: () => options.onViewDetail(row) },
-              { icon: () => h(NIcon, null, () => h(OpenOutline)) },
-            ),
-          default: () => '查看K线详情',
-        }),
-    },
+    ...(options.onViewDetail
+      ? [
+          {
+            title: '操作',
+            key: 'actions',
+            width: 70,
+            fixed: 'right' as const,
+            defaultVisible: true,
+            locked: true,
+            render: (row: AShareRow) =>
+              h(NTooltip, null, {
+                trigger: () =>
+                  h(
+                    NButton,
+                    { size: 'small', onClick: () => options.onViewDetail!(row) },
+                    { icon: () => h(NIcon, null, () => h(OpenOutline)) },
+                  ),
+                default: () => '查看K线详情',
+              }),
+          },
+        ]
+      : []),
   ]
 }
 

@@ -5,6 +5,11 @@ import { UsSymbolEntity } from '../../entities/raw/us-symbol.entity';
 import { QuantJobsService } from '../../modules/quant/services/quant-jobs.service';
 import type { ValidatedCreateJob } from '../../modules/quant/dto/create-job.dto';
 import {
+  calcKdjSeries,
+  isCustomKdjParams,
+  roundKdjPoint,
+} from '../../indicators/kdj';
+import {
   asNullableNumber,
   asNumber,
   formatTradeDateLabel,
@@ -220,6 +225,55 @@ export class UsStocksService {
       stop_loss_pct: asNullableNumber(row.stopLossPct),
       risk_reward_ratio: asNullableNumber(row.riskRewardRatio),
     }));
+  }
+
+  /**
+   * 按自定义 KDJ 参数重新计算美股个股 K 线指标。
+   *
+   * - 复用 getKlines() 的查询逻辑与字段映射；
+   * - 仅当 kdjParams 为有效自定义参数时，用 calcKdjSeries 重算 KDJ 序列；
+   * - 其余字段（OHLC/pctChg/MA/MACD/BBI/ATR 等）保持原值；
+   * - 返回字段形状与 getKlines() 完全一致。
+   */
+  async recalcKlines(
+    ticker: string,
+    query: {
+      limit?: number;
+      priceMode?: 'qfq' | 'raw';
+      startDate?: string;
+      endDate?: string;
+    },
+    kdjParams?: { n: number; m1: number; m2: number },
+  ): Promise<UsStockKlineRow[]> {
+    const rows = await this.getKlines(
+      ticker,
+      query.limit,
+      query.priceMode === 'raw' ? 'raw' : 'qfq',
+      (query.startDate || query.endDate)
+        ? { startDate: query.startDate, endDate: query.endDate }
+        : undefined,
+    );
+
+    if (!kdjParams || !isCustomKdjParams(kdjParams)) {
+      return rows;
+    }
+
+    const kdjSeries = calcKdjSeries(
+      rows.map((r) => ({ high: r.high, low: r.low, close: r.close })),
+      kdjParams.n,
+      kdjParams.m1,
+      kdjParams.m2,
+    );
+
+    return rows.map((row, index) => {
+      const kdj = roundKdjPoint(kdjSeries[index]);
+      return {
+        ...row,
+        'KDJ.K': kdj.k,
+        'KDJ.D': kdj.d,
+        'KDJ.J': kdj.j,
+      };
+    });
   }
 
   /**

@@ -1,6 +1,6 @@
 import { API_BASE, post, request } from '../../client'
 import { appendQueryParam } from '../../query'
-import type { KlineChartBar } from '../market/symbols'
+import type { KdjSubplotParams, KlineChartBar } from '../market/symbols'
 
 export interface CandleLogEntry {
   symbol: string
@@ -245,6 +245,18 @@ export const backtestApi = {
     if (params.before != null) qs.set('before', String(params.before))
     if (params.after != null) qs.set('after', String(params.after))
     return request<KlineChartBar[]>(`${API_BASE}/backtest/runs/${runId}/kline-chart?${qs.toString()}`)
+  },
+  recalcKlineChart: (
+    runId: string,
+    params: { symbol: string; ts: string; before?: number; after?: number },
+    body: { kdjParams?: KdjSubplotParams } = {},
+  ) => {
+    const qs = new URLSearchParams()
+    qs.set('symbol', params.symbol)
+    qs.set('ts', params.ts)
+    if (params.before != null) qs.set('before', String(params.before))
+    if (params.after != null) qs.set('after', String(params.after))
+    return post<KlineChartBar[]>(`${API_BASE}/backtest/runs/${runId}/kline-chart/recalc?${qs.toString()}`, body)
   },
   querySymbolMetrics: (
     runId: string,
