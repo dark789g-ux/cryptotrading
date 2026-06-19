@@ -6,7 +6,7 @@ import type { SymbolRow } from '@/api'
 import type { SymbolColumnDef } from './columnTypes'
 
 interface CryptoColumnsOptions {
-  onViewChart: (symbol: string) => void | Promise<void>
+  onViewChart: (row: SymbolRow) => void | Promise<void>
 }
 
 const formatFixed = (value: number | null | undefined, digits: number) =>
@@ -86,7 +86,7 @@ export function createCryptoColumnDefs(options: CryptoColumnsOptions): SymbolCol
           trigger: () =>
             h(
               NButton,
-              { size: 'small', onClick: () => options.onViewChart(row.symbol) },
+              { size: 'small', onClick: () => options.onViewChart(row) },
               { icon: () => h(NIcon, null, () => h(TrendingUpOutline)) },
             ),
           default: () => 'Open chart',

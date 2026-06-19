@@ -7,9 +7,9 @@
           v-model:value="selectedInterval"
           :options="intervalOptions"
           style="width: 120px"
-          @update:value="loadData"
+          @update:value="reload"
         />
-        <n-button :loading="loading" @click="loadData">
+        <n-button :loading="loading" @click="reload">
           <template #icon><n-icon><refresh-outline /></n-icon></template>
           Refresh
         </n-button>
@@ -20,54 +20,17 @@
       </n-space>
     </div>
 
-    <n-card class="filter-card" :bordered="false">
-      <div class="filter-row">
-        <n-input
-          v-model:value="searchQuery"
-          placeholder="Search symbol..."
-          clearable
-          style="width: 200px"
-          @keyup.enter="applyFilters"
-        >
-          <template #prefix><n-icon><search-outline /></n-icon></template>
-        </n-input>
-        <n-select
-          v-model:value="selectedWatchlistIds"
-          :options="watchlistOptions"
-          multiple
-          filterable
-          placeholder="标签"
-          clearable
-          style="width: 200px"
-          @update:value="applyFilters"
-        />
-        <n-select
-          v-model:value="selectedStrategyIds"
-          :options="strategyFilterOptions"
-          multiple
-          filterable
-          placeholder="策略命中"
-          clearable
-          style="width: 200px"
-          @update:value="applyFilters"
-        />
-        <numeric-condition-filter
-          v-model:conditions="conditions"
-          title="Filters"
-          button-label="Filters"
-          description="Use latest kline indicators to filter symbols."
-          :field-options="fieldOptions"
-          empty-description="No conditions"
-        />
-        <n-button @click="resetFilters">Reset</n-button>
-        <n-button type="primary" @click="applyFilters">Apply</n-button>
-      </div>
-      <div v-if="conditions.length" class="filter-tags">
-        <n-tag v-for="(cond, index) in conditions" :key="index" closable @close="removeCondition(index)">
-          {{ formatConditionTag(cond) }}
-        </n-tag>
-      </div>
-    </n-card>
+    <crypto-symbols-filters
+      v-model:search-query="searchQuery"
+      v-model:selected-watchlist-ids="selectedWatchlistIds"
+      v-model:selected-strategy-ids="selectedStrategyIds"
+      v-model:conditions="conditions"
+      :watchlist-options="watchlistOptions"
+      :strategy-options="strategyFilterOptions"
+      :field-options="fieldOptions"
+      @apply="applyFilters"
+      @reset="resetFilters"
+    />
 
     <n-card class="data-card" :bordered="false">
       <n-data-table
@@ -82,29 +45,11 @@
       />
     </n-card>
 
-    <n-drawer
+    <crypto-symbol-detail-drawer
       v-model:show="showChartDrawer"
-      placement="right"
-      :width="1000"
-      class="glass-drawer"
-    >
-      <n-drawer-content :title="`${selectedSymbol} · ${selectedInterval.toUpperCase()}`" closable>
-        <kline-chart
-          v-if="klineData.length"
-          :data="displayKlineData"
-          height="700px"
-          :slider-start="70"
-          show-toolbar
-          :granularity="cryptoGranularity"
-          :range="klineRange"
-          prefs-key="crypto"
-          :available-subplots="cryptoAvailableSubplots"
-          :recalc-indicators="recalcKdjIndicators"
-          @update:range="onKlineRangeChange"
-        />
-        <n-empty v-else description="No kline data" style="padding: 40px 0" />
-      </n-drawer-content>
-    </n-drawer>
+      :row="selectedRow"
+      :interval="selectedInterval"
+    />
 
     <column-settings-drawer
       v-model:show="showColumnSettings"
@@ -126,71 +71,40 @@ import {
   NButton,
   NCard,
   NDataTable,
-  NDrawer,
-  NDrawerContent,
-  NEmpty,
   NIcon,
-  NInput,
   NSelect,
   NSpace,
   NTag,
-  type DataTableSortState,
   useMessage,
 } from 'naive-ui'
-import { RefreshOutline, SearchOutline, SettingsOutline } from '@vicons/ionicons5'
-import KlineChart from '../kline/KlineChart.vue'
-import NumericConditionFilter from '../common/NumericConditionFilter.vue'
+import { RefreshOutline, SettingsOutline } from '@vicons/ionicons5'
+import CryptoSymbolsFilters from './crypto/CryptoSymbolsFilters.vue'
 import type { NumericCondition, NumericConditionFieldOption } from '../common/numericConditionFilterTypes'
-import type { SubplotKey } from '@/composables/kline/subplotConfig'
-import { useKlineRangePicker } from '@/composables/kline/useKlineRangePicker'
-import { sliceTimestampBarsByRange } from '@/composables/kline/klineDateRange'
-import type { IndicatorSubplotParams } from '@/composables/kline/subplotConfig'
-import { klinesApi, symbolApi, type KlineChartBar, type SymbolRow } from '@/api'
+import { symbolApi, type SymbolRow } from '@/api'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
+import CryptoSymbolDetailDrawer from './crypto/CryptoSymbolDetailDrawer.vue'
 import { createCryptoColumnDefs } from './cryptoColumns'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
 import { useWatchlistTagFilter } from '@/composables/symbols/useWatchlistTagFilter'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
 import { strategyConditionsApi } from '@/api/modules/strategy/strategyConditions'
+import { useCryptoSymbolsQuery } from './crypto/useCryptoSymbolsQuery'
 
 const message = useMessage()
 
-const selectedInterval = ref('1h')
+const selectedInterval = ref<'1h' | '4h' | '1d'>('1h')
 const intervalOptions = [
   { label: '1h', value: '1h' },
   { label: '4h', value: '4h' },
   { label: '1d', value: '1d' },
 ]
 
-// 加密 K 线工具栏：粒度由当前 interval 派生；副图不含 FLOW（无资金流数据源）
-const cryptoGranularity = computed<'date' | 'hour' | 'minute'>(() =>
-  selectedInterval.value === '1d' ? 'date' : 'hour',
-)
-const cryptoAvailableSubplots: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK']
-
-const loading = ref(false)
-const symbols = ref<SymbolRow[]>([])
-const total = ref(0)
 const searchQuery = ref('')
 const showChartDrawer = ref(false)
 const showColumnSettings = ref(false)
-const selectedSymbol = ref('')
-const klineData = ref<KlineChartBar[]>([])
-
-// 工具栏日期选择器：A 类客户端裁切。后端 /klines/:symbol/:interval 返回全量历史（已握全量），
-// 无需服务端重查；选区由 displayKlineData 响应裁切（date 粒度比本地日历日 / hour 粒度比 instant）。
-const { range: klineRange, onRangeUpdate: onKlineRangeChange, reset: resetKlineRange } =
-  useKlineRangePicker()
-
-const displayKlineData = computed<KlineChartBar[]>(() =>
-  sliceTimestampBarsByRange(klineData.value, klineRange.value, cryptoGranularity.value),
-)
+const selectedRow = ref<SymbolRow | null>(null)
 const conditions = ref<NumericCondition[]>([])
 const fieldOptions = ref<NumericConditionFieldOption[]>([])
-const sortKey = ref<string | null>(null)
-const sortOrder = ref<'ascend' | 'descend' | null>(null)
-const page = ref(1)
-const pageSize = ref(20)
 const selectedStrategyIds = ref<string[]>([])
 const hitLookup = ref<Map<string, Set<string>>>(new Map())
 
@@ -262,52 +176,32 @@ const {
   ensureWatchlistsLoaded,
 } = useWatchlistTagFilter()
 
-const opLabels: Record<NumericCondition['op'], string> = {
-  gt: '>',
-  gte: '>=',
-  lt: '<',
-  lte: '<=',
-  eq: '=',
-  neq: '!=',
-}
-
-const formatConditionTag = (condition: NumericCondition) => {
-  const rightValue = condition.valueType === 'field' ? condition.compareField : condition.value
-  return `${condition.field} ${opLabels[condition.op]} ${rightValue}`
-}
-
-const paginationState = computed(() => ({
-  page: page.value,
-  pageSize: pageSize.value,
-  itemCount: total.value,
-  showSizePicker: true,
-  pageSizes: [10, 20, 50],
-  prefix: () => `Total ${total.value}`,
-}))
-
-const buildQuery = () => ({
-  interval: selectedInterval.value,
-  q: searchQuery.value,
-  conditions: conditions.value,
-  watchlistIds: watchlistIds.value,
-  strategyHitIds: selectedStrategyIds.value,
-  sort: { field: sortKey.value ?? 'symbol', asc: sortOrder.value !== 'descend' },
-  page: page.value,
-  page_size: pageSize.value,
+const {
+  symbols,
+  loading,
+  pagination,
+  handlePageChange,
+  handlePageSizeChange,
+  handleSorterChange: handleSort,
+  reload,
+  applyFilters: applyCryptoFilters,
+} = useCryptoSymbolsQuery({
+  message,
+  interval: selectedInterval,
+  searchQuery,
+  watchlistIds,
+  selectedStrategyIds,
+  conditions,
 })
 
-const loadData = async () => {
-  loading.value = true
-  try {
-    const res = await symbolApi.query(buildQuery())
-    symbols.value = res.items as SymbolRow[]
-    total.value = res.total
-  } catch (err: unknown) {
-    message.error(err instanceof Error ? err.message : String(err))
-  } finally {
-    loading.value = false
-  }
-}
+const paginationState = computed(() => ({
+  page: pagination.value.page,
+  pageSize: pagination.value.pageSize,
+  itemCount: pagination.value.itemCount,
+  showSizePicker: true,
+  pageSizes: [10, 20, 50],
+  prefix: () => `Total ${pagination.value.itemCount}`,
+}))
 
 const loadFields = async () => {
   try {
@@ -319,8 +213,7 @@ const loadFields = async () => {
 }
 
 const applyFilters = () => {
-  page.value = 1
-  void loadData()
+  void applyCryptoFilters()
 }
 
 const resetFilters = () => {
@@ -328,58 +221,15 @@ const resetFilters = () => {
   searchQuery.value = ''
   selectedStrategyIds.value = []
   resetWatchlistFilter()
-  page.value = 1
-  void loadData()
+  void applyCryptoFilters()
 }
 
-const removeCondition = (index: number) => {
-  conditions.value.splice(index, 1)
-  applyFilters()
-}
-
-const handlePageChange = (nextPage: number) => {
-  page.value = nextPage
-  void loadData()
-}
-
-const handlePageSizeChange = (nextPageSize: number) => {
-  pageSize.value = nextPageSize
-  page.value = 1
-  void loadData()
-}
-
-const handleSort = (sorter: DataTableSortState | DataTableSortState[] | null) => {
-  const state = Array.isArray(sorter) ? sorter[0] : sorter
-  sortKey.value = typeof state?.columnKey === 'string' ? state.columnKey : null
-  sortOrder.value = state?.order || null
-  void loadData()
-}
-
-async function openChart(symbol: string) {
-  selectedSymbol.value = symbol
+function openChart(row: SymbolRow) {
+  selectedRow.value = row
   showChartDrawer.value = true
-  resetKlineRange() // 新标的：清空选区，回默认窗口（全量历史）
-  klineData.value = []
-  try {
-    klineData.value = await klinesApi.getKlines(symbol, selectedInterval.value)
-  } catch (err: unknown) {
-    message.error(err instanceof Error ? err.message : String(err))
-  }
 }
 
-async function recalcKdjIndicators(params?: IndicatorSubplotParams): Promise<void> {
-  const symbol = selectedSymbol.value
-  if (!symbol) return
-  try {
-    const result = await klinesApi.recalcKlines(symbol, selectedInterval.value, { kdjParams: params?.KDJ })
-    klineData.value = result
-  } catch (err: unknown) {
-    message.error(err instanceof Error ? err.message : String(err))
-    throw err
-  }
-}
-
-defineExpose({ openChart, recalcKdjIndicators })
+defineExpose({ openChart })
 
 async function handleSaveColumnPreferences() {
   try {
@@ -397,7 +247,7 @@ onMounted(async () => {
   void loadColumnPreferences().catch((err: unknown) => {
     message.error(err instanceof Error ? err.message : String(err))
   })
-  void loadData()
+  void reload()
   await strategyStore.fetchConditions('crypto')
   await strategyStore.fetchLastRunStatus()
   await loadHitLookup()
@@ -407,6 +257,4 @@ onMounted(async () => {
 <style scoped>
 .crypto-symbols-panel { display: flex; flex-direction: column; gap: 18px; }
 .panel-title { margin: 0; font-size: 22px; line-height: 1.2; }
-.filter-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.filter-tags { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
 </style>
