@@ -3,7 +3,7 @@
 #
 # spec 2026-05-29 P2.1：ml.model_runs 加 status TEXT 列（prod/shadow/archived）。
 #
-# 用法：在仓库根执行 `powershell apps/server/migrations/20260529_ml_model_runs_status.ps1`
+# 用法：在仓库根执行 `powershell apps/server/src/migration/20260529_ml_model_runs_status.ps1`
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

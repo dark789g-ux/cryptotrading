@@ -4,7 +4,7 @@
 # 美股指数二级 Tab：建 raw.us_index_daily / us_index_indicator
 #
 # 用法：在仓库根执行
-#   powershell apps/server/migrations/20260616130000-create-us-index.ps1
+#   powershell apps/server/src/migration/20260616130000-create-us-index.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

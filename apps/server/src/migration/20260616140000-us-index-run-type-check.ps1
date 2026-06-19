@@ -5,7 +5,7 @@
 # （us-stocks 当时漏补 us_sync，一并补回；旧 13 值约束的真超集，幂等）
 #
 # 用法：在仓库根执行
-#   powershell apps/server/migrations/20260616140000-us-index-run-type-check.ps1
+#   powershell apps/server/src/migration/20260616140000-us-index-run-type-check.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

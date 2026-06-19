@@ -6,7 +6,7 @@
 # spec: docs/superpowers/specs/2026-06-07-signal-forward-stats-design/03-data-model.md
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/20260607_create_signal_test_tables.ps1
+#   powershell apps/server/src/migration/20260607_create_signal_test_tables.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

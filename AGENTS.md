@@ -1,6 +1,4 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+# AGENTS.md
 
 ## 核心规范
 **不要假设，不要隐藏困惑，要暴露权衡。**
@@ -45,7 +43,7 @@ cryptotrading：量化交易回测系统。覆盖加密货币（币安公开 RES
 | 生产部署 | `pnpm prod:up` / `pnpm prod:down` |
 | 查询数据库 | `docker exec crypto-postgres psql -U cryptouser -d cryptodb -c "..."` |
 
-涉及 DB schema 调整时，须随附 `docker exec` 格式的可执行脚本（参考 `apps/server/migrations/*.sql` + 对应 `.ps1`）。
+涉及 DB schema 调整时，须随附 `docker exec` 格式的可执行脚本（参考 `apps/server/src/migration/*.sql` + 对应 `.ps1`）。
 
 **后端 `dev` 是 `nest start`（无 `--watch`，不热加载）**：改动 `apps/server` 代码后**必须重启后端进程**，新路由 / 改动才生效。端到端验证前先确认后端跑的是最新代码，否则会撞新接口 404、行为还是旧的等假象（前端 `vite` 有 HMR，不受此限）。
 
@@ -59,12 +57,17 @@ cryptotrading：量化交易回测系统。覆盖加密货币（币安公开 RES
 **后端模块（`apps/server/src/`）**按业务域分组而非平铺：
 - `auth/`、`users/` — 全局 `AuthGuard`（通过 `APP_GUARD` 注册）+ 邀请码 + 会话
 - `catalog/{symbols,watchlists,symbol-presets}/` — 标的目录与自选
-- `market-data/{klines,sync,a-shares,money-flow,index-catalog,ths-index-daily,oamv}/` — 各数据源采集与查询
+- `market-data/` — 各数据源采集与查询，子目录按域分：
+  - A 股：`a-shares`、`money-flow`、`index-catalog`、`ths-index-daily`、`active-mv`（主动成交量 AMV）、`oamv`（指数 AMV）
+  - 美股：`us-stocks`、`us-index-daily`、`us-index-amv`
+  - 通用：`klines`、`sync`、`base-data-sync`、`one-click-sync`、`signal-rolling-indicator`（`_shared/` 为跨模块同步辅助）
 - `strategies/`、`backtest/`、`strategy-conditions/` — 策略、回测、条件扫描
 - `modules/quant/` — 量化模型训练（M2/M3 在做，含 `ml.jobs` SSE 进度推送）
+- `indicators/` — 技术指标计算（MA/MACD/KDJ/砖图，含 worker 线程池）
 - `daily-review/` — 复盘日报 + 工具调用流水线（Tavily/Serper）
+- `preferences/`、`settings/` — 用户偏好（列偏好、筛选方案等）与系统设置
 - `entities/` — TypeORM 实体按业务域分子目录（不与 module 目录同构）
-- `migrations/` — `*.sql` + 同名 `.ps1` 配对，PS1 内置 `docker exec` 调用
+- `migration/` — schema 变更与回填脚本（平铺）：`*.sql` + 同名 `.ps1` 配对（PS1 内置 `docker exec`，用 `$PSScriptRoot` 引同目录 SQL）；另含少量 `*.ts` 回填脚本（`csv-import / a-share-brick-backfill / daily-basic-pe-ttm-backfill`，经 `package.json` 的 `migration:*` 脚本以 ts-node 直跑）
 
 **前端视图（`apps/web/src/views/`）**：`auth / market / quant / strategy / sync / system`，各子路由见 [README.md](README.md) 页面表。
 

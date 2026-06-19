@@ -5,7 +5,7 @@
 #   - 给 ml.jobs 增加 warnings JSONB 列（默认 '[]'）
 #
 # CLAUDE.md 硬约束：DB schema 调整须附 docker exec 形式的 .ps1 + .sql 配对
-# 用法：在仓库根执行 `pwsh apps/server/migrations/20260524_ml_jobs_warnings.ps1`
+# 用法：在仓库根执行 `pwsh apps/server/src/migration/20260524_ml_jobs_warnings.ps1`
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

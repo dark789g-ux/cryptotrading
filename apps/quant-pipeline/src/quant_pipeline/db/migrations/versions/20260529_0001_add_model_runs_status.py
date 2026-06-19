@@ -8,7 +8,7 @@ spec 2026-05-29 P2.1：infer CLI 自动选模型从 max(created_at) 切换到
 WHERE status='prod' ORDER BY created_at DESC LIMIT 1。新增列默认 'shadow'，
 seed-avg 集成模型上线后由运维显式 UPDATE 升 prod。
 
-与 NestJS migration `apps/server/migrations/20260529_ml_model_runs_status.sql`
+与 NestJS migration `apps/server/src/migration/20260529_ml_model_runs_status.sql`
 内容等价。
 """
 

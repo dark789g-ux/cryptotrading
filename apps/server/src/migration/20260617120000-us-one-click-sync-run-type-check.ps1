@@ -5,7 +5,7 @@
 # （现 16 值约束的真超集，幂等；对应 alembic <rev>_add_us_one_click_sync_run_type）
 #
 # 用法：在仓库根执行
-#   powershell apps/server/migrations/20260617120000-us-one-click-sync-run-type-check.ps1
+#   powershell apps/server/src/migration/20260617120000-us-one-click-sync-run-type-check.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

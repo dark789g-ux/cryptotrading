@@ -4,7 +4,7 @@
 # Add phase column to signal_test_run (running-state stage marker).
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/20260609_signal_test_run_phase.ps1
+#   powershell apps/server/src/migration/20260609_signal_test_run_phase.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

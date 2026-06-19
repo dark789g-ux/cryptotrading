@@ -4,7 +4,7 @@
 # Add phase_lock_params jsonb column to signal_test (phase_lock extra params).
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/20260613_add_phase_lock_params_to_signal_test.ps1
+#   powershell apps/server/src/migration/20260613_add_phase_lock_params_to_signal_test.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

@@ -14,7 +14,7 @@
 # 任一不达期望即非零退出。
 #
 # 用法：在仓库根执行
-#   powershell apps/server/migrations/20260602_concept_amv_daily.ps1
+#   powershell apps/server/src/migration/20260602_concept_amv_daily.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

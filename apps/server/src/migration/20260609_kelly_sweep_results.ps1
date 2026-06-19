@@ -8,7 +8,7 @@
 # 本脚本供 NestJS 侧迁移规范对齐与人工核验。
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/20260609_kelly_sweep_results.ps1
+#   powershell apps/server/src/migration/20260609_kelly_sweep_results.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

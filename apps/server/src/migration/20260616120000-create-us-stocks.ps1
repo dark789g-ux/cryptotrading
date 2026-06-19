@@ -4,7 +4,7 @@
 # 美股 Tab：建 raw.us_symbol / us_daily_quote / us_adj_factor / us_daily_indicator
 #
 # 用法：在仓库根执行
-#   powershell apps/server/migrations/20260616120000-create-us-stocks.ps1
+#   powershell apps/server/src/migration/20260616120000-create-us-stocks.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

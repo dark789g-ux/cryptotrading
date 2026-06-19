@@ -6,7 +6,7 @@
 # spec: portfolio-sim 03-data-model
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/20260611_create_portfolio_sim.ps1
+#   powershell apps/server/src/migration/20260611_create_portfolio_sim.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

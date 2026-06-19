@@ -6,7 +6,7 @@
 # ⚠️ 执行前提：必须已用 Yahoo 源重灌 2024-01-01 起的数据并校验通过，再跑本脚本（spec §E）。
 #
 # 用法：在仓库根执行
-#   powershell apps/server/migrations/20260617120000-purge-us-pre-2024.ps1
+#   powershell apps/server/src/migration/20260617120000-purge-us-pre-2024.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

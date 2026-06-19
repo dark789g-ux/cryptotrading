@@ -1,7 +1,7 @@
 """raw.us_symbol —— 美股精选清单播种。
 
 v1：从 CSV（股票代码/股票名称/行业/类型）播种 tracked 集（seed 显式置 tracked=true，
-这是建立"要同步哪些"的权威操作）。P2 的 AkShare 全名单同步另写、不动 tracked。
+这是建立"要同步哪些"的权威操作）。全名单批量同步另写、不动 tracked。
 """
 
 from __future__ import annotations

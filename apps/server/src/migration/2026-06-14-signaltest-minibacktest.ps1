@@ -7,7 +7,7 @@
 #   3. 新建 signal_test_equity 表 + 唯一约束 + 索引
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/2026-06-14-signaltest-minibacktest.ps1
+#   powershell apps/server/src/migration/2026-06-14-signaltest-minibacktest.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

@@ -5,7 +5,7 @@ import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
  *
  * - schema/name 来自 spec 2026-05-23-factor-registry-frontend-design/01-db-schema.md
  * - 由 Alembic（quant-pipeline）建表，NestJS `synchronize: false`；
- *   `apps/server/migrations/20260524_factor_definitions.sql` 仅做幂等校验
+ *   `apps/server/src/migration/20260524_factor_definitions.sql` 仅做幂等校验
  * - 命名风格：类属性驼峰 + `@Column({ name: 'snake_case' })` 映射 DB 列
  *   （参考 `ml-job.entity.ts`）
  */

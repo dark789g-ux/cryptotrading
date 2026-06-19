@@ -11,7 +11,7 @@ PIT_WINDOW_COEFFICIENT: float = 2.0
   - 2.0 额外覆盖春节 / 国庆 7 天连休 + 周末叠加
 
 修改该常量需同步：
-  1. apps/server/migrations 加新 migration 调整 CHECK 约束
+  1. apps/server/src/migration 加新 migration 调整 CHECK 约束
   2. apps/server/src/modules/quant/factors/factors.service.ts 同步系数
   3. apps/web/src/components/quant/FactorEditModal.vue 同步系数
   4. 跑回归测试，确保现有 16 个因子的 pit_window_days 仍满足新系数

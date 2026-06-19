@@ -5,7 +5,7 @@
 # signal_test_trade.
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/20260608_signal_test_run_best_trade_ret.ps1
+#   powershell apps/server/src/migration/20260608_signal_test_run_best_trade_ret.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

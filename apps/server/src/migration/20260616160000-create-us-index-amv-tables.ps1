@@ -4,7 +4,7 @@
 # 美股指数活跃市值（AMV）：建 raw.us_index_amv_daily / us_index_constituent
 #
 # 用法：在仓库根执行
-#   powershell apps/server/migrations/20260616160000-create-us-index-amv-tables.ps1
+#   powershell apps/server/src/migration/20260616160000-create-us-index-amv-tables.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

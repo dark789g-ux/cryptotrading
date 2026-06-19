@@ -5,7 +5,7 @@
 # column to a_share_sync_states (for "bottom high-volume limit-up" replication).
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/20260609_create_signal_rolling_indicator.ps1
+#   powershell apps/server/src/migration/20260609_create_signal_rolling_indicator.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

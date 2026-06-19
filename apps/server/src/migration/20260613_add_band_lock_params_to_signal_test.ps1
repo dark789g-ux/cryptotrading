@@ -4,7 +4,7 @@
 # Add band_lock_params jsonb column to signal_test (trailing_lock extra params).
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/20260613_add_band_lock_params_to_signal_test.ps1
+#   powershell apps/server/src/migration/20260613_add_band_lock_params_to_signal_test.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

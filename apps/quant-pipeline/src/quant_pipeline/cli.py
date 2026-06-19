@@ -242,7 +242,7 @@ def us_sync(
         False, "--tracked", help="同步 raw.us_symbol 中 tracked=true 的全部标的。"
     ),
 ) -> None:
-    """AkShare → raw.us_* 美股同步（CLI 直跑，不写 ml.jobs）。
+    """Yahoo Finance → raw.us_* 美股同步（CLI 直跑，不写 ml.jobs）。
 
     与 worker dispatcher 的 'us_sync' run_type 走同一 run_us_sync 入口。
     空数据 / 因子缺失计入 failed_items（不静默）；errors 非空时 exit 1。
@@ -292,7 +292,7 @@ def us_index_sync(
         "", "--symbols", help="逗号分隔指数 symbol（如 .NDX）；留空时缺省 .NDX。"
     ),
 ) -> None:
-    """AkShare → raw.us_index_* 美股指数同步（CLI 直跑，不写 ml.jobs）。
+    """Yahoo Finance → raw.us_index_* 美股指数同步（CLI 直跑，不写 ml.jobs）。
 
     与 worker dispatcher 的 'us_index_sync' run_type 走同一 run_us_index_sync 入口。
     单次抓取、无 qfq、无 adj_factor（指数无复权概念）。

@@ -118,10 +118,10 @@ uv run alembic upgrade head
    ```powershell
    # 直接走 PowerShell 包装脚本（含 ON_ERROR_STOP=1 + BEGIN/COMMIT）
    # 路径相对于仓库根
-   powershell -File apps/server/migrations/apply-quant-raw-schema-migration.ps1
+   powershell -File apps/server/src/migration/apply-quant-raw-schema-migration.ps1
    # 或裸跑 SQL：
    docker exec -i crypto-postgres psql -U cryptouser -d cryptodb -v ON_ERROR_STOP=1 `
-     < apps/server/migrations/20260517120000-quant-raw-schema-migration.sql
+     < apps/server/src/migration/20260517120000-quant-raw-schema-migration.sql
    ```
 5. **部署新版 NestJS**（步骤 3 的 PR）；起服务后立刻跑一次既有 A 股同步任务，确认写 `raw.*` 成功。
 6. **启动 Python worker**：
@@ -143,10 +143,10 @@ uv run alembic upgrade head
 
 1. **DB 反向 SQL**（生产 PG）：
    ```powershell
-   powershell -File apps/server/migrations/apply-quant-raw-schema-migration.down.ps1
+   powershell -File apps/server/src/migration/apply-quant-raw-schema-migration.down.ps1
    # 或裸跑 SQL：
    docker exec -i crypto-postgres psql -U cryptouser -d cryptodb -v ON_ERROR_STOP=1 `
-     < apps/server/migrations/20260517120000-quant-raw-schema-migration.down.sql
+     < apps/server/src/migration/20260517120000-quant-raw-schema-migration.down.sql
    ```
 2. **代码版本回退**：
    ```powershell

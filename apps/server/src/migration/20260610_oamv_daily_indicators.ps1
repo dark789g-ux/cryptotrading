@@ -5,7 +5,7 @@
 # (market-level 0AMV MA and KDJ indicators).
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/20260610_oamv_daily_indicators.ps1
+#   powershell apps/server/src/migration/20260610_oamv_daily_indicators.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

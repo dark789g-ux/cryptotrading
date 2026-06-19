@@ -5,7 +5,7 @@
 # portfolio_sim_fill (per-factor transparency, spec 08-persistence).
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/2026-06-14-portfolio-sim-fill-factor-values.ps1
+#   powershell apps/server/src/migration/2026-06-14-portfolio-sim-fill-factor-values.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

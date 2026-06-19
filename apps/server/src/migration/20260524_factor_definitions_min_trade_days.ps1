@@ -7,7 +7,7 @@
 #   - 把 pit_window_days 不足的行抬高到 min_trade_days * 2
 #
 # CLAUDE.md 硬约束：DB schema 调整须附 docker exec 形式的 .ps1 + .sql 配对
-# 用法：在仓库根执行 `pwsh apps/server/migrations/20260524_factor_definitions_min_trade_days.ps1`
+# 用法：在仓库根执行 `pwsh apps/server/src/migration/20260524_factor_definitions_min_trade_days.ps1`
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

@@ -5,7 +5,7 @@
 # server-side sort/filter performance on the listTrades endpoint.
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/20260609_signal_test_trade_run_ret_index.ps1
+#   powershell apps/server/src/migration/20260609_signal_test_trade_run_ret_index.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

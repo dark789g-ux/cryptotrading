@@ -4,7 +4,7 @@
 # NestJS 侧幂等校验脚本（spec 2026-05-23-factor-registry-frontend-design）：
 #   - 正常路径下因子元数据表已由 quant-pipeline Alembic 建好
 #   - 本脚本仅用于发布记录 / 灾难恢复 / CI schema 漂移检测，不重复 DDL
-#   - 用法：在仓库根执行 `pwsh apps/server/migrations/20260524_factor_definitions.ps1`
+#   - 用法：在仓库根执行 `pwsh apps/server/src/migration/20260524_factor_definitions.ps1`
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

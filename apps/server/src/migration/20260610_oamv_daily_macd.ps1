@@ -4,7 +4,7 @@
 # Add amv_dif/amv_dea/amv_macd columns to oamv_daily (market-level 0AMV MACD).
 #
 # Usage (from repo root):
-#   powershell apps/server/migrations/20260610_oamv_daily_macd.ps1
+#   powershell apps/server/src/migration/20260610_oamv_daily_macd.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

@@ -4,7 +4,7 @@
 # 活跃市值（AMV）阶段 1：建 stock_amv_daily / industry_amv_daily 两张宽表。
 #
 # 用法：在仓库根执行
-#   powershell apps/server/migrations/20260601120000-create-active-mv.ps1
+#   powershell apps/server/src/migration/20260601120000-create-active-mv.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

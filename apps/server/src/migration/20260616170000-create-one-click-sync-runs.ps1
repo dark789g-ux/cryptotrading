@@ -4,7 +4,7 @@
 # 「一键同步」后端托管编排：建持久化任务进度表 one_click_sync_runs。
 #
 # 用法：在仓库根执行
-#   powershell apps/server/migrations/20260616170000-create-one-click-sync-runs.ps1
+#   powershell apps/server/src/migration/20260616170000-create-one-click-sync-runs.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"

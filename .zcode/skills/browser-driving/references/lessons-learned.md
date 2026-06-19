@@ -6,6 +6,26 @@
 
 ---
 
+## 2026-06-19: Windows 上 Write 工具的 `/tmp/` 与 git-bash `/tmp` 不是同一个目录
+**Symptom**: 用 Write 写 `/tmp/eval.json`，随后 `curl -d @/tmp/eval.json` 调 webbridge 报 `invalid JSON: EOF`；`cat /tmp/eval.json` 也报 `No such file`。
+**Cause**: Write 工具把绝对路径 `/tmp/...` 映射到 Windows 根目录 `C:\tmp`；git-bash 的 `/tmp` 却指向用户级 Temp（`%TEMP%`），二者不重叠。
+**Lesson**: 浏览器 e2e 的临时请求 JSON 统一落到**项目目录内的 `.tmp/`**（如 `/c/codes/cryptotrading/.tmp/`），`curl -d @/c/.../.tmp/xxx.json` 与 Write 路径一致，避免跨工具路径漂移。
+
+## 2026-06-19: 别用 CSS `:last-child` 点语义上的“最后一个按钮”
+**Symptom**: 想点 SymbolsPanelLayout 的视图切换按钮，用 `.panel-header button:last-child` 实际触发了 Refresh。
+**Cause**: 按钮被包在多个 flex wrapper / slot 里，`:last-child` 匹配的是某个 wrapper 的最后一个子元素，不一定是整组按钮里的目标。
+**Lesson**: 驱动一组按钮时，用 `document.querySelectorAll('.panel-header button')[index]` 并按已知文本/空文本/Aria 区分；避免依赖 `:last-child` 或 `:nth-child` 做语义定位。
+
+## 2026-06-19: Vue `__vueParentComponent.setupState` 里的 ref 已被自动 unwrap，别再手动 `.value`
+**Symptom**: 想读 CryptoSymbolsPanel 的 `symbols` ref，用 `inst.setupState.symbols.value.length` 报 `Cannot read properties of undefined (reading 'length')`；改成 `inst.setupState.symbols.length` 立刻正常。
+**Cause**: Vue 组件实例的 `setupState` 是一个 Proxy，访问其属性时会自动解包 ref（dev 模式 behavior），所以 `setupState.foo` 直接拿到 ref 的值，而不是 Ref 对象本身。
+**Lesson**: 通过 `__vueParentComponent.setupState` 驱动 Vue 组件状态时，**不要加 `.value`**；只有拿到真正的 Ref 对象（如 `setupState.props` 不是 ref）时才需要。如果不确定，先用 `typeof` 探一下。
+
+## 2026-06-19: evaluate 含 CSS 属性选择器/引号时，用文件传 code 而非 inline JSON
+**Symptom**: `evaluate` 传 `document.querySelector('[role=dialog]')` 或读取 `.innerText` 时，daemon 偶发报 `ReferenceError: dialog is not defined` / `SyntaxError: Unexpected token '.'`；同一段 code 写进文件再 `curl -d @file` 就正常。
+**Cause**: curl inline `-d '{...}'` 里，code 字符串的引号/方括号要穿过多层解析（shell、JSON、daemon），`[role=dialog]` 这类选择器在传输中被剥掉单引号，到浏览器里变成对未定义变量 `dialog` 的引用；带点号的属性访问也易被误切。
+**Lesson**: 凡 `evaluate` code 含 CSS 属性选择器、字符串字面量、或任何需要引号/方括号的内容，一律 **Write 到临时 JSON 文件 + `curl -d @/c/.../req.json`**，code 内部用单引号（已在 2026-06-05 验证可行）。这是 2026-06-05「写文件避转义」的延伸：不仅复杂 code，任何带选择器的短代码也建议文件传，避免 shell JSON 层碎掉。
+
 ## 2026-06-18: 测父组件 @event 接线——在子组件实例上 emit，别去驱动那个脆弱控件
 **Symptom**: 要验「日期选择器 update:range → 父组件按新区间发请求」。直接驱动 n-date-picker（开日历翻月点格）脆；父组件的 handler（如 onOamvRangeChange）在 `<script setup>` 里、没 defineExpose、setupState 也未必拿得到，难直接调。
 **Cause**: `<script setup>` 顶层函数不一定挂到可调用的 exposed/setupState；而触发链其实是「子组件 emit('update:range') → 父模板 @update:range 绑定的 handler」。
@@ -215,7 +235,17 @@
 
 **Lesson**：dev server 重启后，先 `navigate`（同 session 复用 tab）强制重载一次页面再继续 evaluate。已卡住时同样用 `navigate` 复位页面上下文（list_tabs 可用来确认 daemon 本身活着），然后用 `1+1` 试探 evaluate 恢复后再发正式命令；对有副作用的命令（POST 创建等），复位后先查目标状态防止重复执行。
 
-## 2026-06-11: bash 轮询循环里 grep 嵌套转义 JSON 终态失配致空转
+## 2026-06-11: bash 轮询循环里 grep 嵌套转义 JSON 終態失配致空转
 **Symptom**: 用 bash for 循环轮询 webbridge evaluate 返回的 JSON，`grep -qE '\\\\"status\\\\":\\\\"success'` 永不命中，任务早已 success 仍空转满 60 轮（浪费 5 分钟）。
 **Cause**: webbridge 返回体是双层 JSON（外层 daemon 包裹+内层 evaluate 字符串），引号转义层数在 bash 单引号/双引号/JSON 三层嵌套下极易数错。
 **Lesson**: 轮询终态判定不要精确匹配转义引号——用宽松子串（`grep -qE 'success|failed'` 匹配裸词）或先 sed 提取 value 字段再比较；写完先手测一轮 grep 是否真能命中样本输出。
+
+## 2026-06-19: Naive UI 复杂输入框（n-input-number）直接改 DOM value 不触发 v-model，改组件 setupState 更稳
+**Symptom**: e2e 给 KDJ 参数编辑器（n-input-number）设新值：直接改 `<input>.value` 并 dispatch input/change 事件，点确定后发出的仍是旧值，localStorage 也没持久化到新参数。
+**Cause**: n-input-number 等 Naive 组件的 model 由组件自身维护，内部 input 的 value 只是展示；外部改 DOM 值不会触发 `update:value`，confirm 读到的还是组件 state 里的旧数。
+**Lesson**: 对难驱动的 Vue 控件，定位到组件根 DOM 后取 `el.__vueParentComponent.setupState`，直接改其 reactive 状态（如 `draft.n = 6`）或调用 `<script setup>` 里声明的方法（如 `inst.setupState.onConfirm()`）。这比模拟 UI 输入更稳，也不依赖 `defineExpose`——setupState 里的函数和响应式对象天然可读写。
+
+## 2026-06-19: 后端 dev 没热加载时，浏览器 e2e 命中 404 要先重启 server
+**Symptom**: e2e 点确定后前端 POST `/api/klines/.../recalc` 返回 404，但代码里明明有该路由；单元测试和构建都通过。
+**Cause**: 项目后端 `nest start` 不带 watch，已运行的 dev server 还是旧进程，新接口没加载。
+**Lesson**: 浏览器验证前先确认后端是最新代码。若 404/行为异常且代码已存在，优先 `netstat` 找端口对应 PID，杀掉后重新 `pnpm --filter @cryptotrading/server dev`，再开始 e2e。

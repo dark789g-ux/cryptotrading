@@ -5,7 +5,7 @@
 # （现 15 值约束的真超集，幂等；对应 alembic 20260616_0002）
 #
 # 用法：在仓库根执行
-#   powershell apps/server/migrations/20260616150000-us-index-amv-run-type-check.ps1
+#   powershell apps/server/src/migration/20260616150000-us-index-amv-run-type-check.ps1
 # =====================================================================
 
 $ErrorActionPreference = "Stop"
