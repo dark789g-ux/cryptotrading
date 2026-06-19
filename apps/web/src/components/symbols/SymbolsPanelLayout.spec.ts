@@ -1,6 +1,6 @@
 /**
  * SymbolsPanelLayout：通用标的面板外壳组件单测。
- * - 按钮 emit（refresh、列设置、视图切换）
+ * - 按钮 emit（refresh、视图切换）
  * - 视图模式与分栏宽度的 localStorage 读写及校验
  * - table / split 两种形态下的 slot 渲染
  */
@@ -78,13 +78,12 @@ beforeEach(() => {
 })
 
 describe('SymbolsPanelLayout', () => {
-  it('渲染 header 中的 Refresh / Columns / 视图切换按钮以及 header-actions slot', () => {
+  it('渲染 header 中的 Refresh / 视图切换按钮以及 header-actions slot', () => {
     const wrapper = mountLayout()
     const buttons = wrapper.findAll('button.n-button')
 
-    expect(buttons).toHaveLength(3)
+    expect(buttons).toHaveLength(2)
     expect(buttons[0].text()).toContain('Refresh')
-    expect(buttons[1].text()).toContain('Columns')
     expect(wrapper.find('[data-testid="header-actions-slot"]').exists()).toBe(true)
   })
 
@@ -106,18 +105,9 @@ describe('SymbolsPanelLayout', () => {
     return wrapper.findComponent(SymbolsPanelLayout).emitted(event)
   }
 
-  it('Columns 按钮触发 update:showColumnSettings(true)', async () => {
-    const wrapper = mountLayout()
-    const columnsButton = wrapper.findAll('button.n-button')[1]
-
-    await columnsButton.trigger('click')
-    expect(layoutEmitted(wrapper, 'update:showColumnSettings')).toHaveLength(1)
-    expect(layoutEmitted(wrapper, 'update:showColumnSettings')![0]).toEqual([true])
-  })
-
   it('视图切换按钮在 table 模式显示 GridOutline 并切换到 split，同时持久化到 localStorage', async () => {
     const wrapper = mountLayout()
-    const toggleButton = wrapper.findAll('button.n-button')[2]
+    const toggleButton = wrapper.findAll('button.n-button')[1]
 
     expect(localStorage.getItem(VIEW_MODE_KEY)).toBeNull()
 
@@ -130,7 +120,7 @@ describe('SymbolsPanelLayout', () => {
 
   it('视图切换按钮在 split 模式显示 ListOutline 并切换回 table', async () => {
     const wrapper = mountLayout({ viewMode: 'split' })
-    const toggleButton = wrapper.findAll('button.n-button')[2]
+    const toggleButton = wrapper.findAll('button.n-button')[1]
 
     await toggleButton.trigger('click')
 

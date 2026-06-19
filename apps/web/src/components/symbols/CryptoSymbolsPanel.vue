@@ -3,7 +3,6 @@
     class="crypto-symbols-panel"
     scope="crypto"
     :loading="loading"
-    v-model:showColumnSettings="showColumnSettings"
     :show-empty-detail="!selectedDetailRow"
     @refresh="reload"
   >
@@ -28,6 +27,7 @@
         :field-options="fieldOptions"
         @apply="applyFilters"
         @reset="resetFilters"
+        @update:show-column-settings="(val: boolean) => showColumnSettings = val"
       />
     </template>
 

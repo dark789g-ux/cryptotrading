@@ -3,7 +3,6 @@
     class="a-shares-panel"
     scope="aShares"
     :loading="loading"
-    v-model:showColumnSettings="showColumnSettings"
     :show-empty-detail="!selectedDetailRow"
     @refresh="reload"
   >
@@ -27,6 +26,7 @@
         @apply="applyFilters"
         @reset="resetFilters"
         @update:price-mode="handlePriceModeChange"
+        @update:show-column-settings="(val: boolean) => showColumnSettings = val"
         @refresh-filter-presets="loadFilterPresets"
         @create-filter-preset="createFilterPreset"
         @overwrite-filter-preset="overwriteFilterPreset"

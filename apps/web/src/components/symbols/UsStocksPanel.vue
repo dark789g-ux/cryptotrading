@@ -1,6 +1,5 @@
 <template>
   <symbols-panel-layout
-    v-model:show-column-settings="showColumnSettings"
     class="us-stocks-panel"
     scope="usStocks"
     :loading="loading"
@@ -33,6 +32,7 @@
         @apply="applyFilters"
         @reset="resetFilters"
         @update:price-mode="handlePriceModeChange"
+        @update:show-column-settings="(val: boolean) => showColumnSettings = val"
       />
     </template>
 

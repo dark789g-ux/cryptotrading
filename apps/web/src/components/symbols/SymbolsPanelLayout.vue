@@ -8,12 +8,6 @@
           </template>
           Refresh
         </n-button>
-        <n-button secondary @click="handleOpenColumnSettings">
-          <template #icon>
-            <n-icon><settings-outline /></n-icon>
-          </template>
-          Columns
-        </n-button>
         <n-tooltip>
           <template #trigger>
             <n-button secondary @click="toggleViewMode">
@@ -74,7 +68,6 @@ import {
   GridOutline,
   ListOutline,
   RefreshOutline,
-  SettingsOutline,
 } from '@vicons/ionicons5'
 import ResizableSplitPane from './ResizableSplitPane.vue'
 
@@ -82,7 +75,6 @@ const props = withDefaults(
   defineProps<{
     scope: 'crypto' | 'aShares' | 'usStocks'
     loading?: boolean
-    showColumnSettings?: boolean
     viewMode?: 'table' | 'split'
     leftWidth?: number
     showEmptyDetail?: boolean
@@ -94,7 +86,6 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  'update:showColumnSettings': [value: boolean]
   'update:viewMode': [value: 'table' | 'split']
   'update:leftWidth': [value: number]
   refresh: []
@@ -143,7 +134,6 @@ function persistLeftWidth(scope: string, value: number) {
 // 当对应 prop 未被父组件绑定时，使用内部持久化状态。
 const persistedViewMode = ref<'table' | 'split'>(readValidViewMode(props.scope))
 const persistedLeftWidth = ref<number>(readValidLeftWidth(props.scope))
-const persistedShowColumnSettings = ref<boolean>(props.showColumnSettings ?? false)
 
 const viewMode = computed<'table' | 'split'>({
   get() {
@@ -168,16 +158,6 @@ const leftWidth = computed<number>({
   },
 })
 
-const showColumnSettings = computed<boolean>({
-  get() {
-    return props.showColumnSettings ?? persistedShowColumnSettings.value
-  },
-  set(value) {
-    persistedShowColumnSettings.value = value
-    emit('update:showColumnSettings', value)
-  },
-})
-
 // 当父组件通过 prop 外部更新状态时，同步内部状态，保持 v-model 双向一致。
 watch(
   () => props.viewMode,
@@ -193,23 +173,12 @@ watch(
   },
 )
 
-watch(
-  () => props.showColumnSettings,
-  (value) => {
-    if (value !== undefined) persistedShowColumnSettings.value = value
-  },
-)
-
 function toggleViewMode() {
   viewMode.value = viewMode.value === 'table' ? 'split' : 'table'
 }
 
 function handleRefresh() {
   emit('refresh')
-}
-
-function handleOpenColumnSettings() {
-  showColumnSettings.value = true
 }
 </script>
 
