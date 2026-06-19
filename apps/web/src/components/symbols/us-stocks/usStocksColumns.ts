@@ -9,7 +9,7 @@ import type { SymbolColumnDef } from '../columnTypes'
 import { INDICATOR_DESCRIPTORS, buildIndicatorColumns, type IndicatorDescriptor } from '../indicatorColumnDefs'
 
 interface UsStocksColumnsOptions {
-  onViewDetail: (row: UsStockRow) => void
+  onViewDetail?: (row: UsStockRow) => void
   priceMode: 'qfq' | 'raw'
 }
 
@@ -94,24 +94,28 @@ export function createUsStocksColumnDefs(options: UsStocksColumnsOptions): Symbo
     // 共享技术指标列（descriptor 驱动，美股子集）。全部默认隐藏，不撑默认表宽；
     // sorter:true（builder 默认）→ remote 表点表头触发后端排序。
     ...buildIndicatorColumns<UsStockRow>(US_INDICATOR_DESCRIPTORS, { defaultVisible: false }),
-    {
-      title: '操作',
-      key: 'actions',
-      width: 70,
-      fixed: 'right',
-      defaultVisible: true,
-      locked: true,
-      render: (row) =>
-        h(NTooltip, null, {
-          trigger: () =>
-            h(
-              NButton,
-              { size: 'small', onClick: () => options.onViewDetail(row) },
-              { icon: () => h(NIcon, null, () => h(OpenOutline)) },
-            ),
-          default: () => '查看K线详情',
-        }),
-    },
+    ...(options.onViewDetail
+      ? [
+          {
+            title: '操作',
+            key: 'actions',
+            width: 70,
+            fixed: 'right' as const,
+            defaultVisible: true,
+            locked: true,
+            render: (row: UsStockRow) =>
+              h(NTooltip, null, {
+                trigger: () =>
+                  h(
+                    NButton,
+                    { size: 'small', onClick: () => options.onViewDetail!(row) },
+                    { icon: () => h(NIcon, null, () => h(OpenOutline)) },
+                  ),
+                default: () => '查看K线详情',
+              }),
+          },
+        ]
+      : []),
   ]
 }
 

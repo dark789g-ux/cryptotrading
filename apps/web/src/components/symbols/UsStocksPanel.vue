@@ -1,18 +1,14 @@
 <template>
-  <div class="us-stocks-panel">
-    <div class="panel-header">
-      <div>
-        <h2 class="panel-title">美股</h2>
-      </div>
+  <symbols-panel-layout
+    v-model:show-column-settings="showColumnSettings"
+    class="us-stocks-panel"
+    scope="usStocks"
+    :loading="loading"
+    :show-empty-detail="!selectedDetailRow"
+    @refresh="reload"
+  >
+    <template #header-actions>
       <n-space>
-        <n-button :loading="loading" @click="reload">
-          <template #icon><n-icon><refresh-outline /></n-icon></template>
-          Refresh
-        </n-button>
-        <n-button secondary @click="showColumnSettings = true">
-          <template #icon><n-icon><settings-outline /></n-icon></template>
-          Columns
-        </n-button>
         <n-button :loading="syncing" @click="handleSync">
           <template #icon><n-icon><cloud-download-outline /></n-icon></template>
           同步
@@ -22,77 +18,105 @@
           标的管理
         </n-button>
       </n-space>
-    </div>
+    </template>
 
-    <us-stocks-filters
-      v-model:search-query="searchQuery"
-      v-model:selected-theme="selectedTheme"
-      v-model:selected-stock-type="selectedStockType"
-      v-model:price-mode="priceMode"
-      v-model:pct-change-min="pctChangeMin"
-      v-model:advanced-conditions="advancedConditions"
-      :theme-options="themeOptions"
-      :stock-type-options="stockTypeOptions"
-      @apply="applyFilters"
-      @reset="resetFilters"
-      @update:price-mode="handlePriceModeChange"
-    />
-
-    <n-card :bordered="false">
-      <n-data-table
-        :columns="columns"
-        :data="rows"
-        :loading="loading"
-        :pagination="paginationState"
-        remote
-        @update:page="handlePageChange"
-        @update:page-size="handlePageSizeChange"
-        @update:sorter="handleSort"
+    <template #filters>
+      <us-stocks-filters
+        v-model:search-query="searchQuery"
+        v-model:selected-theme="selectedTheme"
+        v-model:selected-stock-type="selectedStockType"
+        v-model:price-mode="priceMode"
+        v-model:pct-change-min="pctChangeMin"
+        v-model:advanced-conditions="advancedConditions"
+        :theme-options="themeOptions"
+        :stock-type-options="stockTypeOptions"
+        @apply="applyFilters"
+        @reset="resetFilters"
+        @update:price-mode="handlePriceModeChange"
       />
-    </n-card>
+    </template>
 
-    <column-settings-drawer
-      v-model:show="showColumnSettings"
-      v-model:modelValue="scopePreferences"
-      title="美股 Columns"
-      :definitions="columnDefs"
-      :loading="columnPrefsLoading"
-      :saving="columnPrefsSaving"
-      @save="handleSaveColumnPreferences"
-    />
+    <template #table>
+      <n-card :bordered="false">
+        <n-data-table
+          data-testid="full-table"
+          :columns="columns"
+          :data="rows"
+          :loading="loading"
+          :pagination="paginationState"
+          remote
+          @update:page="handlePageChange"
+          @update:page-size="handlePageSizeChange"
+          @update:sorter="handleSort"
+        />
+      </n-card>
+    </template>
 
-    <us-stock-detail-drawer
-      v-model:show="showDetailDrawer"
-      :row="selectedDetailRow"
-      :price-mode="priceMode"
-    />
+    <template #split-left>
+      <n-card :bordered="false" class="split-left-card">
+        <n-data-table
+          data-testid="split-table"
+          :columns="compactColumns"
+          :data="rows"
+          :loading="loading"
+          :pagination="paginationState"
+          :row-props="compactRowProps"
+          remote
+          @update:page="handlePageChange"
+          @update:page-size="handlePageSizeChange"
+          @update:sorter="handleSort"
+        />
+      </n-card>
+    </template>
 
-    <us-symbol-manage-modal
-      v-model:show="showSymbolManage"
-      @saved="reload"
-    />
+    <template #split-right>
+      <us-stock-detail-panel
+        :row="selectedDetailRow"
+        :price-mode="priceMode"
+      />
+    </template>
 
-    <us-sync-progress-modal
-      v-model:show="showSyncProgress"
-      :job-id="syncJobId"
-      @done="handleSyncDone"
-    />
-  </div>
+    <template #empty-detail>
+      <div class="empty-detail-placeholder">
+        <n-empty description="点击左侧股票查看详情" />
+      </div>
+    </template>
+  </symbols-panel-layout>
+
+  <column-settings-drawer
+    v-model:show="showColumnSettings"
+    v-model:modelValue="scopePreferences"
+    title="美股 Columns"
+    :definitions="columnDefs"
+    :loading="columnPrefsLoading"
+    :saving="columnPrefsSaving"
+    @save="handleSaveColumnPreferences"
+  />
+
+  <us-symbol-manage-modal
+    v-model:show="showSymbolManage"
+    @saved="reload"
+  />
+
+  <us-sync-progress-modal
+    v-model:show="showSyncProgress"
+    :job-id="syncJobId"
+    @done="handleSyncDone"
+  />
 </template>
 
 <script setup lang="ts">
 defineOptions({ name: 'UsStocksPanel' })
 
 import { computed, onMounted, ref } from 'vue'
-import { NButton, NCard, NDataTable, NIcon, NSpace, useMessage } from 'naive-ui'
+import { NButton, NCard, NDataTable, NEmpty, NIcon, NSpace, useMessage } from 'naive-ui'
 import {
   CloudDownloadOutline,
   ListOutline,
-  RefreshOutline,
-  SettingsOutline,
 } from '@vicons/ionicons5'
 import { usStocksApi, type JobStatus, type UsStockRow } from '@/api'
-import UsStockDetailDrawer from './us-stocks/UsStockDetailDrawer.vue'
+import SymbolsPanelLayout from './SymbolsPanelLayout.vue'
+import UsStockDetailPanel from './us-stocks/UsStockDetailPanel.vue'
 import UsStocksFilters from './us-stocks/UsStocksFilters.vue'
 import UsSymbolManageModal from './us-stocks/UsSymbolManageModal.vue'
 import UsSyncProgressModal from './us-stocks/UsSyncProgressModal.vue'
@@ -100,6 +124,8 @@ import { createUsStocksColumnDefs } from './us-stocks/usStocksColumns'
 import { useUsStocksQuery } from './us-stocks/useUsStocksQuery'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
+import { formatNumber } from './a-shares/aSharesFormatters'
+import type { DataTableColumns } from 'naive-ui'
 
 const message = useMessage()
 const {
@@ -123,7 +149,6 @@ const {
   handleSort,
 } = useUsStocksQuery(message)
 
-const showDetailDrawer = ref(false)
 const showColumnSettings = ref(false)
 const showSymbolManage = ref(false)
 const showSyncProgress = ref(false)
@@ -131,14 +156,8 @@ const selectedDetailRow = ref<UsStockRow | null>(null)
 const syncing = ref(false)
 const syncJobId = ref<string | null>(null)
 
-function handleViewDetail(row: UsStockRow) {
-  selectedDetailRow.value = row
-  showDetailDrawer.value = true
-}
-
 const columnDefs = computed(() =>
   createUsStocksColumnDefs({
-    onViewDetail: handleViewDetail,
     priceMode: priceMode.value,
   }),
 )
@@ -151,6 +170,42 @@ const {
   load: loadColumnPreferences,
   save: saveColumnPreferences,
 } = useSymbolColumnPreferences('usStocks', columnDefs)
+
+const compactColumns = computed<DataTableColumns<UsStockRow>>(() => {
+  const priceSuffix = priceMode.value === 'raw' ? '原始' : '前复权'
+  return [
+    {
+      title: '股票名称',
+      key: 'name',
+      width: 160,
+      sorter: true,
+      render: (row) => row.name,
+    },
+    {
+      title: '股票代码',
+      key: 'ticker',
+      width: 140,
+      sorter: true,
+      render: (row) => row.ticker,
+    },
+    {
+      title: `现价(${priceSuffix})`,
+      key: 'close',
+      width: 130,
+      sorter: true,
+      render: (row) => formatNumber(row.close, 2),
+    },
+  ]
+})
+
+function compactRowProps(row: UsStockRow) {
+  return {
+    style: 'cursor: pointer;',
+    onClick: () => {
+      selectedDetailRow.value = row
+    },
+  }
+}
 
 async function handleSaveColumnPreferences() {
   try {
@@ -190,11 +245,14 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.us-stocks-panel { display: flex; flex-direction: column; gap: 18px; }
-.panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.panel-title { margin: 0; font-size: 22px; line-height: 1.2; }
-
-@media (max-width: 960px) {
-  .panel-header { flex-direction: column; }
+.us-stocks-panel { height: 100%; }
+.split-left-card { height: 100%; }
+.empty-detail-placeholder {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  height: 100%;
+  justify-content: center;
+  min-height: 320px;
 }
 </style>

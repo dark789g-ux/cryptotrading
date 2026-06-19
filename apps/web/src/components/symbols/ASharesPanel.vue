@@ -1,87 +1,105 @@
 <template>
-  <div class="a-shares-panel">
-    <div class="panel-header">
-      <div>
-        <h2 class="panel-title">A 股数据</h2>
-      </div>
-      <n-space>
-        <n-button :loading="loading" @click="reload">
-          <template #icon><n-icon><refresh-outline /></n-icon></template>
-          Refresh
-        </n-button>
-        <n-button secondary @click="showColumnSettings = true">
-          <template #icon><n-icon><settings-outline /></n-icon></template>
-          Columns
-        </n-button>
-      </n-space>
-    </div>
-
-    <a-shares-filters
-      v-model:search-query="searchQuery"
-      v-model:selected-market="selectedMarket"
-      v-model:selected-industry="selectedIndustry"
-      v-model:selected-watchlist-ids="selectedWatchlistIds"
-      v-model:selected-strategy-ids="selectedStrategyIds"
-      v-model:price-mode="priceMode"
-      v-model:pct-change-min="pctChangeMin"
-      v-model:turnover-rate-min="turnoverRateMin"
-      v-model:advanced-conditions="advancedConditions"
-      :market-options="marketOptions"
-      :industry-options="industryOptions"
-      :watchlist-options="watchlistOptions"
-      :strategy-options="strategyFilterOptions"
-      :filter-presets="filterPresets"
-      :filter-presets-loading="filterPresetsLoading"
-      @apply="applyFilters"
-      @reset="resetFilters"
-      @update:price-mode="handlePriceModeChange"
-      @refresh-filter-presets="loadFilterPresets"
-      @create-filter-preset="createFilterPreset"
-      @overwrite-filter-preset="overwriteFilterPreset"
-      @rename-filter-preset="renameFilterPreset"
-      @delete-filter-preset="deleteFilterPreset"
-      @apply-filter-preset="applyFilterPreset"
-    />
-
-    <n-card :bordered="false">
-      <n-data-table
-        :columns="columns"
-        :data="rows"
-        :loading="loading"
-        :pagination="paginationState"
-        remote
-        @update:page="handlePageChange"
-        @update:page-size="handlePageSizeChange"
-        @update:sorter="handleSort"
+  <symbols-panel-layout
+    class="a-shares-panel"
+    scope="aShares"
+    :loading="loading"
+    v-model:showColumnSettings="showColumnSettings"
+    :show-empty-detail="!selectedDetailRow"
+    @refresh="reload"
+  >
+    <template #filters>
+      <a-shares-filters
+        v-model:search-query="searchQuery"
+        v-model:selected-market="selectedMarket"
+        v-model:selected-industry="selectedIndustry"
+        v-model:selected-watchlist-ids="selectedWatchlistIds"
+        v-model:selected-strategy-ids="selectedStrategyIds"
+        v-model:price-mode="priceMode"
+        v-model:pct-change-min="pctChangeMin"
+        v-model:turnover-rate-min="turnoverRateMin"
+        v-model:advanced-conditions="advancedConditions"
+        :market-options="marketOptions"
+        :industry-options="industryOptions"
+        :watchlist-options="watchlistOptions"
+        :strategy-options="strategyFilterOptions"
+        :filter-presets="filterPresets"
+        :filter-presets-loading="filterPresetsLoading"
+        @apply="applyFilters"
+        @reset="resetFilters"
+        @update:price-mode="handlePriceModeChange"
+        @refresh-filter-presets="loadFilterPresets"
+        @create-filter-preset="createFilterPreset"
+        @overwrite-filter-preset="overwriteFilterPreset"
+        @rename-filter-preset="renameFilterPreset"
+        @delete-filter-preset="deleteFilterPreset"
+        @apply-filter-preset="applyFilterPreset"
       />
-    </n-card>
+    </template>
 
-    <column-settings-drawer
-      v-model:show="showColumnSettings"
-      v-model:modelValue="scopePreferences"
-      title="A 股 Columns"
-      :definitions="columnDefs"
-      :loading="columnPrefsLoading"
-      :saving="columnPrefsSaving"
-      @save="handleSaveColumnPreferences"
-    />
+    <template #table>
+      <n-card :bordered="false">
+        <n-data-table
+          data-testid="full-table"
+          :columns="columns"
+          :data="rows"
+          :loading="loading"
+          :pagination="paginationState"
+          remote
+          @update:page="handlePageChange"
+          @update:page-size="handlePageSizeChange"
+          @update:sorter="handleSort"
+        />
+      </n-card>
+    </template>
 
-    <a-share-detail-drawer
-      v-model:show="showDetailDrawer"
-      :row="selectedDetailRow"
-      :price-mode="priceMode"
-    />
-  </div>
+    <template #split-left>
+      <n-card :bordered="false" class="split-left-card">
+        <n-data-table
+          data-testid="split-table"
+          :columns="simpleColumns"
+          :data="rows"
+          :loading="loading"
+          :pagination="paginationState"
+          remote
+          :row-props="splitRowProps"
+          @update:page="handlePageChange"
+          @update:page-size="handlePageSizeChange"
+          @update:sorter="handleSort"
+        />
+      </n-card>
+    </template>
+
+    <template #split-right>
+      <a-share-detail-panel
+        :row="selectedDetailRow"
+        :price-mode="priceMode"
+      />
+    </template>
+
+    <template #empty-detail>
+      <n-empty description="点击左侧股票查看详情" class="empty-detail-placeholder" />
+    </template>
+  </symbols-panel-layout>
+
+  <column-settings-drawer
+    v-model:show="showColumnSettings"
+    v-model:modelValue="scopePreferences"
+    title="A 股 Columns"
+    :definitions="columnDefs"
+    :loading="columnPrefsLoading"
+    :saving="columnPrefsSaving"
+    @save="handleSaveColumnPreferences"
+  />
+
 </template>
 
 <script setup lang="ts">
 defineOptions({ name: 'ASharesPanel' })
 
 import { computed, h, onActivated, onMounted, ref } from 'vue'
-import { NButton, NCard, NDataTable, NIcon, NSpace, NTag, useMessage } from 'naive-ui'
-import { RefreshOutline, SettingsOutline } from '@vicons/ionicons5'
+import { NCard, NDataTable, NEmpty, NSpace, NTag, useMessage, type DataTableColumns } from 'naive-ui'
 import type { AShareRow } from '@/api'
-import AShareDetailDrawer from './a-shares/AShareDetailDrawer.vue'
+import AShareDetailPanel from './a-shares/AShareDetailPanel.vue'
 import ASharesFilters from './a-shares/ASharesFilters.vue'
 import { createASharesColumnDefs } from './a-shares/aSharesColumns'
 import { useASharesQuery } from './a-shares/useASharesQuery'
@@ -89,6 +107,8 @@ import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
 import { strategyConditionsApi } from '@/api/modules/strategy/strategyConditions'
+import SymbolsPanelLayout from './SymbolsPanelLayout.vue'
+import { formatNumber } from './a-shares/aSharesFormatters'
 
 const message = useMessage()
 const {
@@ -126,7 +146,6 @@ const {
   handleSort,
 } = useASharesQuery(message)
 
-const showDetailDrawer = ref(false)
 const showColumnSettings = ref(false)
 const selectedDetailRow = ref<AShareRow | null>(null)
 const hitLookup = ref<Map<string, Set<string>>>(new Map())
@@ -164,14 +183,8 @@ async function loadHitLookup() {
   hitLookup.value = newLookup
 }
 
-function handleViewDetail(row: AShareRow) {
-  selectedDetailRow.value = row
-  showDetailDrawer.value = true
-}
-
 const columnDefs = computed(() => {
   const baseDefs = createASharesColumnDefs({
-    onViewDetail: handleViewDetail,
     priceMode: priceMode.value,
     scoresMap,
     scoresLoading,
@@ -202,6 +215,29 @@ const {
   save: saveColumnPreferences,
 } = useSymbolColumnPreferences('aShares', columnDefs)
 
+const simpleColumns = computed<DataTableColumns<AShareRow>>(() => {
+  const priceSuffix = priceMode.value === 'raw' ? '原始' : '前复权'
+  return [
+    { title: '名称', key: 'name', sorter: true, render: row => row.name },
+    { title: '代码', key: 'tsCode', sorter: true, render: row => row.tsCode },
+    {
+      title: `现价(${priceSuffix})`,
+      key: 'close',
+      sorter: true,
+      render: row => formatNumber(row.close, 2),
+    },
+  ]
+})
+
+function splitRowProps(row: AShareRow) {
+  return {
+    style: 'cursor: pointer',
+    onClick: () => {
+      selectedDetailRow.value = row
+    },
+  }
+}
+
 async function handleSaveColumnPreferences() {
   try {
     await saveColumnPreferences()
@@ -229,12 +265,18 @@ onActivated(async () => {
 </script>
 
 <style scoped>
-.a-shares-panel { display: flex; flex-direction: column; gap: 18px; }
-.panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.panel-title { margin: 0; font-size: 22px; line-height: 1.2; }
-.panel-subtitle { margin: 6px 0 0; color: var(--color-text-secondary); }
+.a-shares-panel {
+  height: 100%;
+}
 
-@media (max-width: 960px) {
-  .panel-header { flex-direction: column; }
+.split-left-card {
+  height: 100%;
+}
+
+.empty-detail-placeholder {
+  align-items: center;
+  display: flex;
+  height: 100%;
+  justify-content: center;
 }
 </style>
