@@ -3,6 +3,7 @@
     <kline-chart-toolbar
       v-if="showToolbar"
       class="kline-chart-wrapper__toolbar"
+      :data="props.data"
       :granularity="granularity"
       :range="range ?? null"
       :disabled-range="disabledRange"

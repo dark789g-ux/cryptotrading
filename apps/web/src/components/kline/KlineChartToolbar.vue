@@ -7,7 +7,7 @@
         type="daterange"
         size="small"
         clearable
-        :value="range"
+        :value="actualRange ?? range"
         :disabled="disabledRange"
         @update:value="onRangeUpdate"
       />
@@ -17,7 +17,7 @@
         size="small"
         clearable
         format="yyyy-MM-dd HH:mm"
-        :value="range"
+        :value="actualRange ?? range"
         :disabled="disabledRange"
         @update:value="onRangeUpdate"
       />
@@ -27,7 +27,7 @@
         size="small"
         clearable
         format="yyyy-MM-dd HH:mm:ss"
-        :value="range"
+        :value="actualRange ?? range"
         :disabled="disabledRange"
         @update:value="onRangeUpdate"
       />
@@ -174,6 +174,7 @@ import {
   type SubplotPrefs,
 } from '@/composables/kline/subplotConfig'
 import KdjParamsEditor from './KdjParamsEditor.vue'
+import type { KlineChartBar } from '@/api'
 
 type Granularity = 'date' | 'hour' | 'minute'
 
@@ -181,6 +182,7 @@ const props = withDefaults(
   defineProps<{
     granularity: Granularity
     range: [number, number] | null
+    data: KlineChartBar[]
     disabledRange?: boolean
     prefs: SubplotPrefs
     update: (partial: RawSubplotPrefs) => void
@@ -194,6 +196,26 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'update:range', value: [number, number] | null): void
 }>()
+
+function openTimeToMs(openTime: string): number {
+  // Crypto: ISO 时间戳
+  if (openTime.includes('T')) {
+    return new Date(openTime).getTime()
+  }
+  // A 股/美股/0AMV: YYYY-MM-DD，按本地午夜处理
+  const [y, m, d] = openTime.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  return date.getTime()
+}
+
+const actualRange = computed<[number, number] | null>(() => {
+  if (props.data.length === 0) return null
+
+  const first = props.data[0].open_time
+  const last = props.data[props.data.length - 1].open_time
+
+  return [openTimeToMs(first), openTimeToMs(last)]
+})
 
 const showKdjPopover = ref(false)
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { defineComponent, h, nextTick, ref } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
-import { NButton, NConfigProvider, NInputNumber } from 'naive-ui'
+import { NButton, NConfigProvider, NDatePicker, NInputNumber } from 'naive-ui'
 
 import KlineChartToolbar from './KlineChartToolbar.vue'
 import KdjParamsEditor from './KdjParamsEditor.vue'
@@ -13,6 +13,30 @@ import {
   type SubplotKey,
   type SubplotPrefs,
 } from '@/composables/kline/subplotConfig'
+import type { KlineChartBar } from '@/api'
+
+function makeBar(openTime: string): KlineChartBar {
+  return {
+    open_time: openTime,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    volume: 0,
+    MA5: null,
+    MA30: null,
+    MA60: null,
+    MA120: null,
+    MA240: null,
+    'KDJ.K': null,
+    'KDJ.D': null,
+    'KDJ.J': null,
+    DIF: null,
+    DEA: null,
+    MACD: null,
+    BBI: null,
+  }
+}
 
 function defaultTestPrefs(params?: IndicatorSubplotParams): SubplotPrefs {
   const visible: SubplotKey[] = ['VOL', 'KDJ']
@@ -29,6 +53,7 @@ function defaultTestPrefs(params?: IndicatorSubplotParams): SubplotPrefs {
 function mountToolbar(props: {
   granularity?: 'date' | 'hour' | 'minute'
   range?: [number, number] | null
+  data?: KlineChartBar[]
   prefs?: SubplotPrefs
 } = {}) {
   const onUpdateRange = vi.fn()
@@ -60,6 +85,7 @@ function mountToolbar(props: {
           h(KlineChartToolbar, {
             granularity: props.granularity ?? 'date',
             range: props.range ?? null,
+            data: props.data ?? [],
             prefs: prefs.value,
             update,
             reset,
@@ -260,5 +286,89 @@ describe('KlineChartToolbar KDJ 参数设置', () => {
     const text = document.body.textContent ?? ''
     expect(text).toContain('KDJ')
     expect(text).not.toContain('KDJ(')
+  })
+})
+
+describe('KlineChartToolbar 时间范围同步', () => {
+  let lastWrapper: ReturnType<typeof mountToolbar>['wrapper'] | null = null
+
+  afterEach(() => {
+    if (lastWrapper) {
+      lastWrapper.unmount()
+      lastWrapper = null
+    }
+    document.body.innerHTML = ''
+    vi.restoreAllMocks()
+  })
+
+  it('空数据 + 无 range 时 n-date-picker 值为 null', async () => {
+    const { wrapper } = mountToolbar({ data: [], range: null })
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    const picker = wrapper.findComponent(NDatePicker)
+    expect(picker.exists()).toBe(true)
+    expect(picker.props('value')).toBeNull()
+  })
+
+  it('空数据 + 有 range 时显示该 range', async () => {
+    const range: [number, number] = [
+      new Date(2024, 0, 1).getTime(),
+      new Date(2024, 0, 5).getTime(),
+    ]
+    const { wrapper } = mountToolbar({ data: [], range })
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    const picker = wrapper.findComponent(NDatePicker)
+    expect(picker.props('value')).toEqual(range)
+  })
+
+  it('有数据（日期格式）时显示对应本地午夜 ms', async () => {
+    const data = [makeBar('2024-01-01'), makeBar('2024-01-05')]
+    const { wrapper } = mountToolbar({ data })
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    const picker = wrapper.findComponent(NDatePicker)
+    expect(picker.props('value')).toEqual([
+      new Date(2024, 0, 1).getTime(),
+      new Date(2024, 0, 5).getTime(),
+    ])
+  })
+
+  it('有数据（ISO 格式）时正确解析为 ms', async () => {
+    const data = [makeBar('2024-01-01T08:00:00Z'), makeBar('2024-01-05T08:00:00Z')]
+    const { wrapper } = mountToolbar({ data })
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    const picker = wrapper.findComponent(NDatePicker)
+    expect(picker.props('value')).toEqual([
+      new Date('2024-01-01T08:00:00Z').getTime(),
+      new Date('2024-01-05T08:00:00Z').getTime(),
+    ])
+  })
+
+  it('用户确认选择时 emit update:range 一次', async () => {
+    const { wrapper, onUpdateRange } = mountToolbar({ data: [], range: null })
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    const picker = wrapper.findComponent(NDatePicker)
+    const range: [number, number] = [
+      new Date(2024, 0, 1).getTime(),
+      new Date(2024, 0, 5).getTime(),
+    ]
+    picker.vm.$emit('update:value', range)
+    await nextTick()
+
+    expect(onUpdateRange).toHaveBeenCalledTimes(1)
+    expect(onUpdateRange).toHaveBeenCalledWith(range)
   })
 })
