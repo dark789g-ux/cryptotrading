@@ -2,6 +2,7 @@
   <symbols-panel-layout
     class="crypto-symbols-panel"
     scope="crypto"
+    v-model:view-mode="viewMode"
     :loading="loading"
     :show-empty-detail="!selectedDetailRow"
     @refresh="reload"
@@ -35,7 +36,7 @@
       <n-card :bordered="false">
         <n-data-table
           data-testid="full-table"
-          :columns="columns"
+          :columns="tableColumns"
           :data="symbols"
           :loading="loading"
           :pagination="paginationState"
@@ -51,7 +52,7 @@
       <n-card :bordered="false" class="split-left-card">
         <n-data-table
           data-testid="split-table"
-          :columns="simpleColumns"
+          :columns="splitColumns"
           :data="symbols"
           :loading="loading"
           :pagination="paginationState"
@@ -79,7 +80,7 @@
   <column-settings-drawer
     v-model:show="showColumnSettings"
     v-model:modelValue="scopePreferences"
-    title="Crypto Columns"
+    :title="columnSettingsTitle"
     :definitions="columnDefs"
     :loading="columnPrefsLoading"
     :saving="columnPrefsSaving"
@@ -99,7 +100,6 @@ import {
   NSpace,
   NTag,
   useMessage,
-  type DataTableColumns,
 } from 'naive-ui'
 import CryptoSymbolsFilters from './crypto/CryptoSymbolsFilters.vue'
 import CryptoSymbolDetailPanel from './crypto/CryptoSymbolDetailPanel.vue'
@@ -108,12 +108,12 @@ import { symbolApi, type SymbolRow } from '@/api'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { createCryptoColumnDefs } from './cryptoColumns'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
+import { usePanelViewMode } from '@/composables/symbols/usePanelViewMode'
 import { useWatchlistTagFilter } from '@/composables/symbols/useWatchlistTagFilter'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
 import { strategyConditionsApi } from '@/api/modules/strategy/strategyConditions'
 import { useCryptoSymbolsQuery } from './crypto/useCryptoSymbolsQuery'
 import SymbolsPanelLayout from './SymbolsPanelLayout.vue'
-import { formatNumber } from './a-shares/aSharesFormatters'
 
 const message = useMessage()
 
@@ -131,6 +131,8 @@ const conditions = ref<NumericCondition[]>([])
 const fieldOptions = ref<NumericConditionFieldOption[]>([])
 const selectedStrategyIds = ref<string[]>([])
 const hitLookup = ref<Map<string, Set<string>>>(new Map())
+
+const { viewMode } = usePanelViewMode('crypto')
 
 const strategyStore = useStrategyConditionsStore()
 
@@ -187,16 +189,15 @@ const {
   loading: columnPrefsLoading,
   saving: columnPrefsSaving,
   scopePreferences,
-  columns,
+  tableColumns,
+  splitColumns,
   load: loadColumnPreferences,
   save: saveColumnPreferences,
-} = useSymbolColumnPreferences('crypto', columnDefs)
+} = useSymbolColumnPreferences('crypto', columnDefs, viewMode)
 
-const simpleColumns = computed<DataTableColumns<SymbolRow>>(() => [
-  { title: '股票名称', key: 'name', sorter: true, render: row => row.name ?? '-' },
-  { title: '股票代码', key: 'symbol', sorter: true, render: row => row.symbol },
-  { title: '现价', key: 'close', sorter: true, render: row => (row.close == null ? '-' : formatNumber(row.close, 2)) },
-])
+const columnSettingsTitle = computed(() =>
+  `Crypto Columns（${viewMode.value === 'split' ? '分栏视图' : '表格视图'}）`,
+)
 
 function splitRowProps(row: SymbolRow) {
   return {

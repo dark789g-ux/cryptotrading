@@ -9,16 +9,40 @@ export interface ColumnPreferenceItem {
   visible: boolean;
 }
 
+/** 单个 scope 下按视图（表格 / 分栏）分层的列偏好。 */
+export interface ScopeViewPreferences {
+  table: ColumnPreferenceItem[];
+  split: ColumnPreferenceItem[];
+}
+
 export interface SymbolsViewColumnPreferences {
-  crypto: ColumnPreferenceItem[];
-  aShares: ColumnPreferenceItem[];
-  usStocks: ColumnPreferenceItem[];
+  crypto: ScopeViewPreferences;
+  aShares: ScopeViewPreferences;
+  usStocks: ScopeViewPreferences;
 }
 
 export const SYMBOLS_VIEW_PREFERENCES_KEY = 'symbols_view_columns';
 
+/**
+ * 只做结构净化，不做业务 fallback。
+ * 兼容老格式（扁平数组）→ 当作 table 槽位，split 落空 []（表示未设置，由前端 hydrate 回填）。
+ */
+function sanitizeScopeView(input: unknown): ScopeViewPreferences {
+  if (Array.isArray(input)) {
+    return { table: sanitizeItems(input), split: [] };
+  }
+  if (input !== null && typeof input === 'object') {
+    const obj = input as Record<string, unknown>;
+    return {
+      table: sanitizeItems(obj.table),
+      split: sanitizeItems(obj.split),
+    };
+  }
+  return { table: [], split: [] };
+}
+
 /** 只校验基本结构合法性，不校验 key 是否在已知列表中。 */
-function sanitizeScopeColumns(input: unknown): ColumnPreferenceItem[] {
+function sanitizeItems(input: unknown): ColumnPreferenceItem[] {
   if (!Array.isArray(input)) return [];
   return input.filter(
     (item): item is ColumnPreferenceItem =>
@@ -34,16 +58,16 @@ function sanitizeSymbolsView(value: unknown): SymbolsViewColumnPreferences {
   const input =
     value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   return {
-    crypto: sanitizeScopeColumns(input.crypto),
-    aShares: sanitizeScopeColumns(input.aShares),
-    usStocks: sanitizeScopeColumns(input.usStocks),
+    crypto: sanitizeScopeView(input.crypto),
+    aShares: sanitizeScopeView(input.aShares),
+    usStocks: sanitizeScopeView(input.usStocks),
   };
 }
 
 const EMPTY_SYMBOLS_VIEW_PREFERENCES: SymbolsViewColumnPreferences = {
-  crypto: [],
-  aShares: [],
-  usStocks: [],
+  crypto: { table: [], split: [] },
+  aShares: { table: [], split: [] },
+  usStocks: { table: [], split: [] },
 };
 
 @Injectable()

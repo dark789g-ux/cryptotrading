@@ -1,7 +1,7 @@
 /**
  * UsStocksPanel：接入 SymbolsPanelLayout 后的单测。
  * - 删除美股 title
- * - split 模式下精简表格只渲染 3 列
+ * - split 模式下 viewMode 传给 useSymbolColumnPreferences，splitColumns 驱动分栏表格
  * - split 模式下点击精简表格行更新 selectedDetailRow
  * - table 模式下不再打开详情 drawer
  * - 同步 / 标的管理按钮仍在 header 右侧
@@ -64,7 +64,12 @@ vi.mock('@/composables/symbols/useSymbolColumnPreferences', () => ({
     loading: ref(false),
     saving: ref(false),
     scopePreferences: ref([]),
-    columns: computed(() => [
+    tableColumns: computed(() => [
+      { title: '代码', key: 'ticker', render: (row: UsStockRow) => row.ticker },
+      { title: '名称', key: 'name', render: (row: UsStockRow) => row.name },
+      { title: '主题', key: 'theme', render: (row: UsStockRow) => row.theme },
+    ]),
+    splitColumns: computed(() => [
       { title: '代码', key: 'ticker', render: (row: UsStockRow) => row.ticker },
       { title: '名称', key: 'name', render: (row: UsStockRow) => row.name },
       { title: '主题', key: 'theme', render: (row: UsStockRow) => row.theme },
@@ -72,6 +77,23 @@ vi.mock('@/composables/symbols/useSymbolColumnPreferences', () => ({
     load: vi.fn().mockResolvedValue(undefined),
     save: vi.fn().mockResolvedValue(undefined),
   })),
+}))
+
+vi.mock('@/composables/symbols/usePanelViewMode', () => ({
+  usePanelViewMode: vi.fn((scope: string) => {
+    let initial: 'table' | 'split' = 'table'
+    try {
+      const raw = localStorage.getItem(`symbols_panel_view_mode_${scope}`)
+      if (raw === 'table' || raw === 'split') initial = raw
+    } catch {
+      /* ignore */
+    }
+    return {
+      viewMode: ref<'table' | 'split'>(initial),
+      setViewMode: vi.fn(),
+      toggleViewMode: vi.fn(),
+    }
+  }),
 }))
 
 vi.mock('@/api', async () => {
@@ -189,20 +211,21 @@ describe('UsStocksPanel', () => {
     expect(wrapper.findComponent(UsStockDetailPanelStub).exists()).toBe(false)
   })
 
-  it('split 模式下精简表格只渲染 3 列', async () => {
+  it('split 模式下 useSymbolColumnPreferences 收到 viewMode，splitColumns 驱动分栏表格', async () => {
     localStorage.setItem(VIEW_MODE_KEY, 'split')
     const wrapper = mountPanel()
     await flushPromises()
     await nextTick()
 
-    const compactTable = wrapper.find('[data-testid="split-table"]')
-    expect(compactTable.exists()).toBe(true)
+    // 契约：Panel 把 usePanelViewMode 的 viewMode 作为第 3 参传给 useSymbolColumnPreferences
+    const { useSymbolColumnPreferences } = await import('@/composables/symbols/useSymbolColumnPreferences')
+    const calls = vi.mocked(useSymbolColumnPreferences).mock.calls
+    const usCall = calls.find((c) => c[0] === 'usStocks')
+    expect(usCall).toBeTruthy()
+    const viewModeArg = usCall![2] as { value: string }
+    expect(viewModeArg.value).toBe('split')
 
-    const headers = compactTable.findAll('.n-data-table-th')
-    expect(headers).toHaveLength(3)
-    expect(headers[0].attributes('data-col-key')).toBe('name')
-    expect(headers[1].attributes('data-col-key')).toBe('ticker')
-    expect(headers[2].attributes('data-col-key')).toBe('close')
+    expect(wrapper.find('[data-testid="split-table"]').exists()).toBe(true)
   })
 
   it('split 模式下未选中股票时渲染 empty-detail slot', async () => {

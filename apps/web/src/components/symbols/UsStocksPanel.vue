@@ -2,6 +2,7 @@
   <symbols-panel-layout
     class="us-stocks-panel"
     scope="usStocks"
+    v-model:view-mode="viewMode"
     :loading="loading"
     :show-empty-detail="!selectedDetailRow"
     @refresh="reload"
@@ -40,7 +41,7 @@
       <n-card :bordered="false">
         <n-data-table
           data-testid="full-table"
-          :columns="columns"
+          :columns="tableColumns"
           :data="rows"
           :loading="loading"
           :pagination="paginationState"
@@ -56,7 +57,7 @@
       <n-card :bordered="false" class="split-left-card">
         <n-data-table
           data-testid="split-table"
-          :columns="compactColumns"
+          :columns="splitColumns"
           :data="rows"
           :loading="loading"
           :pagination="paginationState"
@@ -86,7 +87,7 @@
   <column-settings-drawer
     v-model:show="showColumnSettings"
     v-model:modelValue="scopePreferences"
-    title="美股 Columns"
+    :title="columnSettingsTitle"
     :definitions="columnDefs"
     :loading="columnPrefsLoading"
     :saving="columnPrefsSaving"
@@ -124,8 +125,7 @@ import { createUsStocksColumnDefs } from './us-stocks/usStocksColumns'
 import { useUsStocksQuery } from './us-stocks/useUsStocksQuery'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
-import { formatNumber } from './a-shares/aSharesFormatters'
-import type { DataTableColumns } from 'naive-ui'
+import { usePanelViewMode } from '@/composables/symbols/usePanelViewMode'
 
 const message = useMessage()
 const {
@@ -156,6 +156,8 @@ const selectedDetailRow = ref<UsStockRow | null>(null)
 const syncing = ref(false)
 const syncJobId = ref<string | null>(null)
 
+const { viewMode } = usePanelViewMode('usStocks')
+
 const columnDefs = computed(() =>
   createUsStocksColumnDefs({
     priceMode: priceMode.value,
@@ -166,37 +168,15 @@ const {
   loading: columnPrefsLoading,
   saving: columnPrefsSaving,
   scopePreferences,
-  columns,
+  tableColumns,
+  splitColumns,
   load: loadColumnPreferences,
   save: saveColumnPreferences,
-} = useSymbolColumnPreferences('usStocks', columnDefs)
+} = useSymbolColumnPreferences('usStocks', columnDefs, viewMode)
 
-const compactColumns = computed<DataTableColumns<UsStockRow>>(() => {
-  const priceSuffix = priceMode.value === 'raw' ? '原始' : '前复权'
-  return [
-    {
-      title: '股票名称',
-      key: 'name',
-      width: 160,
-      sorter: true,
-      render: (row) => row.name,
-    },
-    {
-      title: '股票代码',
-      key: 'ticker',
-      width: 140,
-      sorter: true,
-      render: (row) => row.ticker,
-    },
-    {
-      title: `现价(${priceSuffix})`,
-      key: 'close',
-      width: 130,
-      sorter: true,
-      render: (row) => formatNumber(row.close, 2),
-    },
-  ]
-})
+const columnSettingsTitle = computed(() =>
+  `美股 Columns（${viewMode.value === 'split' ? '分栏视图' : '表格视图'}）`,
+)
 
 function compactRowProps(row: UsStockRow) {
   return {

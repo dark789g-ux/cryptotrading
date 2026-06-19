@@ -1,6 +1,6 @@
 import { computed, h, ref, unref, type MaybeRef } from 'vue'
 import { type DataTableColumns } from 'naive-ui'
-import { preferencesApi, type ColumnPreferenceItem, type SymbolsViewColumnPreferences } from '@/api'
+import { preferencesApi, type ColumnPreferenceItem, type ScopeViewPreferences, type SymbolsViewColumnPreferences } from '@/api'
 import type { SymbolColumnDef } from '../../components/symbols/columnTypes'
 import FieldHelpTip from '../../components/common/FieldHelpTip.vue'
 import { getFieldDescription } from '../../components/common/fieldDescriptions'
@@ -11,11 +11,18 @@ function cloneColumnPreferences(items: ColumnPreferenceItem[]): ColumnPreference
   return items.map((item) => ({ ...item }))
 }
 
+function cloneScopeView(value: ScopeViewPreferences): ScopeViewPreferences {
+  return {
+    table: cloneColumnPreferences(value.table),
+    split: cloneColumnPreferences(value.split),
+  }
+}
+
 function cloneSymbolsViewPreferences(value: SymbolsViewColumnPreferences): SymbolsViewColumnPreferences {
   return {
-    crypto: cloneColumnPreferences(value.crypto),
-    aShares: cloneColumnPreferences(value.aShares),
-    usStocks: cloneColumnPreferences(value.usStocks),
+    crypto: cloneScopeView(value.crypto),
+    aShares: cloneScopeView(value.aShares),
+    usStocks: cloneScopeView(value.usStocks),
   }
 }
 
@@ -101,40 +108,89 @@ function updateScopePreferences<Row>(
   return normalizeScopePreferences(defs, updater(cloneColumnPreferences(items)))
 }
 
+/** 单个 scope 下两种视图（表格 / 分栏）的列偏好槽位键。 */
+export type SymbolViewSlot = 'table' | 'split'
+
+/**
+ * 业务级 fallback 唯一入口：把后端返回的 scope（已结构净化，split 可能空）回填为完整偏好。
+ * - split 非空 → 保留并归一化
+ * - split 为空 → 用 table 深拷贝填充（老用户/未设置 split 的默认行为）
+ * 在此完成所有 fallback；后端只做结构净化，纯函数（normalizeScopePreferences 等）签名不变。
+ */
+function hydrateScope<Row>(
+  defs: SymbolColumnDef<Row>[],
+  raw: { table?: unknown; split?: unknown } | null | undefined,
+): ScopeViewPreferences {
+  const safeRaw = raw && typeof raw === 'object' ? raw : {}
+  const table = normalizeScopePreferences(defs, (safeRaw as { table?: unknown }).table)
+  const splitRaw = Array.isArray((safeRaw as { split?: unknown }).split)
+    ? ((safeRaw as { split?: unknown }).split as unknown[])
+    : []
+  const split = splitRaw.length > 0
+    ? normalizeScopePreferences(defs, splitRaw)
+    : cloneColumnPreferences(table)
+  return { table, split }
+}
+
 export function useSymbolColumnPreferences<Row>(
   scope: SymbolPreferenceScope,
   defs: MaybeRef<SymbolColumnDef<Row>[]>,
+  viewMode: MaybeRef<SymbolViewSlot> = 'table',
 ) {
   const resolvedDefs = computed(() => unref(defs))
   const loading = ref(false)
   const saving = ref(false)
   const loaded = ref(false)
+
+  function defaultScopeView(): ScopeViewPreferences {
+    const defaults = createDefaultScopePreferences(resolvedDefs.value)
+    return { table: defaults, split: cloneColumnPreferences(defaults) }
+  }
+
+  // 注：preferences 在 load 前，仅当前 scope 初始化默认；其它 scope 留空，save 前会 load 补全。
   const preferences = ref<SymbolsViewColumnPreferences>({
-    crypto: scope === 'crypto' ? createDefaultScopePreferences(resolvedDefs.value) : [],
-    aShares: scope === 'aShares' ? createDefaultScopePreferences(resolvedDefs.value) : [],
-    usStocks: scope === 'usStocks' ? createDefaultScopePreferences(resolvedDefs.value) : [],
+    crypto: scope === 'crypto' ? defaultScopeView() : { table: [], split: [] },
+    aShares: scope === 'aShares' ? defaultScopeView() : { table: [], split: [] },
+    usStocks: scope === 'usStocks' ? defaultScopeView() : { table: [], split: [] },
   })
 
+  /** 当前视图槽位的列偏好（随 viewMode 切片）；drawer 绑定它。 */
   const scopePreferences = computed<ColumnPreferenceItem[]>({
-    get: () => normalizeScopePreferences(resolvedDefs.value, preferences.value[scope]),
+    get: () => {
+      const slot = unref(viewMode)
+      return normalizeScopePreferences(resolvedDefs.value, preferences.value[scope][slot])
+    },
     set: (next) => {
+      const slot = unref(viewMode)
       preferences.value = {
         ...preferences.value,
-        [scope]: normalizeScopePreferences(resolvedDefs.value, next),
+        [scope]: {
+          ...preferences.value[scope],
+          [slot]: normalizeScopePreferences(resolvedDefs.value, next),
+        },
       }
     },
   })
 
-  const columns = computed(() => buildColumnsFromPreference(resolvedDefs.value, scopePreferences.value))
+  function slotColumns(slot: SymbolViewSlot) {
+    return computed(() =>
+      buildColumnsFromPreference(resolvedDefs.value, preferences.value[scope][slot]),
+    )
+  }
+
+  /** 表格视图列（绑 #table slot）。 */
+  const tableColumns = slotColumns('table')
+  /** 分栏视图列（绑 #split-left slot）。 */
+  const splitColumns = slotColumns('split')
 
   async function load() {
     loading.value = true
     try {
       const payload = await preferencesApi.getSymbolsView()
       preferences.value = {
-        crypto: normalizeScopePreferences(resolvedDefs.value, payload.crypto),
-        aShares: normalizeScopePreferences(resolvedDefs.value, payload.aShares),
-        usStocks: normalizeScopePreferences(resolvedDefs.value, payload.usStocks),
+        crypto: hydrateScope(resolvedDefs.value, payload.crypto),
+        aShares: hydrateScope(resolvedDefs.value, payload.aShares),
+        usStocks: hydrateScope(resolvedDefs.value, payload.usStocks),
       }
       loaded.value = true
       return preferences.value
@@ -214,7 +270,8 @@ export function useSymbolColumnPreferences<Row>(
     loaded,
     preferences,
     scopePreferences,
-    columns,
+    tableColumns,
+    splitColumns,
     load,
     save,
     reset,

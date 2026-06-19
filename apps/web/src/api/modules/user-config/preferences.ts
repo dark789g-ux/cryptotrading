@@ -5,10 +5,16 @@ export interface ColumnPreferenceItem {
   visible: boolean
 }
 
+/** 单个 scope 下按视图（表格 / 分栏）分层的列偏好。 */
+export interface ScopeViewPreferences {
+  table: ColumnPreferenceItem[]
+  split: ColumnPreferenceItem[]
+}
+
 export interface SymbolsViewColumnPreferences {
-  crypto: ColumnPreferenceItem[]
-  aShares: ColumnPreferenceItem[]
-  usStocks: ColumnPreferenceItem[]
+  crypto: ScopeViewPreferences
+  aShares: ScopeViewPreferences
+  usStocks: ScopeViewPreferences
 }
 
 export const preferencesApi = {

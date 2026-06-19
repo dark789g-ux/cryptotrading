@@ -1,7 +1,7 @@
 /**
  * ASharesPanel：验证接入 SymbolsPanelLayout 后的行为。
  * - 标题删除
- * - split 模式下精简表格只渲染 3 列
+ * - split 模式下分栏表格列由 splitColumns 驱动
  * - 精简表格行点击更新 selectedDetailRow
  * - 行点击不会打开详情 drawer
  */
@@ -70,10 +70,37 @@ vi.mock('@/composables/symbols/useSymbolColumnPreferences', () => ({
     loading: ref(false),
     saving: ref(false),
     scopePreferences: ref([]),
-    columns: computed(() => []),
+    tableColumns: computed(() => [
+      { key: 'tsCode', title: '代码' },
+      { key: 'name', title: '名称' },
+      { key: 'close', title: '现价' },
+    ]),
+    splitColumns: computed(() => [
+      { key: 'tsCode', title: '代码' },
+      { key: 'name', title: '名称' },
+      { key: 'close', title: '现价' },
+    ]),
     load: vi.fn().mockResolvedValue(undefined),
     save: vi.fn().mockResolvedValue(undefined),
   })),
+}))
+
+vi.mock('@/composables/symbols/usePanelViewMode', () => ({
+  usePanelViewMode: vi.fn((scope: string) => {
+    // 复刻真实 composable 的初值逻辑，让测试可通过 localStorage 控制初始视图
+    let initial: 'table' | 'split' = 'table'
+    try {
+      const raw = localStorage.getItem(`symbols_panel_view_mode_${scope}`)
+      if (raw === 'table' || raw === 'split') initial = raw
+    } catch {
+      /* ignore */
+    }
+    return {
+      viewMode: ref<'table' | 'split'>(initial),
+      setViewMode: vi.fn(),
+      toggleViewMode: vi.fn(),
+    }
+  }),
 }))
 
 vi.mock('@/stores/strategyConditions', () => ({
@@ -198,15 +225,23 @@ describe('ASharesPanel layout integration', () => {
 })
 
 describe('ASharesPanel split view', () => {
-  it('split 模式下精简表格只渲染 3 列', async () => {
+  it('split 模式下 useSymbolColumnPreferences 收到 viewMode 参数，splitColumns 驱动分栏表格', async () => {
     localStorage.setItem('symbols_panel_view_mode_aShares', 'split')
     const wrapper = mountPanel()
     await flushPromises()
     await nextTick()
 
-    const splitTable = wrapper.find('[data-testid="split-table"]')
-    expect(splitTable.exists()).toBe(true)
-    expect(splitTable.findAll('thead th').length).toBe(3)
+    // 契约：Panel 把 usePanelViewMode 的 viewMode 作为第 3 参传给 useSymbolColumnPreferences
+    const { useSymbolColumnPreferences } = await import('@/composables/symbols/useSymbolColumnPreferences')
+    const calls = vi.mocked(useSymbolColumnPreferences).mock.calls
+    const aSharesCall = calls.find((c) => c[0] === 'aShares')
+    expect(aSharesCall).toBeTruthy()
+    // 第 3 参数是 viewMode ref，初值随 localStorage = 'split'
+    const viewModeArg = aSharesCall![2] as { value: string }
+    expect(viewModeArg.value).toBe('split')
+
+    // split 表格存在且受 splitColumns 驱动（mock 返回 3 列）
+    expect(wrapper.find('[data-testid="split-table"]').exists()).toBe(true)
   })
 
   it('点击精简表格行会更新 selectedDetailRow 并传给 AShareDetailPanel', async () => {

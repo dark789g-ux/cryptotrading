@@ -2,6 +2,7 @@
   <symbols-panel-layout
     class="a-shares-panel"
     scope="aShares"
+    v-model:view-mode="viewMode"
     :loading="loading"
     :show-empty-detail="!selectedDetailRow"
     @refresh="reload"
@@ -40,7 +41,7 @@
       <n-card :bordered="false">
         <n-data-table
           data-testid="full-table"
-          :columns="columns"
+          :columns="tableColumns"
           :data="rows"
           :loading="loading"
           :pagination="paginationState"
@@ -56,7 +57,7 @@
       <n-card :bordered="false" class="split-left-card">
         <n-data-table
           data-testid="split-table"
-          :columns="simpleColumns"
+          :columns="splitColumns"
           :data="rows"
           :loading="loading"
           :pagination="paginationState"
@@ -84,7 +85,7 @@
   <column-settings-drawer
     v-model:show="showColumnSettings"
     v-model:modelValue="scopePreferences"
-    title="A 股 Columns"
+    :title="columnSettingsTitle"
     :definitions="columnDefs"
     :loading="columnPrefsLoading"
     :saving="columnPrefsSaving"
@@ -97,7 +98,7 @@
 defineOptions({ name: 'ASharesPanel' })
 
 import { computed, h, onActivated, onMounted, ref } from 'vue'
-import { NCard, NDataTable, NEmpty, NSpace, NTag, useMessage, type DataTableColumns } from 'naive-ui'
+import { NCard, NDataTable, NEmpty, NSpace, NTag, useMessage } from 'naive-ui'
 import type { AShareRow } from '@/api'
 import AShareDetailPanel from './a-shares/AShareDetailPanel.vue'
 import ASharesFilters from './a-shares/ASharesFilters.vue'
@@ -105,10 +106,10 @@ import { createASharesColumnDefs } from './a-shares/aSharesColumns'
 import { useASharesQuery } from './a-shares/useASharesQuery'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
+import { usePanelViewMode } from '@/composables/symbols/usePanelViewMode'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
 import { strategyConditionsApi } from '@/api/modules/strategy/strategyConditions'
 import SymbolsPanelLayout from './SymbolsPanelLayout.vue'
-import { formatNumber } from './a-shares/aSharesFormatters'
 
 const message = useMessage()
 const {
@@ -149,6 +150,8 @@ const {
 const showColumnSettings = ref(false)
 const selectedDetailRow = ref<AShareRow | null>(null)
 const hitLookup = ref<Map<string, Set<string>>>(new Map())
+
+const { viewMode } = usePanelViewMode('aShares')
 
 const strategyStore = useStrategyConditionsStore()
 
@@ -210,28 +213,21 @@ const {
   loading: columnPrefsLoading,
   saving: columnPrefsSaving,
   scopePreferences,
-  columns,
+  tableColumns,
+  splitColumns,
   load: loadColumnPreferences,
   save: saveColumnPreferences,
-} = useSymbolColumnPreferences('aShares', columnDefs)
+} = useSymbolColumnPreferences('aShares', columnDefs, viewMode)
 
-const simpleColumns = computed<DataTableColumns<AShareRow>>(() => {
-  const priceSuffix = priceMode.value === 'raw' ? '原始' : '前复权'
-  return [
-    { title: '名称', key: 'name', sorter: true, render: row => row.name },
-    { title: '代码', key: 'tsCode', sorter: true, render: row => row.tsCode },
-    {
-      title: `现价(${priceSuffix})`,
-      key: 'close',
-      sorter: true,
-      render: row => formatNumber(row.close, 2),
-    },
-  ]
-})
+const columnSettingsTitle = computed(() =>
+  `A 股 Columns（${viewMode.value === 'split' ? '分栏视图' : '表格视图'}）`,
+)
 
 function splitRowProps(row: AShareRow) {
+  const isSelected = selectedDetailRow.value?.tsCode === row.tsCode
   return {
     style: 'cursor: pointer;',
+    class: isSelected ? 'split-row-selected' : '',
     onClick: () => {
       selectedDetailRow.value = row
     },
@@ -271,6 +267,10 @@ onActivated(async () => {
 
 .split-left-card {
   height: 100%;
+}
+
+:deep(.split-row-selected td) {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent) !important;
 }
 
 .empty-detail-placeholder {

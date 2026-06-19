@@ -1,7 +1,7 @@
 /**
  * CryptoSymbolsPanel：验证套入 SymbolsPanelLayout 后的行为。
  * - title 已删除
- * - split 模式下精简表格只渲染 3 列
+ * - split 模式下分栏表格列由 splitColumns 驱动
  * - 精简表格行点击更新 selectedDetailRow
  * - table 模式行点击不再打开 drawer
  * - interval 选择器仍在 header 右侧
@@ -22,10 +22,36 @@ vi.mock('@/composables/symbols/useSymbolColumnPreferences', () => ({
     loading: ref(false),
     saving: ref(false),
     scopePreferences: ref([]),
-    columns: computed(() => []),
+    tableColumns: computed(() => [
+      { key: 'symbol', title: '代码' },
+      { key: 'name', title: '名称' },
+      { key: 'close', title: '现价' },
+    ]),
+    splitColumns: computed(() => [
+      { key: 'symbol', title: '代码' },
+      { key: 'name', title: '名称' },
+      { key: 'close', title: '现价' },
+    ]),
     load: vi.fn().mockResolvedValue(undefined),
     save: vi.fn().mockResolvedValue(undefined),
   })),
+}))
+
+vi.mock('@/composables/symbols/usePanelViewMode', () => ({
+  usePanelViewMode: vi.fn((scope: string) => {
+    let initial: 'table' | 'split' = 'table'
+    try {
+      const raw = localStorage.getItem(`symbols_panel_view_mode_${scope}`)
+      if (raw === 'table' || raw === 'split') initial = raw
+    } catch {
+      /* ignore */
+    }
+    return {
+      viewMode: ref<'table' | 'split'>(initial),
+      setViewMode: vi.fn(),
+      toggleViewMode: vi.fn(),
+    }
+  }),
 }))
 
 vi.mock('@/composables/symbols/useWatchlistTagFilter', () => ({
@@ -164,7 +190,7 @@ describe('CryptoSymbolsPanel layout integration', () => {
     ])
   })
 
-  it('split 模式下精简表格只渲染 3 列', async () => {
+  it('split 模式下分栏表格列由 splitColumns 驱动', async () => {
     localStorage.setItem(VIEW_MODE_KEY, 'split')
     const wrapper = mountPanel()
     await flushPromises()
@@ -177,8 +203,8 @@ describe('CryptoSymbolsPanel layout integration', () => {
     expect(splitTable).toBeDefined()
     expect(splitTable!.props('columns')).toHaveLength(3)
     expect(splitTable!.props('columns').map((col: { key: string }) => col.key)).toEqual([
-      'name',
       'symbol',
+      'name',
       'close',
     ])
   })
