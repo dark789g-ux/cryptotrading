@@ -271,3 +271,100 @@ describe('buildKlineChartOption — 活跃市值（0AMV / 0AMV_MACD）副图', (
     expect(amvLine.data).toEqual([100, null, 120, null])
   })
 })
+
+// 辅助：解析 rgba(r,g,b,a) → { r, g, b, a }，避免把 alpha=1 写成 rgba 的格式细节硬编码进断言
+function parseRgba(s: string): { r: number; g: number; b: number; a: number } {
+  const m = /^rgba\((\d+),(\d+),(\d+),([\d.]+)\)$/.exec(s)
+  if (!m) throw new Error(`not rgba: ${s}`)
+  return { r: +m[1], g: +m[2], b: +m[3], a: +m[4] }
+}
+
+// 辅助：把 hex → rgb 三元组（用于拼期望色）
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16)
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
+}
+
+// 期望某颜色 = 基色 hex + alpha
+function expectFillToBe(color: string, hex: string, alpha: number) {
+  const got = parseRgba(color)
+  const [r, g, b] = hexToRgb(hex)
+  expect(got).toEqual({ r, g, b, a: alpha })
+}
+
+describe('buildKlineChartOption — VOL 成交量"相对前收"明暗着色', () => {
+  // 构造一根 VOL 柱，定位 series：find by name === 'VOL'
+  function volColors(data: KlineChartBar[]): string[] {
+    const opt = buildKlineChartOption({ data, echartsTheme })
+    const seriesArr = arrify(opt.series) as any[]
+    const vol = seriesArr.find((s) => s.name === 'VOL')
+    if (!vol) throw new Error('VOL series not found')
+    return vol.data.map((d: any) => d?.itemStyle?.color)
+  }
+
+  const UP = CANDLE_COLORS.up   // 实体涨基色（绿）
+  const DOWN = CANDLE_COLORS.down // 实体跌基色（红）
+  const ALPHA_SOLID = 1
+  const ALPHA_BIAS = 0.35
+
+  it('首根（无 prevClose）：实色，按实体涨跌定基色', () => {
+    // 第一根无前驱，两根数据足以观察第一根
+    const data: KlineChartBar[] = [
+      makeBar({ open_time: '20260510', open: 10, close: 11 }),   // 实体涨 → 实色绿
+      makeBar({ open_time: '20260511', open: 11, close: 10 }),   // 实体跌 → 实色红
+    ]
+    // 改第二根前收 = 11，与第一根无关；这里只断言首根
+    const colors = volColors(data)
+    expectFillToBe(colors[0], UP, ALPHA_SOLID)
+  })
+
+  it('实体涨 且 close > prevClose（一致）→ 实色绿', () => {
+    const data: KlineChartBar[] = [
+      makeBar({ open_time: '20260510', open: 10, close: 12 }),  // prevClose=null（首根）
+      makeBar({ open_time: '20260511', open: 11, close: 13 }),  // close 13 > prevClose 12，实体涨 → 一致
+    ]
+    expectFillToBe(volColors(data)[1], UP, ALPHA_SOLID)
+  })
+
+  it('实体涨 且 close < prevClose（背离）→ 浅色绿 (alpha 0.35)', () => {
+    const data: KlineChartBar[] = [
+      makeBar({ open_time: '20260510', open: 10, close: 14 }),  // prevClose=14
+      makeBar({ open_time: '20260511', open: 12, close: 13 }),  // close 13 < prevClose 14，但 open 12 < close 13 实体涨 → 背离
+    ]
+    expectFillToBe(volColors(data)[1], UP, ALPHA_BIAS)
+  })
+
+  it('实体跌 且 close < prevClose（一致）→ 实色红', () => {
+    const data: KlineChartBar[] = [
+      makeBar({ open_time: '20260510', open: 14, close: 14 }),  // prevClose=14
+      makeBar({ open_time: '20260511', open: 13, close: 12 }),  // close 12 < prevClose 14，实体跌 → 一致
+    ]
+    expectFillToBe(volColors(data)[1], DOWN, ALPHA_SOLID)
+  })
+
+  it('实体跌 且 close > prevClose（背离）→ 浅色红 (alpha 0.35)', () => {
+    const data: KlineChartBar[] = [
+      makeBar({ open_time: '20260510', open: 10, close: 10 }),  // prevClose=10
+      makeBar({ open_time: '20260511', open: 13, close: 12 }),  // close 12 > prevClose 10，但实体跌 → 背离
+    ]
+    expectFillToBe(volColors(data)[1], DOWN, ALPHA_BIAS)
+  })
+
+  it('平盘 close === prevClose → 实色（不判背离）', () => {
+    const data: KlineChartBar[] = [
+      makeBar({ open_time: '20260510', open: 10, close: 12 }),  // prevClose=12
+      makeBar({ open_time: '20260511', open: 11, close: 12 }),  // close 12 === prevClose 12，实体涨 → 实色（平盘不判背离）
+    ]
+    expectFillToBe(volColors(data)[1], UP, ALPHA_SOLID)
+  })
+
+  it('浮点抖动 |diff| < tolerance（相对容差 1e-9）→ 实色（容差生效）', () => {
+    const prevClose = 100
+    const data: KlineChartBar[] = [
+      makeBar({ open_time: '20260510', open: 90, close: prevClose }),
+      // close 比 prevClose 高 1e-12（相对量级远小于 1e-9），落入容差区间 → 视为平盘 → 实色
+      makeBar({ open_time: '20260511', open: 99, close: prevClose + 1e-12 }),
+    ]
+    expectFillToBe(volColors(data)[1], UP, ALPHA_SOLID)
+  })
+})

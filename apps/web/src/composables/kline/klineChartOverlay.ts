@@ -1,8 +1,8 @@
 import type { GraphicComponentOption } from 'echarts'
 import { colors } from '../../styles/tokens'
-import { AMV_COLORS, BRICK_COLORS, CANDLE_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS } from './chartColors'
+import { AMV_COLORS, BRICK_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS } from './chartColors'
 import { resolveKTopPct, resolveSubplotLayout } from './klineChartLayout'
-import { ARROW_RICH, arrow, arrowRichTag, fmt, fmtCompact, fmtXg } from './klineChartUtils'
+import { ARROW_RICH, arrow, arrowRichTag, fmt, fmtCompact, fmtXg, resolveVolumeColor } from './klineChartUtils'
 import type { SubplotConfig, SubplotKey } from './subplotConfig'
 import type { KlineChartBar } from '@/api'
 
@@ -68,7 +68,8 @@ const buildKdjText = (idx: number, data: KlineChartBar[]) => {
 const buildVolumeText = (idx: number, data: KlineChartBar[]) => {
   const row = idx >= 0 && idx < data.length ? data[idx] : undefined
   if (!row) return { text: '', rich: {}, ...GRAPHIC_BG }
-  const color = row.close >= row.open ? CANDLE_COLORS.up : CANDLE_COLORS.down
+  const prevClose = idx > 0 ? data[idx - 1].close : null
+  const color = resolveVolumeColor(row, prevClose)
   return {
     text: `VOL: {vol|${fmtCompact(row.volume)}}`,
     rich: {

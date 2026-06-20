@@ -29,6 +29,7 @@ import {
 } from './klineChartLayout'
 import { buildGraphics } from './klineChartOverlay'
 import { buildMarkPoints, buildTooltip } from './klineChartTooltip'
+import { resolveVolumeColor } from './klineChartUtils'
 import {
   DEFAULT_SUBPLOT_HEIGHT_PCT,
   type SubplotConfig,
@@ -163,10 +164,10 @@ export function buildKlineChartOption({
 
   const difValues = data.map((row) => row.DIF)
   const deaValues = data.map((row) => row.DEA)
-  const volumeData: BarSeriesOption['data'] = data.map((row) => ({
+  const volumeData: BarSeriesOption['data'] = data.map((row, idx) => ({
     value: row.volume,
     itemStyle: {
-      color: row.close >= row.open ? CANDLE_COLORS.up : CANDLE_COLORS.down,
+      color: resolveVolumeColor(row, idx > 0 ? data[idx - 1].close : null),
     },
   }))
   const macdPositiveData = buildMacdBarData(data, (row) => row.MACD, 'pos', MACD_COLORS.macdUp)
