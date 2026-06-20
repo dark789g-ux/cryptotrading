@@ -25,6 +25,8 @@ export type FieldOption = Omit<SelectOption, 'label' | 'value'> & {
   valueToStorageFactor?: number;
   /** 是否为 KDJ 字段（kdj_j/kdj_k/kdj_d）；A 股可行内配置 N/M1/M2 参数 */
   isKdj?: boolean;
+  /** 是否为 ROC 字段（动量）；选中后行内配置周期 N 参数 */
+  isRoc?: boolean;
 };
 
 export function formatFieldSelectLabel(f: FieldOption): string {
@@ -45,6 +47,7 @@ export const A_SHARE_FIELDS: FieldOption[] = [
   { label: 'MA120', value: 'ma120', supportsCross: true },
   { label: 'MA240', value: 'ma240', supportsCross: true },
   { label: 'ATR14', value: 'atr14', supportsCross: true },
+  { label: '动量(ROC)', value: 'roc', supportsCross: false, valueUnit: '%', isRoc: true },
   { label: '盈亏比', value: 'profit_loss_ratio', supportsCross: true },
   { label: '砖形图', value: 'brick', supportsCross: true },
   { label: '砖形图变动', value: 'brick_delta', supportsCross: true },
@@ -96,6 +99,7 @@ export const CRYPTO_FIELDS: FieldOption[] = [
   { label: 'MA120', value: 'ma120', supportsCross: true },
   { label: 'MA240', value: 'ma240', supportsCross: true },
   { label: 'ATR14', value: 'atr14', supportsCross: true },
+  { label: '动量(ROC)', value: 'roc', supportsCross: false, valueUnit: '%', isRoc: true },
   { label: '盈亏比', value: 'profit_loss_ratio', supportsCross: true },
   { label: '收盘价', value: 'close', supportsCross: true },
   { label: '开盘价', value: 'open', supportsCross: true },
@@ -133,6 +137,17 @@ export const DEFAULT_KDJ_PARAMS = { n: 9, m1: 3, m2: 3 } as const;
 /** 是否为 KDJ 字段（供行内参数框 / 比较约束复用，避免散落魔法字符串） */
 export function isKdjField(field: string): boolean {
   return KDJ_FIELD_VALUES.has(field);
+}
+
+/** ROC 字段集合（roc），按 key 判定，与 FieldOption.isRoc 等价 */
+export const ROC_FIELD_VALUES = new Set(['roc']);
+
+/** ROC 默认周期 N；缺省视为 10，等于默认时不持久化 rocParams */
+export const DEFAULT_ROC_N = 10;
+
+/** 是否为 ROC 字段 */
+export function isRocField(field: string): boolean {
+  return ROC_FIELD_VALUES.has(field);
 }
 
 export function getFieldLabel(field: string, targetType: 'a-share' | 'crypto'): string {

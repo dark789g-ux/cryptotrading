@@ -43,6 +43,19 @@
             @update:value="handleKdjParamChange(index, 'm2', $event)"
           />
         </template>
+        <!-- 行内 ROC 周期 N：ROC 字段渲染（A 股 + crypto 都显示，两端都支持） -->
+        <template v-if="showRocParams(condition.field)">
+          <span class="kdj-params-label">周期</span>
+          <n-input-number
+            :value="rocNView(condition)"
+            placeholder="N"
+            :min="1"
+            :max="250"
+            :precision="0"
+            class="kdj-param-input"
+            @update:value="handleRocNChange(index, $event)"
+          />
+        </template>
         <n-select
           :value="condition.operator"
           :options="getOperatorOptions(condition.field)"
@@ -116,11 +129,13 @@ import {
   CRYPTO_FIELDS,
   BASE_OPERATOR_OPTIONS,
   DEFAULT_KDJ_PARAMS,
+  DEFAULT_ROC_N,
   formatFieldSelectLabel,
   fieldValueToDisplay,
   fieldValueToStorage,
   getFieldValueToStorageFactor,
   isKdjField,
+  isRocField,
   type FieldOption,
 } from './conditionFieldMeta';
 
@@ -216,6 +231,34 @@ function isDefaultKdjParams(p: { n: number; m1: number; m2: number }): boolean {
   return p.n === DEFAULT_KDJ_PARAMS.n && p.m1 === DEFAULT_KDJ_PARAMS.m1 && p.m2 === DEFAULT_KDJ_PARAMS.m2;
 }
 
+// ── ROC inline params (a-share + crypto) ──────────────────────────────────────
+
+/** 行内 ROC 周期框是否渲染：ROC 字段即可（不限制 targetType，两端都支持） */
+function showRocParams(fieldValue: string): boolean {
+  return isRocField(fieldValue);
+}
+
+/** ROC 周期输入框视图模型：缺省回落 DEFAULT_ROC_N，缺字段不污染 item */
+function rocNView(condition: StrategyConditionItem): number {
+  return condition.rocParams?.n ?? DEFAULT_ROC_N;
+}
+
+/**
+ * ROC 周期改动：以缺省视图模型做 write-through。
+ * 等于默认 → 删除 rocParams（item 不残留默认值）；否则写入。
+ */
+function handleRocNChange(index: number, raw: number | null) {
+  const copy = cloneConditions();
+  const cond = copy[index];
+  const next = raw == null ? DEFAULT_ROC_N : raw;
+  if (next === DEFAULT_ROC_N) {
+    delete cond.rocParams;
+  } else {
+    cond.rocParams = { n: next };
+  }
+  emit('update:conditions', copy);
+}
+
 // ── Logic helpers ─────────────────────────────────────────────────────────────
 
 /**
@@ -275,6 +318,10 @@ function handleFieldChange(index: number, newField: string) {
   // 切走 KDJ（或 crypto 不支持行内参数）时清除自定义 KDJ 参数，避免脏字段残留
   if (!showKdjParams(newField)) {
     delete cond.kdjParams;
+  }
+  // 切走 ROC 时清除自定义 ROC 周期，避免脏字段残留
+  if (!showRocParams(newField)) {
+    delete cond.rocParams;
   }
   // 切字段时，若当前算子为 cross 且新字段不支持，重置为 defaultOperator
   if (

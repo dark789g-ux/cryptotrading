@@ -13,6 +13,20 @@ export interface BuiltWhere {
   params: unknown[];
 }
 
+/**
+ * ROC 取数配置：不复用 crossCfg（crossCfg.tablePrev 是指标表，无价格列）。
+ * ROC 要的是价格列（A 股 qfq_close 在 raw.daily_quote、crypto close 在 klines），
+ * 故单独定义。buildAShareQuery / buildCryptoQuery 各自构造后传给 build()。
+ */
+interface RocCfg {
+  priceTable: string; // a-share: 'raw.daily_quote'；crypto: 'klines'
+  closeCol: string; // a-share: 'qfq_close'；crypto: 'close'
+  joinKey: string; // a-share: 'ts_code'；crypto: 'symbol'
+  dateKey: string; // a-share: 'trade_date'；crypto: 'open_time'
+  extraFilter?: string; // crypto: "AND interval = '1d'"；a-share: 无
+  refAlias: string; // 主查询里行的别名：a-share 'i'；crypto 'k'
+}
+
 const COMPARISON_OPERATORS: Record<string, string> = {
   gt: '>',
   gte: '>=',
@@ -21,6 +35,19 @@ const COMPARISON_OPERATORS: Record<string, string> = {
   eq: '=',
   neq: '!=',
 };
+
+const DEFAULT_ROC_N = 10;
+
+/**
+ * 解析 ROC 周期 N；非法或缺省回退默认 10（后端不信前端，仿 KDJ isValidKdjParams 模式）。
+ * 前端 n-input-number 已 min1/max250/precision0 约束，这是给 API 直连调用方的兜底。
+ */
+function resolveRocN(p: { n: number } | undefined): number {
+  if (!p || typeof p.n !== 'number' || !Number.isInteger(p.n) || p.n < 1 || p.n > 250) {
+    return DEFAULT_ROC_N;
+  }
+  return p.n;
+}
 
 @Injectable()
 export class StrategyConditionsQueryBuilder {
@@ -66,18 +93,44 @@ export class StrategyConditionsQueryBuilder {
         amvDateKey: 'trade_date',
         outerDateRef: 'i.trade_date',
       },
+      // ROC 取数：A 股价格列在 raw.daily_quote（qfq_close 前复权），主查询行别名为 i。
+      {
+        priceTable: 'raw.daily_quote',
+        closeCol: 'qfq_close',
+        joinKey: 'ts_code',
+        dateKey: 'trade_date',
+        refAlias: 'i',
+      },
     );
   }
 
   buildCryptoQuery(conditions: StrategyConditionItem[]): BuiltWhere {
-    return this.build(conditions, CRYPTO_FIELD_COL_MAP, 'k.', '加密', {
-      tablePrev: 'klines',
-      prevAlias: 'prev',
-      prevJoinKey: 'symbol',
-      prevDateKey: 'open_time',
-      prevExtraJoin: "AND prev.interval = k.interval",
-      prevExtraSubquery: "AND interval = k.interval",
-    });
+    return this.build(
+      conditions,
+      CRYPTO_FIELD_COL_MAP,
+      'k.',
+      '加密',
+      {
+        tablePrev: 'klines',
+        prevAlias: 'prev',
+        prevJoinKey: 'symbol',
+        prevDateKey: 'open_time',
+        prevExtraJoin: 'AND prev.interval = k.interval',
+        prevExtraSubquery: "AND interval = k.interval",
+      },
+      // crypto 无行业/大盘 AMV，industryCfg/marketCfg 留空占位
+      undefined,
+      undefined,
+      // ROC 取数：crypto 价格列即 klines.close，主查询行别名为 k；需 interval='1d' 过滤。
+      {
+        priceTable: 'klines',
+        closeCol: 'close',
+        joinKey: 'symbol',
+        dateKey: 'open_time',
+        extraFilter: "AND interval = '1d'",
+        refAlias: 'k',
+      },
+    );
   }
 
   private build(
@@ -114,6 +167,9 @@ export class StrategyConditionsQueryBuilder {
       amvDateKey: string;
       outerDateRef: string;
     },
+    // 可选：仅 buildAShareQuery/buildCryptoQuery 传入（两者均传）。声明可选以避开
+    // "必选参数不能跟在可选参数后" 的 TS 限制（industryCfg?/marketCfg? 均可选）。
+    rocCfg?: RocCfg,
   ): BuiltWhere {
     const whereClauses: string[] = [];
     const params: unknown[] = [];
@@ -121,6 +177,39 @@ export class StrategyConditionsQueryBuilder {
 
     for (const cond of conditions) {
       const { field, operator, value, compareField } = cond;
+
+      // ROC 早退分支：field='roc' 走专用 OFFSET/LIMIT 子查询现算，不进静态列映射
+      // （价格列不在 daily_indicator 指标表，需按 RocCfg 指向 raw.daily_quote / klines）。
+      if (field === 'roc' && rocCfg) {
+        const n = resolveRocN(cond.rocParams);
+        if (operator === 'cross_above' || operator === 'cross_below') {
+          this.logger.warn(`[${label}] ROC 首版不支持上穿/下穿，已跳过`);
+          continue;
+        }
+        const sqlOp = COMPARISON_OPERATORS[operator];
+        if (!sqlOp) {
+          this.logger.warn(`[${label}] ROC 未知操作符 "${operator}"，已跳过`);
+          continue;
+        }
+
+        const rocExpr = this.buildRocExpr(rocCfg, n);
+        if (compareField) {
+          const compareCol = fieldMap[compareField];
+          if (!compareCol) {
+            this.logger.warn(`[${label}] ROC 比较字段 "${compareField}" 未知，已跳过`);
+            continue;
+          }
+          whereClauses.push(`${rocExpr} ${sqlOp} ${compareCol}`);
+        } else {
+          if (typeof value !== 'number' || !Number.isFinite(value)) {
+            this.logger.warn(`[${label}] ROC 比较值非法（${String(value)}），已跳过`);
+            continue;
+          }
+          params.push(value);
+          whereClauses.push(`${rocExpr} ${sqlOp} ${ph()}`);
+        }
+        continue;
+      }
 
       const marketCol = marketCfg?.fieldMap[field];
       if (marketCfg && marketCol) {
@@ -294,5 +383,38 @@ export class StrategyConditionsQueryBuilder {
 
     // 真正无条件（runner 已在更上层短路 return []，此处保留以防被直接调用）。
     return { sql: 'TRUE', params };
+  }
+
+  /**
+   * 生成 ROC 标量子查询：取「当日收盘」与「N 个交易日前收盘」算变化率百分比。
+   *
+   * - cur 固定到主查询行 (refAlias.joinKey, refAlias.dateKey)；
+   * - prev 用 LATERAL + OFFSET n LIMIT 1 取 N 个交易日前收盘（ORDER BY date DESC 下
+   *   OFFSET n 跳过最近 n 行、取 row n = N 日前）；
+   * - prev 为 NULL（数据不足/新股上市<N天）或为 0（除零防御）→ CASE 返回 NULL →
+   *   外层 `NULL $op $value` 求值为 NULL（非 true）→ fail-closed 不命中。
+   *
+   * extraFilter（crypto 的 interval='1d'）必须同时出现在 prev 内层与 cur 外层两处，
+   * 否则多 interval 表（klines）行集不一致会算错。
+   */
+  private buildRocExpr(rocCfg: RocCfg, n: number): string {
+    const { priceTable, closeCol, joinKey, dateKey, extraFilter, refAlias } = rocCfg;
+    const ef = extraFilter ?? '';
+    return `(
+    SELECT CASE
+      WHEN prev.${closeCol} IS NULL OR prev.${closeCol} = 0 THEN NULL
+      ELSE (cur.${closeCol} - prev.${closeCol}) / prev.${closeCol} * 100
+    END
+    FROM ${priceTable} cur
+    LEFT JOIN LATERAL (
+      SELECT ${closeCol} FROM ${priceTable}
+      WHERE ${joinKey} = cur.${joinKey}${ef}
+        AND ${dateKey} <= cur.${dateKey}
+      ORDER BY ${dateKey} DESC
+      OFFSET ${n} LIMIT 1
+    ) prev ON true
+    WHERE cur.${joinKey} = ${refAlias}.${joinKey}
+      AND cur.${dateKey} = ${refAlias}.${dateKey}${ef}
+  )`;
   }
 }

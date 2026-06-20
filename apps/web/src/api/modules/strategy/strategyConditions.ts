@@ -8,6 +8,8 @@ export interface StrategyConditionItem {
   compareMode?: 'field' | 'value';
   /** 自定义 KDJ 参数（N/M1/M2）；仅当 field/compareField 为 KDJ 字段时有意义；缺省视为 9/3/3。 */
   kdjParams?: { n: number; m1: number; m2: number };
+  /** 自定义 ROC 周期 N；仅当 field 为 ROC 字段时有意义；缺省视为 10。 */
+  rocParams?: { n: number };
 }
 
 export interface StrategyConditionLastRun {
