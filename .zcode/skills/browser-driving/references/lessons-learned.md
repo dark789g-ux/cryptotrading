@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-06-20: 验证"真实生产代码的输出"——Vite dev 下动态 import 源码模块直接调
+**Symptom**: 要验证 KlineChart 的 `buildKlineChartOption` 在真实数据下产出正确的 VOL 染色。两条路都不通：① 重写逻辑算一遍有"重写逻辑=业务逻辑→假通过"漏洞；② 从 DOM/echarts 实例读渲染态被 v5 WeakMap 堵死（见上条）。像素采样又被同色系元素（MA60/KDJ.K 都用 `#0ECB81` 绿）污染，无法干净定位 VOL 副图。
+**Cause**: 模块作用域的纯函数既不在 window，DOM 上也没有调用入口；但 Vite dev server 让浏览器能通过 HTTP 按源码路径动态 import 模块。
+**Lesson**: **`await import('/src/path/to/module.ts')` 动态导入真实模块**，喂真实 fetch 数据，直接调导出函数（如 `mod.buildKlineChartOption({data, echartsTheme:{}})`）读它返回的 option——这是"真实生产代码 + 真实数据"的端到端验证，比重写逻辑或读像素都精确（直接拿到 `rgba(...,0.35)` 字符串，可正则断言 alpha）。路径用 Vite 根的 `/src/...`。配合上条"echarts 实例读不到"，这是验证 echarts option 的最佳兜底。注意：截图经 Read 工具只"上传 CDN"不渲染给模型，依赖肉眼的截图验证在本环境不可行——优先用动态 import 这类可程序断言的方法。
+
+---
+
+## 2026-06-20: ECharts v5 实例无法从 DOM 读取——验证渲染态改走"数据层 + 组件实例 / fetch 后端"
+**Symptom**: 想读页面里 echarts 图表的 `getOption()` 验证某 series 的 itemStyle.color 是否正确。`el.getAttribute('_echarts_instance_')` 有值（实例 id），但 `Object.getOwnPropertyNames(el)`、`Object.getOwnPropertySymbols(el)`、`el.__echarts__` / `el.__ec` 全空——实例不挂在 DOM 上。`window.echarts` 也不存在（业务代码用 ES module `import * as echarts`，不挂全局），调不了 `echarts.getInstanceByDom(el)`。
+**Cause**: ECharts v5 把实例存在内部 WeakMap（`instances` Map，key 是 DOM），只通过同模块的 `getInstanceByDom` 暴露；DOM 元素上不留任何可枚举/不可枚举引用。模块未挂 window 时外部拿不到这个入口。
+**Lesson**: 别试图从 DOM 直接取 echarts 实例读渲染态。两条务实替代：① **fetch 后端 API 拿原始数据 + 内联 spec 规则重算**（独立第三份实现，断言结构性事实如"背离柱存在/首根实色/分类计数"，而非"颜色值对不对"——避免重算逻辑=业务逻辑导致假通过）；② 从 Vue 组件实例（KlineChart `defineExpose` 暴露了 `prefs/renderChart`）或上溯 `setupState` 拿喂给 echarts 的真实 data。验证"图渲染了"只需数 `canvas` / `[_echarts_instance_]` 元素计数（见 2026-06-09 条）。
+
+## 2026-06-20: webbridge screenshot 传任意 path 不可信——只有不传 path（走默认 temp）才稳
+**Symptom**: `screenshot` 传 `"path":"/c/codes/cryptotrading/.tmp/x.png"`，daemon 返回 `{"ok":true,"path":"/c/codes/...","sizeBytes":437192}` 像成功，但 `ls /c/codes/.../.tmp/*.png` 和 `C:\codes\...\.tmp\*.png` 都找不到文件。改传 `"/c/tmp/x.png"`（= `C:\tmp\`，历史截图都在这）同样不落盘。
+**Cause**: daemon 对 caller 指定的 POSIX 路径处理与文档/历史不符——它声称写到了 path，实际文件不存在于任何候选位置。只有**不传 path**（让 daemon 自己选 OS temp）时，返回的 path 才真实可信（形如 `C:\Users\<u>\AppData\Local\Temp\kimi-webbridge-screenshots\screenshot_<ts>.png`）。
+**Lesson**: 截图一律**不传 path**，用返回的 `.data.path`（绝对 Windows 路径）直接喂 Read 工具。对 2026-05-27"Windows 截图用 POSIX 路径"那条的修正补充：caller 自定义 POSIX path 不可信，默认 path 才可靠。需可控文件名时，事后 `cp` 到目标位置。
+
+---
+
 ## 2026-06-19: Windows 上 Write 工具的 `/tmp/` 与 git-bash `/tmp` 不是同一个目录
 **Symptom**: 用 Write 写 `/tmp/eval.json`，随后 `curl -d @/tmp/eval.json` 调 webbridge 报 `invalid JSON: EOF`；`cat /tmp/eval.json` 也报 `No such file`。
 **Cause**: Write 工具把绝对路径 `/tmp/...` 映射到 Windows 根目录 `C:\tmp`；git-bash 的 `/tmp` 却指向用户级 Temp（`%TEMP%`），二者不重叠。
