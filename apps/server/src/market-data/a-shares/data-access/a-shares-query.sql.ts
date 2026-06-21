@@ -35,6 +35,9 @@ const RAW_CONDITION_COL_MAP: Record<string, string> = {
   MA60: 'i.ma60',
   MA120: 'i.ma120',
   MA240: 'i.ma240',
+  roc10: 'i.roc10',
+  roc20: 'i.roc20',
+  roc60: 'i.roc60',
 };
 
 const QFQ_CONDITION_COL_MAP: Record<string, string> = {
@@ -89,6 +92,9 @@ const RAW_SORT_COL_MAP: Record<string, string> = {
   amvDif: 'sa.amv_dif',
   amvDea: 'sa.amv_dea',
   amvMacd: 'sa.amv_macd',
+  roc10: 'i.roc10',
+  roc20: 'i.roc20',
+  roc60: 'i.roc60',
 };
 
 const QFQ_SORT_COL_MAP: Record<string, string> = {
@@ -162,6 +168,7 @@ export function buildASharesBaseQuery(
         i.quote_volume_10 AS "quoteVolume10",
         i.brick AS "brick", i.brick_delta AS "brickDelta", i.brick_xg AS "brickXg",
         sa.amv_dif AS "amvDif", sa.amv_dea AS "amvDea", sa.amv_macd AS "amvMacd",
+        i.roc10, i.roc20, i.roc60,
         COALESCE(
           (SELECT jsonb_agg(DISTINCT jsonb_build_object('id', w.id::text, 'name', w.name))
            FROM watchlist_items wi

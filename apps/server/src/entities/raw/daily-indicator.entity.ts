@@ -80,6 +80,15 @@ export class DailyIndicatorEntity {
   @Column({ name: 'brick_xg', type: 'boolean', nullable: true })
   brickXg: boolean;
 
+  @Column({ type: 'double precision', nullable: true })
+  roc10: number;
+
+  @Column({ type: 'double precision', nullable: true })
+  roc20: number;
+
+  @Column({ type: 'double precision', nullable: true })
+  roc60: number;
+
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

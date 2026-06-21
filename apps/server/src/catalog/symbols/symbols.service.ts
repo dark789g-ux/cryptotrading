@@ -28,6 +28,7 @@ export const KLINE_INDICATOR_COLUMNS: Record<string, string> = {
   '10_quote_volume': 'quote_volume_10', atr_14: 'atr_14', loss_atr_14: 'loss_atr_14',
   low_9: 'low_9', high_9: 'high_9', stop_loss_pct: 'stop_loss_pct',
   risk_reward_ratio: 'risk_reward_ratio',
+  roc10: 'roc10', roc20: 'roc20', roc60: 'roc60',
 };
 
 export const KLINE_OP_MAP: Record<string, string> = {
@@ -92,6 +93,9 @@ export class SymbolsService {
       kdjJ: 'k.kdj_j',
       riskRewardRatio: 'k.risk_reward_ratio',
       stopLossPct: 'k.stop_loss_pct',
+      roc10: 'k.roc10',
+      roc20: 'k.roc20',
+      roc60: 'k.roc60',
       openTime: 'k.open_time',
     };
 
@@ -111,6 +115,9 @@ export class SymbolsService {
         k.kdj_j AS "kdjJ",
         k.risk_reward_ratio AS "riskRewardRatio",
         k.stop_loss_pct AS "stopLossPct",
+        k.roc10,
+        k.roc20,
+        k.roc60,
         k.open_time AS "openTime",
         COALESCE(
           (SELECT jsonb_agg(DISTINCT jsonb_build_object('id', w.id::text, 'name', w.name))

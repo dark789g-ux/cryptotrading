@@ -1,3 +1,9 @@
+/**
+ * ROC（动量/变化率）筛选条件单测 —— 落库方案（读预存列 roc10/20/60）。
+ *
+ * ROC 三档走 query-builder 的普通字段分支（与 ma5/kdj_j 一样），
+ * 自动支持 gt/gte/lt/lte/eq/neq/cross_above/cross_below 全部操作符。
+ */
 import { StrategyConditionsQueryBuilder } from './strategy-conditions.query-builder';
 import { StrategyConditionItem } from '../entities/strategy/strategy-condition.entity';
 
@@ -6,7 +12,7 @@ function squash(sql: string): string {
   return sql.replace(/\s+/g, ' ').trim();
 }
 
-describe('StrategyConditionsQueryBuilder — ROC（动量）字段', () => {
+describe('StrategyConditionsQueryBuilder — ROC（动量，预存列）', () => {
   let builder: StrategyConditionsQueryBuilder;
   let warnSpy: jest.SpyInstance;
 
@@ -21,178 +27,78 @@ describe('StrategyConditionsQueryBuilder — ROC（动量）字段', () => {
     warnSpy.mockRestore();
   });
 
-  // ── resolveRocN 周期边界（通过 OFFSET 间接验证）────────────────────────────────
+  // ── A 股：读 i.roc10/20/60 预存列 ────────────────────────────────────────────
 
-  it('周期缺省 → OFFSET 10（默认 N）', () => {
-    const conditions: StrategyConditionItem[] = [{ field: 'roc', operator: 'gt', value: 5 }];
-    const { sql } = builder.buildAShareQuery(conditions);
-    expect(squash(sql)).toContain('OFFSET 10 LIMIT 1');
-  });
-
-  it('周期 n=0 非法 → 回退 OFFSET 10', () => {
-    const conditions: StrategyConditionItem[] = [
-      { field: 'roc', operator: 'gt', value: 5, rocParams: { n: 0 } },
-    ];
-    const { sql } = builder.buildAShareQuery(conditions);
-    expect(squash(sql)).toContain('OFFSET 10 LIMIT 1');
-  });
-
-  it('周期 n=251 越界 → 回退 OFFSET 10', () => {
-    const conditions: StrategyConditionItem[] = [
-      { field: 'roc', operator: 'gt', value: 5, rocParams: { n: 251 } },
-    ];
-    const { sql } = builder.buildAShareQuery(conditions);
-    expect(squash(sql)).toContain('OFFSET 10 LIMIT 1');
-  });
-
-  it('周期 n=10（显式等于默认）→ OFFSET 10', () => {
-    const conditions: StrategyConditionItem[] = [
-      { field: 'roc', operator: 'gt', value: 5, rocParams: { n: 10 } },
-    ];
-    const { sql } = builder.buildAShareQuery(conditions);
-    expect(squash(sql)).toContain('OFFSET 10 LIMIT 1');
-  });
-
-  it('周期 n=20 → OFFSET 20', () => {
-    const conditions: StrategyConditionItem[] = [
-      { field: 'roc', operator: 'gt', value: 5, rocParams: { n: 20 } },
-    ];
-    const { sql } = builder.buildAShareQuery(conditions);
-    expect(squash(sql)).toContain('OFFSET 20 LIMIT 1');
-  });
-
-  // ── A 股 ROC SQL 结构 ──────────────────────────────────────────────────────────
-
-  it('A 股 roc gt 5 → qfq_close 变化率表达式 + raw.daily_quote + params=[5]', () => {
-    const conditions: StrategyConditionItem[] = [{ field: 'roc', operator: 'gt', value: 5 }];
+  it('A 股 roc20 gt 5 → i.roc20 > $1，params=[5]', () => {
+    const conditions: StrategyConditionItem[] = [{ field: 'roc20', operator: 'gt', value: 5 }];
     const { sql, params } = builder.buildAShareQuery(conditions);
-    const flat = squash(sql);
-    // 变化率公式
-    expect(flat).toContain('(cur.qfq_close - prev.qfq_close) / prev.qfq_close * 100');
-    // 价格取自 raw.daily_quote（不是 daily_indicator 指标表）
-    expect(flat).toContain('FROM raw.daily_quote cur');
-    expect(flat).toContain('FROM raw.daily_quote');
-    // 主查询行别名 i 对齐
-    expect(flat).toContain('cur.ts_code = i.ts_code');
-    expect(flat).toContain('cur.trade_date = i.trade_date');
-    // 比较运算
-    expect(flat).toContain('> $1');
+    expect(squash(sql)).toContain('i.roc20 > $1');
     expect(params).toEqual([5]);
   });
 
-  it('A 股 roc gte 0 → 用 >= 操作符', () => {
-    const conditions: StrategyConditionItem[] = [{ field: 'roc', operator: 'gte', value: 0 }];
+  it('A 股 roc10 lte 0 → i.roc10 <= $1', () => {
+    const conditions: StrategyConditionItem[] = [{ field: 'roc10', operator: 'lte', value: 0 }];
     const { sql, params } = builder.buildAShareQuery(conditions);
-    expect(squash(sql)).toContain('>= $1');
+    expect(squash(sql)).toContain('i.roc10 <= $1');
     expect(params).toEqual([0]);
   });
 
-  // ── crypto ROC SQL 结构 ────────────────────────────────────────────────────────
-
-  it('crypto roc gt 3 → close 列 + klines + interval=1d 出现至少 2 次（cur 外层 + prev 内层）', () => {
-    const conditions: StrategyConditionItem[] = [{ field: 'roc', operator: 'gt', value: 3 }];
-    const { sql, params } = builder.buildCryptoQuery(conditions);
-    const flat = squash(sql);
-    // 变化率公式（close 列）
-    expect(flat).toContain('(cur.close - prev.close) / prev.close * 100');
-    // 价格取自 klines
-    expect(flat).toContain('FROM klines cur');
-    // 主查询行别名 k 对齐
-    expect(flat).toContain('cur.symbol = k.symbol');
-    expect(flat).toContain('cur.open_time = k.open_time');
-    // 关键：interval='1d' 必须同时出现在 cur 外层 WHERE 与 prev LATERAL 内层 WHERE
-    const intervalCount = (flat.match(/interval = '1d'/g) || []).length;
-    expect(intervalCount).toBeGreaterThanOrEqual(2);
-    expect(flat).toContain('> $1');
-    expect(params).toEqual([3]);
-  });
-
-  // ── 不支持的操作符 ─────────────────────────────────────────────────────────────
-
-  it('ROC 上穿 cross_above → warn+skip，单条件 sql 为 FALSE（fail-closed）', () => {
+  it('A 股 roc60 gt ma5（字段对字段）→ i.roc60 > i.ma5，无新增 param', () => {
     const conditions: StrategyConditionItem[] = [
-      { field: 'roc', operator: 'cross_above', value: 0 },
+      { field: 'roc60', operator: 'gt', compareField: 'ma5', compareMode: 'field' },
     ];
     const { sql, params } = builder.buildAShareQuery(conditions);
-    expect(sql).toBe('FALSE');
+    expect(squash(sql)).toContain('i.roc60 > i.ma5');
     expect(params).toEqual([]);
-    expect(warnSpy).toHaveBeenCalled();
   });
 
-  it('ROC 下穿 cross_below → warn+skip，单条件 sql 为 FALSE（fail-closed）', () => {
-    const conditions: StrategyConditionItem[] = [
-      { field: 'roc', operator: 'cross_below', value: 0 },
-    ];
-    const { sql, params } = builder.buildAShareQuery(conditions);
-    expect(sql).toBe('FALSE');
-    expect(params).toEqual([]);
-    expect(warnSpy).toHaveBeenCalled();
-  });
+  // ── cross（字段穿越字段）：落库后走 query-builder 现有 cross 逻辑，自动支持 ─────
+  // 注：query-builder 的 cross 只支持字段对字段（compareField），不支持穿越常量值；
+  // 「穿越 0 轴」需另造一个常量 0 的伪字段，超出本设计范围。
 
-  it('ROC 未知操作符 → warn+skip，sql 为 FALSE', () => {
+  it('A 股 roc10 cross_above roc20 → EXISTS 前一根子查询', () => {
     const conditions: StrategyConditionItem[] = [
-      { field: 'roc', operator: 'weird' as StrategyConditionItem['operator'], value: 1 },
+      { field: 'roc10', operator: 'cross_above', compareField: 'roc20', compareMode: 'field' },
     ];
     const { sql } = builder.buildAShareQuery(conditions);
-    expect(sql).toBe('FALSE');
-    expect(warnSpy).toHaveBeenCalled();
+    const flat = squash(sql);
+    expect(flat).toContain('EXISTS (');
+    expect(flat).toContain('prev.roc10 < prev.roc20');
+    expect(flat).toContain('i.roc10 > i.roc20');
   });
 
-  // ── 多条件 AND 组合 ───────────────────────────────────────────────────────────
+  // ── crypto：读 k.roc10/20/60 ────────────────────────────────────────────────
 
-  it('多条件 AND：roc gt 5 + kdj_j gt 20 → 两段 AND 连接，占位编号对齐', () => {
+  it('crypto roc20 lt 0 → k.roc20 < $1，params=[0]', () => {
+    const conditions: StrategyConditionItem[] = [{ field: 'roc20', operator: 'lt', value: 0 }];
+    const { sql, params } = builder.buildCryptoQuery(conditions);
+    expect(squash(sql)).toContain('k.roc20 < $1');
+    expect(params).toEqual([0]);
+  });
+
+  it('crypto roc10 cross_below roc20 → 走 klines prev 子查询', () => {
     const conditions: StrategyConditionItem[] = [
-      { field: 'roc', operator: 'gt', value: 5, rocParams: { n: 20 } },
+      { field: 'roc10', operator: 'cross_below', compareField: 'roc20', compareMode: 'field' },
+    ];
+    const { sql } = builder.buildCryptoQuery(conditions);
+    const flat = squash(sql);
+    expect(flat).toContain('EXISTS (');
+    expect(flat).toContain('prev.roc10 > prev.roc20');
+    expect(flat).toContain('k.roc10 < k.roc20');
+  });
+
+  // ── 多条件 AND ──────────────────────────────────────────────────────────────
+
+  it('多条件 AND：roc20 gt 5 + kdj_j gt 20 → 两段 AND，占位对齐', () => {
+    const conditions: StrategyConditionItem[] = [
+      { field: 'roc20', operator: 'gt', value: 5 },
       { field: 'kdj_j', operator: 'gt', value: 20 },
     ];
     const { sql, params } = builder.buildAShareQuery(conditions);
     const flat = squash(sql);
-    expect(flat).toContain(' AND ');
-    // ROC 子查询用 $1，kdj_j 用 $2
-    expect(flat).toContain('> $1');
+    expect(flat).toContain('i.roc20 > $1');
     expect(flat).toContain('i.kdj_j > $2');
+    expect(flat).toContain(' AND ');
     expect(params).toEqual([5, 20]);
-  });
-
-  // ── compareField（字段对字段）模式 ─────────────────────────────────────────────
-
-  it('ROC 字段对字段：roc gt ma5 → 右侧为 i.ma5 列，无新增 param', () => {
-    const conditions: StrategyConditionItem[] = [
-      { field: 'roc', operator: 'gt', compareField: 'ma5', compareMode: 'field' },
-    ];
-    const { sql, params } = builder.buildAShareQuery(conditions);
-    const flat = squash(sql);
-    expect(flat).toContain('> i.ma5');
-    expect(params).toEqual([]);
-  });
-
-  // ── 非法值防御 ─────────────────────────────────────────────────────────────────
-
-  it('ROC 比较值非法（undefined）→ warn+skip，sql 为 FALSE', () => {
-    const conditions: StrategyConditionItem[] = [
-      { field: 'roc', operator: 'gt', value: undefined },
-    ];
-    const { sql, params } = builder.buildAShareQuery(conditions);
-    expect(sql).toBe('FALSE');
-    expect(params).toEqual([]);
-    expect(warnSpy).toHaveBeenCalled();
-  });
-
-  it('ROC 比较值非法（NaN）→ warn+skip，sql 为 FALSE', () => {
-    const conditions: StrategyConditionItem[] = [{ field: 'roc', operator: 'gt', value: NaN }];
-    const { sql, params } = builder.buildAShareQuery(conditions);
-    expect(sql).toBe('FALSE');
-    expect(params).toEqual([]);
-    expect(warnSpy).toHaveBeenCalled();
-  });
-
-  it('ROC 未知 compareField → warn+skip，sql 为 FALSE', () => {
-    const conditions: StrategyConditionItem[] = [
-      { field: 'roc', operator: 'gt', compareField: '不存在的字段', compareMode: 'field' },
-    ];
-    const { sql, params } = builder.buildAShareQuery(conditions);
-    expect(sql).toBe('FALSE');
-    expect(params).toEqual([]);
-    expect(warnSpy).toHaveBeenCalled();
   });
 });

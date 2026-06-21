@@ -131,6 +131,15 @@ class IndicatorStreamCalculator {
     const loss = close - low9;
     const riskRewardRatio = loss ? (high9 - close) / loss : 0.0;
 
+    // ROC：取 closesForCalc 里 N 根前的收盘价。长度不足 N+1 → null。
+    // closesForCalc 长度 = min(count, 240)（MA240 窗口），240 > 60，ROC60 够用。
+    const calcRoc = (period: number): number | null => {
+      if (closesForCalc.length < period + 1) return null;
+      const prevClose = closesForCalc[closesForCalc.length - 1 - period];
+      if (!prevClose) return null; // prev=0/NaN → null（fail-closed）
+      return roundSig((close - prevClose) / prevClose * 100, 6);
+    };
+
     const brick = calcNextBrick(prev, high, low, close);
     const aa = index >= 1 && brick.brick > (prev?.brickPrev1 ?? 0);
     const aaPrev = index >= 2 && (prev?.brickPrev1 ?? 0) > (prev?.brickPrev2 ?? 0);
@@ -183,6 +192,9 @@ class IndicatorStreamCalculator {
         high_9: roundSig(high9, 8),
         stop_loss_pct: parseFloat(stopLossPct.toFixed(4)),
         risk_reward_ratio: roundSig(riskRewardRatio, 4),
+        roc10: calcRoc(10),
+        roc20: calcRoc(20),
+        roc60: calcRoc(60),
       },
       state: cloneState(nextState),
       brickChart: { brick: brick.brick, delta: brickDelta, xg: brickXg },

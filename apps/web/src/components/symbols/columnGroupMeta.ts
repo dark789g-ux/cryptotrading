@@ -3,6 +3,7 @@ export const COLUMN_GROUPS = [
   { key: 'quote', label: '行情' },
   { key: 'valuation', label: '估值' },
   { key: 'ma', label: '均线' },
+  { key: 'momentum', label: '动量' },
   { key: 'kdjMacd', label: 'KDJ / MACD' },
   { key: 'risk', label: '风控 / 波动' },
   { key: 'amv', label: '活跃市值' },
@@ -49,6 +50,11 @@ export const COLUMN_KEY_GROUP: Record<string, ColumnGroupKey> = {
   ma120: 'ma',
   ma240: 'ma',
   bbi: 'ma',
+
+  // 动量
+  roc10: 'momentum',
+  roc20: 'momentum',
+  roc60: 'momentum',
 
   // KDJ / MACD
   kdjJ: 'kdjMacd',

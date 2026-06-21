@@ -105,4 +105,13 @@ export class KlineEntity {
 
   @Column({ name: 'risk_reward_ratio', type: 'double precision', nullable: true })
   riskRewardRatio: number;
+
+  @Column({ name: 'roc10', type: 'double precision', nullable: true })
+  roc10: number;
+
+  @Column({ name: 'roc20', type: 'double precision', nullable: true })
+  roc20: number;
+
+  @Column({ name: 'roc60', type: 'double precision', nullable: true })
+  roc60: number;
 }

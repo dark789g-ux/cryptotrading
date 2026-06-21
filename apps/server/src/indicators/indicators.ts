@@ -37,6 +37,9 @@ export interface KlineRowWithIndicators extends KlineRow {
   high_9: number;
   stop_loss_pct: number;
   risk_reward_ratio: number;
+  roc10: number | null;
+  roc20: number | null;
+  roc60: number | null;
 }
 
 /** EMA — 首值以第一个数据为种子（Python: k = 2/(period+1)） */
@@ -182,6 +185,19 @@ export function calcIndicators(rows: KlineRow[]): KlineRowWithIndicators[] {
     rr.push(loss ? (h9 - closes[i]) / loss : 0.0);
   }
 
+  // ROC（变化率百分比）：(close[i] - close[i-N]) / close[i-N] * 100。
+  // i < N（序列不足 N+1 根）→ null；prev=0/NaN（脏数据）→ null（fail-closed）。
+  const rocN = (period: number): (number | null)[] =>
+    closes.map((_, i) => {
+      if (i < period) return null;
+      const prev = closes[i - period];
+      if (!prev) return null;
+      return roundSig((closes[i] - prev) / prev * 100, 6);
+    });
+  const roc10 = rocN(10);
+  const roc20 = rocN(20);
+  const roc60 = rocN(60);
+
   return rows.map((row, i) => ({
     ...row,
     DIF: roundSig(dif[i], 8),
@@ -203,5 +219,8 @@ export function calcIndicators(rows: KlineRow[]): KlineRowWithIndicators[] {
     high_9: roundSig(high9[i], 8),
     stop_loss_pct: parseFloat(slPct[i].toFixed(4)),
     risk_reward_ratio: roundSig(rr[i], 4),
+    roc10: roc10[i],
+    roc20: roc20[i],
+    roc60: roc60[i],
   })) as KlineRowWithIndicators[];
 }

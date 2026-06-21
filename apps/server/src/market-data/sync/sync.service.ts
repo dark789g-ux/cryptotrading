@@ -301,6 +301,9 @@ export class SyncService {
       high9: r.high_9,
       stopLossPct: r.stop_loss_pct,
       riskRewardRatio: r.risk_reward_ratio,
+      roc10: r.roc10,
+      roc20: r.roc20,
+      roc60: r.roc60,
     }));
 
     await this.klinesService.upsertKlines(entities);

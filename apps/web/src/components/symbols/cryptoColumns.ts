@@ -12,6 +12,10 @@ interface CryptoColumnsOptions {
 const formatFixed = (value: number | null | undefined, digits: number) =>
   value == null ? '-' : value.toFixed(digits)
 
+/** 百分比渲染：null → '-'，否则 toFixed(2) + '%'（如 ROC） */
+const formatPct = (value: unknown) =>
+  value == null || value === '' ? '-' : `${Number(value).toFixed(2)}%`
+
 export function createCryptoColumnDefs(options: CryptoColumnsOptions): SymbolColumnDef<SymbolRow>[] {
   return [
     {
@@ -55,6 +59,9 @@ export function createCryptoColumnDefs(options: CryptoColumnsOptions): SymbolCol
       sorter: true,
       render: (row) => (row.stopLossPct == null ? '-' : `${Number(row.stopLossPct).toFixed(2)}%`),
     },
+    { title: 'ROC10', key: 'roc10', descKey: 'roc', width: 90, sorter: true, render: (row) => formatPct(row.roc10) },
+    { title: 'ROC20', key: 'roc20', descKey: 'roc', width: 90, sorter: true, render: (row) => formatPct(row.roc20) },
+    { title: 'ROC60', key: 'roc60', descKey: 'roc', width: 90, sorter: true, render: (row) => formatPct(row.roc60) },
     {
       title: 'Updated',
       key: 'openTime',

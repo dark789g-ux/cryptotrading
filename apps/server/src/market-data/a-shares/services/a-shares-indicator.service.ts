@@ -246,6 +246,9 @@ export class ASharesIndicatorService {
       brick: brickChart?.brick ?? null,
       brickDelta: brickChart?.delta ?? null,
       brickXg: brickChart?.xg ?? null,
+      roc10: row.roc10,
+      roc20: row.roc20,
+      roc60: row.roc60,
     });
   }
 

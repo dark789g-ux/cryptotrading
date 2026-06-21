@@ -45,6 +45,7 @@ export interface AShareRow {
   quoteVolume10: string | null
   brick: string | null; brickDelta: string | null; brickXg: boolean | null
   amvDif: string | null; amvDea: string | null; amvMacd: string | null
+  roc10: string | null; roc20: string | null; roc60: string | null
   tags?: { id: string; name: string }[]
 }
 
