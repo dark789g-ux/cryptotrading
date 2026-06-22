@@ -11,6 +11,11 @@
 
 $ErrorActionPreference = "Stop"
 
+# PowerShell 5.1 管道传给 native command（docker）默认用 ASCII 编码，SQL 里的中文
+# （大盘名称「上证指数」等）会被吃成 '?'（落库 octet_length 偏小、ascii=63）。
+# 显式设为 UTF-8，确保 Get-Content -Encoding utf8 读出的中文经 docker exec -i 正确进 psql。
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
+
 $scriptPath = Join-Path $PSScriptRoot "20260622120000-create-unified-index-daily.sql"
 
 if (-not (Test-Path $scriptPath)) {
