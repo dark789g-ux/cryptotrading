@@ -7,7 +7,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ThsIndexDailySyncService } from './ths-index-daily-sync.service';
 import { ThsIndexDailyIndicatorService } from './ths-index-daily-indicator.service';
-import { ThsIndexDailyQuoteEntity } from '../../entities/ths-index-daily/ths-index-daily-quote.entity';
+import { IndexDailyQuoteEntity } from '../../entities/index-daily/index-daily-quote.entity';
 import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-catalog.entity';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
 import * as syncUtils from '../a-shares/sync/a-shares-sync-utils';
@@ -63,7 +63,7 @@ async function buildModule(opts: {
   const module: TestingModule = await Test.createTestingModule({
     providers: [
       ThsIndexDailySyncService,
-      { provide: getRepositoryToken(ThsIndexDailyQuoteEntity), useValue: quotesRepo },
+      { provide: getRepositoryToken(IndexDailyQuoteEntity), useValue: quotesRepo },
       { provide: getRepositoryToken(ThsIndexCatalogEntity), useValue: catalogRepo },
       { provide: TushareClientService, useValue: client },
       {

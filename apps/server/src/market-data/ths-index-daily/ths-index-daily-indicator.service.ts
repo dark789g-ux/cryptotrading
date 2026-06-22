@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ThsIndexDailyQuoteEntity } from '../../entities/ths-index-daily/ths-index-daily-quote.entity';
-import { ThsIndexDailyIndicatorEntity } from '../../entities/ths-index-daily/ths-index-daily-indicator.entity';
+import { IndexDailyQuoteEntity } from '../../entities/index-daily/index-daily-quote.entity';
+import { IndexDailyIndicatorEntity } from '../../entities/index-daily/index-daily-indicator.entity';
 import { calcIndicators, KlineRow } from '../../indicators/indicators';
 import { calcBrickChartPoints } from '../../indicators/brick-chart';
 import { batchUpsert } from '../_shared/sync-helpers';
@@ -19,10 +19,10 @@ export class ThsIndexDailyIndicatorService {
   private readonly logger = new Logger(ThsIndexDailyIndicatorService.name);
 
   constructor(
-    @InjectRepository(ThsIndexDailyQuoteEntity)
-    private readonly quotesRepo: Repository<ThsIndexDailyQuoteEntity>,
-    @InjectRepository(ThsIndexDailyIndicatorEntity)
-    private readonly indicatorsRepo: Repository<ThsIndexDailyIndicatorEntity>,
+    @InjectRepository(IndexDailyQuoteEntity)
+    private readonly quotesRepo: Repository<IndexDailyQuoteEntity>,
+    @InjectRepository(IndexDailyIndicatorEntity)
+    private readonly indicatorsRepo: Repository<IndexDailyIndicatorEntity>,
   ) {}
 
   /**
@@ -49,7 +49,7 @@ export class ThsIndexDailyIndicatorService {
   private async recalculateForSymbol(tsCode: string): Promise<number> {
     const rows = await this.quotesRepo
       .createQueryBuilder('q')
-      .select(['q.tsCode', 'q.tradeDate', 'q.open', 'q.high', 'q.low', 'q.close'])
+      .select(['q.tsCode', 'q.tradeDate', 'q.open', 'q.high', 'q.low', 'q.close', 'q.category'])
       .where('q.tsCode = :ts', { ts: tsCode })
       .andWhere('q.open IS NOT NULL')
       .andWhere('q.high IS NOT NULL')
@@ -92,6 +92,7 @@ export class ThsIndexDailyIndicatorService {
         brick: brickPoints[i]?.brick ?? null,
         brickDelta: brickPoints[i]?.delta ?? null,
         brickXg: brickPoints[i]?.xg ?? null,
+        category: rows[i].category,
       }),
     );
 

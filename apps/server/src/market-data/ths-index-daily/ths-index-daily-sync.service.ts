@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Subject } from 'rxjs';
-import { ThsIndexDailyQuoteEntity } from '../../entities/ths-index-daily/ths-index-daily-quote.entity';
+import { IndexDailyQuoteEntity } from '../../entities/index-daily/index-daily-quote.entity';
 import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-catalog.entity';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
 import { resolveOpenTradeDates } from '../a-shares/sync/a-shares-sync-utils';
@@ -38,8 +38,8 @@ export class ThsIndexDailySyncService {
   private isSyncing = false;
 
   constructor(
-    @InjectRepository(ThsIndexDailyQuoteEntity)
-    private readonly quotesRepo: Repository<ThsIndexDailyQuoteEntity>,
+    @InjectRepository(IndexDailyQuoteEntity)
+    private readonly quotesRepo: Repository<IndexDailyQuoteEntity>,
     @InjectRepository(ThsIndexCatalogEntity)
     private readonly catalogRepo: Repository<ThsIndexCatalogEntity>,
     private readonly tushareClient: TushareClientService,
@@ -106,6 +106,10 @@ export class ThsIndexDailySyncService {
       .where('c.type IN (:...types)', { types: ['I', 'N'] })
       .getMany();
     const allowedTsCodes = new Set(catalogRows.map((r) => r.tsCode));
+    // category 映射：catalog.type I→industry / N→concept（同步只处理行业/概念，大盘由专门入口）
+    const categoryMap = new Map<string, 'industry' | 'concept'>(
+      catalogRows.map((r) => [r.tsCode, r.type === 'I' ? 'industry' : 'concept'] as const),
+    );
     if (!allowedTsCodes.size) {
       this.logger.warn('ths_index_catalog 为空（仅 I+N），无法过滤；请先同步行业/概念目录');
     }
@@ -181,6 +185,7 @@ export class ThsIndexDailySyncService {
           totalMvWan: asNullableNumeric(row.total_mv, 10000),
           floatMvWan: asNullableNumeric(row.float_mv, 10000),
           turnoverRate: asNullableFloat(row.turnover_rate),
+          category: categoryMap.get(asString(row.ts_code)) ?? 'industry',
         }),
       );
 

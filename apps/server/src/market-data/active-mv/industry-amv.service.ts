@@ -3,7 +3,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm'
 import { DataSource, Repository } from 'typeorm'
 import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock.entity'
 import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-catalog.entity'
-import { ThsIndexDailyQuoteEntity } from '../../entities/ths-index-daily/ths-index-daily-quote.entity'
+import { IndexDailyQuoteEntity } from '../../entities/index-daily/index-daily-quote.entity'
 import { IndustryAmvDailyEntity } from '../../entities/active-mv/industry-amv-daily.entity'
 import { ConceptAmvDailyEntity } from '../../entities/active-mv/concept-amv-daily.entity'
 import {
@@ -62,7 +62,7 @@ function typeLabel(t: ThsIndexType): string {
  *
  * 双 join：
  *  - 量 join：ths_member_stocks.con_code (.SZ/.SH/.BJ/.NQ) = raw.daily_quote.ts_code，Σ amount × 1000
- *  - 价 join：ths_member_stocks.ts_code (.TI) = ths_index_daily_quotes.ts_code（指数点位）
+ *  - 价 join：ths_member_stocks.ts_code (.TI) = index_daily_quotes.ts_code（指数点位）
  * 待同步指数由 resolveIndexCodes 按 type join ths_index_catalog 过滤，行业/概念互不越界。
  * Σ amount 聚合走裸 SQL（DataSource），规避 QueryBuilder .select() 水合坑（见 database-sql 规则）。
  */
@@ -75,8 +75,8 @@ export class ThsIndexAmvService {
     private readonly memberRepo: Repository<ThsMemberStockEntity>,
     @InjectRepository(ThsIndexCatalogEntity)
     private readonly catalogRepo: Repository<ThsIndexCatalogEntity>,
-    @InjectRepository(ThsIndexDailyQuoteEntity)
-    private readonly indexDailyRepo: Repository<ThsIndexDailyQuoteEntity>,
+    @InjectRepository(IndexDailyQuoteEntity)
+    private readonly indexDailyRepo: Repository<IndexDailyQuoteEntity>,
     @InjectRepository(IndustryAmvDailyEntity)
     private readonly industryAmvRepo: Repository<IndustryAmvDailyEntity>,
     @InjectRepository(ConceptAmvDailyEntity)
@@ -324,10 +324,12 @@ export class ThsIndexAmvService {
       )
     }
 
-    // 价侧表后缀也抽样核对一条（指数日线表 ts_code 必须 .TI）
+    // 价侧表后缀也抽样核对（指数日线表 ts_code 必须 .TI）；
+    // 迁移后统一表含大盘(.SH/.SZ, category='market')，须按 category 过滤再抽样，否则抓到大盘 throw
     const sampleIdxDaily = await this.indexDailyRepo
       .createQueryBuilder('q')
       .select('q.tsCode', 'tsCode')
+      .where('q.category IN (:...cats)', { cats: ['industry', 'concept'] })
       .limit(SUFFIX_SAMPLE)
       .getRawMany<{ tsCode: string }>()
     const badIdxDaily = sampleIdxDaily
@@ -336,7 +338,7 @@ export class ThsIndexAmvService {
       .slice(0, SUFFIX_SAMPLE)
     if (badIdxDaily.length > 0) {
       throw new Error(
-        `${label}_amv_suffix: 价侧 ths_index_daily_quotes.ts_code 非 .TI 后缀，样本=${JSON.stringify(badIdxDaily)}`,
+        `${label}_amv_suffix: 价侧 index_daily_quotes.ts_code 非 .TI 后缀，样本=${JSON.stringify(badIdxDaily)}`,
       )
     }
   }
@@ -384,7 +386,7 @@ export class ThsIndexAmvService {
       .getMany()
 
     if (priceRows.length === 0) {
-      const msg = `${emptyApi}:${idx}: ths_index_daily_quotes 当窗口无行情`
+      const msg = `${emptyApi}:${idx}: index_daily_quotes 当窗口无行情`
       this.logger.warn(
         `[${label}-amv] ${msg}（fetchStart=${fetchStart} endDate=${endDate}）`,
       )

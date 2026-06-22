@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ThsIndexDailyQuoteEntity } from '../../entities/ths-index-daily/ths-index-daily-quote.entity';
-import { ThsIndexDailyIndicatorEntity } from '../../entities/ths-index-daily/ths-index-daily-indicator.entity';
+import { IndexDailyQuoteEntity } from '../../entities/index-daily/index-daily-quote.entity';
+import { IndexDailyIndicatorEntity } from '../../entities/index-daily/index-daily-indicator.entity';
 import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-catalog.entity';
 import { ThsIndexDailyService } from './ths-index-daily.service';
 import { ThsIndexDailySyncService } from './ths-index-daily-sync.service';
@@ -13,8 +13,8 @@ import { TushareClientService } from '../a-shares/services/tushare-client.servic
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      ThsIndexDailyQuoteEntity,
-      ThsIndexDailyIndicatorEntity,
+      IndexDailyQuoteEntity,
+      IndexDailyIndicatorEntity,
       ThsIndexCatalogEntity,
     ]),
   ],

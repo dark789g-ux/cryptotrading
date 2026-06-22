@@ -68,11 +68,12 @@ import { MoneyFlowSectorEntity } from './entities/money-flow/money-flow-sector.e
 import { MoneyFlowMarketEntity } from './entities/money-flow/money-flow-market.entity';
 import { ThsMemberStockEntity } from './entities/money-flow/ths-member-stock.entity';
 import { ThsIndexCatalogEntity } from './entities/index-catalog/ths-index-catalog.entity';
-import { ThsIndexDailyQuoteEntity } from './entities/ths-index-daily/ths-index-daily-quote.entity';
-import { ThsIndexDailyIndicatorEntity } from './entities/ths-index-daily/ths-index-daily-indicator.entity';
+import { IndexDailyQuoteEntity } from './entities/index-daily/index-daily-quote.entity';
+import { IndexDailyIndicatorEntity } from './entities/index-daily/index-daily-indicator.entity';
 import { MoneyFlowModule } from './market-data/money-flow/money-flow.module';
 import { IndexCatalogModule } from './market-data/index-catalog/index-catalog.module';
 import { ThsIndexDailyModule } from './market-data/ths-index-daily/ths-index-daily.module';
+import { IndexDailyModule } from './market-data/index-daily/index-daily.module';
 import { UsIndexDailyModule } from './market-data/us-index-daily/us-index-daily.module';
 import { UsIndexAmvModule } from './market-data/us-index-amv/us-index-amv.module';
 import { BaseDataSyncModule } from './market-data/base-data-sync/base-data-sync.module';
@@ -183,8 +184,8 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           MoneyFlowMarketEntity,
           ThsMemberStockEntity,
           ThsIndexCatalogEntity,
-          ThsIndexDailyQuoteEntity,
-          ThsIndexDailyIndicatorEntity,
+          IndexDailyQuoteEntity,
+          IndexDailyIndicatorEntity,
           OamvDailyEntity,
           StockAmvDailyEntity,
           IndustryAmvDailyEntity,
@@ -241,6 +242,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     MoneyFlowModule,
     IndexCatalogModule,
     ThsIndexDailyModule,
+    IndexDailyModule,
     UsIndexDailyModule,
     UsIndexAmvModule,
     BaseDataSyncModule,

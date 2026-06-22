@@ -4,8 +4,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ThsIndexDailyIndicatorService } from './ths-index-daily-indicator.service';
-import { ThsIndexDailyQuoteEntity } from '../../entities/ths-index-daily/ths-index-daily-quote.entity';
-import { ThsIndexDailyIndicatorEntity } from '../../entities/ths-index-daily/ths-index-daily-indicator.entity';
+import { IndexDailyQuoteEntity } from '../../entities/index-daily/index-daily-quote.entity';
+import { IndexDailyIndicatorEntity } from '../../entities/index-daily/index-daily-indicator.entity';
 import { calcIndicators, KlineRow } from '../../indicators/indicators';
 import { calcBrickChartPoints } from '../../indicators/brick-chart';
 
@@ -47,8 +47,8 @@ describe('ThsIndexDailyIndicatorService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ThsIndexDailyIndicatorService,
-        { provide: getRepositoryToken(ThsIndexDailyQuoteEntity), useValue: quotesRepo },
-        { provide: getRepositoryToken(ThsIndexDailyIndicatorEntity), useValue: indicatorsRepo },
+        { provide: getRepositoryToken(IndexDailyQuoteEntity), useValue: quotesRepo },
+        { provide: getRepositoryToken(IndexDailyIndicatorEntity), useValue: indicatorsRepo },
       ],
     }).compile();
     module.useLogger(false);

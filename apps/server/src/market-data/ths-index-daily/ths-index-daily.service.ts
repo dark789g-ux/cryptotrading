@@ -78,8 +78,8 @@ export class ThsIndexDailyService {
           i.brick      AS brick,
           i.brick_delta AS "brickDelta",
           i.brick_xg    AS "brickXg"
-        FROM ths_index_daily_quotes q
-        LEFT JOIN ths_index_daily_indicators i
+        FROM index_daily_quotes q
+        LEFT JOIN index_daily_indicators i
           ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
         WHERE q.ts_code = $1
           AND q.trade_date >= $2
@@ -163,7 +163,7 @@ export class ThsIndexDailyService {
       SELECT
         MIN(trade_date) AS min,
         MAX(trade_date) AS max
-      FROM ths_index_daily_quotes
+      FROM index_daily_quotes
     `);
     return rows[0] ?? { min: null, max: null };
   }
