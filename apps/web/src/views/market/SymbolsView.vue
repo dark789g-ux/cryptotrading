@@ -51,7 +51,7 @@
 
     <keep-alive>
       <crypto-symbols-panel v-if="activeTab === 'crypto'" />
-      <a-shares-panel v-else-if="activeTab === 'aShares'" />
+      <a-shares-tabs-container v-else-if="activeTab === 'aShares'" />
       <active-market-value-panel v-else-if="activeTab === 'activeMarketValue'" />
       <us-stocks-tabs-container v-else />
     </keep-alive>
@@ -62,7 +62,7 @@
 defineOptions({ name: 'SymbolsView' })
 
 import { ref } from 'vue'
-import ASharesPanel from '../../components/symbols/ASharesPanel.vue'
+import ASharesTabsContainer from '../../components/symbols/ASharesTabsContainer.vue'
 import CryptoSymbolsPanel from '../../components/symbols/CryptoSymbolsPanel.vue'
 import ActiveMarketValuePanel from '../../components/symbols/ActiveMarketValuePanel.vue'
 import UsStocksTabsContainer from '../../components/symbols/UsStocksTabsContainer.vue'
