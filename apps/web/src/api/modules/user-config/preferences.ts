@@ -15,6 +15,7 @@ export interface SymbolsViewColumnPreferences {
   crypto: ScopeViewPreferences
   aShares: ScopeViewPreferences
   usStocks: ScopeViewPreferences
+  aSharesIndex: ScopeViewPreferences
 }
 
 export const preferencesApi = {

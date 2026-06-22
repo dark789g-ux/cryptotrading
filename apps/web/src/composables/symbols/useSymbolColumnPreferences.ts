@@ -23,6 +23,7 @@ function cloneSymbolsViewPreferences(value: SymbolsViewColumnPreferences): Symbo
     crypto: cloneScopeView(value.crypto),
     aShares: cloneScopeView(value.aShares),
     usStocks: cloneScopeView(value.usStocks),
+    aSharesIndex: cloneScopeView(value.aSharesIndex),
   }
 }
 
@@ -152,6 +153,7 @@ export function useSymbolColumnPreferences<Row>(
     crypto: scope === 'crypto' ? defaultScopeView() : { table: [], split: [] },
     aShares: scope === 'aShares' ? defaultScopeView() : { table: [], split: [] },
     usStocks: scope === 'usStocks' ? defaultScopeView() : { table: [], split: [] },
+    aSharesIndex: scope === 'aSharesIndex' ? defaultScopeView() : { table: [], split: [] },
   })
 
   /** 当前视图槽位的列偏好（随 viewMode 切片）；drawer 绑定它。 */
@@ -191,6 +193,7 @@ export function useSymbolColumnPreferences<Row>(
         crypto: hydrateScope(resolvedDefs.value, payload.crypto),
         aShares: hydrateScope(resolvedDefs.value, payload.aShares),
         usStocks: hydrateScope(resolvedDefs.value, payload.usStocks),
+        aSharesIndex: hydrateScope(resolvedDefs.value, payload.aSharesIndex),
       }
       loaded.value = true
       return preferences.value
