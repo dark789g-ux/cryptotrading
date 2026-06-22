@@ -81,7 +81,8 @@ export class ThsIndexDailyService {
         FROM index_daily_quotes q
         LEFT JOIN index_daily_indicators i
           ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
-        WHERE q.ts_code = $1
+        WHERE q.category IN ('industry', 'concept')
+          AND q.ts_code = $1
           AND q.trade_date >= $2
           AND q.trade_date <= $3
         ORDER BY q.trade_date ASC
@@ -164,6 +165,7 @@ export class ThsIndexDailyService {
         MIN(trade_date) AS min,
         MAX(trade_date) AS max
       FROM index_daily_quotes
+      WHERE category IN ('industry', 'concept')
     `);
     return rows[0] ?? { min: null, max: null };
   }
