@@ -5,12 +5,14 @@ import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
 import { IndexCatalogSyncController } from './index-catalog-sync.controller';
 import { IndexCatalogSyncService } from './index-catalog-sync.service';
+import { IndexCatalogController } from './index-catalog.controller';
+import { IndexCatalogQueryService } from './index-catalog-query.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ThsIndexCatalogEntity, ThsMemberStockEntity]),
   ],
-  controllers: [IndexCatalogSyncController],
-  providers: [IndexCatalogSyncService, TushareClientService],
+  controllers: [IndexCatalogSyncController, IndexCatalogController],
+  providers: [IndexCatalogSyncService, IndexCatalogQueryService, TushareClientService],
 })
 export class IndexCatalogModule {}
