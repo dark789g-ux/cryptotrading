@@ -6,6 +6,7 @@ import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-ca
 import { ThsIndexDailyService } from './ths-index-daily.service';
 import { ThsIndexDailySyncService } from './ths-index-daily-sync.service';
 import { ThsIndexDailyIndicatorService } from './ths-index-daily-indicator.service';
+import { MarketIndexSyncService } from './market-index-sync.service';
 import { ThsIndexDailyController } from './ths-index-daily.controller';
 import { ThsIndexDailySyncController } from './ths-index-daily-sync.controller';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
@@ -23,6 +24,7 @@ import { TushareClientService } from '../a-shares/services/tushare-client.servic
     ThsIndexDailyService,
     ThsIndexDailySyncService,
     ThsIndexDailyIndicatorService,
+    MarketIndexSyncService,
     TushareClientService,
   ],
   exports: [ThsIndexDailySyncService],
