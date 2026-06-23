@@ -89,6 +89,7 @@ export interface AShareQueryBody {
   conditions?: NumericConditionPayload[]
   watchlistIds?: string[]
   strategyHitIds?: string[]
+  indexTsCode?: string
 }
 
 export interface AShareFilterPresetFilters {

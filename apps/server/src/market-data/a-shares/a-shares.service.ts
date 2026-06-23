@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Subject } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
@@ -110,6 +110,10 @@ export class ASharesService {
   async query(dto: QueryASharesDto) {
     const page = Math.max(1, Number(dto.page ?? 1));
     const pageSize = Math.min(100, Math.max(1, Number(dto.pageSize ?? 10)));
+
+    if (dto.indexTsCode && !dto.indexTsCode.endsWith('.TI') && !dto.indexTsCode.endsWith('.SI')) {
+      throw new BadRequestException(`不支持的指数类型：${dto.indexTsCode}。仅支持 .TI（同花顺）和 .SI（申万）后缀的指数代码。`);
+    }
 
     // 按「评分」排序需当日 prod 模型版本以 JOIN ml.scores_daily（跨域只读，仅排序时触发）
     const scoreModelVersion =

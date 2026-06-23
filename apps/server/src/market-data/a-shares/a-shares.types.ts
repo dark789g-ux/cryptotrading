@@ -31,6 +31,7 @@ export interface QueryASharesDto {
   conditions?: QueryCondition[];
   watchlistIds?: string[];
   strategyHitIds?: string[];
+  indexTsCode?: string;
 }
 
 export interface ASharesFilterPresetFilters {

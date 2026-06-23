@@ -238,6 +238,25 @@ export function buildASharesBaseQuery(
     paramIndex++;
   }
 
+  if (dto.indexTsCode) {
+    if (dto.indexTsCode.endsWith('.TI')) {
+      sql += ` AND s.ts_code IN (SELECT tms.con_code FROM ths_member_stocks tms WHERE tms.ts_code = $${paramIndex})`;
+      params.push(dto.indexTsCode);
+      paramIndex++;
+    } else if (dto.indexTsCode.endsWith('.SI')) {
+      const l3Code = dto.indexTsCode.replace(/\.SI$/, '');
+      sql += ` AND s.ts_code IN (
+        SELECT im.ts_code
+        FROM raw.index_member im
+        WHERE im.l3_code = $${paramIndex}
+          AND im.in_date <= l.trade_date
+          AND (im.out_date IS NULL OR im.out_date >= l.trade_date)
+      )`;
+      params.push(l3Code);
+      paramIndex++;
+    }
+  }
+
   return { sql, params, nextParamIndex: paramIndex };
 }
 
