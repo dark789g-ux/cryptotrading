@@ -36,6 +36,8 @@ export interface IndexLatestRow {
   pe: number | null
   /** 市净率，仅申万（category='sw'）有 */
   pb: number | null
+  /** 成分股数量；大盘宽基无此信息时为 null */
+  count: number | null
 }
 
 export interface IndexLatestResult {
@@ -55,6 +57,7 @@ export type IndexLatestSortField =
   | 'tradeDate'
   | 'pe'
   | 'pb'
+  | 'count'
 
 /** GET /api/index-catalog?category=&q= 单行。 */
 export interface IndexCatalogRow {

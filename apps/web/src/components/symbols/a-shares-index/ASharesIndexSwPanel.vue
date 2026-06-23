@@ -74,6 +74,10 @@ import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColum
 import type { IndexLatestRow } from './types'
 import type { SwLevel } from './useASharesIndexQuery'
 
+const emit = defineEmits<{
+  (e: 'jump-to-members', payload: { tsCode: string; name: string; category: string }): void
+}>()
+
 const message = useMessage()
 const {
   loading,
@@ -101,7 +105,14 @@ function onLevelChange(value: number | string | boolean | null) {
   applyLevelFilter()
 }
 
-const columnDefs = computed(() => createASharesIndexColumnDefs({ showValuation: true }))
+const columnDefs = computed(() =>
+  createASharesIndexColumnDefs({
+    showValuation: true,
+    onJumpToMembers: (row) => {
+      emit('jump-to-members', { tsCode: row.tsCode, name: row.name, category: row.category })
+    },
+  }),
+)
 const showColumnSettings = ref(false)
 
 const {

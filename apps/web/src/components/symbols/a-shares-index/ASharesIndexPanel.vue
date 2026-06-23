@@ -7,10 +7,10 @@
       display-directive="show:lazy"
     >
       <n-tab-pane name="ths" tab="同花顺指数">
-        <a-shares-index-ths-panel />
+        <a-shares-index-ths-panel @jump-to-members="handleJumpToMembers" />
       </n-tab-pane>
       <n-tab-pane name="sw" tab="申万指数">
-        <a-shares-index-sw-panel />
+        <a-shares-index-sw-panel @jump-to-members="handleJumpToMembers" />
       </n-tab-pane>
     </n-tabs>
   </div>
@@ -19,12 +19,20 @@
 <script setup lang="ts">
 defineOptions({ name: 'ASharesIndexPanel' })
 
+const emit = defineEmits<{
+  (e: 'switch-to-stocks', payload: { tsCode: string; name: string }): void
+}>()
+
 import { onActivated, ref } from 'vue'
 import { NTabPane, NTabs } from 'naive-ui'
 import ASharesIndexThsPanel from './ASharesIndexThsPanel.vue'
 import ASharesIndexSwPanel from './ASharesIndexSwPanel.vue'
 
 const subTab = ref<'ths' | 'sw'>('ths')
+
+function handleJumpToMembers(payload: { tsCode: string; name: string; category: string }) {
+  emit('switch-to-stocks', { tsCode: payload.tsCode, name: payload.name })
+}
 
 // 与 ASharesTabsContainer 的 resize 契约对齐（表格无 ECharts，resize 为 no-op）。
 // 本面板现已是 sub-tab 容器，各子面板自带 onMounted/onActivated reload（keep-alive 切回刷新）。

@@ -10,6 +10,8 @@ import {
   trendClass,
 } from '../a-shares/aSharesFormatters'
 import { colors } from '../../../styles/tokens'
+import { List } from '@vicons/ionicons5'
+import { NButton, NIcon } from 'naive-ui'
 
 const CATEGORY_LABEL: Record<IndexCategory, string> = {
   market: '大盘',
@@ -45,10 +47,15 @@ function pctColor(value: number | null): string | undefined {
  * 单位（与后端契约一致，表头标注）：vol=手、amount=千元、totalMvWan=万元。
  *
  * @param showValuation 是否包含 pe/pb 估值列（仅申万区 true；同花顺区 false 剔除）
+ * @param onJumpToMembers 点击"成分股"按钮的回调
  */
 export function createASharesIndexColumnDefs({
   showValuation = false,
-}: { showValuation?: boolean } = {}): SymbolColumnDef<IndexLatestRow>[] {
+  onJumpToMembers,
+}: {
+  showValuation?: boolean
+  onJumpToMembers?: (row: IndexLatestRow) => void
+} = {}): SymbolColumnDef<IndexLatestRow>[] {
   const base: SymbolColumnDef<IndexLatestRow>[] = [
     {
       title: '代码',
@@ -120,6 +127,14 @@ export function createASharesIndexColumnDefs({
       defaultVisible: false,
       render: (row) => formatMarketCap(row.totalMvWan),
     },
+    {
+      title: '个股数',
+      key: 'count',
+      width: 90,
+      sorter: true,
+      defaultVisible: true,
+      render: (row) => (row.count == null ? '-' : String(row.count)),
+    },
   ]
 
   if (showValuation) {
@@ -152,6 +167,29 @@ export function createASharesIndexColumnDefs({
     defaultVisible: true,
     render: (row) => formatTradeDate(row.tradeDate),
   })
+
+  if (onJumpToMembers) {
+    base.push({
+      title: '操作',
+      key: 'action',
+      width: 90,
+      fixed: 'right',
+      defaultVisible: true,
+      locked: true,
+      render: (row) =>
+        h(
+          NButton,
+          {
+            size: 'small',
+            onClick: () => onJumpToMembers(row),
+          },
+          {
+            icon: () => h(NIcon, null, () => h(List)),
+            default: () => '成分股',
+          },
+        ),
+    })
+  }
 
   return base
 }

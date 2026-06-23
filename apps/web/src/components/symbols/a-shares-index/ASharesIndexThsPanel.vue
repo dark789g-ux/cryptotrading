@@ -64,6 +64,10 @@ import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColum
 import type { IndexLatestRow } from './types'
 import type { IndexTypeFilter } from './useASharesIndexQuery'
 
+const emit = defineEmits<{
+  (e: 'jump-to-members', payload: { tsCode: string; name: string; category: string }): void
+}>()
+
 const message = useMessage()
 const {
   loading,
@@ -92,7 +96,14 @@ function onTypeChange(value: string | number | boolean | null) {
   applyTypeFilter()
 }
 
-const columnDefs = computed(() => createASharesIndexColumnDefs({ showValuation: false }))
+const columnDefs = computed(() =>
+  createASharesIndexColumnDefs({
+    showValuation: false,
+    onJumpToMembers: (row) => {
+      emit('jump-to-members', { tsCode: row.tsCode, name: row.name, category: row.category })
+    },
+  }),
+)
 const showColumnSettings = ref(false)
 
 const {
