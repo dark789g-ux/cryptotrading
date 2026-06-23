@@ -74,6 +74,7 @@ import { SwIndexCatalogEntity } from './entities/sw-index/sw-index-catalog.entit
 import { MoneyFlowModule } from './market-data/money-flow/money-flow.module';
 import { IndexCatalogModule } from './market-data/index-catalog/index-catalog.module';
 import { ThsIndexDailyModule } from './market-data/ths-index-daily/ths-index-daily.module';
+import { SwIndexDailyModule } from './market-data/sw-index-daily/sw-index-daily.module';
 import { IndexDailyModule } from './market-data/index-daily/index-daily.module';
 import { UsIndexDailyModule } from './market-data/us-index-daily/us-index-daily.module';
 import { UsIndexAmvModule } from './market-data/us-index-amv/us-index-amv.module';
@@ -244,6 +245,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     MoneyFlowModule,
     IndexCatalogModule,
     ThsIndexDailyModule,
+    SwIndexDailyModule,
     IndexDailyModule,
     UsIndexDailyModule,
     UsIndexAmvModule,
