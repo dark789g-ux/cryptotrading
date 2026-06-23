@@ -20,6 +20,9 @@
             subtitle="美股个股 → 美股指数日线 → 美股指数 AMV"
           />
         </n-tab-pane>
+        <n-tab-pane name="market-index-scope" tab="大盘宽基范围" display-directive="show:lazy">
+          <MarketIndexScopePanel />
+        </n-tab-pane>
       </n-tabs>
     </n-card>
   </div>
@@ -29,13 +32,14 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useMessage, NCard, NTabs, NTabPane } from 'naive-ui'
 import OneClickSyncPanel from '../../components/sync/OneClickSyncPanel.vue'
+import MarketIndexScopePanel from './MarketIndexScopePanel.vue'
 import { useOneClickSync } from '../../components/sync/useOneClickSync'
 import { useUsOneClickSync } from '../../components/sync/useUsOneClickSync'
 import { useOneClickSyncStore } from '../../stores/oneClickSync'
 import { useUsOneClickSyncStore } from '../../stores/usOneClickSync'
 
 const message = useMessage()
-const activeTab = ref<'ashare' | 'us'>('ashare')
+const activeTab = ref<'ashare' | 'us' | 'market-index-scope'>('ashare')
 
 // A 股 / 美股各一个实现同一接口 OneClickPanelController 的 controller，喂给复用的 OneClickSyncPanel。
 const aCtrl = useOneClickSync(message)
