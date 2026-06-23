@@ -64,8 +64,16 @@ export class SwIndexDailySyncService {
     onProgress?: (event: SwIndexDailySyncEvent) => void,
   ): Promise<SwIndexDailySyncResult> {
     const errors: SwIndexDailySyncErrorItem[] = [];
+    const isOverwrite = (dto.syncMode ?? 'incremental') === 'overwrite';
 
-    // 0) 目录灌入（index_classify 三级，src=SW2021）
+    // 0) overwrite 模式先清空旧数据，避免 ts_code 格式漂移（如 801010.SI.SI 双后缀）残留
+    if (isOverwrite) {
+      await this.catalogRepo.clear();
+      await this.quotesRepo.delete({ category: 'sw' });
+      this.logger.log('overwrite 模式：已清空 sw_index_catalog 与 index_daily_quotes category=sw');
+    }
+
+    // 1) 目录灌入（index_classify 三级，src=SW2021）
     const catalogParams = { src: 'SW2021' };
     try {
       await this.refreshCatalog(catalogParams, onProgress);
@@ -76,7 +84,7 @@ export class SwIndexDailySyncService {
       // 目录失败不阻断行情（行情按全量 ts_code 写，不依赖 catalog 过滤）
     }
 
-    // 1) 取交易日列表
+    // 2) 取交易日列表
     let openDates: string[];
     try {
       openDates = await resolveOpenTradeDates(this.tushareClient, {

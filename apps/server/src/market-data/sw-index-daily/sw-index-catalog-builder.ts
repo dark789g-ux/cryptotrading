@@ -54,7 +54,9 @@ function normalizeLevel(raw: unknown): 1 | 2 | 3 | null {
 function normalizeRows(rows: RawIndexClassifyRow[], expectedLevel: 1 | 2 | 3): NormalizedNode[] {
   const out: NormalizedNode[] = [];
   for (const row of rows) {
-    const indexCode = String(row.index_code ?? '').trim();
+    const rawIndexCode = String(row.index_code ?? '').trim();
+    // 真机返回部分账号 index_code 已带 .SI 后缀，strip 后再统一加后缀，避免 801010.SI.SI 双后缀
+    const indexCode = rawIndexCode.replace(/\.SI$/i, '');
     const industryCode = String(row.industry_code ?? '').trim();
     if (!indexCode || !industryCode) continue;
     const level = normalizeLevel(row.level);

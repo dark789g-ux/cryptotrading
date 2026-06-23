@@ -16,6 +16,8 @@ interface MockRepo {
   createQueryBuilder: jest.Mock;
   upsert: jest.Mock;
   create: jest.Mock;
+  clear?: jest.Mock;
+  delete?: jest.Mock;
 }
 
 function makeQuotesRepo(): MockRepo {
@@ -29,6 +31,7 @@ function makeQuotesRepo(): MockRepo {
   return {
     createQueryBuilder: jest.fn().mockReturnValue(qb),
     upsert: jest.fn().mockResolvedValue({}),
+    delete: jest.fn().mockResolvedValue({}),
     // create 直接透传（与 ths spec 同款），让断言能读到 map 后的字段
     create: jest.fn().mockImplementation((x: Record<string, unknown>) => x),
   };
@@ -38,6 +41,7 @@ function makeCatalogRepo(): MockRepo {
   return {
     createQueryBuilder: jest.fn(),
     upsert: jest.fn().mockResolvedValue({}),
+    clear: jest.fn().mockResolvedValue({}),
     create: jest.fn().mockImplementation((x: Record<string, unknown>) => x),
   };
 }
