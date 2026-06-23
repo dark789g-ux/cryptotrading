@@ -69,6 +69,7 @@ const sampleRow: IndexLatestRow = {
   totalMvWan: null,
   pe: null,
   pb: null,
+  count: null,
 }
 
 const mountedWrappers: VueWrapper[] = []
