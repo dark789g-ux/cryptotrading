@@ -2,18 +2,17 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-catalog.entity';
-import { MARKET_INDEX_LIST, MarketIndexEntry } from './market-index-list';
 import type { IndexCatalogCategory } from './dto/query-catalog.dto';
 
 /**
  * 统一指数目录查询返回行。
  *
- * 与 ths_index_catalog 的区别：
+ * 三类指数全部来自 ths_index_catalog（单一数据源）：
  * - `tsCode/name/count` 直接来自 entity（DB 列）
- * - `category` 是派生字段：ths_index_catalog.type (I/N/M) → category (industry/concept/market)，
- *   大盘则来自 MARKET_INDEX_LIST 常量
+ * - `category` 是派生字段：ths_index_catalog.type (I/N/M) → category (industry/concept/market)
  *
  * 设计 spec：docs/superpowers/specs/2026-06-22-a-shares-index-tab-design.md:158
+ *           docs/superpowers/specs/2026-06-23-market-index-dynamic-scope-design/02-backend.md §2.3
  */
 export interface IndexCatalogRow {
   tsCode: string;
@@ -55,7 +54,7 @@ export class IndexCatalogQueryService {
     const rows: IndexCatalogRow[] = [];
 
     if (wantMarket) {
-      rows.push(...this.queryMarket(trimmedQ));
+      rows.push(...(await this.queryMarket(trimmedQ)));
     }
 
     const dbTypes: Array<'I' | 'N'> = [
@@ -71,15 +70,20 @@ export class IndexCatalogQueryService {
     return rows;
   }
 
-  /** 从硬编码常量取大盘指数，叠加 q 过滤 */
-  private queryMarket(q: string | undefined): IndexCatalogRow[] {
-    return MARKET_INDEX_LIST.filter((entry: MarketIndexEntry) =>
-      matchesName(entry.name, q),
-    ).map((entry: MarketIndexEntry) => ({
-      tsCode: entry.tsCode,
-      name: entry.name,
-      category: 'market',
-    }));
+  /** 查 ths_index_catalog type='M'（大盘动态范围），叠加 q 过滤 */
+  private async queryMarket(q: string | undefined): Promise<IndexCatalogRow[]> {
+    const entities = await this.catalogRepo.find({
+      where: { type: 'M' },
+      order: { tsCode: 'ASC' },
+    });
+    return entities
+      .filter((e) => matchesName(e.name, q))
+      .map((e) => ({
+        tsCode: e.tsCode,
+        name: e.name,
+        category: 'market' as const,
+        count: e.count,
+      }));
   }
 
   /** 查 ths_index_catalog，type → category 映射后返回 */

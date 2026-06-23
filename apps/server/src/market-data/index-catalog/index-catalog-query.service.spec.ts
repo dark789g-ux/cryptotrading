@@ -3,7 +3,6 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { IndexCatalogQueryService } from './index-catalog-query.service';
 import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-catalog.entity';
-import { MARKET_INDEX_LIST } from './market-index-list';
 
 function makeCatalogRow(partial: Partial<ThsIndexCatalogEntity>): ThsIndexCatalogEntity {
   return {
@@ -18,6 +17,17 @@ function makeCatalogRow(partial: Partial<ThsIndexCatalogEntity>): ThsIndexCatalo
     ...partial,
   } as ThsIndexCatalogEntity;
 }
+
+const MARKET_ROWS: ThsIndexCatalogEntity[] = [
+  makeCatalogRow({ tsCode: '000001.SH', name: '上证指数', type: 'M' }),
+  makeCatalogRow({ tsCode: '399001.SZ', name: '深证成指', type: 'M' }),
+  makeCatalogRow({ tsCode: '399006.SZ', name: '创业板指', type: 'M' }),
+  makeCatalogRow({ tsCode: '000688.SH', name: '科创50', type: 'M' }),
+  makeCatalogRow({ tsCode: '000300.SH', name: '沪深300', type: 'M' }),
+  makeCatalogRow({ tsCode: '000016.SH', name: '上证50', type: 'M' }),
+  makeCatalogRow({ tsCode: '000905.SH', name: '中证500', type: 'M' }),
+  makeCatalogRow({ tsCode: '000852.SH', name: '中证1000', type: 'M' }),
+];
 
 function makeQbMock(rows: ThsIndexCatalogEntity[]) {
   const qb = {
@@ -36,6 +46,7 @@ describe('IndexCatalogQueryService', () => {
   beforeEach(async () => {
     catalogRepo = {
       createQueryBuilder: jest.fn(),
+      find: jest.fn(),
     } as unknown as jest.Mocked<Repository<ThsIndexCatalogEntity>>;
 
     const module: TestingModule = await Test.createTestingModule({
@@ -49,18 +60,35 @@ describe('IndexCatalogQueryService', () => {
   });
 
   describe('findAll', () => {
-    it('category=market 只返回 MARKET_INDEX_LIST 常量，不查 DB', async () => {
+    it('category=market 查 ths_index_catalog WHERE type=M', async () => {
+      catalogRepo.find = jest.fn().mockResolvedValue(MARKET_ROWS) as never;
+
       const rows = await service.findAll('market');
 
-      expect(rows).toHaveLength(MARKET_INDEX_LIST.length);
-      expect(catalogRepo.createQueryBuilder).not.toHaveBeenCalled();
+      expect(catalogRepo.find).toHaveBeenCalledWith({
+        where: { type: 'M' },
+        order: { tsCode: 'ASC' },
+      });
+      expect(rows).toHaveLength(MARKET_ROWS.length);
       for (const r of rows) {
         expect(r.category).toBe('market');
-        expect(r.count).toBeUndefined();
       }
       const codes = rows.map((r) => r.tsCode);
       expect(codes).toContain('000001.SH');
       expect(codes).toContain('000852.SH');
+    });
+
+    it('category=market 按 tsCode ASC 排序', async () => {
+      // 故意打乱顺序，断言 find 收到 order；service 不过滤顺序（DB 负责）
+      const shuffled = [...MARKET_ROWS].reverse();
+      catalogRepo.find = jest.fn().mockResolvedValue(shuffled) as never;
+
+      await service.findAll('market');
+
+      expect(catalogRepo.find).toHaveBeenCalledWith({
+        where: { type: 'M' },
+        order: { tsCode: 'ASC' },
+      });
     });
 
     it('category=industry 查 ths_index_catalog WHERE type IN (I)', async () => {
@@ -88,21 +116,23 @@ describe('IndexCatalogQueryService', () => {
       expect(rows[0]).toMatchObject({ tsCode: '885001.TI', name: '网络安全', category: 'concept', count: 30 });
     });
 
-    it('category 缺省：三类合并（market 常量 + DB 行业/概念）', async () => {
+    it('category 缺省：三类合并（market 来自 DB type=M + DB 行业/概念）', async () => {
       const dbRows = [
         makeCatalogRow({ tsCode: '881101.TI', name: '采掘', type: 'I' }),
         makeCatalogRow({ tsCode: '885001.TI', name: '网络安全', type: 'N' }),
       ];
+      catalogRepo.find = jest.fn().mockResolvedValue(MARKET_ROWS) as never;
       catalogRepo.createQueryBuilder = jest.fn().mockReturnValue(makeQbMock(dbRows)) as never;
 
       const rows = await service.findAll();
 
       const categories = rows.map((r) => r.category).sort();
-      expect(categories).toEqual(['concept', 'industry', ...Array(MARKET_INDEX_LIST.length).fill('market')]);
-      expect(rows).toHaveLength(MARKET_INDEX_LIST.length + 2);
+      expect(categories).toEqual(['concept', 'industry', ...Array(MARKET_ROWS.length).fill('market')]);
+      expect(rows).toHaveLength(MARKET_ROWS.length + 2);
     });
 
     it('缺省 category 时 DB 查询用 type IN (I,N) 一次拉取', async () => {
+      catalogRepo.find = jest.fn().mockResolvedValue(MARKET_ROWS) as never;
       catalogRepo.createQueryBuilder = jest.fn().mockReturnValue(makeQbMock([])) as never;
 
       await service.findAll();
@@ -111,14 +141,18 @@ describe('IndexCatalogQueryService', () => {
       expect(qb.where).toHaveBeenCalledWith('c.type IN (:...types)', { types: ['I', 'N'] });
     });
 
-    it('q 模糊搜索：market 常量按 name 过滤', async () => {
+    it('q 模糊搜索：market 按 name 过滤', async () => {
+      catalogRepo.find = jest.fn().mockResolvedValue(MARKET_ROWS) as never;
+
       const rows = await service.findAll('market', '沪深');
 
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ tsCode: '000300.SH', name: '沪深300' });
     });
 
-    it('q 模糊搜索大小写不敏感（market 常量）', async () => {
+    it('q 模糊搜索大小写不敏感（market）', async () => {
+      catalogRepo.find = jest.fn().mockResolvedValue(MARKET_ROWS) as never;
+
       const rowsUpper = await service.findAll('market', '沪深');
       const rowsLower = await service.findAll('market', '沪深');
       expect(rowsUpper).toEqual(rowsLower);
@@ -142,7 +176,9 @@ describe('IndexCatalogQueryService', () => {
       expect(qb.andWhere).not.toHaveBeenCalled();
     });
 
-    it('q 对 market 常量不匹配时返回空数组', async () => {
+    it('q 对 market 不匹配时返回空数组', async () => {
+      catalogRepo.find = jest.fn().mockResolvedValue(MARKET_ROWS) as never;
+
       const rows = await service.findAll('market', '不存在的指数名');
       expect(rows).toEqual([]);
     });
@@ -155,6 +191,17 @@ describe('IndexCatalogQueryService', () => {
 
       const qb = (catalogRepo.createQueryBuilder as jest.Mock).mock.results[0].value;
       expect(qb.where).toHaveBeenCalledWith('c.type IN (:...types)', { types: ['I'] });
+    });
+
+    it('category=market 透传 count 列', async () => {
+      const rowsWithCount = [
+        makeCatalogRow({ tsCode: '000300.SH', name: '沪深300', type: 'M', count: 300 }),
+      ];
+      catalogRepo.find = jest.fn().mockResolvedValue(rowsWithCount) as never;
+
+      const rows = await service.findAll('market');
+
+      expect(rows[0].count).toBe(300);
     });
   });
 });

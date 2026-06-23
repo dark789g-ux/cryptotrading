@@ -5,7 +5,7 @@
  * 不是同一接口，故独立 DTO + 独立路由。
  */
 export class MarketIndexSyncDto {
-  /** 起始日期 YYYYMMDD（可选，缺省走 MARKET_INDEX_LIST 各自最早可得日） */
+  /** 起始日期 YYYYMMDD（可选，缺省走 catalog type='M' 范围内各指数最早可得日） */
   start_date?: string;
   /** 结束日期 YYYYMMDD（可选，缺省=今天） */
   end_date?: string;

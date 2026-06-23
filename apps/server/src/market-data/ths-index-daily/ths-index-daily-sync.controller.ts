@@ -39,7 +39,7 @@ export class ThsIndexDailySyncController {
     res.on('close', () => subscription.unsubscribe());
   }
 
-  /** 大盘指数日线同步（index_daily，遍历 MARKET_INDEX_LIST，同步返回结果）。 */
+  /** 大盘指数日线同步（index_daily，遍历 ths_index_catalog type='M' 动态范围，同步返回结果）。 */
   @Get('market')
   @AdminOnly()
   async runMarketSync(@Query() dto: MarketIndexSyncDto) {

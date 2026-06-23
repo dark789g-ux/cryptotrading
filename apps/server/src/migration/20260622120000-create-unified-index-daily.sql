@@ -7,7 +7,7 @@
 BEGIN;
 
 -- 步骤 1：给 ths_index_catalog 灌入大盘 8 个（type='M'，INSERT...WHERE NOT EXISTS 防重）
--- 大盘代码不在 Tushare ths_index 接口，需硬编码（与 market-index-list.ts 常量一致）
+-- 大盘代码不在 Tushare ths_index 接口，初始 8 个宽基作动态范围种子数据（后续由管理页面维护）
 INSERT INTO ths_index_catalog (ts_code, name, type, exchange)
 SELECT v.ts_code, v.name, v.type, v.exchange
 FROM (VALUES

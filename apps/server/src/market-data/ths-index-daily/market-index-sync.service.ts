@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { IndexDailyQuoteEntity } from '../../entities/index-daily/index-daily-quote.entity';
-import { MARKET_INDEX_LIST } from '../index-catalog/market-index-list';
+import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-catalog.entity';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
 import { ThsIndexDailyIndicatorService } from './ths-index-daily-indicator.service';
 import {
@@ -16,9 +16,11 @@ import {
  * 大盘指数日线同步（Tushare index_daily）。
  * spec: docs/superpowers/specs/2026-06-22-a-shares-index-tab-design.md【后端>同步改造>大盘】
  *
- * 遍历 MARKET_INDEX_LIST（8 大盘），分段拉 index_daily（单次 8000 行 ≈ 33 年，按 5 年一段），
+ * 遍历大盘范围（ths_index_catalog type='M'，动态范围），分段拉 index_daily（单次 8000 行 ≈ 33 年，按 5 年一段），
  * 映射写入 index_daily_quotes category='market'（无 total_mv/float_mv/turnover_rate，合法 NULL），
  * 同步后触发指标重算。与 ThsIndexDailySyncService（行业/概念 ths_daily）互不干扰。
+ *
+ * spec: docs/superpowers/specs/2026-06-23-market-index-dynamic-scope-design/02-backend.md §2.2
  */
 // Tushare index_daily 出参：ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol(手),amount(千元)
 const INDEX_DAILY_FIELDS =
@@ -65,6 +67,8 @@ export class MarketIndexSyncService {
   constructor(
     @InjectRepository(IndexDailyQuoteEntity)
     private readonly quotesRepo: Repository<IndexDailyQuoteEntity>,
+    @InjectRepository(ThsIndexCatalogEntity)
+    private readonly catalogRepo: Repository<ThsIndexCatalogEntity>,
     private readonly tushareClient: TushareClientService,
     private readonly indicatorService: ThsIndexDailyIndicatorService,
   ) {}
@@ -84,7 +88,22 @@ export class MarketIndexSyncService {
       return { success: 0, errors };
     }
 
-    for (const { tsCode } of MARKET_INDEX_LIST) {
+    // 大盘范围来自 ths_index_catalog type='M'（动态范围，废弃硬编码 LIST）
+    const scopeRows = await this.catalogRepo.find({ where: { type: 'M' } });
+    if (scopeRows.length === 0) {
+      // 空范围兜底：warn + 返回空结果，不伪装成功
+      this.logger.warn(
+        '大盘范围（ths_index_catalog type=\'M\'）为空，跳过同步。请在 sync 域管理页面添加大盘指数。',
+      );
+      errors.push({
+        apiName: 'market_scope_empty',
+        params: { type: 'M' },
+        message: 'ths_index_catalog 无 type=\'M\' 行，大盘范围为空',
+      });
+      return { success: 0, errors };
+    }
+
+    for (const { tsCode } of scopeRows) {
       for (const seg of segments) {
         let rows: RawRow[] = [];
         try {
