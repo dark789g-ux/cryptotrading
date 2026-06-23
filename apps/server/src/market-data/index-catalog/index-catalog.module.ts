@@ -7,12 +7,14 @@ import { IndexCatalogSyncController } from './index-catalog-sync.controller';
 import { IndexCatalogSyncService } from './index-catalog-sync.service';
 import { IndexCatalogController } from './index-catalog.controller';
 import { IndexCatalogQueryService } from './index-catalog-query.service';
+import { MarketIndexScopeController } from './market-index-scope.controller';
+import { MarketIndexScopeService } from './market-index-scope.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ThsIndexCatalogEntity, ThsMemberStockEntity]),
   ],
-  controllers: [IndexCatalogSyncController, IndexCatalogController],
-  providers: [IndexCatalogSyncService, IndexCatalogQueryService, TushareClientService],
+  controllers: [IndexCatalogSyncController, IndexCatalogController, MarketIndexScopeController],
+  providers: [IndexCatalogSyncService, IndexCatalogQueryService, MarketIndexScopeService, TushareClientService],
 })
 export class IndexCatalogModule {}
