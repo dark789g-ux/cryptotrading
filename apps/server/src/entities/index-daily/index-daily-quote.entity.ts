@@ -74,9 +74,17 @@ export class IndexDailyQuoteEntity {
   @Column({ name: 'turnover_rate', type: 'double precision', nullable: true })
   turnoverRate: number | null;
 
-  /** 指数类别：'market' | 'industry' | 'concept' */
+  /** 指数类别：'market' | 'industry' | 'concept' | 'sw'（申万行业指数） */
   @Column({ length: 8 })
-  category: 'market' | 'industry' | 'concept';
+  category: 'market' | 'industry' | 'concept' | 'sw';
+
+  /** 市盈率（仅申万 category='sw' 填值；market/industry/concept 合法 NULL） */
+  @Column({ type: 'double precision', nullable: true })
+  pe: number | null;
+
+  /** 市净率（仅申万 category='sw' 填值；market/industry/concept 合法 NULL） */
+  @Column({ type: 'double precision', nullable: true })
+  pb: number | null;
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;

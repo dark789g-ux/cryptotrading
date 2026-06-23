@@ -70,6 +70,7 @@ import { ThsMemberStockEntity } from './entities/money-flow/ths-member-stock.ent
 import { ThsIndexCatalogEntity } from './entities/index-catalog/ths-index-catalog.entity';
 import { IndexDailyQuoteEntity } from './entities/index-daily/index-daily-quote.entity';
 import { IndexDailyIndicatorEntity } from './entities/index-daily/index-daily-indicator.entity';
+import { SwIndexCatalogEntity } from './entities/sw-index/sw-index-catalog.entity';
 import { MoneyFlowModule } from './market-data/money-flow/money-flow.module';
 import { IndexCatalogModule } from './market-data/index-catalog/index-catalog.module';
 import { ThsIndexDailyModule } from './market-data/ths-index-daily/ths-index-daily.module';
@@ -186,6 +187,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           ThsIndexCatalogEntity,
           IndexDailyQuoteEntity,
           IndexDailyIndicatorEntity,
+          SwIndexCatalogEntity,
           OamvDailyEntity,
           StockAmvDailyEntity,
           IndustryAmvDailyEntity,

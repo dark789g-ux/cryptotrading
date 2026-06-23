@@ -68,9 +68,9 @@ export class IndexDailyIndicatorEntity {
   @Column({ name: 'brick_xg', type: 'boolean', nullable: true })
   brickXg: boolean | null;
 
-  /** 指数类别：'market' | 'industry' | 'concept' */
+  /** 指数类别：'market' | 'industry' | 'concept' | 'sw'（申万行业指数） */
   @Column({ length: 8 })
-  category: 'market' | 'industry' | 'concept';
+  category: 'market' | 'industry' | 'concept' | 'sw';
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
