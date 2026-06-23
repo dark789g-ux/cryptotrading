@@ -8,7 +8,7 @@
  * 设计 spec: docs/superpowers/specs/2026-06-22-a-shares-index-tab-design.md
  */
 
-export type IndexCategory = 'market' | 'industry' | 'concept'
+export type IndexCategory = 'market' | 'industry' | 'concept' | 'sw'
 
 /**
  * GET /api/indices/latest 单行（每个指数取最新一日）。
@@ -32,6 +32,10 @@ export interface IndexLatestRow {
   amount: number | null
   /** 总市值（万元，字符串），仅行业/概念有 */
   totalMvWan: string | null
+  /** 市盈率，仅申万（category='sw'）有 */
+  pe: number | null
+  /** 市净率，仅申万（category='sw'）有 */
+  pb: number | null
 }
 
 export interface IndexLatestResult {
@@ -49,6 +53,8 @@ export type IndexLatestSortField =
   | 'amount'
   | 'total_mv_wan'
   | 'tradeDate'
+  | 'pe'
+  | 'pb'
 
 /** GET /api/index-catalog?category=&q= 单行。 */
 export interface IndexCatalogRow {

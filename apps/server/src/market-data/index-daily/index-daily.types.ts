@@ -9,7 +9,7 @@
 export interface IndexLatestRow {
   tsCode: string;
   name: string;
-  category: 'market' | 'industry' | 'concept';
+  category: 'market' | 'industry' | 'concept' | 'sw';
   /** 最新交易日 YYYYMMDD */
   tradeDate: string;
   close: number;
@@ -20,6 +20,10 @@ export interface IndexLatestRow {
   amount: number | null;
   /** 总市值（万元），仅行业/概念有 */
   totalMvWan: string | null;
+  /** 市盈率（仅申万 category='sw' 填值） */
+  pe: number | null;
+  /** 市净率（仅申万 category='sw' 填值） */
+  pb: number | null;
 }
 
 export interface IndexLatestResult {

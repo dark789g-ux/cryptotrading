@@ -48,6 +48,7 @@ const EMPTY_REMOTE: SymbolsViewColumnPreferences = {
   aShares: { table: [], split: [] },
   usStocks: { table: [], split: [] },
   aSharesIndex: { table: [], split: [] },
+  aSharesIndexSw: { table: [], split: [] },
 }
 
 describe('useSymbolColumnPreferences · usStocks scope', () => {

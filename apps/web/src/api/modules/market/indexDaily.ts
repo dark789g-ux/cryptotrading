@@ -19,8 +19,10 @@ import type {
  * 本模块给「A 股指数」二级 TAB，全 category（含大盘 market）。
  */
 export interface IndexLatestQuery {
-  /** 类型筛选，缺省返回三类合并 */
+  /** 类型筛选，缺省返回四类合并 */
   type?: IndexCategory
+  /** 申万层级过滤（仅 type='sw' 时使用）：1=一级、2=二级、3=三级 */
+  level?: 1 | 2 | 3
   /** name 模糊搜索（ILIKE） */
   q?: string
   sort?: IndexLatestSortField
@@ -59,6 +61,7 @@ export const indexDailyApi = {
     request<IndexLatestResult>(
       `${API_BASE}/indices/latest${buildQuery({
         type: params.type,
+        level: params.level,
         q: params.q,
         sort: params.sort,
         order: params.order,

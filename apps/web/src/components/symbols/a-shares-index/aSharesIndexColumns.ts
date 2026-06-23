@@ -15,6 +15,7 @@ const CATEGORY_LABEL: Record<IndexCategory, string> = {
   market: '大盘',
   industry: '行业',
   concept: '概念',
+  sw: '申万',
 }
 
 /**
@@ -37,14 +38,18 @@ function pctColor(value: number | null): string | undefined {
  *
  * 列 key 设计：可排序列的 key **直接等于后端 sort 白名单**
  * （apps/server/.../index-daily/dto/latest.dto.ts IndexLatestSortField：
- * pct_change / vol / amount / total_mv_wan / tradeDate），
+ * pct_change / vol / amount / total_mv_wan / tradeDate / pe / pb），
  * 这样 n-data-table 表头排序事件 handleSort 拿到的 columnKey 可直发后端，无需中转映射。
  * render 内再取 row 的驼峰字段。
  *
  * 单位（与后端契约一致，表头标注）：vol=手、amount=千元、totalMvWan=万元。
+ *
+ * @param showValuation 是否包含 pe/pb 估值列（仅申万区 true；同花顺区 false 剔除）
  */
-export function createASharesIndexColumnDefs(): SymbolColumnDef<IndexLatestRow>[] {
-  return [
+export function createASharesIndexColumnDefs({
+  showValuation = false,
+}: { showValuation?: boolean } = {}): SymbolColumnDef<IndexLatestRow>[] {
+  const base: SymbolColumnDef<IndexLatestRow>[] = [
     {
       title: '代码',
       key: 'tsCode',
@@ -115,13 +120,38 @@ export function createASharesIndexColumnDefs(): SymbolColumnDef<IndexLatestRow>[
       defaultVisible: false,
       render: (row) => formatMarketCap(row.totalMvWan),
     },
-    {
-      title: '交易日',
-      key: 'tradeDate',
-      width: 110,
-      sorter: true,
-      defaultVisible: true,
-      render: (row) => formatTradeDate(row.tradeDate),
-    },
   ]
+
+  if (showValuation) {
+    // pe/pb 插在交易日列之前（估值列归组，便于申万区一眼定位）
+    base.push(
+      {
+        title: 'PE',
+        key: 'pe',
+        width: 90,
+        sorter: true,
+        defaultVisible: true,
+        render: (row) => (row.pe == null ? '' : formatNumber(toStr(row.pe), 2)),
+      },
+      {
+        title: 'PB',
+        key: 'pb',
+        width: 90,
+        sorter: true,
+        defaultVisible: true,
+        render: (row) => (row.pb == null ? '' : formatNumber(toStr(row.pb), 2)),
+      },
+    )
+  }
+
+  base.push({
+    title: '交易日',
+    key: 'tradeDate',
+    width: 110,
+    sorter: true,
+    defaultVisible: true,
+    render: (row) => formatTradeDate(row.tradeDate),
+  })
+
+  return base
 }

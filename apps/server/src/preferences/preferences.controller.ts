@@ -16,7 +16,13 @@ export class PreferencesController {
   @Put('symbols-view')
   saveSymbolsView(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() body: { crypto: unknown; aShares: unknown; usStocks?: unknown; aSharesIndex?: unknown },
+    @Body() body: {
+      crypto: unknown;
+      aShares: unknown;
+      usStocks?: unknown;
+      aSharesIndex?: unknown;
+      aSharesIndexSw?: unknown;
+    },
   ) {
     return this.preferencesService.saveSymbolsView(user.id, body);
   }

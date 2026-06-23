@@ -24,6 +24,7 @@ function cloneSymbolsViewPreferences(value: SymbolsViewColumnPreferences): Symbo
     aShares: cloneScopeView(value.aShares),
     usStocks: cloneScopeView(value.usStocks),
     aSharesIndex: cloneScopeView(value.aSharesIndex),
+    aSharesIndexSw: cloneScopeView(value.aSharesIndexSw),
   }
 }
 
@@ -154,6 +155,7 @@ export function useSymbolColumnPreferences<Row>(
     aShares: scope === 'aShares' ? defaultScopeView() : { table: [], split: [] },
     usStocks: scope === 'usStocks' ? defaultScopeView() : { table: [], split: [] },
     aSharesIndex: scope === 'aSharesIndex' ? defaultScopeView() : { table: [], split: [] },
+    aSharesIndexSw: scope === 'aSharesIndexSw' ? defaultScopeView() : { table: [], split: [] },
   })
 
   /** 当前视图槽位的列偏好（随 viewMode 切片）；drawer 绑定它。 */
@@ -194,6 +196,7 @@ export function useSymbolColumnPreferences<Row>(
         aShares: hydrateScope(resolvedDefs.value, payload.aShares),
         usStocks: hydrateScope(resolvedDefs.value, payload.usStocks),
         aSharesIndex: hydrateScope(resolvedDefs.value, payload.aSharesIndex),
+        aSharesIndexSw: hydrateScope(resolvedDefs.value, payload.aSharesIndexSw),
       }
       loaded.value = true
       return preferences.value

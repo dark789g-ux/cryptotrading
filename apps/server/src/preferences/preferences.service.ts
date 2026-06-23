@@ -20,6 +20,7 @@ export interface SymbolsViewColumnPreferences {
   aShares: ScopeViewPreferences;
   usStocks: ScopeViewPreferences;
   aSharesIndex: ScopeViewPreferences;
+  aSharesIndexSw: ScopeViewPreferences;
 }
 
 export const SYMBOLS_VIEW_PREFERENCES_KEY = 'symbols_view_columns';
@@ -63,6 +64,7 @@ function sanitizeSymbolsView(value: unknown): SymbolsViewColumnPreferences {
     aShares: sanitizeScopeView(input.aShares),
     usStocks: sanitizeScopeView(input.usStocks),
     aSharesIndex: sanitizeScopeView(input.aSharesIndex),
+    aSharesIndexSw: sanitizeScopeView(input.aSharesIndexSw),
   };
 }
 
@@ -71,6 +73,7 @@ const EMPTY_SYMBOLS_VIEW_PREFERENCES: SymbolsViewColumnPreferences = {
   aShares: { table: [], split: [] },
   usStocks: { table: [], split: [] },
   aSharesIndex: { table: [], split: [] },
+  aSharesIndexSw: { table: [], split: [] },
 };
 
 @Injectable()

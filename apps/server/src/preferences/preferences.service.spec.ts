@@ -35,10 +35,11 @@ describe('PreferencesService', () => {
     aShares: { table: [], split: [] },
     usStocks: { table: [], split: [] },
     aSharesIndex: { table: [], split: [] },
+    aSharesIndexSw: { table: [], split: [] },
   };
 
   describe('getSymbolsView · sanitizeScopeView（只净化结构，不做业务 fallback）', () => {
-    it('无记录 → 三个 scope 均为 { table: [], split: [] }', async () => {
+    it('无记录 → 各 scope 均为 { table: [], split: [] }', async () => {
       repo.findOneBy.mockResolvedValueOnce(null);
 
       await expect(service.getSymbolsView('user-1')).resolves.toEqual(EMPTY);
@@ -64,6 +65,10 @@ describe('PreferencesService', () => {
         aSharesIndex: {
           table: [{ key: 'pctChange', visible: true }],
           split: [{ key: 'close', visible: false }],
+        },
+        aSharesIndexSw: {
+          table: [{ key: 'pe', visible: true }],
+          split: [{ key: 'pb', visible: false }],
         },
       };
       repo.findOneBy.mockResolvedValueOnce({
@@ -93,6 +98,7 @@ describe('PreferencesService', () => {
         aShares: { table: [{ key: 'name', visible: true }], split: [] },
         usStocks: { table: [], split: [] },
         aSharesIndex: { table: [], split: [] },
+        aSharesIndexSw: { table: [], split: [] },
       });
     });
 
@@ -122,6 +128,7 @@ describe('PreferencesService', () => {
         },
         usStocks: { table: [{ key: 'ticker', visible: true }], split: [] },
         aSharesIndex: { table: [], split: [] },
+        aSharesIndexSw: { table: [], split: [] },
       });
     });
 
@@ -175,6 +182,7 @@ describe('PreferencesService', () => {
         aShares: { table: [], split: [] },
         usStocks: { table: [], split: [] },
         aSharesIndex: { table: [], split: [] },
+        aSharesIndexSw: { table: [], split: [] },
       });
     });
   });
@@ -198,6 +206,7 @@ describe('PreferencesService', () => {
         },
         usStocks: { table: [{ key: 'ticker', visible: true }], split: [] },
         aSharesIndex: { table: [], split: [] },
+        aSharesIndexSw: { table: [], split: [] },
       };
 
       await service.saveSymbolsView('user-1', input);
@@ -239,6 +248,7 @@ describe('PreferencesService', () => {
             aShares: { table: [], split: [] },
             usStocks: { table: [], split: [] },
             aSharesIndex: { table: [], split: [] },
+            aSharesIndexSw: { table: [], split: [] },
           },
         }),
       );
@@ -259,6 +269,7 @@ describe('PreferencesService', () => {
         aShares: { table: [{ key: 'tsCode', visible: true }], split: [] },
         usStocks: { table: [{ key: 'ticker', visible: true }], split: [] },
         aSharesIndex: { table: [], split: [] },
+        aSharesIndexSw: { table: [], split: [] },
       };
 
       await service.saveSymbolsView('user-1', newValue);
@@ -292,6 +303,10 @@ describe('PreferencesService', () => {
         aSharesIndex: {
           table: [{ key: 'pctChange', visible: true }],
           split: [{ key: 'close', visible: false }],
+        },
+        aSharesIndexSw: {
+          table: [{ key: 'pe', visible: true }],
+          split: [{ key: 'pb', visible: false }],
         },
       };
 

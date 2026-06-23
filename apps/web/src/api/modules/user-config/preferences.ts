@@ -16,6 +16,7 @@ export interface SymbolsViewColumnPreferences {
   aShares: ScopeViewPreferences
   usStocks: ScopeViewPreferences
   aSharesIndex: ScopeViewPreferences
+  aSharesIndexSw: ScopeViewPreferences
 }
 
 export const preferencesApi = {

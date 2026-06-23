@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { SwIndexCatalogEntity } from '../../entities/sw-index/sw-index-catalog.entity';
 import { QueryLatestDto, IndexLatestSortField } from './dto/latest.dto';
 import { QueryKlineDto } from './dto/kline.dto';
 import type {
@@ -18,6 +21,8 @@ const SORT_COL_MAP: Record<IndexLatestSortField, string> = {
   amount: 'amount',
   total_mv_wan: '"totalMvWan"',
   tradeDate: '"tradeDate"',
+  pe: 'pe',
+  pb: 'pb',
 };
 
 interface LatestRawRow {
@@ -30,6 +35,8 @@ interface LatestRawRow {
   vol: string | number | null;
   amount: string | number | null;
   totalMvWan: string | null;
+  pe: string | number | null;
+  pb: string | number | null;
 }
 
 interface KlineRawRow {
@@ -77,10 +84,19 @@ function nullableNum(v: unknown): number | null {
  */
 @Injectable()
 export class IndexDailyService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    @InjectRepository(SwIndexCatalogEntity)
+    private readonly swCatalogRepo: Repository<SwIndexCatalogEntity>,
+  ) {}
 
   /**
    * 行情表最新行情：每个指数取最新一行（DISTINCT ON ts_code），支持类型筛选/模糊搜索/排序/分页。
+   *
+   * name 来源：同花顺走 ths_index_catalog（c.name），申万走 sw_index_catalog（s.name），
+   * COALESCE(c.name, s.name) 统一取。申万 tsCode 不在 ths_index_catalog，须靠 s 兜底。
+   * level 仅对 type='sw' 生效：先查 sw_index_catalog 拿该层 tsCode + name 集合，
+   * 再用 ANY($tsCodes) 收敛（避免 JOIN sw_index_catalog 后 DISTINCT ON ts_code 与分页交互复杂）。
    */
   async getLatest(dto: QueryLatestDto): Promise<IndexLatestResult> {
     const category = dto.type ?? null;
@@ -93,33 +109,72 @@ export class IndexDailyService {
     const sortCol = SORT_COL_MAP[sortField] ?? SORT_COL_MAP.pct_change;
     const orderExpr = `${sortCol} ${order} NULLS LAST`;
 
-    const baseWhere = `($1::text IS NULL OR q.category = $1)
-       AND ($2::text IS NULL OR c.name ILIKE '%' || $2 || '%')`;
+    // 申万按 level 过滤：name 也在此表，一并取回避免 JOIN。
+    const isSw = category === 'sw';
+    const swLevel: number | null =
+      isSw && (dto.level === 1 || dto.level === 2 || dto.level === 3)
+        ? dto.level
+        : null;
+    let swTsCodes: string[] | null = null;
+    if (isSw) {
+      const swRows = await this.swCatalogRepo.find({
+        where: swLevel == null ? {} : { level: swLevel as 1 | 2 | 3 },
+        select: ['tsCode', 'name'],
+      });
+      swTsCodes = swRows.map((r) => r.tsCode);
+      // level 过滤下命中 0 个目录项 → 直接返回空（避免 ANY('{}') 退化成「全表」陷阱）
+      if (swLevel != null && swTsCodes.length === 0) {
+        return { rows: [], total: 0 };
+      }
+    }
+
+    // 动态拼 WHERE：$1=category、$2=q 始终在前；sw 分支在末尾追加 ts_code 收敛（占位符位置随查询变）。
+    // name 搜索：sw 走 s.name、其它走 c.name（申万 tsCode 不在 ths_index_catalog）。
+    const swNameCol = isSw ? 's.name' : 'c.name';
+    // sw 无目录项命中（仅 type='sw' 且 catalog 为空）→ 用 AND FALSE 短路返回 0 行
+    const swNoMatch = isSw && (!swTsCodes || swTsCodes.length === 0);
+    const nameClause = `($2::text IS NULL OR ${swNameCol} ILIKE '%' || $2 || '%')`;
+    const categoryClause = `($1::text IS NULL OR q.category = $1)`;
+    // tsCodes 收敛片段：count 查询放 $3，rows 查询放 $5（$3/$4 留给 LIMIT/OFFSET）
+    const tsClauseFor = (pos: number) =>
+      isSw && swTsCodes && swTsCodes.length > 0
+        ? ` AND q.ts_code = ANY($${pos}::text[])`
+        : swNoMatch
+          ? ' AND FALSE'
+          : '';
+    const whereCore = `${categoryClause} AND ${nameClause}`;
 
     const totalRows = await this.dataSource.query<Array<{ total: string }>>(
       `SELECT COUNT(DISTINCT q.ts_code)::text AS total
          FROM index_daily_quotes q
          LEFT JOIN ths_index_catalog c ON c.ts_code = q.ts_code
-        WHERE ${baseWhere}`,
-      [category, q],
+         LEFT JOIN sw_index_catalog s ON s.ts_code = q.ts_code
+        WHERE ${whereCore}${tsClauseFor(3)}`,
+      [category, q, ...(isSw && swTsCodes && swTsCodes.length > 0 ? [swTsCodes] : [])],
     );
     const total = Number(totalRows[0]?.total ?? 0);
+
+    const rowsParams: unknown[] = isSw && swTsCodes && swTsCodes.length > 0
+      ? [category, q, pageSize, offset, swTsCodes]
+      : [category, q, pageSize, offset];
 
     const rows = await this.dataSource.query<LatestRawRow[]>(
       `SELECT * FROM (
          SELECT DISTINCT ON (q.ts_code)
-           q.ts_code AS "tsCode", c.name, q.category,
+           q.ts_code AS "tsCode", COALESCE(c.name, s.name) AS name, q.category,
            q.trade_date AS "tradeDate", q.close,
            q.pct_change AS "pctChange", q.vol_hand AS "vol",
-           q.amount, q.total_mv_wan AS "totalMvWan"
+           q.amount, q.total_mv_wan AS "totalMvWan",
+           q.pe, q.pb
          FROM index_daily_quotes q
          LEFT JOIN ths_index_catalog c ON c.ts_code = q.ts_code
-         WHERE ${baseWhere}
+         LEFT JOIN sw_index_catalog s ON s.ts_code = q.ts_code
+         WHERE ${whereCore}${tsClauseFor(5)}
          ORDER BY q.ts_code, q.trade_date DESC
        ) latest
        ORDER BY ${orderExpr}
        LIMIT $3 OFFSET $4`,
-      [category, q, pageSize, offset],
+      rowsParams,
     );
 
     const mapped: IndexLatestRow[] = rows.map((r) => ({
@@ -132,6 +187,8 @@ export class IndexDailyService {
       vol: nullableNum(r.vol),
       amount: nullableNum(r.amount),
       totalMvWan: r.totalMvWan,
+      pe: nullableNum(r.pe),
+      pb: nullableNum(r.pb),
     }));
 
     return { rows: mapped, total };
