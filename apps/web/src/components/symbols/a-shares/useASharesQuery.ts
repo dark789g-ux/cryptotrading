@@ -31,6 +31,7 @@ export function useASharesQuery(message: {
   const turnoverRateMin = ref<number | null>(null)
   const advancedConditions = ref<Condition[]>([])
   const selectedStrategyIds = ref<string[]>([])
+  const indexFilter = ref<{ tsCode: string; name: string } | null>(null)
   const sortKey = ref<string | null>(null)
   const sortOrder = ref<'ascend' | 'descend' | null>(null)
   const summary = ref<AShareSummary>({
@@ -124,7 +125,8 @@ export function useASharesQuery(message: {
         watchlistIds: watchlistIds.value,
         sort: { field: sortKey.value ?? 'tsCode', order: sortOrder.value },
         conditions: buildConditions(),
-	        strategyHitIds: selectedStrategyIds.value,
+        strategyHitIds: selectedStrategyIds.value,
+        indexTsCode: indexFilter.value?.tsCode,
       })
       rows.value = res.rows
       total.value = res.total
@@ -204,6 +206,18 @@ export function useASharesQuery(message: {
     void loadData()
   }
 
+  function applyIndexFilter(tsCode: string, name: string) {
+    indexFilter.value = { tsCode, name }
+    page.value = 1
+    void loadData()
+  }
+
+  function clearIndexFilter() {
+    indexFilter.value = null
+    page.value = 1
+    void loadData()
+  }
+
   function resetFilters() {
     searchQuery.value = ''
     selectedMarket.value = null
@@ -212,6 +226,7 @@ export function useASharesQuery(message: {
     turnoverRateMin.value = null
     advancedConditions.value = []
     selectedStrategyIds.value = []
+    indexFilter.value = null
     priceMode.value = 'qfq'
     resetWatchlistFilter()
     page.value = 1
@@ -303,6 +318,7 @@ export function useASharesQuery(message: {
     turnoverRateMin,
     advancedConditions,
     selectedStrategyIds,
+    indexFilter,
     marketOptions,
     industryOptions,
     paginationState,
@@ -315,6 +331,8 @@ export function useASharesQuery(message: {
     loadFilterPresets,
     applyFilters,
     resetFilters,
+    applyIndexFilter,
+    clearIndexFilter,
     createFilterPreset,
     overwriteFilterPreset,
     renameFilterPreset,

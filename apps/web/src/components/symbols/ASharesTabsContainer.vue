@@ -6,10 +6,10 @@
     display-directive="show:lazy"
   >
     <n-tab-pane name="stocks" tab="股票">
-      <a-shares-panel />
+      <a-shares-panel ref="stocksPanelRef" />
     </n-tab-pane>
     <n-tab-pane name="index" tab="A 股指数">
-      <a-shares-index-panel ref="indexPanelRef" />
+      <a-shares-index-panel ref="indexPanelRef" @switch-to-stocks="handleSwitchToStocks" />
     </n-tab-pane>
   </n-tabs>
 </template>
@@ -24,6 +24,12 @@ import ASharesIndexPanel from './a-shares-index/ASharesIndexPanel.vue'
 
 const subTab = ref<'stocks' | 'index'>('stocks')
 const indexPanelRef = ref<{ resize: () => void } | null>(null)
+const stocksPanelRef = ref<{ applyIndexFilter: (tsCode: string, name: string) => void } | null>(null)
+
+function handleSwitchToStocks(payload: { tsCode: string; name: string }) {
+  subTab.value = 'stocks'
+  void nextTick(() => stocksPanelRef.value?.applyIndexFilter(payload.tsCode, payload.name))
+}
 
 // echarts inside the index pane does not auto-resize after being lazily revealed; resize on switch in.
 watch(subTab, (value) => {

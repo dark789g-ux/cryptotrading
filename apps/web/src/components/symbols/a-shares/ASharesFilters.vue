@@ -117,11 +117,16 @@
         <n-button type="primary" @click="emit('apply')">应用</n-button>
       </div>
     </div>
+    <div v-if="indexFilter" class="index-filter-row">
+      <n-tag closable @close="emit('clearIndexFilter')">
+        所属指数: {{ indexFilter.name }}
+      </n-tag>
+    </div>
   </n-card>
 </template>
 
 <script setup lang="ts">
-import { NButton, NCard, NIcon, NInput, NInputNumber, NSelect } from 'naive-ui'
+import { NButton, NCard, NIcon, NInput, NInputNumber, NSelect, NTag } from 'naive-ui'
 import { SearchOutline, SettingsOutline } from '@vicons/ionicons5'
 import type { AShareFilterPreset } from '@/api'
 import NumericConditionFilter from '../../common/NumericConditionFilter.vue'
@@ -145,6 +150,7 @@ defineProps<{
   strategyOptions: SelectOption[]
   filterPresets: AShareFilterPreset[]
   filterPresetsLoading: boolean
+  indexFilter?: { tsCode: string; name: string } | null
 }>()
 
 const emit = defineEmits<{
@@ -166,6 +172,7 @@ const emit = defineEmits<{
   renameFilterPreset: [preset: AShareFilterPreset, name: string]
   deleteFilterPreset: [preset: AShareFilterPreset]
   applyFilterPreset: [preset: AShareFilterPreset]
+  clearIndexFilter: []
 }>()
 
 const advancedFieldOptions: NumericConditionFieldOption[] = [
@@ -274,6 +281,7 @@ const advancedFieldOptions: NumericConditionFieldOption[] = [
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-border) 85%, transparent);
 }
 .filter-actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+.index-filter-row { margin-top: 12px; }
 
 @media (max-width: 960px) {
   .search-input,

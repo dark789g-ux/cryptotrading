@@ -24,6 +24,7 @@
         :strategy-options="strategyFilterOptions"
         :filter-presets="filterPresets"
         :filter-presets-loading="filterPresetsLoading"
+        :index-filter="indexFilter"
         @apply="applyFilters"
         @reset="resetFilters"
         @update:price-mode="handlePriceModeChange"
@@ -34,6 +35,7 @@
         @rename-filter-preset="renameFilterPreset"
         @delete-filter-preset="deleteFilterPreset"
         @apply-filter-preset="applyFilterPreset"
+        @clear-index-filter="clearIndexFilter"
       />
     </template>
 
@@ -129,6 +131,7 @@ const {
   turnoverRateMin,
   advancedConditions,
   selectedStrategyIds,
+  indexFilter,
   marketOptions,
   industryOptions,
   paginationState,
@@ -139,6 +142,8 @@ const {
   loadFilterPresets,
   applyFilters,
   resetFilters,
+  applyIndexFilter,
+  clearIndexFilter,
   createFilterPreset,
   overwriteFilterPreset,
   renameFilterPreset,
@@ -260,6 +265,10 @@ onActivated(async () => {
   await strategyStore.fetchConditions('a-share')
   await strategyStore.fetchLastRunStatus()
   await loadHitLookup()
+})
+
+defineExpose({
+  applyIndexFilter,
 })
 </script>
 
