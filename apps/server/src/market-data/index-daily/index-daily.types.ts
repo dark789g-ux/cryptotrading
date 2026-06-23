@@ -22,8 +22,8 @@ export interface IndexLatestRow {
   totalMvWan: string | null;
   /** 市盈率（仅申万 category='sw' 填值） */
   pe: number | null;
-  /** 市净率（仅申万 category='sw' 填值） */
-  pb: number | null;
+  /** 成分股数量；大盘宽基无此信息时为 null */
+  count: number | null;
 }
 
 export interface IndexLatestResult {

@@ -15,7 +15,8 @@ export type IndexLatestSortField =
   | 'total_mv_wan'
   | 'tradeDate'
   | 'pe'
-  | 'pb';
+  | 'pb'
+  | 'count';
 
 export class QueryLatestDto {
   type?: 'market' | 'industry' | 'concept' | 'sw';

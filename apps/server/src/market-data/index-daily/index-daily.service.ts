@@ -23,6 +23,7 @@ const SORT_COL_MAP: Record<IndexLatestSortField, string> = {
   tradeDate: '"tradeDate"',
   pe: 'pe',
   pb: 'pb',
+  count: 'count',
 };
 
 interface LatestRawRow {
@@ -37,6 +38,7 @@ interface LatestRawRow {
   totalMvWan: string | null;
   pe: string | number | null;
   pb: string | number | null;
+  count: string | number | null;
 }
 
 interface KlineRawRow {
@@ -167,7 +169,8 @@ export class IndexDailyService {
            q.trade_date AS "tradeDate", q.close,
            q.pct_change AS "pctChange", q.vol_hand AS "vol",
            q.amount, q.total_mv_wan AS "totalMvWan",
-           q.pe, q.pb
+           q.pe, q.pb,
+           COALESCE(c.count, s.member_count) AS count
          FROM index_daily_quotes q
          LEFT JOIN ths_index_catalog c ON c.ts_code = q.ts_code
          LEFT JOIN sw_index_catalog s ON s.ts_code = q.ts_code
@@ -191,6 +194,7 @@ export class IndexDailyService {
       totalMvWan: r.totalMvWan,
       pe: nullableNum(r.pe),
       pb: nullableNum(r.pb),
+      count: nullableNum(r.count),
     }));
 
     return { rows: mapped, total };
