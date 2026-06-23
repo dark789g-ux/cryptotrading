@@ -193,12 +193,16 @@ onBeforeUnmount(() => {
 
 .rsp-divider {
   flex-shrink: 0;
+  /* 上下留白，让分隔条收在两侧卡片圆角内侧，不再顶到顶部/底部 */
+  align-self: center;
+  height: calc(100% - 24px);
   width: 6px;
   cursor: col-resize;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--color-border, #d9d9d9);
+  border-radius: 3px;
   touch-action: none;
 }
 

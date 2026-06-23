@@ -60,7 +60,7 @@
           :columns="splitColumns"
           :data="rows"
           :loading="loading"
-          :pagination="paginationState"
+          :pagination="splitPaginationState"
           remote
           :row-props="splitRowProps"
           @update:page="handlePageChange"
@@ -71,10 +71,12 @@
     </template>
 
     <template #split-right>
-      <a-share-detail-panel
-        :row="selectedDetailRow"
-        :price-mode="priceMode"
-      />
+      <n-card :bordered="false" class="split-right-card">
+        <a-share-detail-panel
+          :row="selectedDetailRow"
+          :price-mode="priceMode"
+        />
+      </n-card>
     </template>
 
     <template #empty-detail>
@@ -130,6 +132,7 @@ const {
   marketOptions,
   industryOptions,
   paginationState,
+  splitPaginationState,
   scoresMap,
   scoresLoading,
   reload,
@@ -265,7 +268,8 @@ onActivated(async () => {
   height: 100%;
 }
 
-.split-left-card {
+.split-left-card,
+.split-right-card {
   height: 100%;
 }
 

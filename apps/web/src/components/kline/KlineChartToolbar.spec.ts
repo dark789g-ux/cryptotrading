@@ -358,6 +358,61 @@ describe('KlineChartToolbar 时间范围同步', () => {
     ])
   })
 
+  it('有数据（YYYYMMDD 格式，A 股指数 index-daily）时显示对应本地午夜 ms', async () => {
+    const data = [makeBar('20250618'), makeBar('20250623')]
+    const { wrapper } = mountToolbar({ data })
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    const picker = wrapper.findComponent(NDatePicker)
+    expect(picker.props('value')).toEqual([
+      new Date(2025, 5, 18).getTime(),
+      new Date(2025, 5, 23).getTime(),
+    ])
+  })
+
+  it('数据从空变为 YYYYMMDD 时不会因 actualRange 同步而 emit update:range', async () => {
+    const onUpdateRange = vi.fn()
+    const range: [number, number] = [
+      new Date(2024, 5, 1).getTime(),
+      new Date(2025, 5, 23).getTime(),
+    ]
+
+    const data = ref<KlineChartBar[]>([])
+    const Wrapper = defineComponent({
+      setup() {
+        const prefs = ref(defaultTestPrefs())
+        return () =>
+          h(
+            KlineChartToolbar,
+            {
+              granularity: 'date',
+              range,
+              data: data.value,
+              prefs: prefs.value,
+              update: vi.fn(),
+              reset: vi.fn(),
+              'onUpdate:range': onUpdateRange,
+            },
+            undefined,
+          )
+      },
+    })
+
+    const wrapper = mount(Wrapper, { attachTo: document.body })
+    lastWrapper = wrapper as ReturnType<typeof mountToolbar>['wrapper']
+    await flushPromises()
+    await nextTick()
+    onUpdateRange.mockClear()
+
+    data.value = [makeBar('20250618'), makeBar('20250623')]
+    await flushPromises()
+    await nextTick()
+
+    expect(onUpdateRange).not.toHaveBeenCalled()
+  })
+
   it('用户确认选择时 emit update:range 一次', async () => {
     const { wrapper, onUpdateRange } = mountToolbar({ data: [], range: null })
     lastWrapper = wrapper

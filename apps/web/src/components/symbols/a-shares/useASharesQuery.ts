@@ -64,6 +64,16 @@ export function useASharesQuery(message: {
     prefix: () => `Total ${total.value}`,
   }))
 
+  // 分栏左栏宽度窄，用精简分页器（仅前后翻页 + 页码输入 + prefix 总数），
+  // 去掉 size picker（naive-ui simple 模式下自动跳过），避免看不全
+  const splitPaginationState = computed(() => ({
+    page: page.value,
+    pageSize: pageSize.value,
+    itemCount: total.value,
+    simple: true,
+    prefix: () => `Total ${total.value}`,
+  }))
+
   const summaryItems = computed<SummaryItem[]>(() => [
     { label: '股票总数', value: summary.value.totalSymbols, note: '上市状态 L', className: '' },
     { label: '最新交易日', value: formatTradeDate(summary.value.latestTradeDate), note: '本地最新快照', className: '' },
@@ -296,6 +306,7 @@ export function useASharesQuery(message: {
     marketOptions,
     industryOptions,
     paginationState,
+    splitPaginationState,
     summaryItems,
     scoresMap,
     scoresLoading,

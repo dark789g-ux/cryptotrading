@@ -156,18 +156,38 @@ function scheduleGraphicUpdate(idx: number, data: KlineChartBar[], subs: Subplot
   })
 }
 
-async function renderChart() {
+let renderGeneration = 0
+
+async function renderChart(retry = 0) {
   const data = props.data
   if (!data.length) {
     disposeChart()
     return
   }
 
+  const gen = retry === 0 ? ++renderGeneration : renderGeneration
   await nextTick()
-  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  // rAF 等布局；LazyTeleport / 非可见 document 可能永不回调，加有界 fallback 避免 init 永不执行。
+  await new Promise<void>((resolve) => {
+    let settled = false
+    const done = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    requestAnimationFrame(done)
+    setTimeout(done, 50)
+  })
+  if (gen !== renderGeneration) return
 
   const el = chartRef.value
-  if (!el) return
+  if (!el || el.clientWidth === 0) {
+    if (retry < 12 && gen === renderGeneration) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 50))
+      return renderChart(retry + 1)
+    }
+    return
+  }
   observeChartResize(el)
 
   disposeChart()

@@ -203,6 +203,13 @@ function openTimeToMs(openTime: string): number {
   if (openTime.includes('T')) {
     return new Date(openTime).getTime()
   }
+  // A 股指数 index-daily：YYYYMMDD（无连字符）
+  if (/^\d{8}$/.test(openTime)) {
+    const y = Number(openTime.slice(0, 4))
+    const m = Number(openTime.slice(4, 6))
+    const d = Number(openTime.slice(6, 8))
+    return new Date(y, m - 1, d).getTime()
+  }
   // A 股/美股/0AMV: YYYY-MM-DD，按本地午夜处理
   const [y, m, d] = openTime.split('-').map(Number)
   const date = new Date(y, m - 1, d)
@@ -215,7 +222,11 @@ const actualRange = computed<[number, number] | null>(() => {
   const first = props.data[0].open_time
   const last = props.data[props.data.length - 1].open_time
 
-  return [openTimeToMs(first), openTimeToMs(last)]
+  const start = openTimeToMs(first)
+  const end = openTimeToMs(last)
+  if (Number.isNaN(start) || Number.isNaN(end)) return null
+
+  return [start, end]
 })
 
 const showKdjPopover = ref(false)

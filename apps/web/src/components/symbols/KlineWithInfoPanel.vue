@@ -166,7 +166,8 @@ onBeforeUnmount(() => {
 
 .kline-with-info-panel__trigger {
   position: absolute;
-  top: 6px;
+  /* 留出 KlineChart toolbar 高度 (44px) + gap (8px) + 少许间距 */
+  top: 56px;
   right: 6px;
   z-index: 2;
 }

@@ -1,67 +1,69 @@
-# 完成 A股指数 TAB：T8 K线 Modal 渲染 + T9 剩余 e2e
+# 完成 A股指数 TAB：T8 K线 echarts 不渲染 ✅ + T9 剩余 e2e
 
 ## 目标
-1. 定位/修复 T8 ASharesIndexKlineModal 点行后 KlineChart（MA/MACD/KDJ/成交量副图）在 dev 不渲染；或 production 验证其正常。
-2. 补完 T9 剩余 e2e：列偏好持久化、money-flow 旧路径回归、industry-amv 同步不 throw。
+1. **T8**：DOM 层 ✅；**视觉层**（截图可见 K 线）❌ → 见 [`fix-a-shares-index-kline-modal-loading-overlay.md`](fix-a-shares-index-kline-modal-loading-overlay.md)
+2. 补完 T9 剩余 e2e（列偏好持久化、旧 ths 路径回归、industry-amv 同步不 throw）。
 
-## 现状摸底（file:line 为证，commit 在 `feat/a-shares-index-tab` 未推 origin）
+## T8 根因与修复（2026-06-23）
 
-| commit | 任务 | 状态 |
-|---|---|---|
-| `4eb99d3` | T7 行情表（types/api/columns/query/Panel） | ✅ e2e 1005 行通过 |
-| `ecf692c` | T8 K线 Modal（n-tabs 包装镜像 FlowTrendModal） | ⚠️ 代码完成，dev 渲染待查 |
-| `cf631d4` | migration .ps1 PowerShell 编码 bug | ✅ |
+**两层问题，此前只修了第一层：**
 
-T1-T6 在 `a06e068` 之前已完成（catalog/同步/查询接口/列偏好/容器+stub/migration SQL）。
+| 层 | 现象 | 根因 | 修复 |
+|---|---|---|---|
+| 1 mount | KlineChart vnode.el=null | n-tab-pane slot 顶层直接放自定义组件，LazyTeleport 上下文不 patch | **div.kline-pane-body 包裹** |
+| 2 echarts | mount 正常但 chartInstance=null | 「空数据常驻 + 异步填充」时 watch 二次 renderChart 在 modal 上下文到不了 echarts.init | **镜像 FlowTrendModal：loading/empty/chart 三分支 v-if/v-else-if/v-else，bars 就绪后才 mount KlineChart** |
 
-### T8 已验证通过
-- build/type-check 绿（vite build + vue-tsc）
-- 接口层：`GET /api/index-daily?ts_code=000001.SH` 返回 K线（`open_time`=YYYYMMDD、`volume`=股、MA/KDJ/MACD），`GET /api/indices/latest?type=market` 返回 8 大盘
-- Modal 逻辑：程序化 `rowProps.onClick` 后 KlineModal.props.row=700468.TI、bars=242（loadKline 跑通）、KlineChart vnode 创建（v-if bars>0 正确选中）
-- 数据层：index_daily_quotes 533831 行（行业/概念）+ 10576 行（8 大盘 × 1322，20210104-20260622）
+**误判澄清：** 原先认为 v-if 本身导致 mount 中断——实为 **缺 div 包裹** 时 v-if 才出问题。FlowTrendModal 一直用 div + v-else 挂载 KlineChart 且正常工作；ASharesIndexKlineModal 应完全对齐该结构，而非「始终渲染 KlineChart」。
 
-### T8 未通过（dev）
-- `.kline-chart-wrapper` / canvas / `[_echarts_instance_]` 全 0（KlineChart 不挂载 DOM）
-- 曾试 ASharesIndexKlineBody 子组件方案（已删）：subTree=KlineChart vnode 但 **`vnode.el=null`**（vnode 创建了不 patch 到 DOM）
+**改动文件：**
+- `apps/web/src/components/symbols/a-shares-index/ASharesIndexKlineModal.vue`
+- `apps/web/src/components/symbols/a-shares-index/ASharesIndexKlineModal.spec.ts`（挂载时序回归）
 
-## T8 根因分析
-AppModal（`n-modal preset=card`）的 default slot 在 LazyTeleport 上下文被调用（控制台 warn "Slot invoked outside of the render function"）。在该上下文实测：
-- slot 顶层**自定义组件**（ASharesIndexKlineBody）→ `vnode.el=null`，不挂载 DOM
-- slot 顶层**KlineChart 元素**（去 v-if 始终渲染）→ mount（`klineWrap=1`、chartSize 1032×468）但 echarts.init 不创建 canvas（renderChart 内 `await nextTick+raf` 后异常，手动调 renderChart 时 curl 挂起）
-- slot 顶层 **naive-ui n-tabs**（当前方案，镜像 FlowTrendModal）→ dev 仍 `klineWrap=0`
+## 现状
 
-FlowTrendModal（`apps/web/src/components/money-flow/FlowTrendModal.vue`，AppModal+n-tabs+KlineChart）工作是参照，但我的 n-tabs 方案 dev 仍不渲染。
+### T8 DOM 层 ✅ / 视觉层 ❌（2026-06-23）
 
-**强怀疑**：dev HMR 累积（vite dev 跑 3+ 小时 + 本会话反复改 KlineModal 4 次重构），模块缓存损坏。硬刷新（navigate 整页）清页面状态但不清 dev server 模块缓存。production build（无 HMR）可能正常。
+DOM 指标（webbridge evaluate）已通过：`canvas=1`、`ecAttr` 有值、`klineMounted=true`、`barsLen=242`。
 
-## T8 待办（优先级降序）
-1. **重启 vite dev server**（kill :5173 + `pnpm dev`，先问用户）清 HMR 缓存，重测：navigate `/symbols` → A股数据 → A股指数 → 点行 → 看 K线 Modal 副图。若渲染，T8 完成（HMR 是元凶）。
-2. **production 部署验证**：`pnpm prod:up` 或 build 后部署，真机点行验证。
-3. 仍不渲染：对比 FlowTrendModal（money-flow 页打开行业趋势 Modal）实际 vnode/DOM 与我的 KlineModal，定位为何 n-tabs mount 而 KlineChart 不 mount。
-4. 兜底：KlineChart 改用 Teleport+div overlay（不经 AppModal/n-modal），违反 AppModal 规范但避开 LazyTeleport。
+**截图复验未通过**：Modal 内仍见 loading spinner，`.modal-pane-overlay` 盖住已 init 的 chart。**勿仅凭 canvas 计数宣称 T8 完成。**
 
-## T9 剩余 e2e（T8 卡住时未测）
-1. **列偏好持久化**：勾选 aSharesIndex 列 → 刷新 → 验 save→load 不丢（证明前后端 scope 同步）→ **验完恢复默认**（别留脚印）
-2. **旧路径回归**：`/api/ths-index-daily?ts_code=881101.TI` 返回行业 K线且不含大盘（薄封装 WHERE category IN industry/concept）；money-flow 行业趋势 Modal + KDJ recalc 正常
-3. **industry-amv 同步不 throw**：触发 industry-amv 同步（迁移第 7 步 assertSuffixes 已改 WHERE category，验证不因大盘行 throw）
+→ **接手修复视觉层**：[`prompts/fix-a-shares-index-kline-modal-loading-overlay.md`](fix-a-shares-index-kline-modal-loading-overlay.md)
+
+### T8 技术方案摘要（勿回退）
+1. `div.kline-pane-body` 包裹 + KlineChart 随 modal 首次 patch 常驻（overlay 遮 loading/empty — **overlay 本身待修，见姊妹交接**）
+2. `KlineChart.renderChart`：rAF 50ms fallback + chartRef 重试 + renderGeneration（`KlineChart.vue:159-204`）
+3. `ASharesIndexKlineModal`：`refreshChartAfterData` + 150ms 延迟（`:94-137`）
 
 ## 硬约束
-- **AppModal 规范**（vue3-frontend.md）：Modal 复用 AppModal，子组件禁自带保存/取消按钮
-- **KlineChart 是共享组件**（UsIndexPanel/FlowTrendModal 在用），改动影响大，优先不动
-- **B 类服务端重查**：A 股指数 open_time=YYYYMMDD，禁 A 类客户端裁切（sliceDateStringBarsByRange 仅 YYYY-MM-DD）
-- **后端 dev 是 nest start 无 watch**：改后端必须重启；e2e 前确认后端跑最新代码（当前已跑 T1-T6 新代码，migration 已执行）
-- **重启用户环境先问**：kill/重启 dev/DB 前问用户
+- **KlineChart 是共享组件**：优先在 Modal 内修 overlay/load；改 `KlineChart.vue` 须跑 `KlineChart.spec.ts`。
+- **AppModal 规范**（vue3-frontend.md）：Modal 复用 AppModal，子组件禁自带保存/取消按钮。
+- **B 类服务端重查**：A 股指数 `open_time=YYYYMMDD`，禁 A 类客户端裁切（`sliceDateStringBarsByRange` 仅 YYYY-MM-DD）。
+- **后端 dev 是 nest start 无 watch**：改后端必须重启；e2e 前确认后端跑最新代码。
+- **重启用户环境先问**：kill/重启 dev/DB 前问用户。
+- **webbridge 限制**：后台 tab `requestAnimationFrame` 节流（renderChart 的 `await raf` 挂）；截图经 Read 不渲染（不可肉眼验证）；eval 计数 DOM / 读 setupState 可靠。
 
 ## 验证标准
-- T8：点 A股指数行情表行 → Modal 开 → KlineChart 渲染主图（K线+MA）+ 副图（VOL+KDJ+MACD）；canvas/`[_echarts_instance_]` 计数 > 0；工具栏日期选择器选区间 → 服务端重查
-- T9 剩余：列偏好持久化 + 恢复默认；旧 ths 路径不含大盘；money-flow Modal 正常；industry-amv 不 throw
+- **T8**：点行 → Modal → **截图可见** K 线+副图（非 spinner）；`canvas`>0；`loading=false` 时无 `.modal-pane-overlay`；日期区间 B 类重查。
+- **T9 剩余**：列偏好持久化（勾选 aSharesIndex 列→刷新→不丢→**验完恢复默认**）；旧 `/api/ths-index-daily?ts_code=881101.TI` 不含大盘；industry-amv 同步不 throw。
 
 ## 前序进度
-- T7 ✅（4eb99d3）、T8 代码 ✅ dev 待查（ecf692c）、migration 编码修复 ✅（cf631d4）
-- T9 已完成：migration 执行（533831+10576 行零丢失）、catalog name 乱码 UPDATE 修复、接口层 e2e、大盘同步（8×1322）、门禁（type-check/build/jest 91/lint 全绿）
-- T9 剩余：列偏好 e2e、旧路径回归、industry-amv 同步验证
+- T7 ✅（4eb99d3）；T8 第一层 mount 修复（去 v-if，**工作区未提交**）；migration 编码修复 ✅（cf631d4）。
+- T9 已完成：migration 执行（533831+10576 行零丢失）、catalog name 乱码 UPDATE、接口层 e2e、大盘同步（8×1322）、门禁全绿。
+- T9 剩余：列偏好 e2e、旧 ths 路径回归、industry-amv 同步验证。
+
+## webbridge 真机调试踩坑（省下一会话）
+- **找 Vue 活跃组件实例**：从父 `subTree` 递归 `findComp(vnode, name)`（`vnode.component.type.__name===name` → 返回 `vnode.component`），**别从 `.n-modal` teleport DOM 的 `__vueParentComponent` 链读**——后者是 HMR/teleport stale 残留，props/setupState 是旧值（本会话踩过，浪费 ~10 往返）。
+- **evaluate 别长 await**：`await` >~2s 或 `await requestAnimationFrame` 在 webbridge 会 `Promise was collected` 或挂起；改**同步 evaluate + bash `sleep` 间隔**分步做。
+- **navigate reload 后 evaluate 撞 reload 窗口挂**：navigate 复位（同 session 复用 tab）+ 短探活（`1+1` 或 `#app.__vue_app__`）恢复，再发正式命令。
+- **evaluate code 含 CSS 选择器/引号**：Write 到 `.tmp/req.json` + `curl -d @/c/codes/cryptotrading/.tmp/req.json`（POSIX 路径），code 内用单引号，避 shell/JSON 多层转义碎。
+- **多步浏览器流程**：写 `drive.sh`（navigate→sleep→各 tab click→poll rows→clickrow→sleep→count）后台跑（`run_in_background`），日志落 `.tmp/wb_drive*.log`，完成通知。
+- **manual echarts.init 验证 el**：`await import('/node_modules/.vite/deps/echarts.js')` + `echarts.init(el)` + 简单 setOption，绕开 KlineChart 的 async renderChart，直接验 el 能否被 echarts init。
+- **daemon running:false**：`~/.kimi-webbridge/bin/kimi-webbridge start`（幂等）；`extension_connected:false` 让用户开浏览器。
 
 ## 相关
+- **T8 视觉层交接**：[`prompts/fix-a-shares-index-kline-modal-loading-overlay.md`](fix-a-shares-index-kline-modal-loading-overlay.md)
 - spec：`docs/superpowers/specs/2026-06-22-a-shares-index-tab-design.md`
-- 参照：`apps/web/src/components/money-flow/FlowTrendModal.vue`（AppModal+n-tabs+KlineChart 工作范例）
+- 参照：`apps/web/src/components/money-flow/FlowTrendModal.vue`（AppModal+n-tabs+KlineChart，待实测其 echarts 是否真 init）
+- KlineChart：`apps/web/src/components/kline/KlineChart.vue`（renderChart:159，watch:201）
+- 技术坑 memory：`reference-n-modal-lazy-teleport-slot-klinechart`（**需更新**：echarts 不 init 非纯 raf 假象，前台也不渲染；manual init el 成功；去 v-if 已修 mount）
 - 本会话原交接（T7-T9 全任务）：`prompts/archive/finish-a-shares-index-tab-t7-t9.md`

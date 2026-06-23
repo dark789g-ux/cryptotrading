@@ -21,6 +21,48 @@ export interface ThsIndexDailySyncResult {
   errors: ThsIndexDailySyncErrorItem[];
 }
 
+/**
+ * 大盘指数同步（index_daily）的错误项 apiName 枚举：
+ *  - 'index_daily'         Tushare 调用异常
+ *  - 'market_index_empty'  Tushare 返回 0 行（窗口内无数据）
+ */
+export interface MarketIndexSyncErrorItem {
+  apiName: string;
+  params: Record<string, string | number>;
+  message?: string;
+}
+
+/** 大盘指数同步单次结果（结构对齐 ThsIndexDailySyncResult，便于前端统一渲染） */
+export interface MarketIndexSyncResult {
+  /** 落库 quote 行数（去重后） */
+  success: number;
+  /** 跳过的 (ts_code, trade_date) 行数（增量模式） */
+  skipped: number;
+  /** 失败/空数据项 */
+  errors: MarketIndexSyncErrorItem[];
+}
+
+/** SSE 进度事件（与 ths-index-daily 同步事件同构） */
+export type MarketIndexSyncEvent =
+  | {
+      type: 'progress';
+      phase: string;
+      current: number;
+      total: number;
+      percent: number;
+      message: string;
+    }
+  | {
+      type: 'done';
+      message: string;
+      result: MarketIndexSyncResult;
+    }
+  | {
+      type: 'error';
+      message: string;
+      result?: MarketIndexSyncResult;
+    };
+
 /** SSE 进度事件（与 money-flow 风格一致，但用本模块独立类型） */
 export type ThsIndexDailySyncEvent =
   | {
