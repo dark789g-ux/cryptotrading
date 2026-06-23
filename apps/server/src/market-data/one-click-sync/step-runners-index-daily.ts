@@ -1,0 +1,111 @@
+// 「一键同步」Step4/5 —— 申万指数日线（SSE）+ 大盘指数日线（普通 await）。
+//
+// 从 step-runners.ts 拆出（单文件 ≤500 行）。事件结构与 ths-index-daily 同构，
+// runSwIndexDaily 镜像 runThsIndexDaily；runMarketIndexDaily 镜像 runOamv。
+// 共享工具（awaitSubject / clampPct / failStep / StepContext）从 step-runners 复用。
+
+import type { SwIndexDailySyncEvent } from '../sw-index-daily/sw-index-daily.types';
+import type { OneClickErrorItem, OneClickStepKey } from './types';
+import { awaitSubject, clampPct, failStep, type StepContext } from './step-runners';
+
+// ── Step4 申万指数日线（sw-index-daily，SSE）───────────────────────────
+// done.result.errors[] → 步骤 errors；rowsWritten = result.success。
+export async function runSwIndexDaily(ctx: StepContext, index: number): Promise<void> {
+  const key: OneClickStepKey = 'sw-index-daily';
+  ctx.setStatus(index, 'running');
+  ctx.pushLog(key, 'info', '开始申万指数日线同步');
+  try {
+    let finalEvent: SwIndexDailySyncEvent | null = null;
+    const subject = ctx.services.swIndexDaily.startSync({
+      start_date: ctx.range.startDate,
+      end_date: ctx.range.endDate,
+      syncMode: 'incremental',
+    });
+    await awaitSubject(subject, (e) => {
+      if (e.type === 'progress') {
+        ctx.patchStep(index, {
+          phase: e.phase,
+          percent: clampPct(e.percent),
+          message: e.message,
+        });
+        ctx.flushThrottled();
+      } else if (e.type === 'done' || e.type === 'error') {
+        finalEvent = e;
+      }
+    });
+    applySwIndexDone(ctx, index, key, finalEvent);
+  } catch (e) {
+    failStep(ctx, index, key, e);
+  }
+}
+
+function applySwIndexDone(
+  ctx: StepContext,
+  index: number,
+  key: OneClickStepKey,
+  event: SwIndexDailySyncEvent | null,
+): void {
+  if (!event || event.type !== 'done') {
+    ctx.setStatus(index, 'failed');
+    ctx.getStep(index).errors.push({
+      step: key,
+      level: 'error',
+      message: (event?.type === 'error' ? event.message : '') || '申万指数日线同步失败',
+    });
+    return;
+  }
+  const res = event.result;
+  ctx.patchStep(index, { rowsWritten: res?.success ?? 0, percent: 100 });
+  const errs = res?.errors ?? [];
+  if (errs.length > 0) {
+    for (const e of errs) {
+      const item: OneClickErrorItem = {
+        step: key,
+        level: 'warn',
+        apiName: e.apiName,
+        message: e.message ?? JSON.stringify(e.params ?? {}),
+      };
+      ctx.getStep(index).errors.push(item);
+      ctx.pushLog(key, 'warn', `[${item.apiName}] ${item.message}`);
+    }
+    ctx.setStatus(index, 'failed');
+  } else {
+    ctx.setStatus(index, 'success');
+  }
+}
+
+// ── Step5 大盘指数日线（market-index-daily，普通 await）────────────────
+// 镜像 runOamv：await service.sync({start_date, end_date})，结果 errors[] → 步骤 errors。
+export async function runMarketIndexDaily(ctx: StepContext, index: number): Promise<void> {
+  const key: OneClickStepKey = 'market-index-daily';
+  ctx.setStatus(index, 'running');
+  ctx.pushLog(key, 'info', '开始大盘指数日线同步');
+  try {
+    ctx.patchStep(index, { phase: '同步大盘指数日线', percent: 30 });
+    ctx.flushThrottled();
+    const result = await ctx.services.marketIndexSync.sync({
+      start_date: ctx.range.startDate,
+      end_date: ctx.range.endDate,
+    });
+    ctx.patchStep(index, { rowsWritten: result?.success ?? 0, percent: 100 });
+    const errs = result?.errors ?? [];
+    if (errs.length > 0) {
+      for (const e of errs) {
+        const item: OneClickErrorItem = {
+          step: key,
+          level: 'warn',
+          apiName: e.apiName,
+          message: e.message ?? JSON.stringify(e.params ?? {}),
+        };
+        ctx.getStep(index).errors.push(item);
+        ctx.pushLog(key, 'warn', `[${item.apiName}] ${item.message}`);
+      }
+      ctx.setStatus(index, 'failed');
+    } else {
+      ctx.setStatus(index, 'success');
+      ctx.pushLog(key, 'info', '大盘指数日线同步完成');
+    }
+  } catch (e) {
+    failStep(ctx, index, key, e);
+  }
+}

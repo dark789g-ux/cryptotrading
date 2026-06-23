@@ -4,7 +4,7 @@
 //
 // 职责：
 //  - 单飞（status='running' 命中则复用，不新建）
-//  - detached async 跑 8 步（订阅 Subject / await POST），改内存态、节流刷 DB
+//  - detached async 跑 10 步（订阅 Subject / await POST），改内存态、节流刷 DB
 //  - 步骤间检查 cancel_requested（标剩余 skipped 后 break）
 //  - 终态写 status/finished_at/current_step=null
 //  - OnModuleInit boot-sweep：把残留 running 标 failed（服务重启中断）
@@ -19,6 +19,8 @@ import { BaseDataSyncService } from '../base-data-sync/base-data-sync.service';
 import { ASharesService } from '../a-shares/a-shares.service';
 import { MoneyFlowSyncService } from '../money-flow/money-flow-sync.service';
 import { ThsIndexDailySyncService } from '../ths-index-daily/ths-index-daily-sync.service';
+import { SwIndexDailySyncService } from '../sw-index-daily/sw-index-daily-sync.service';
+import { MarketIndexSyncService } from '../ths-index-daily/market-index-sync.service';
 import { ActiveMvService } from '../active-mv/active-mv.service';
 import { OamvService } from '../oamv/oamv.service';
 import {
@@ -43,6 +45,7 @@ import {
   runThsIndexDaily,
   type StepContext,
 } from './step-runners';
+import { runMarketIndexDaily, runSwIndexDaily } from './step-runners-index-daily';
 
 type StepRunner = (ctx: StepContext, index: number) => Promise<void>;
 
@@ -51,6 +54,8 @@ const STEP_RUNNERS: StepRunner[] = [
   runAShares,
   runMoneyFlow,
   runThsIndexDaily,
+  runSwIndexDaily,
+  runMarketIndexDaily,
   runStockAmv,
   runIndustryAmv,
   runConceptAmv,
@@ -68,6 +73,8 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
     private readonly aShares: ASharesService,
     private readonly moneyFlow: MoneyFlowSyncService,
     private readonly thsIndexDaily: ThsIndexDailySyncService,
+    private readonly swIndexDaily: SwIndexDailySyncService,
+    private readonly marketIndexSync: MarketIndexSyncService,
     private readonly activeMv: ActiveMvService,
     private readonly oamv: OamvService,
   ) {}
@@ -195,6 +202,8 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
         aShares: this.aShares,
         moneyFlow: this.moneyFlow,
         thsIndexDaily: this.thsIndexDaily,
+        swIndexDaily: this.swIndexDaily,
+        marketIndexSync: this.marketIndexSync,
         activeMv: this.activeMv,
         oamv: this.oamv,
       },
@@ -352,7 +361,7 @@ function computeProgress(steps: OneClickStepState[]): number {
   return Math.round(acc / steps.length);
 }
 
-/** 8 步跑完后的终态：任一步 failed → failed，否则 success（取消由调用方判定）。 */
+/** 10 步跑完后的终态：任一步 failed → failed，否则 success（取消由调用方判定）。 */
 function computeFinalStatus(steps: OneClickStepState[]): 'success' | 'failed' {
   return steps.some((s) => s.status === 'failed') ? 'failed' : 'success';
 }

@@ -1,4 +1,4 @@
-// 「一键同步」编排器单测：mock 6 个 service，测真实编排行为
+// 「一键同步」编排器单测：mock 8 个 service，测真实编排行为
 //  - done/error 事件判定 success/failed
 //  - 某步 failed 不中断后续
 //  - 步骤间 cancel（剩余 skipped）
@@ -16,6 +16,8 @@ import { BaseDataSyncService } from '../base-data-sync/base-data-sync.service';
 import { ASharesService } from '../a-shares/a-shares.service';
 import { MoneyFlowSyncService } from '../money-flow/money-flow-sync.service';
 import { ThsIndexDailySyncService } from '../ths-index-daily/ths-index-daily-sync.service';
+import { SwIndexDailySyncService } from '../sw-index-daily/sw-index-daily-sync.service';
+import { MarketIndexSyncService } from '../ths-index-daily/market-index-sync.service';
 import { ActiveMvService } from '../active-mv/active-mv.service';
 import { OamvService } from '../oamv/oamv.service';
 import { STEP_ORDER, type OneClickStepStatus } from './types';
@@ -150,6 +152,8 @@ interface Mocks {
   aShares: { startSync: jest.Mock };
   moneyFlow: { startSync: jest.Mock };
   thsIndexDaily: { startSync: jest.Mock };
+  swIndexDaily: { startSync: jest.Mock };
+  marketIndexSync: { sync: jest.Mock };
   activeMv: { syncStock: jest.Mock; syncIndustry: jest.Mock; syncConcept: jest.Mock };
   oamv: { sync0amv: jest.Mock };
 }
@@ -188,6 +192,14 @@ function happyMocks(): Mocks {
         doneSubject({ type: 'done', message: 'ok', result: { success: 7, skipped: 0, errors: [] } }),
       ),
     },
+    swIndexDaily: {
+      startSync: jest.fn(() =>
+        doneSubject({ type: 'done', message: 'ok', result: { success: 9, skipped: 0, errors: [] } }),
+      ),
+    },
+    marketIndexSync: {
+      sync: jest.fn().mockResolvedValue({ success: 6, skipped: 0, errors: [] }),
+    },
     activeMv: {
       syncStock: jest.fn().mockResolvedValue({ synced: 100 }),
       syncIndustry: jest.fn().mockResolvedValue({ synced: 50 }),
@@ -206,6 +218,8 @@ async function buildModule(mocks: Mocks, repo: ReturnType<typeof makeInMemoryRep
       { provide: ASharesService, useValue: mocks.aShares },
       { provide: MoneyFlowSyncService, useValue: mocks.moneyFlow },
       { provide: ThsIndexDailySyncService, useValue: mocks.thsIndexDaily },
+      { provide: SwIndexDailySyncService, useValue: mocks.swIndexDaily },
+      { provide: MarketIndexSyncService, useValue: mocks.marketIndexSync },
       { provide: ActiveMvService, useValue: mocks.activeMv },
       { provide: OamvService, useValue: mocks.oamv },
     ],
@@ -220,23 +234,24 @@ function statusesOf(repo: ReturnType<typeof makeInMemoryRepo>, id: string): OneC
 }
 
 describe('OneClickSyncOrchestratorService', () => {
-  it('全 8 步成功 → run success，各步 success + rowsWritten 落库', async () => {
+  it('全 10 步成功 → run success，各步 success + rowsWritten 落库', async () => {
     const repo = makeInMemoryRepo();
     const mocks = happyMocks();
     const svc = await buildModule(mocks, repo);
 
     const run = await svc.startRun('20260601', '20260610', 'user-1');
     expect(run.status).toBe('running');
-    expect(run.steps).toHaveLength(8);
+    expect(run.steps).toHaveLength(10);
 
     await flushUntil(() => repo.rows[0]?.status !== 'running');
     const row = repo.rows[0];
     expect(row.status).toBe('success');
     expect(row.currentStep).toBeNull();
     expect(row.finishedAt).not.toBeNull();
-    expect(statusesOf(repo, run.id)).toEqual(Array(8).fill('success'));
+    expect(statusesOf(repo, run.id)).toEqual(Array(10).fill('success'));
     const rows = (row.steps ?? []).map((s) => s.rowsWritten);
-    expect(rows).toEqual([10, 0, 11, 7, 100, 50, 40, 30]); // a-shares 不取 rowsWritten=0；money-flow Σ=11
+    // 顺序：base-data=10, a-shares=0(不取), money-flow Σ=11, ths=7, sw=9, market=6, AMV 100/50/40, oamv=30
+    expect(rows).toEqual([10, 0, 11, 7, 9, 6, 100, 50, 40, 30]);
   });
 
   it('base-data 用增量默认范围（stkLimit.max+1天），不用一键 dateRange', async () => {
@@ -269,9 +284,9 @@ describe('OneClickSyncOrchestratorService', () => {
     expect(statuses[2]).toBe('failed'); // money-flow 失败
     // 后续步骤照常执行成功（不中断）
     expect(statuses[3]).toBe('success');
-    expect(statuses[7]).toBe('success');
+    expect(statuses[9]).toBe('success'); // oamv（末步）仍跑
     expect(repo.rows[0].status).toBe('failed');
-    // 普通步骤 4-7 仍被调用
+    // 普通步骤 6-9 仍被调用
     expect(mocks.oamv.sync0amv).toHaveBeenCalledTimes(1);
   });
 
@@ -285,11 +300,11 @@ describe('OneClickSyncOrchestratorService', () => {
     await flushUntil(() => repo.rows[0]?.status !== 'running');
 
     const statuses = statusesOf(repo, run.id);
-    expect(statuses[4]).toBe('failed'); // stock-amv
-    expect(statuses[5]).toBe('success'); // industry-amv 仍跑
+    expect(statuses[6]).toBe('failed'); // stock-amv
+    expect(statuses[7]).toBe('success'); // industry-amv 仍跑
     expect(repo.rows[0].status).toBe('failed');
-    const step4 = repo.rows[0].steps?.[4];
-    expect(step4?.errors?.[0]?.message).toContain('AMV 个股炸了');
+    const step6 = repo.rows[0].steps?.[6];
+    expect(step6?.errors?.[0]?.message).toContain('AMV 个股炸了');
   });
 
   it('money-flow done 事件携带非空 summary[k].errors → 该步 failed 且记录 errors，后续步骤继续', async () => {
@@ -327,9 +342,9 @@ describe('OneClickSyncOrchestratorService', () => {
     expect(step2?.rowsWritten).toBe(11);
     // 后续步骤仍继续执行（done-with-errors 不中断，只有 cancel 才中断）
     expect(statuses[3]).toBe('success'); // ths-index-daily
-    expect(statuses[7]).toBe('success'); // oamv
+    expect(statuses[9]).toBe('success'); // oamv（末步）
     expect(mocks.oamv.sync0amv).toHaveBeenCalledTimes(1);
-    // 整体终态：有 failed 步 → failed（computeFinalStatus），但 8 步全部跑完
+    // 整体终态：有 failed 步 → failed（computeFinalStatus），但 10 步全部跑完
     expect(repo.rows[0].status).toBe('failed');
     expect(statuses.filter((s) => s === 'pending')).toHaveLength(0);
     expect(repo.rows[0].finishedAt).not.toBeNull();
@@ -363,8 +378,8 @@ describe('OneClickSyncOrchestratorService', () => {
     expect(step0?.errors?.[0]?.level).toBe('warn');
     expect(step0?.errors?.[0]?.apiName).toBe('stk_limit_empty');
     expect(step0?.rowsWritten).toBe(8); // 走 done 分支，rowsWritten = result.success
-    // 后续 7 步全部继续并成功
-    expect(statuses.slice(1)).toEqual(Array(7).fill('success'));
+    // 后续 9 步全部继续并成功
+    expect(statuses.slice(1)).toEqual(Array(9).fill('success'));
     expect(repo.rows[0].status).toBe('failed');
   });
 
@@ -387,8 +402,8 @@ describe('OneClickSyncOrchestratorService', () => {
     expect(statuses[0]).toBe('success'); // 无新交易日 → success（非 failed）
     expect(mocks.baseData.startSync).not.toHaveBeenCalled(); // 未发起空拉取
     expect(repo.rows[0].steps?.[0]?.rowsWritten).toBe(0);
-    // 后续 7 步照常成功，run 终态 success
-    expect(statuses.slice(1)).toEqual(Array(7).fill('success'));
+    // 后续 9 步照常成功，run 终态 success
+    expect(statuses.slice(1)).toEqual(Array(9).fill('success'));
     expect(repo.rows[0].status).toBe('success');
   });
 
@@ -471,7 +486,7 @@ describe('OneClickSyncOrchestratorService', () => {
     const statuses = statusesOf(repo, run.id);
     expect(statuses[0]).toBe('success'); // base-data 已完成（当前步跑完，无法硬中断）
     // 后续全部 skipped
-    expect(statuses.slice(1)).toEqual(Array(7).fill('skipped'));
+    expect(statuses.slice(1)).toEqual(Array(9).fill('skipped'));
     expect(repo.rows[0].status).toBe('cancelled');
     expect(repo.rows[0].finishedAt).not.toBeNull();
     // a-shares 等后续 service 未被调用
@@ -554,6 +569,6 @@ describe('OneClickSyncOrchestratorService', () => {
     expect(run.finishedAt).toBeNull();
     expect(run.logs[0]?.step).toBe('system');
     expect(run.logs[0]?.text).toContain('20260601 ~ 20260610');
-    expect(STEP_ORDER).toHaveLength(8);
+    expect(STEP_ORDER).toHaveLength(10);
   });
 });

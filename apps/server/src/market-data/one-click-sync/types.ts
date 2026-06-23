@@ -6,12 +6,14 @@
 //   apps/web/src/components/sync/oneClickSync.types.ts 逐字镜像（jsonb 落库结构对齐，
 //   前端读库后能 1:1 重建那套富 UI）。Run 是 controller 出参（camelCase JSON）。
 
-/** 8 个同步步骤的稳定 key（0-based 顺序对齐 STEP_ORDER）。 */
+/** 10 个同步步骤的稳定 key（0-based 顺序对齐 STEP_ORDER）。 */
 export type OneClickStepKey =
   | 'base-data'
   | 'a-shares'
   | 'money-flow'
   | 'ths-index-daily'
+  | 'sw-index-daily'
+  | 'market-index-daily'
   | 'stock-amv'
   | 'industry-amv'
   | 'concept-amv'
@@ -72,12 +74,14 @@ export interface OneClickSyncRunDto {
   finishedAt: string | null;
 }
 
-/** 步骤顺序（索引即 current_step 值；UI 显示为「1.~8.」）。 */
+/** 步骤顺序（索引即 current_step 值；UI 显示为「1.~10.」）。 */
 export const STEP_ORDER: OneClickStepKey[] = [
   'base-data',
   'a-shares',
   'money-flow',
   'ths-index-daily',
+  'sw-index-daily',
+  'market-index-daily',
   'stock-amv',
   'industry-amv',
   'concept-amv',
@@ -90,7 +94,7 @@ export const LOG_LIMIT = 500;
 /** 进度事件最多每 ~1s 落一次库（节流刷 DB）。 */
 export const DB_FLUSH_THROTTLE_MS = 1000;
 
-/** 初始化 8 个 pending 步骤（buildInitialSteps 的后端等价）。 */
+/** 初始化 10 个 pending 步骤（buildInitialSteps 的后端等价）。 */
 export function buildInitialSteps(): OneClickStepState[] {
   return STEP_ORDER.map((step) => ({
     step,

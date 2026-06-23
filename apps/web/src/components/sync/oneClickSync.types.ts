@@ -7,6 +7,8 @@ export type OneClickStepKey =
   | 'a-shares'
   | 'money-flow'
   | 'ths-index-daily'
+  | 'sw-index-daily'
+  | 'market-index-daily'
   | 'stock-amv'
   | 'industry-amv'
   | 'concept-amv'
@@ -80,6 +82,8 @@ export const STEP_LABELS: Record<OneClickStepKey, string> = {
   'a-shares': 'A 股数据',
   'money-flow': '资金流向',
   'ths-index-daily': '指数日线 (ths_daily)',
+  'sw-index-daily': '申万指数日线 (sw_daily)',
+  'market-index-daily': '大盘指数日线 (index_daily)',
   'stock-amv': '个股 AMV',
   'industry-amv': '行业指数 AMV',
   'concept-amv': '板块（概念）AMV',
@@ -141,6 +145,8 @@ export function buildInitialSteps(): OneClickStepState[] {
     emptyStep('a-shares'),
     emptyStep('money-flow'),
     emptyStep('ths-index-daily'),
+    emptyStep('sw-index-daily'),
+    emptyStep('market-index-daily'),
     emptyStep('stock-amv'),
     emptyStep('industry-amv'),
     emptyStep('concept-amv'),

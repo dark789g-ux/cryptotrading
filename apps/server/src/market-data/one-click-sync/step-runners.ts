@@ -1,11 +1,12 @@
-// 「一键同步」8 步执行器 —— 忠实搬运前端 useOneClickSync.ts 的 range/mode + success/failed 判定。
+// 「一键同步」10 步执行器 —— 忠实搬运前端 useOneClickSync.ts 的 range/mode + success/failed 判定。
 //
-// 每个 runner 接收一个 StepContext（提供 6 个底层 service + 改内存步骤态的回调 + pushLog），
+// 每个 runner 接收一个 StepContext（提供 8 个底层 service + 改内存步骤态的回调 + pushLog），
 // 不直接碰 DB / 实体；DB 节流刷库由编排器在事件回调里做。
 //
-// SSE 步骤（0-3）：订阅各 service 的 startSync() Subject，用 awaitSubject 转 Promise；
+// SSE 步骤（0-5）：订阅各 service 的 startSync() Subject，用 awaitSubject 转 Promise；
 //   done 事件携带 result/summary，据此判 success/failed（照搬前端 runBaseData/runAShares/…）。
-// 普通步骤（4-7）：直接 await，rowsWritten 取返回的 synced；抛错→该步 failed。
+// 普通步骤（5-9）：直接 await，rowsWritten 取返回的 synced；抛错→该步 failed。
+//   （Step5 market-index-daily 走普通 await，大盘指数日线无 SSE 入口）
 
 import type { Subject } from 'rxjs';
 import type { BaseDataSyncService } from '../base-data-sync/base-data-sync.service';
@@ -15,6 +16,8 @@ import type { ASharesSyncEvent } from '../a-shares/a-shares.types';
 import type { MoneyFlowSyncService } from '../money-flow/money-flow-sync.service';
 import type { ThsIndexDailySyncService } from '../ths-index-daily/ths-index-daily-sync.service';
 import type { ThsIndexDailySyncEvent } from '../ths-index-daily/ths-index-daily.types';
+import type { SwIndexDailySyncService } from '../sw-index-daily/sw-index-daily-sync.service';
+import type { MarketIndexSyncService } from '../ths-index-daily/market-index-sync.service';
 import type { ActiveMvService } from '../active-mv/active-mv.service';
 import type { OamvService } from '../oamv/oamv.service';
 import type { MoneyFlowSyncEvent, MoneyFlowSyncResult, MoneyFlowSyncSummary } from '@cryptotrading/shared-types';
@@ -34,6 +37,8 @@ export interface StepContext {
     aShares: ASharesService;
     moneyFlow: MoneyFlowSyncService;
     thsIndexDaily: ThsIndexDailySyncService;
+    swIndexDaily: SwIndexDailySyncService;
+    marketIndexSync: MarketIndexSyncService;
     activeMv: ActiveMvService;
     oamv: OamvService;
   };
@@ -378,7 +383,10 @@ function applyThsIndexDone(
   }
 }
 
-// ── Step4-6 三类 AMV（普通 await）─────────────────────────────────────
+// ── Step4/5 申万 + 大盘指数日线 runner 抽到 step-runners-index-daily.ts
+//    （单文件 ≤500 行拆分；事件结构与 ths-index-daily 同构，详见该文件）
+
+// ── Step6-8 三类 AMV（普通 await）─────────────────────────────────────
 export async function runStockAmv(ctx: StepContext, index: number): Promise<void> {
   await runAmvStep(ctx, index, 'stock-amv', '同步个股 AMV', (opts) => ctx.services.activeMv.syncStock(opts));
 }
@@ -425,7 +433,7 @@ async function runAmvStep(
   }
 }
 
-// ── Step7 大盘 0AMV（普通 await）──────────────────────────────────────
+// ── Step9 大盘 0AMV（普通 await）──────────────────────────────────────
 export async function runOamv(ctx: StepContext, index: number): Promise<void> {
   const key: OneClickStepKey = 'oamv';
   ctx.setStatus(index, 'running');
@@ -447,14 +455,14 @@ export async function runOamv(ctx: StepContext, index: number): Promise<void> {
 }
 
 // ── 共用工具 ──────────────────────────────────────────────────────────
-function failStep(ctx: StepContext, index: number, key: OneClickStepKey, e: unknown): void {
+export function failStep(ctx: StepContext, index: number, key: OneClickStepKey, e: unknown): void {
   ctx.setStatus(index, 'failed');
   const msg = e instanceof Error ? e.message : String(e);
   ctx.getStep(index).errors.push({ step: key, level: 'error', message: msg });
   ctx.pushLog(key, 'error', msg);
 }
 
-function clampPct(p: number): number {
+export function clampPct(p: number): number {
   return Math.max(0, Math.min(100, Math.round(p || 0)));
 }
 
