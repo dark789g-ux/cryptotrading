@@ -110,10 +110,12 @@ export class IndexDailyService {
     const orderExpr = `${sortCol} ${order} NULLS LAST`;
 
     // 申万按 level 过滤：name 也在此表，一并取回避免 JOIN。
+    // GET 查询参数 level 是字符串，需显式转 number 再校验（原 `=== 1` 会漏字符串）。
     const isSw = category === 'sw';
+    const levelNum = dto.level == null ? null : Number(dto.level);
     const swLevel: number | null =
-      isSw && (dto.level === 1 || dto.level === 2 || dto.level === 3)
-        ? dto.level
+      isSw && (levelNum === 1 || levelNum === 2 || levelNum === 3)
+        ? levelNum
         : null;
     let swTsCodes: string[] | null = null;
     if (isSw) {
