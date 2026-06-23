@@ -11,6 +11,7 @@
 
 import { ASharesService } from './a-shares.service';
 import { calcKdjSeries, roundKdjPoint } from '../../indicators/kdj';
+import { BadRequestException } from '@nestjs/common';
 
 // ── 工具 ──────────────────────────────────────────────────────────────────────
 
@@ -366,5 +367,36 @@ describe('ASharesService.recalcKlines', () => {
       expect(bar['KDJ.D']).toEqual(parseFloat(bar['KDJ.D'].toFixed(4)));
       expect(bar['KDJ.J']).toEqual(parseFloat(bar['KDJ.J'].toFixed(4)));
     }
+  });
+});
+
+describe('ASharesService.query - indexTsCode 校验', () => {
+  it('非法后缀 .XX 时抛 BadRequestException', async () => {
+    const ds = makeDataSourceMock();
+    const svc = makeService(ds);
+
+    await expect(svc.query({ indexTsCode: 'foo.XX' })).rejects.toThrow(BadRequestException);
+    await expect(svc.query({ indexTsCode: 'foo.XX' })).rejects.toThrow('不支持的指数类型');
+  });
+
+  it('无后缀时抛 BadRequestException', async () => {
+    const ds = makeDataSourceMock();
+    const svc = makeService(ds);
+
+    await expect(svc.query({ indexTsCode: 'foo' })).rejects.toThrow(BadRequestException);
+  });
+
+  it('.TI 后缀不抛异常', async () => {
+    const ds = makeDataSourceMock();
+    const svc = makeService(ds);
+
+    await expect(svc.query({ indexTsCode: '885001.TI' })).resolves.toBeDefined();
+  });
+
+  it('.SI 后缀不抛异常', async () => {
+    const ds = makeDataSourceMock();
+    const svc = makeService(ds);
+
+    await expect(svc.query({ indexTsCode: '801010.SI' })).resolves.toBeDefined();
   });
 });

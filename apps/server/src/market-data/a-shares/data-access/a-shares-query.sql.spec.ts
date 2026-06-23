@@ -165,3 +165,64 @@ describe('a-shares-query.sql 指标列排序映射', () => {
     expect(sortColFor('nonexistentField', 'qfq')).toBe('s.ts_code');
   });
 });
+
+describe('a-shares-query.sql indexTsCode 指数成分股筛选', () => {
+  it('.TI 结尾时 SQL 包含 ths_member_stocks 且参数占位符正确', () => {
+    const dto: QueryASharesDto = { indexTsCode: '885001.TI' };
+    const base = buildASharesBaseQuery(dto);
+
+    expect(base.sql).toContain('ths_member_stocks');
+    expect(base.sql).toContain('tms.con_code');
+    expect(base.sql).toContain('tms.ts_code = $1');
+    expect(base.params).toEqual(['885001.TI']);
+    expect(base.nextParamIndex).toBe(2);
+  });
+
+  it('.SI 结尾时 SQL 包含 raw.index_member、PIT 条件、且 l3_code 去掉 .SI 后缀', () => {
+    const dto: QueryASharesDto = { indexTsCode: '801010.SI' };
+    const base = buildASharesBaseQuery(dto);
+
+    expect(base.sql).toContain('raw.index_member');
+    expect(base.sql).toContain('im.l3_code = $1');
+    expect(base.sql).toContain("im.in_date <= l.trade_date");
+    expect(base.sql).toContain("im.out_date IS NULL OR im.out_date >= l.trade_date");
+    expect(base.params).toEqual(['801010']);
+    expect(base.nextParamIndex).toBe(2);
+  });
+
+  it('indexTsCode 与 market 同时存在时参数顺序正确', () => {
+    const dto: QueryASharesDto = { indexTsCode: '885001.TI', market: '主板' };
+    const base = buildASharesBaseQuery(dto);
+
+    // market 先拼接 → $1，ths_member_stocks 后拼接 → $2
+    expect(base.sql).toContain('s.market = $1');
+    expect(base.sql).toContain('tms.ts_code = $2');
+    expect(base.params).toEqual(['主板', '885001.TI']);
+    expect(base.nextParamIndex).toBe(3);
+  });
+
+  it('indexTsCode 与 industry + conditions 同时存在时参数顺序正确', () => {
+    const dto: QueryASharesDto = {
+      indexTsCode: '801010.SI',
+      industry: '银行',
+      conditions: [{ field: 'pe', op: 'lt', value: 10 }],
+    };
+    const base = buildASharesBaseQuery(dto);
+
+    // industry=$1, pe=$2, l3_code=$3（indexTsCode 最后拼接）
+    expect(base.sql).toContain('s.industry = $1');
+    expect(base.sql).toContain('m.pe < $2');
+    expect(base.sql).toContain('im.l3_code = $3');
+    expect(base.params).toEqual(['银行', 10, '801010']);
+    expect(base.nextParamIndex).toBe(4);
+  });
+
+  it('无 indexTsCode 时不引入任何指数相关 SQL', () => {
+    const dto: QueryASharesDto = { market: '主板' };
+    const base = buildASharesBaseQuery(dto);
+
+    expect(base.sql).not.toContain('ths_member_stocks');
+    expect(base.sql).not.toContain('raw.index_member');
+    expect(base.params).toEqual(['主板']);
+  });
+});
