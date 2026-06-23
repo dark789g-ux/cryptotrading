@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **并行派发共享契约前，契约先锚源头再下发**：给多个并行子代理 / 工作流分发会共用的跨切面契约（字段名 / 时间格式 / 类型 / 接口形状）前，先 grep 既有实现锚定真值（现成 formatter / 实体 / DTO），别凭"看起来合理"现编一份。否则各路实现各按你编的契约做、彼此内部自洽，单任务 review 谁都发现不了，只在集成期才暴露漂移；把"防漂移"前移到下发设计期，而非靠 review / 集成期补抓。教训：本会话给前后端定时间串契约写成无尾 Z，而既有 `formatUtcWallClock` 本就带尾 Z → 前端解析再补一个 Z → `ZZ` → Invalid Date → elapsedMs 恒 0，集成才抓到；下发前 grep 一眼 formatter 即可零漂移。
 
 ## 项目
-cryptotrading：量化交易回测系统。覆盖加密货币（币安公开 REST）与 A 股（Tushare Pro）的 K 线 / 资金流向采集、策略回测与 Web 可视化。
+cryptotrading：量化交易回测系统。覆盖 A 股（Tushare Pro）与美股（Yahoo Finance）的 K 线 / 资金流向 / 基本面采集、策略回测与 Web 可视化。
 
 ## 数据源权限
 - **我目前没有权限查看 tushare 美股的数据。** 即 Tushare 美股系列接口（`us_daily` / `us_daily_adj` / `us_adjfactor` / `us_basic` 等）不可用（`us_daily_adj` 需正式权限、`us_adjfactor` 需先开通美股日线权限），评估美股数据源 / 复权方案时别把它当候选。**美股现走 Yahoo Finance chart API**（自建 `apps/quant-pipeline/.../sync/yahoo_client.py`，stdlib urllib；`adj_close/close` 派生乘法前复权因子，恒正）；2026-06-17 已从 AkShare 全量迁移、移除 akshare 依赖。注：Yahoo `close`/`volume` 是拆股回溯调整值（非 as-traded），AMV 因 Σ(close×volume) 相消而正确。
@@ -67,12 +67,12 @@ cryptotrading：量化交易回测系统。覆盖加密货币（币安公开 RES
   - 美股：`us-stocks`、`us-index-daily`、`us-index-amv`
   - 通用：`klines`、`sync`、`base-data-sync`、`one-click-sync`、`signal-rolling-indicator`（`_shared/` 为跨模块同步辅助）
 - `strategies/`、`backtest/`、`strategy-conditions/` — 策略、回测、条件扫描
-- `modules/quant/` — 量化模型训练（M2/M3 在做，含 `ml.jobs` SSE 进度推送）
+- `modules/quant/` — 量化模型训练与推理（因子 / 特征 / 标签 / 训练 / 评分管线，`ml.jobs` 调度 + SSE 进度推送）
 - `indicators/` — 技术指标计算（MA/MACD/KDJ/砖图，含 worker 线程池）
 - `daily-review/` — 复盘日报 + 工具调用流水线（Tavily/Serper）
 - `preferences/`、`settings/` — 用户偏好（列偏好、筛选方案等）与系统设置
 - `entities/` — TypeORM 实体按业务域分子目录（不与 module 目录同构）
-- `migration/` — schema 变更与回填脚本（平铺）：`*.sql` + 同名 `.ps1` 配对（PS1 内置 `docker exec`，用 `$PSScriptRoot` 引同目录 SQL）；另含少量 `*.ts` 回填脚本（`csv-import / a-share-brick-backfill / daily-basic-pe-ttm-backfill`，经 `package.json` 的 `migration:*` 脚本以 ts-node 直跑）
+- `migration/` — schema 变更与回填脚本（平铺）：`*.sql` + 同名 `.ps1` 配对（PS1 内置 `docker exec`，用 `$PSScriptRoot` 引同目录 SQL）；另含少量 `*.ts` 回填脚本（`csv-import / a-share-brick-backfill / daily-basic-pe-ttm-backfill`，经 `apps/server/package.json` 的 `migration:*` 脚本以 ts-node 直跑；另有 `a-share-indicators-backfill.ts` 暂无脚本入口，需 ts-node 直跑）
 
 **前端视图（`apps/web/src/views/`）**：`auth / market / quant / strategy / sync / system`，各子路由见 [README.md](README.md) 页面表。
 

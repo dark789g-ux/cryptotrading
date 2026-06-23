@@ -1,0 +1,1 @@
+{"action":"evaluate","args":{"code":"(()=>{const el=document.querySelector('.crypto-symbols-panel');const inst=el.__vueParentComponent;inst.setupState.showChartDrawer=false;return 'closed';})()"},"session":"crypto-kdj-e2e"}

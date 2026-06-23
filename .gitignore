@@ -246,6 +246,10 @@ __marimo__/
 # Claude Code harness 运行时锁（每会话生成的 pid/sessionId 锁，非入库产物）
 .claude/scheduled_tasks.lock
 
+# Runtime temp outputs
+.tmp/
+nul
+
 # ZCode harness 本地产物（不随仓库共享）
 .zcode/scheduled_tasks.lock
 .zcode/settings.local.json

@@ -6,6 +6,34 @@
 
 ---
 
+## 2026-06-23: ASharesIndexKlineModal 真机 e2e — v-else 仍 klineMounted=false；常驻+延迟 refreshChartAfterData
+**Symptom**: div 包裹 + v-else 数据就绪后挂载：bars=242、klineMounted=false（LazyTeleport 重渲染创建组件仍中断）。改常驻 KlineChart 后 mount 正常但 canvas=0；手动 `await klineRef.renderChart()` / `echarts.init(el)` 均成功。
+**Cause**: (1) v-if/v-else 等数据后再创建 KlineChart 在 LazyTeleport 内 mount 中断；(2) 空数据常驻时内部 watch 二次 renderChart 不可靠；(3) API 返回时 klineRef/布局未就绪，同步 refreshChartAfterData 空跑；(4) KlineChart renderChart 纯 rAF 在后台 tab 可能永不 resolve。
+**Lesson**: n-modal 内：**div 包裹 + KlineChart 首次 patch 常驻** + `loadKline` 后 **refreshChartAfterData + ~150ms 延迟补调**；共享 KlineChart 加 rAF fallback 与 chartRef 重试。webbridge 验 canvas/ecAttr，别 await renderChart 做自动化（会挂）。
+
+---
+
+## 2026-06-23: ASharesIndexKlineModal echarts 不 init — 对齐 FlowTrendModal「div 包裹 + 数据就绪后 v-else 挂载」
+**Symptom**: 去 v-if 后 KlineChart mount 正常（isMounted=true、chartRef 有 DIV），但 echarts 仍不 init（canvas:0）；manual echarts.init(el) 成功。
+**Cause**: 两层独立问题：(1) n-tab-pane slot 顶层直接放 KlineChart → LazyTeleport 上下文 vnode.el=null，需 **div 包裹**；(2) 「空数据常驻 KlineChart + 异步填充 bars」时 watch 二次 renderChart 在 modal 上下文到不了 echarts.init——FlowTrendModal 的正确模式是 **loading/empty/chart 三分支，bars 就绪后才 v-else 挂载 KlineChart**（首次 mount 即带全量 data，watch immediate 一次 init）。
+**Lesson**: n-modal 内 KlineChart 必须 **div 包裹 + 数据就绪后挂载**（镜像 FlowTrendModal trend-modal-body），勿「始终渲染等数据填充」。原先误判 v-if 本身有问题——实为缺 div 时 v-if 才 mount 中断。
+
+---
+
+## 2026-06-23: 找子组件真实实例从父 subTree findComp，别从 teleport 目标 DOM 链
+**Symptom**: 读 KlineModal.props.row 从 `.n-modal` 的 `__vueParentComponent` 链始终 null，但父 Panel `selectedRow=700468.TI` 明明有值，反复误判 props 传递断裂（浪费 ~10 个往返）。
+**Cause**: `.n-modal`（teleport to body）DOM 链上的 KlineModal 实例是 HMR/teleport **stale 残留**，非 Panel 当前渲染的活跃实例；其 props/setupState 是旧值。
+**Lesson**: 找子组件真实活跃实例，从**父组件 `subTree` 递归 findComp**（`vnode.type.__name===name` 返回 `vnode.component`；遍历 `vnode.component.subTree` 和 `vnode.children`），别从 teleport 目标 DOM 上溯——后者常是 stale 实例，props/setupState 是旧值，误导调试方向。
+
+---
+
+## 2026-06-23: KlineChart.renderChart（defineExpose）手动调经 webbridge evaluate 会挂起
+**Symptom**: evaluate 内 `await inst.setupState.renderChart()` 的 curl 无输出（-m 25 超时不返回），疑似 echarts.init 在 LazyTeleport el 上挂起。
+**Cause**: renderChart 内 `await nextTick + requestAnimationFrame + echarts.init(el) + setOption`，在 Modal/LazyTeleport 上下文经 webbridge 调用挂起（具体成因未定位）。
+**Lesson**: 别用 webbridge evaluate 手动调 KlineChart.renderChart 验证渲染。改读 DOM 计数（`.kline-chart-wrapper`/`canvas`/`[_echarts_instance_]`），或动态 import buildKlineChartOption 纯函数（见 2026-06-20 条）喂真实数据断言 option。
+
+---
+
 ## 2026-06-20: 验证"真实生产代码的输出"——Vite dev 下动态 import 源码模块直接调
 **Symptom**: 要验证 KlineChart 的 `buildKlineChartOption` 在真实数据下产出正确的 VOL 染色。两条路都不通：① 重写逻辑算一遍有"重写逻辑=业务逻辑→假通过"漏洞；② 从 DOM/echarts 实例读渲染态被 v5 WeakMap 堵死（见上条）。像素采样又被同色系元素（MA60/KDJ.K 都用 `#0ECB81` 绿）污染，无法干净定位 VOL 副图。
 **Cause**: 模块作用域的纯函数既不在 window，DOM 上也没有调用入口；但 Vite dev server 让浏览器能通过 HTTP 按源码路径动态 import 模块。
