@@ -176,18 +176,22 @@ export function createASharesIndexColumnDefs({
       fixed: 'right',
       defaultVisible: true,
       locked: true,
-      render: (row) =>
-        h(
+      render: (row) => {
+        const supported = row.tsCode.endsWith('.TI') || row.tsCode.endsWith('.SI')
+        return h(
           NButton,
           {
             size: 'small',
+            disabled: !supported,
+            title: supported ? '跳转至成分股' : '仅 .TI/.SI 后缀指数支持查看成分股',
             onClick: () => onJumpToMembers(row),
           },
           {
             icon: () => h(NIcon, null, () => h(List)),
             default: () => '成分股',
           },
-        ),
+        )
+      },
     })
   }
 
