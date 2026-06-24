@@ -244,7 +244,6 @@ export function buildASharesBaseQuery(
       params.push(dto.indexTsCode);
       paramIndex++;
     } else if (dto.indexTsCode.endsWith('.SI')) {
-      const l3Code = dto.indexTsCode.replace(/\.SI$/, '');
       sql += ` AND s.ts_code IN (
         SELECT im.ts_code
         FROM raw.index_member im
@@ -252,7 +251,7 @@ export function buildASharesBaseQuery(
           AND im.in_date <= l.trade_date
           AND (im.out_date IS NULL OR im.out_date >= l.trade_date)
       )`;
-      params.push(l3Code);
+      params.push(dto.indexTsCode);
       paramIndex++;
     }
   }

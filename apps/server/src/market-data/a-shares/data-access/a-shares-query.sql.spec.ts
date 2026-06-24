@@ -178,7 +178,7 @@ describe('a-shares-query.sql indexTsCode 指数成分股筛选', () => {
     expect(base.nextParamIndex).toBe(2);
   });
 
-  it('.SI 结尾时 SQL 包含 raw.index_member、PIT 条件、且 l3_code 去掉 .SI 后缀', () => {
+  it('.SI 结尾时 SQL 包含 raw.index_member、PIT 条件、且 l3_code 保持 .SI 后缀', () => {
     const dto: QueryASharesDto = { indexTsCode: '801010.SI' };
     const base = buildASharesBaseQuery(dto);
 
@@ -186,7 +186,7 @@ describe('a-shares-query.sql indexTsCode 指数成分股筛选', () => {
     expect(base.sql).toContain('im.l3_code = $1');
     expect(base.sql).toContain("im.in_date <= l.trade_date");
     expect(base.sql).toContain("im.out_date IS NULL OR im.out_date >= l.trade_date");
-    expect(base.params).toEqual(['801010']);
+    expect(base.params).toEqual(['801010.SI']);
     expect(base.nextParamIndex).toBe(2);
   });
 
@@ -213,7 +213,7 @@ describe('a-shares-query.sql indexTsCode 指数成分股筛选', () => {
     expect(base.sql).toContain('s.industry = $1');
     expect(base.sql).toContain('m.pe < $2');
     expect(base.sql).toContain('im.l3_code = $3');
-    expect(base.params).toEqual(['银行', 10, '801010']);
+    expect(base.params).toEqual(['银行', 10, '801010.SI']);
     expect(base.nextParamIndex).toBe(4);
   });
 
