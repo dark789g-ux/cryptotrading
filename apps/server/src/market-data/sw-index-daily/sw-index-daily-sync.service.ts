@@ -114,7 +114,9 @@ export class SwIndexDailySyncService {
     let dates = openDates;
     let skipped = 0;
     if ((dto.syncMode ?? 'incremental') === 'incremental') {
-      const filtered = await filterExistingDates(this.quotesRepo, openDates);
+      // category='sw' 收敛：index_daily_quotes 同表混装四类，不收敛会被同表
+      // industry/concept（ths 先写）已写的同一 trade_date 误判为已同步而整窗口跳过
+      const filtered = await filterExistingDates(this.quotesRepo, openDates, 'sw');
       dates = filtered.dates;
       skipped = filtered.skipped;
       if (skipped) {

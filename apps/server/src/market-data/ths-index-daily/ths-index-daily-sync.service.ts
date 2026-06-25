@@ -86,7 +86,12 @@ export class ThsIndexDailySyncService {
     let dates = openDates;
     let skipped = 0;
     if ((dto.syncMode ?? 'incremental') === 'incremental') {
-      const filtered = await filterExistingDates(this.quotesRepo, openDates);
+      // category 收敛到本同步写入的 industry/concept：index_daily_quotes 同表混装
+      // 四类，不收敛会被同表 sw/market 已写的同一 trade_date 误判为已同步
+      const filtered = await filterExistingDates(this.quotesRepo, openDates, [
+        'industry',
+        'concept',
+      ]);
       dates = filtered.dates;
       skipped = filtered.skipped;
       if (skipped) {
