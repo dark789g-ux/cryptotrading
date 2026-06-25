@@ -27,6 +27,11 @@ export class MoneyFlowController {
     return this.moneyFlowService.queryIndustries(dto);
   }
 
+  @Post('ths-industries/query')
+  queryThsIndustries(@Body() dto: QueryFlowDto) {
+    return this.moneyFlowService.queryThsIndustries(dto);
+  }
+
   @Get('sectors')
   querySectors(@Query() dto: QueryFlowDto) {
     return this.moneyFlowService.querySectors(dto);
@@ -35,6 +40,11 @@ export class MoneyFlowController {
   @Get('market')
   queryMarket(@Query() dto: QueryFlowDto) {
     return this.moneyFlowService.queryMarket(dto);
+  }
+
+  @Get('indices')
+  queryIndices(@Query() dto: QueryFlowDto) {
+    return this.moneyFlowService.queryIndices(dto);
   }
 
   @Get('members')

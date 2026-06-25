@@ -15,9 +15,10 @@ import { MoneyFlowService } from './money-flow.service';
 import { MoneyFlowSyncService } from './money-flow-sync.service';
 import { MoneyFlowAggregationService } from './money-flow-aggregation.service';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
+import { IndexCatalogModule } from '../index-catalog/index-catalog.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([
+  imports: [IndexCatalogModule, TypeOrmModule.forFeature([
     AShareSymbolEntity,
     MoneyFlowStockEntity,
     MoneyFlowIndustryEntity,

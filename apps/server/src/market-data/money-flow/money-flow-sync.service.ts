@@ -1,4 +1,3 @@
-// apps/server/src/market-data/money-flow/money-flow-sync.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -20,8 +19,12 @@ import {
   fetchByDates,
   filterExistingDates,
 } from './money-flow-sync.helpers';
+import { IndexWeightSyncService } from '../index-weight/index-weight-sync.service';
+import { MoneyFlowAggregationService } from './money-flow-aggregation.service';
 
 export type { MoneyFlowSyncResult };
+
+const USE_AGGREGATED_MONEY_FLOW = process.env.USE_AGGREGATED_MONEY_FLOW !== 'false';
 
 // moneyflow_ths: https://tushare.pro/wctapi/documents/348.md
 const STOCK_FIELDS = 'trade_date,ts_code,name,pct_change,latest,net_amount,net_d5_amount,buy_lg_amount,buy_lg_amount_rate,buy_md_amount,buy_md_amount_rate,buy_sm_amount,buy_sm_amount_rate';
@@ -53,6 +56,8 @@ export class MoneyFlowSyncService {
     @InjectRepository(AShareSymbolEntity)
     private readonly symbolRepo: Repository<AShareSymbolEntity>,
     private readonly tushareClient: TushareClientService,
+    private readonly indexWeightSyncService: IndexWeightSyncService,
+    private readonly moneyFlowAggregationService: MoneyFlowAggregationService,
   ) {}
 
   private async getTradeDates(dto: SyncFlowDto): Promise<string[]> {
@@ -272,6 +277,158 @@ export class MoneyFlowSyncService {
     }
     this.isSyncing = true;
 
+    if (USE_AGGREGATED_MONEY_FLOW) {
+      this.runAggregatedSync(dto, subject);
+    } else {
+      this.runLegacySync(dto, subject);
+    }
+
+    return subject;
+  }
+
+  private runAggregatedSync(dto: SyncFlowDto, subject: Subject<MoneyFlowSyncEvent>): void {
+    setTimeout(async () => {
+      const summary: Partial<MoneyFlowSyncSummary> = {};
+      try {
+        let allTradeDates: string[];
+        try {
+          allTradeDates = await this.getTradeDates(dto);
+        } catch (e: unknown) {
+          subject.next({
+            type: 'error',
+            message: `获取交易日列表失败: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          subject.complete();
+          return;
+        }
+        if (!allTradeDates.length) {
+          subject.next({ type: 'error', message: '未获取到交易日列表' });
+          subject.complete();
+          return;
+        }
+
+        const grandTotal = allTradeDates.length * 7 || 1;
+
+        // Phase 1: 同步指数成分股
+        const phase1Label = '同步指数成分股';
+        subject.next({
+          type: 'progress',
+          phase: phase1Label,
+          current: 0,
+          total: allTradeDates.length,
+          percent: 0,
+          message: phase1Label,
+        });
+
+        const indexWeightResult = await this.indexWeightSyncService.syncIfNeeded({
+          startDate: dto.start_date,
+          endDate: dto.end_date,
+        });
+
+        const indexWeightErrors: string[] = indexWeightResult.errors.map(
+          (e) => `[${e.apiName}] ${e.message ?? ''}`,
+        );
+        summary.indices = {
+          success: indexWeightResult.successIndexes,
+          skipped: indexWeightResult.totalIndexes - indexWeightResult.successIndexes,
+          errors: indexWeightErrors,
+        };
+
+        subject.next({
+          type: 'progress',
+          phase: phase1Label,
+          current: allTradeDates.length,
+          total: allTradeDates.length,
+          percent: Math.round((1 / 7) * 100),
+          message: `${phase1Label} 完成，${indexWeightResult.successIndexes}/${indexWeightResult.totalIndexes} 个指数`,
+        });
+
+        // Phase 2: 同步个股资金流
+        const phase2Label = '同步个股资金流';
+        const stockCtx: SyncCtx = {
+          phase: phase2Label,
+          baseCurrent: allTradeDates.length,
+          total: allTradeDates.length,
+          grandTotal,
+          emit: (e) => subject.next(e),
+        };
+        summary.stocks = await this.syncStocks(dto, stockCtx);
+
+        // Phase 3-7: 五维度聚合
+        const aggPhaseLabels = [
+          '聚合申万行业资金流',
+          '聚合同花顺行业资金流',
+          '聚合概念板块资金流',
+          '聚合宽基指数资金流',
+          '聚合全市场大盘资金流',
+        ];
+        const aggPhaseKeys: Array<keyof MoneyFlowSyncSummary> = [
+          'swIndustries',
+          'thsIndustries',
+          'sectors',
+          'indices',
+          'market',
+        ];
+
+        const aggResults = await this.moneyFlowAggregationService.aggregateAll(
+          dto.start_date,
+          dto.end_date,
+          (p) => {
+            const phaseIndex = aggPhaseLabels.findIndex((l) => l.includes(p.phase) || p.phase.includes(l));
+            const currentPhase = phaseIndex >= 0 ? phaseIndex + 3 : 3;
+            subject.next({
+              type: 'progress',
+              phase: p.phase,
+              current: p.current,
+              total: p.total,
+              percent: Math.round((currentPhase / 7) * 100 + (p.percent / 100) * (1 / 7) * 100),
+              message: p.message,
+            });
+          },
+        );
+
+        const aggKeyToSummaryKey: Record<string, keyof MoneyFlowSyncSummary> = {
+          sw_industry: 'swIndustries',
+          ths_industry: 'thsIndustries',
+          ths_sector: 'sectors',
+          index: 'indices',
+          market: 'market',
+        };
+
+        for (const result of aggResults) {
+          const key = aggKeyToSummaryKey[result.phase];
+          if (key) {
+            summary[key] = {
+              success: result.success ? result.affectedRows : 0,
+              skipped: 0,
+              errors: result.errors,
+            };
+          }
+        }
+
+        const failedCount = (Object.values(summary) as MoneyFlowSyncResult[])
+          .reduce((n, r) => n + (r?.errors.length ?? 0), 0);
+        subject.next({
+          type: 'done',
+          message: failedCount ? `同步完成，${failedCount} 个错误` : '同步完成',
+          summary: summary as MoneyFlowSyncSummary,
+        });
+        subject.complete();
+      } catch (err) {
+        this.logger.error(`runAggregatedSync 失败: ${err instanceof Error ? err.stack : String(err)}`);
+        subject.next({
+          type: 'error',
+          message: err instanceof Error ? err.message : String(err),
+          summary: summary as MoneyFlowSyncSummary,
+        });
+        subject.complete();
+      } finally {
+        this.isSyncing = false;
+      }
+    }, 0);
+  }
+
+  private runLegacySync(dto: SyncFlowDto, subject: Subject<MoneyFlowSyncEvent>): void {
     setTimeout(async () => {
       const summary: Partial<MoneyFlowSyncSummary> = {};
       try {
@@ -293,10 +450,10 @@ export class MoneyFlowSyncService {
         }
 
         const dims = [
-          { key: 'stocks' as const,     label: '同步个股资金流' },
+          { key: 'stocks' as const, label: '同步个股资金流' },
           { key: 'industries' as const, label: '同步行业资金流' },
-          { key: 'sectors' as const,    label: '同步板块资金流' },
-          { key: 'market' as const,     label: '同步大盘资金流' },
+          { key: 'sectors' as const, label: '同步板块资金流' },
+          { key: 'market' as const, label: '同步大盘资金流' },
         ];
 
         const totals = dims.map(() => allTradeDates.length);
@@ -315,16 +472,26 @@ export class MoneyFlowSyncService {
           baseCurrent += totals[i];
         }
 
-        const failedCount = (Object.values(summary) as MoneyFlowSyncResult[])
+        // 兼容新 summary 类型：旧 industries → thsIndustries，补 swIndustries/indices
+        const legacySummary: Partial<MoneyFlowSyncSummary> = {
+          stocks: summary.stocks!,
+          swIndustries: { success: 0, skipped: 0, errors: ['legacy_mode_skipped'] },
+          thsIndustries: (summary as Record<string, unknown>).thsIndustries as MoneyFlowSyncResult || (summary as Record<string, unknown>).industries as MoneyFlowSyncResult,
+          sectors: summary.sectors!,
+          market: summary.market!,
+          indices: { success: 0, skipped: 0, errors: ['legacy_mode_skipped'] },
+        };
+
+        const failedCount = (Object.values(legacySummary) as MoneyFlowSyncResult[])
           .reduce((n, r) => n + (r?.errors.length ?? 0), 0);
         subject.next({
           type: 'done',
-          message: failedCount ? `同步完成，${failedCount} 个交易日失败` : '同步完成',
-          summary: summary as MoneyFlowSyncSummary,
+          message: failedCount ? `同步完成，${failedCount} 个错误` : '同步完成',
+          summary: legacySummary as MoneyFlowSyncSummary,
         });
         subject.complete();
       } catch (err) {
-        this.logger.error(`startSync 失败: ${err instanceof Error ? err.stack : String(err)}`);
+        this.logger.error(`runLegacySync 失败: ${err instanceof Error ? err.stack : String(err)}`);
         subject.next({
           type: 'error',
           message: err instanceof Error ? err.message : String(err),
@@ -335,8 +502,6 @@ export class MoneyFlowSyncService {
         this.isSyncing = false;
       }
     }, 0);
-
-    return subject;
   }
 
   private runDimension(

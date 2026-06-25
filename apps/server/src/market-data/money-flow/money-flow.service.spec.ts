@@ -6,6 +6,8 @@ import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-in
 import { MoneyFlowSectorEntity } from '../../entities/money-flow/money-flow-sector.entity';
 import { MoneyFlowMarketEntity } from '../../entities/money-flow/money-flow-market.entity';
 import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock.entity';
+import { MoneyFlowThsIndustryEntity } from '../../entities/money-flow/money-flow-ths-industry.entity';
+import { MoneyFlowIndexEntity } from '../../entities/money-flow/money-flow-index.entity';
 
 /**
  * 测试 MoneyFlowService.queryMembers 的三种场景：
@@ -45,6 +47,8 @@ describe('MoneyFlowService.queryMembers', () => {
         { provide: getRepositoryToken(MoneyFlowIndustryEntity), useValue: otherRepo() },
         { provide: getRepositoryToken(MoneyFlowSectorEntity), useValue: otherRepo() },
         { provide: getRepositoryToken(MoneyFlowMarketEntity), useValue: otherRepo() },
+        { provide: getRepositoryToken(MoneyFlowThsIndustryEntity), useValue: otherRepo() },
+        { provide: getRepositoryToken(MoneyFlowIndexEntity), useValue: otherRepo() },
         { provide: getRepositoryToken(ThsMemberStockEntity), useValue: memberRepo },
       ],
     }).compile();
