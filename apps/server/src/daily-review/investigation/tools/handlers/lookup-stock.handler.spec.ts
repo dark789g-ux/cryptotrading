@@ -49,10 +49,10 @@ describe('LookupStockHandler', () => {
     symbolRepo.findOne.mockResolvedValue({
       tsCode: '601138.SH',
       name: '工业富联',
-      industry: '电子元件',
+      swIndustryL3Code: '电子元件',
       area: '上海',
       listDate: '20180608',
-    });
+    } as unknown as AShareSymbolEntity);
 
     // 最近 6 行资金流：最新 trade_date=20260513
     const flowRows = [

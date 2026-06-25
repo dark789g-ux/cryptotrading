@@ -8,7 +8,9 @@
     "start": "node dist/apps/server/src/main",
     "migration:csv": "ts-node -r tsconfig-paths/register src/migration/csv-import.ts",
     "migration:a-share-brick": "ts-node -r tsconfig-paths/register src/migration/a-share-brick-backfill.ts",
-    "migration:daily-basic-pe-ttm": "ts-node -r tsconfig-paths/register src/migration/daily-basic-pe-ttm-backfill.ts"
+    "migration:daily-basic-pe-ttm": "ts-node -r tsconfig-paths/register src/migration/daily-basic-pe-ttm-backfill.ts",
+    "migration:backfill-a-share-sw-industry": "ts-node -r tsconfig-paths/register src/migration/backfill-a-share-sw-industry.ts",
+    "migration:backfill-money-flow-aggregation": "ts-node -r tsconfig-paths/register src/migration/backfill-money-flow-aggregation.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

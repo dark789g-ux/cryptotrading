@@ -318,9 +318,11 @@ describe('OneClickSyncOrchestratorService', () => {
         message: 'ok',
         summary: {
           stocks: { success: 5, skipped: 0, errors: [] },
-          industries: { success: 3, skipped: 0, errors: ['行业 884001 同步失败'] },
+          swIndustries: { success: 3, skipped: 0, errors: ['申万行业 884001 同步失败'] },
+          thsIndustries: { success: 0, skipped: 0, errors: [] },
           sectors: { success: 2, skipped: 0, errors: [] },
           market: { success: 1, skipped: 0, errors: [] },
+          indices: { success: 0, skipped: 0, errors: [] },
         },
       }),
     );
@@ -336,7 +338,7 @@ describe('OneClickSyncOrchestratorService', () => {
     const step2 = repo.rows[0].steps?.[2];
     expect(step2?.errors).toHaveLength(1);
     expect(step2?.errors?.[0]?.level).toBe('warn');
-    expect(step2?.errors?.[0]?.apiName).toBe('行业');
+    expect(step2?.errors?.[0]?.apiName).toBe('申万行业');
     expect(step2?.errors?.[0]?.message).toContain('884001');
     // rowsWritten 仍按 Σ summary.success 累计（5+3+2+1=11），证明走的是 done 分支而非 error 分支
     expect(step2?.rowsWritten).toBe(11);
