@@ -30,9 +30,9 @@ export interface IndicatorDescriptor {
 }
 
 /**
- * 25 条指标 descriptor（spec 散文写「24/前 18」是 off-by-one，逐键枚举表实为 25，以表为准）。
- * 前 19 条逐列对齐 watchlistColumnDefs.ts:237-263（去重零漂移）；
- * 后 6 条 brick/amv 为本期新增（自选股原本没有这些字段）。
+ * 28 条指标 descriptor（spec 散文写「24/前 18」是 off-by-one，逐键枚举表实为 28，以表为准）。
+ * 前 22 条逐列对齐 A股/自选股/回测表共享字段（去重零漂移）；
+ * 后 6 条 brick/amv 为本期新增。
  */
 export const INDICATOR_DESCRIPTORS: IndicatorDescriptor[] = [
   { key: 'ma5', title: 'MA5', decimals: 4 },

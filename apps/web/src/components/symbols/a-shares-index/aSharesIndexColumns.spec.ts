@@ -51,6 +51,23 @@ describe('createASharesIndexColumnDefs', () => {
     expect(keys).not.toContain('action')
   })
 
+  it('返回的列定义包含资金流列', () => {
+    const cols = createASharesIndexColumnDefs()
+    const keys = cols.map((c) => c.key)
+    expect(keys).toContain('net_amount')
+    expect(keys).toContain('buy_lg_amount')
+    expect(keys).toContain('buy_md_amount')
+    expect(keys).toContain('buy_sm_amount')
+  })
+
+  it('资金流列默认隐藏', () => {
+    const cols = createASharesIndexColumnDefs()
+    const moneyFlowKeys = ['net_amount', 'buy_lg_amount', 'buy_md_amount', 'buy_sm_amount']
+    for (const key of moneyFlowKeys) {
+      const col = cols.find((c) => c.key === key)!
+      expect(col.defaultVisible).toBe(false)
+    }
+  })
   it('count 列对 null 值渲染为 "-"', () => {
     const cols = createASharesIndexColumnDefs()
     const countCol = cols.find((c) => c.key === 'count')!

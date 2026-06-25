@@ -22,12 +22,12 @@ function renderText(node: unknown): string {
 }
 
 describe('INDICATOR_DESCRIPTORS', () => {
-  // 注：spec 散文写「24 条 / 前 18 条」，但其逐键枚举表实为 19 条 watchlist 衍生列
+  // 注：spec 散文写「24 条 / 前 18 条」，但其逐键枚举表实为 22 条 watchlist 衍生列
   // （ma5..ma240/bbi/kdjJ..kdjD/dif/dea/macd/quoteVolume10/atr14/lossAtr14/low9/high9/
-  //  riskRewardRatio/stopLossPct，与 watchlistColumnDefs.ts:237-263 逐列一致）+ 6 条 brick/amv
-  // 新增 = 25。表是 load-bearing 单一事实源，散文计数是 off-by-one，以表为准。
-  it('恰好 25 条（19 watchlist 衍生 + 6 brick/amv 新增）', () => {
-    expect(INDICATOR_DESCRIPTORS).toHaveLength(25)
+  //  riskRewardRatio/stopLossPct/roc10/roc20/roc60，与 A股/自选股/回测表共享字段逐列一致）
+  // + 6 条 brick/amv 新增 = 28。表是 load-bearing 单一事实源，散文计数是 off-by-one，以表为准。
+  it('恰好 28 条（22 共享指标 + 6 brick/amv 新增）', () => {
+    expect(INDICATOR_DESCRIPTORS).toHaveLength(28)
   })
 
   it('key 唯一', () => {
@@ -69,9 +69,9 @@ describe('INDICATOR_DESCRIPTORS', () => {
 })
 
 describe('buildIndicatorColumns', () => {
-  it('产物列数 = 25，且 key 顺序与 descriptor 一致', () => {
+  it('产物列数 = 28，且 key 顺序与 descriptor 一致', () => {
     const cols = buildIndicatorColumns<AnyRow>(INDICATOR_DESCRIPTORS, {})
-    expect(cols).toHaveLength(25)
+    expect(cols).toHaveLength(28)
     expect(cols.map((c) => c.key)).toEqual(INDICATOR_DESCRIPTORS.map((d) => d.key))
   })
 

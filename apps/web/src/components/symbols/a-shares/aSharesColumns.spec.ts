@@ -29,10 +29,10 @@ function makeOptions() {
 const INDICATOR_KEYS = INDICATOR_DESCRIPTORS.map((d) => d.key)
 
 describe('createASharesColumnDefs · 技术指标列接入', () => {
-  it('含全部 25 个指标列 key', () => {
+  it('含全部 28 个指标列 key', () => {
     const cols = createASharesColumnDefs(makeOptions())
     const keys = cols.map((c) => c.key)
-    expect(INDICATOR_KEYS).toHaveLength(25)
+    expect(INDICATOR_KEYS).toHaveLength(28)
     for (const k of INDICATOR_KEYS) {
       expect(keys).toContain(k)
     }
@@ -44,6 +44,15 @@ describe('createASharesColumnDefs · 技术指标列接入', () => {
     for (const k of INDICATOR_KEYS) {
       expect(byKey.get(k)!.defaultVisible).toBe(false)
     }
+  })
+
+  it('申万行业列优先显示名称，缺名称时回退代码', () => {
+    const cols = createASharesColumnDefs(makeOptions())
+    const byKey = new Map(cols.map((c) => [c.key, c]))
+    const l1 = byKey.get('swIndustryL1Code')!
+    expect(renderText(l1.render({ swIndustryL1Code: '801780.SI', swIndustryL1Name: '银行' } as unknown as AShareRow))).toBe('银行')
+    expect(renderText(l1.render({ swIndustryL1Code: '801780.SI', swIndustryL1Name: null } as unknown as AShareRow))).toBe('801780.SI')
+    expect(renderText(l1.render({ swIndustryL1Code: null, swIndustryL1Name: null } as unknown as AShareRow))).toBe('-')
   })
 
   it('非指标列可见性不变（原有列默认可见性保持）', () => {
