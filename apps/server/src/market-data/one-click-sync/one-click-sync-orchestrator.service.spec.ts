@@ -180,9 +180,11 @@ function happyMocks(): Mocks {
           message: 'ok',
           summary: {
             stocks: { success: 5, skipped: 0, errors: [] },
-            industries: { success: 3, skipped: 0, errors: [] },
+            swIndustries: { success: 3, skipped: 0, errors: [] },
+            thsIndustries: { success: 0, skipped: 0, errors: [] },
             sectors: { success: 2, skipped: 0, errors: [] },
             market: { success: 1, skipped: 0, errors: [] },
+            indices: { success: 0, skipped: 0, errors: [] },
           },
         }),
       ),
