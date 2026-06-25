@@ -153,10 +153,11 @@ export class ASharesService {
   async getFilterOptions() {
     const markets = await this.symbolRepo
       .createQueryBuilder('s')
-      .select('DISTINCT s.market', 'value')
+      .select('s.market', 'value')
       .addSelect('s.market', 'label')
       .where('s.market IS NOT NULL')
       .andWhere("s.market <> ''")
+      .groupBy('s.market')
       .orderBy('s.market')
       .getRawMany<{ value: string; label: string }>();
 
