@@ -37,7 +37,7 @@ const KlineChartStub = defineComponent({
   },
 })
 
-const ROW = { tsCode: '000001.SZ', name: '平安银行', market: '主板', industry: '银行', tradeDate: '20260101' }
+const ROW = { tsCode: '000001.SZ', name: '平安银行', market: '主板', swIndustryL1Code: '801780.SI', swIndustryL2Code: '801782.SI', swIndustryL3Code: '801783.SI', swIndustryL1Name: '银行', swIndustryL2Name: '商业银行', swIndustryL3Name: '城商行', tradeDate: '20260101' }
 
 function mountDrawer() {
   const show = ref(false)

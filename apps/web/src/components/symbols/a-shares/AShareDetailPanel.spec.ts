@@ -36,8 +36,8 @@ const KlineChartStub = defineComponent({
   },
 })
 
-const ROW_A = { tsCode: '000001.SZ', name: '平安银行', market: '主板', industry: '银行', tradeDate: '20260101' } as AShareRow
-const ROW_B = { tsCode: '000002.SZ', name: '万科A', market: '主板', industry: '房地产', tradeDate: '20260102' } as AShareRow
+const ROW_A = { tsCode: '000001.SZ', name: '平安银行', market: '主板', swIndustryL1Code: '801780.SI', swIndustryL2Code: '801782.SI', swIndustryL3Code: '801783.SI', swIndustryL1Name: '银行', swIndustryL2Name: '商业银行', swIndustryL3Name: '城商行', tradeDate: '20260101' } as AShareRow
+const ROW_B = { tsCode: '000002.SZ', name: '万科A', market: '主板', swIndustryL1Code: '801180.SI', swIndustryL2Code: '801182.SI', swIndustryL3Code: '801183.SI', swIndustryL1Name: '房地产', swIndustryL2Name: '房地产开发', swIndustryL3Name: '住宅开发', tradeDate: '20260102' } as AShareRow
 
 function mountPanel(initial: { row?: AShareRow; priceMode?: 'qfq' | 'raw'; visible?: boolean } = {}) {
   const row = ref(initial.row ?? null)

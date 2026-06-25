@@ -154,31 +154,36 @@ export class ASharesService {
     const markets = await this.symbolRepo
       .createQueryBuilder('s')
       .select('DISTINCT s.market', 'value')
+      .addSelect('s.market', 'label')
       .where('s.market IS NOT NULL')
       .andWhere("s.market <> ''")
       .orderBy('s.market')
-      .getRawMany<{ value: string }>();
-    const swIndustriesL1 = await this.symbolRepo
-      .createQueryBuilder('s')
-      .select('DISTINCT s.sw_industry_l1_code', 'value')
-      .where('s.sw_industry_l1_code IS NOT NULL')
-      .andWhere("s.sw_industry_l1_code <> ''")
-      .orderBy('s.sw_industry_l1_code')
-      .getRawMany<{ value: string }>();
-    const swIndustriesL2 = await this.symbolRepo
-      .createQueryBuilder('s')
-      .select('DISTINCT s.sw_industry_l2_code', 'value')
-      .where('s.sw_industry_l2_code IS NOT NULL')
-      .andWhere("s.sw_industry_l2_code <> ''")
-      .orderBy('s.sw_industry_l2_code')
-      .getRawMany<{ value: string }>();
-    const swIndustriesL3 = await this.symbolRepo
-      .createQueryBuilder('s')
-      .select('DISTINCT s.sw_industry_l3_code', 'value')
-      .where('s.sw_industry_l3_code IS NOT NULL')
-      .andWhere("s.sw_industry_l3_code <> ''")
-      .orderBy('s.sw_industry_l3_code')
-      .getRawMany<{ value: string }>();
+      .getRawMany<{ value: string; label: string }>();
+
+    const [swIndustriesL1, swIndustriesL2, swIndustriesL3] = await Promise.all([
+      this.dataSource.query<Array<{ value: string; label: string }>>(`
+        SELECT DISTINCT s.sw_industry_l1_code AS value, COALESCE(c.name, s.sw_industry_l1_code) AS label
+        FROM a_share_symbols s
+        LEFT JOIN sw_index_catalog c ON c.ts_code = s.sw_industry_l1_code
+        WHERE s.sw_industry_l1_code IS NOT NULL AND s.sw_industry_l1_code <> ''
+        ORDER BY s.sw_industry_l1_code
+      `),
+      this.dataSource.query<Array<{ value: string; label: string }>>(`
+        SELECT DISTINCT s.sw_industry_l2_code AS value, COALESCE(c.name, s.sw_industry_l2_code) AS label
+        FROM a_share_symbols s
+        LEFT JOIN sw_index_catalog c ON c.ts_code = s.sw_industry_l2_code
+        WHERE s.sw_industry_l2_code IS NOT NULL AND s.sw_industry_l2_code <> ''
+        ORDER BY s.sw_industry_l2_code
+      `),
+      this.dataSource.query<Array<{ value: string; label: string }>>(`
+        SELECT DISTINCT s.sw_industry_l3_code AS value, COALESCE(c.name, s.sw_industry_l3_code) AS label
+        FROM a_share_symbols s
+        LEFT JOIN sw_index_catalog c ON c.ts_code = s.sw_industry_l3_code
+        WHERE s.sw_industry_l3_code IS NOT NULL AND s.sw_industry_l3_code <> ''
+        ORDER BY s.sw_industry_l3_code
+      `),
+    ]);
+
     return { markets, swIndustriesL1, swIndustriesL2, swIndustriesL3 };
   }
 

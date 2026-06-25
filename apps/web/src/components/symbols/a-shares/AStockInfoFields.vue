@@ -1,7 +1,9 @@
 <template>
   <div v-if="row" class="a-stock-info-fields">
     <InfoRow label="市场板块" :value="row.market ?? '-'" />
-    <InfoRow label="行业" :value="row.industry ?? '-'" />
+    <InfoRow label="申万一级" :value="row.swIndustryL1Name ?? row.swIndustryL1Code ?? '-'" />
+    <InfoRow label="申万二级" :value="row.swIndustryL2Name ?? row.swIndustryL2Code ?? '-'" />
+    <InfoRow label="申万三级" :value="row.swIndustryL3Name ?? row.swIndustryL3Code ?? '-'" />
     <InfoRow label="流通市值(亿)" :value="formatMarketCap(row.circMv ?? null)" />
     <InfoRow label="总市值(亿)" :value="formatMarketCap(row.totalMv ?? null)" />
     <InfoRow label="市盈率TTM(倍)" :value="formatNumber(row.peTtm, 2)" />

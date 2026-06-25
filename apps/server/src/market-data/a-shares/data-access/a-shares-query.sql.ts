@@ -153,6 +153,9 @@ export function buildASharesBaseQuery(
         s.sw_industry_l1_code AS "swIndustryL1Code",
         s.sw_industry_l2_code AS "swIndustryL2Code",
         s.sw_industry_l3_code AS "swIndustryL3Code",
+        sw1.name AS "swIndustryL1Name",
+        sw2.name AS "swIndustryL2Name",
+        sw3.name AS "swIndustryL3Name",
         ${priceCols.close} AS close,
         ${priceCols.change} AS change,
         ${priceCols.pctChg} AS "pctChg",
@@ -185,7 +188,10 @@ export function buildASharesBaseQuery(
       LEFT JOIN raw.daily_quote q ON q.ts_code = s.ts_code AND q.trade_date = l.trade_date
       LEFT JOIN raw.daily_basic m ON m.ts_code = s.ts_code AND m.trade_date = l.trade_date
       LEFT JOIN raw.daily_indicator i ON i.ts_code = s.ts_code AND i.trade_date = l.trade_date
-      LEFT JOIN stock_amv_daily sa ON sa.ts_code = s.ts_code AND sa.trade_date = l.trade_date${scoreJoin}
+      LEFT JOIN stock_amv_daily sa ON sa.ts_code = s.ts_code AND sa.trade_date = l.trade_date
+      LEFT JOIN sw_index_catalog sw1 ON sw1.ts_code = s.sw_industry_l1_code
+      LEFT JOIN sw_index_catalog sw2 ON sw2.ts_code = s.sw_industry_l2_code
+      LEFT JOIN sw_index_catalog sw3 ON sw3.ts_code = s.sw_industry_l3_code${scoreJoin}
       WHERE s.list_status = 'L'
     `;
 

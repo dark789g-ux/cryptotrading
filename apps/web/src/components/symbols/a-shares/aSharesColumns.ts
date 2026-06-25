@@ -42,7 +42,9 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
     },
     { title: '名称', key: 'name', width: 120, fixed: 'left', sorter: true, defaultVisible: true, render: (row) => row.name },
     { title: '市场', key: 'market', width: 100, sorter: true, defaultVisible: true, render: (row) => row.market ?? '-' },
-    { title: '行业', key: 'industry', width: 120, sorter: true, defaultVisible: true, render: (row) => row.industry ?? '-' },
+    { title: '申万一级', key: 'swIndustryL1Code', width: 140, sorter: true, defaultVisible: true, render: (row) => row.swIndustryL1Name ?? row.swIndustryL1Code ?? '-' },
+    { title: '申万二级', key: 'swIndustryL2Code', width: 140, sorter: true, defaultVisible: false, render: (row) => row.swIndustryL2Name ?? row.swIndustryL2Code ?? '-' },
+    { title: '申万三级', key: 'swIndustryL3Code', width: 160, sorter: true, defaultVisible: false, render: (row) => row.swIndustryL3Name ?? row.swIndustryL3Code ?? '-' },
     {
       title: `最新价(${priceSuffix})`,
       key: 'close',

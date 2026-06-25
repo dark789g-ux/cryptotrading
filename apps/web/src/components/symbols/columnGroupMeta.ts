@@ -22,9 +22,9 @@ export const COLUMN_KEY_GROUP: Record<string, ColumnGroupKey> = {
   ticker: 'basic',
   name: 'basic',
   market: 'basic',
-  industry: 'basic',
-  theme: 'basic',
-  stockType: 'basic',
+  swIndustryL1Code: 'basic',
+  swIndustryL2Code: 'basic',
+  swIndustryL3Code: 'basic',
 
   // 行情
   close: 'quote',

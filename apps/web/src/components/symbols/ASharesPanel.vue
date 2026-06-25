@@ -11,7 +11,9 @@
       <a-shares-filters
         v-model:search-query="searchQuery"
         v-model:selected-market="selectedMarket"
-        v-model:selected-industry="selectedIndustry"
+        v-model:selected-sw-industry-l1-code="selectedSwIndustryL1Code"
+        v-model:selected-sw-industry-l2-code="selectedSwIndustryL2Code"
+        v-model:selected-sw-industry-l3-code="selectedSwIndustryL3Code"
         v-model:selected-watchlist-ids="selectedWatchlistIds"
         v-model:selected-strategy-ids="selectedStrategyIds"
         v-model:price-mode="priceMode"
@@ -19,7 +21,9 @@
         v-model:turnover-rate-min="turnoverRateMin"
         v-model:advanced-conditions="advancedConditions"
         :market-options="marketOptions"
-        :industry-options="industryOptions"
+        :sw-industry-l1-options="swIndustryL1Options"
+        :sw-industry-l2-options="swIndustryL2Options"
+        :sw-industry-l3-options="swIndustryL3Options"
         :watchlist-options="watchlistOptions"
         :strategy-options="strategyFilterOptions"
         :filter-presets="filterPresets"
@@ -123,7 +127,9 @@ const {
   filterPresets,
   searchQuery,
   selectedMarket,
-  selectedIndustry,
+  selectedSwIndustryL1Code,
+  selectedSwIndustryL2Code,
+  selectedSwIndustryL3Code,
   selectedWatchlistIds,
   watchlistOptions,
   priceMode,
@@ -133,7 +139,9 @@ const {
   selectedStrategyIds,
   indexFilter,
   marketOptions,
-  industryOptions,
+  swIndustryL1Options,
+  swIndustryL2Options,
+  swIndustryL3Options,
   paginationState,
   splitPaginationState,
   scoresMap,

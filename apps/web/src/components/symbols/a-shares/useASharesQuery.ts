@@ -25,7 +25,9 @@ export function useASharesQuery(message: {
   const pageSize = ref(10)
   const searchQuery = ref('')
   const selectedMarket = ref<string | null>(null)
-  const selectedIndustry = ref<string | null>(null)
+  const selectedSwIndustryL1Code = ref<string | null>(null)
+  const selectedSwIndustryL2Code = ref<string | null>(null)
+  const selectedSwIndustryL3Code = ref<string | null>(null)
   const priceMode = ref<ASharePriceMode>('qfq')
   const pctChangeMin = ref<number | null>(null)
   const turnoverRateMin = ref<number | null>(null)
@@ -42,7 +44,9 @@ export function useASharesQuery(message: {
     quotedCount: '0',
   })
   const marketOptions = ref<SelectOption[]>([])
-  const industryOptions = ref<SelectOption[]>([])
+  const swIndustryL1Options = ref<SelectOption[]>([])
+  const swIndustryL2Options = ref<SelectOption[]>([])
+  const swIndustryL3Options = ref<SelectOption[]>([])
   // 评分列：tsCode → score。整体替换触发列 render 重算；缺失的 tsCode 不进 Map（显示 —）
   const scoresMap = ref<Map<string, number>>(new Map())
   const scoresLoading = ref(false)
@@ -94,7 +98,9 @@ export function useASharesQuery(message: {
     return {
       searchQuery: searchQuery.value,
       selectedMarket: selectedMarket.value,
-      selectedIndustry: selectedIndustry.value,
+      selectedSwIndustryL1Code: selectedSwIndustryL1Code.value,
+      selectedSwIndustryL2Code: selectedSwIndustryL2Code.value,
+      selectedSwIndustryL3Code: selectedSwIndustryL3Code.value,
       priceMode: priceMode.value,
       pctChangeMin: pctChangeMin.value,
       turnoverRateMin: turnoverRateMin.value,
@@ -105,7 +111,9 @@ export function useASharesQuery(message: {
   function applyFilterState(filters: ASharesFilterState) {
     searchQuery.value = filters.searchQuery
     selectedMarket.value = filters.selectedMarket
-    selectedIndustry.value = filters.selectedIndustry
+    selectedSwIndustryL1Code.value = filters.selectedSwIndustryL1Code ?? null
+    selectedSwIndustryL2Code.value = filters.selectedSwIndustryL2Code ?? null
+    selectedSwIndustryL3Code.value = filters.selectedSwIndustryL3Code ?? null
     priceMode.value = filters.priceMode
     pctChangeMin.value = filters.pctChangeMin
     turnoverRateMin.value = filters.turnoverRateMin
@@ -120,7 +128,9 @@ export function useASharesQuery(message: {
         pageSize: pageSize.value,
         q: searchQuery.value,
         market: selectedMarket.value,
-        industry: selectedIndustry.value,
+        swIndustryL1Code: selectedSwIndustryL1Code.value,
+        swIndustryL2Code: selectedSwIndustryL2Code.value,
+        swIndustryL3Code: selectedSwIndustryL3Code.value,
         priceMode: priceMode.value,
         watchlistIds: watchlistIds.value,
         sort: { field: sortKey.value ?? 'tsCode', order: sortOrder.value },
@@ -175,11 +185,15 @@ export function useASharesQuery(message: {
   async function loadFilterOptions() {
     try {
       const options = await aSharesApi.getFilterOptions()
-      marketOptions.value = options.markets.map((item) => ({ label: item.value, value: item.value }))
-      industryOptions.value = options.industries.map((item) => ({ label: item.value, value: item.value }))
+      marketOptions.value = options.markets.map((item) => ({ label: item.label, value: item.value }))
+      swIndustryL1Options.value = options.swIndustriesL1.map((item) => ({ label: item.label, value: item.value }))
+      swIndustryL2Options.value = options.swIndustriesL2.map((item) => ({ label: item.label, value: item.value }))
+      swIndustryL3Options.value = options.swIndustriesL3.map((item) => ({ label: item.label, value: item.value }))
     } catch {
       marketOptions.value = []
-      industryOptions.value = []
+      swIndustryL1Options.value = []
+      swIndustryL2Options.value = []
+      swIndustryL3Options.value = []
     }
   }
 
@@ -221,7 +235,9 @@ export function useASharesQuery(message: {
   function resetFilters() {
     searchQuery.value = ''
     selectedMarket.value = null
-    selectedIndustry.value = null
+    selectedSwIndustryL1Code.value = null
+    selectedSwIndustryL2Code.value = null
+    selectedSwIndustryL3Code.value = null
     pctChangeMin.value = null
     turnoverRateMin.value = null
     advancedConditions.value = []
@@ -310,7 +326,9 @@ export function useASharesQuery(message: {
     filterPresets,
     searchQuery,
     selectedMarket,
-    selectedIndustry,
+    selectedSwIndustryL1Code,
+    selectedSwIndustryL2Code,
+    selectedSwIndustryL3Code,
     selectedWatchlistIds,
     watchlistOptions,
     priceMode,
@@ -320,7 +338,9 @@ export function useASharesQuery(message: {
     selectedStrategyIds,
     indexFilter,
     marketOptions,
-    industryOptions,
+    swIndustryL1Options,
+    swIndustryL2Options,
+    swIndustryL3Options,
     paginationState,
     splitPaginationState,
     summaryItems,

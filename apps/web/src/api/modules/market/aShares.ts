@@ -20,7 +20,12 @@ export interface AShareRow {
   symbol: string
   name: string
   market: string | null
-  industry: string | null
+  swIndustryL1Code: string | null
+  swIndustryL2Code: string | null
+  swIndustryL3Code: string | null
+  swIndustryL1Name: string | null
+  swIndustryL2Name: string | null
+  swIndustryL3Name: string | null
   close: string | null
   change: string | null
   pctChg: string | null
@@ -69,8 +74,10 @@ export interface AShareKlineBar extends KlineChartBar {
 }
 
 export interface AShareFilterOptions {
-  markets: Array<{ value: string }>
-  industries: Array<{ value: string }>
+  markets: Array<{ value: string; label: string }>
+  swIndustriesL1: Array<{ value: string; label: string }>
+  swIndustriesL2: Array<{ value: string; label: string }>
+  swIndustriesL3: Array<{ value: string; label: string }>
 }
 
 export interface AShareDateRange {
@@ -83,7 +90,9 @@ export interface AShareQueryBody {
   pageSize: number
   q?: string
   market?: string | null
-  industry?: string | null
+  swIndustryL1Code?: string | null
+  swIndustryL2Code?: string | null
+  swIndustryL3Code?: string | null
   priceMode?: ASharePriceMode
   sort?: { field?: string; order?: 'ascend' | 'descend' | null; asc?: boolean }
   conditions?: NumericConditionPayload[]
@@ -95,7 +104,9 @@ export interface AShareQueryBody {
 export interface AShareFilterPresetFilters {
   searchQuery: string
   selectedMarket: string | null
-  selectedIndustry: string | null
+  selectedSwIndustryL1Code: string | null
+  selectedSwIndustryL2Code: string | null
+  selectedSwIndustryL3Code: string | null
   priceMode: ASharePriceMode
   pctChangeMin: number | null
   turnoverRateMin: number | null

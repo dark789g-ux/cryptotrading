@@ -188,7 +188,9 @@ function formatPresetMeta(preset: AShareFilterPreset) {
   const count = [
     filters.searchQuery.trim(),
     filters.selectedMarket,
-    filters.selectedIndustry,
+    filters.selectedSwIndustryL1Code,
+    filters.selectedSwIndustryL2Code,
+    filters.selectedSwIndustryL3Code,
     filters.pctChangeMin,
     filters.turnoverRateMin,
     ...filters.advancedConditions,

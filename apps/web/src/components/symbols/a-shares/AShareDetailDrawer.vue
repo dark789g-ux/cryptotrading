@@ -13,7 +13,7 @@
             <n-tag size="small" :bordered="false">{{ row.tsCode }}</n-tag>
           </div>
           <div class="symbol-meta">
-            {{ row.market ?? '-' }} / {{ row.industry ?? '-' }} / {{ formatTradeDate(row.tradeDate) }} / {{ priceModeLabel }}
+            {{ row.market ?? '-' }} / {{ row.swIndustryL1Name ?? row.swIndustryL1Code ?? '-' }} / {{ row.swIndustryL2Name ?? row.swIndustryL2Code ?? '-' }} / {{ row.swIndustryL3Name ?? row.swIndustryL3Code ?? '-' }} / {{ formatTradeDate(row.tradeDate) }} / {{ priceModeLabel }}
           </div>
         </div>
         <span v-else>A股详情</span>

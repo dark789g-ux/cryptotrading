@@ -97,14 +97,36 @@ export function createWatchlistColumnDefs(
       },
     },
     {
-      title: '行业',
-      key: 'industry',
+      title: '申万一级',
+      key: 'swIndustryL1Code',
       width: 120,
       sorter: true,
       defaultVisible: false,
       render: (row) => {
-        const v = dashForCrypto(row.symbol, row.industry)
-        return typeof v === 'string' ? v : (row.industry ?? '-')
+        const v = dashForCrypto(row.symbol, row.swIndustryL1Code)
+        return typeof v === 'string' ? v : (row.swIndustryL1Code ?? '-')
+      },
+    },
+    {
+      title: '申万二级',
+      key: 'swIndustryL2Code',
+      width: 120,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => {
+        const v = dashForCrypto(row.symbol, row.swIndustryL2Code)
+        return typeof v === 'string' ? v : (row.swIndustryL2Code ?? '-')
+      },
+    },
+    {
+      title: '申万三级',
+      key: 'swIndustryL3Code',
+      width: 120,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => {
+        const v = dashForCrypto(row.symbol, row.swIndustryL3Code)
+        return typeof v === 'string' ? v : (row.swIndustryL3Code ?? '-')
       },
     },
     {

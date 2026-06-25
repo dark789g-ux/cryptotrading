@@ -10,7 +10,12 @@ function makeRow(overrides: Partial<AShareRow> = {}): AShareRow {
     symbol: '000001',
     name: '平安银行',
     market: '主板',
-    industry: '银行',
+    swIndustryL1Code: '801780.SI',
+    swIndustryL2Code: '801782.SI',
+    swIndustryL3Code: '801783.SI',
+    swIndustryL1Name: '银行',
+    swIndustryL2Name: '商业银行',
+    swIndustryL3Name: '城商行',
     close: '10.52',
     change: '0.20',
     pctChg: '1.94',
@@ -41,10 +46,10 @@ function mountFields(row: AShareRow | null) {
 }
 
 describe('AStockInfoFields', () => {
-  it('渲染全部 9 个字段行', () => {
+  it('渲染全部 11 个字段行', () => {
     const wrapper = mountFields(makeRow())
     const rows = wrapper.findAllComponents({ name: 'InfoRow' })
-    expect(rows.length).toBe(9)
+    expect(rows.length).toBe(11)
   })
 
   it('label 含单位', () => {
@@ -52,7 +57,9 @@ describe('AStockInfoFields', () => {
     const labels = wrapper.findAll('.info-row__label').map((el) => el.text())
     expect(labels).toEqual([
       '市场板块',
-      '行业',
+      '申万一级',
+      '申万二级',
+      '申万三级',
       '流通市值(亿)',
       '总市值(亿)',
       '市盈率TTM(倍)',
@@ -67,28 +74,28 @@ describe('AStockInfoFields', () => {
     // totalMv=204560000 万 ≥ 1e8 万 → 万亿；circMv=20456 万 ≥ 1e4 万 → 亿
     const wrapper = mountFields(makeRow({ totalMv: '204560000', circMv: '20456' }))
     const values = wrapper.findAll('.info-row__value').map((el) => el.text())
-    expect(values[2]).toBe('2.05 亿') // circMv=20456 万 → 亿
-    expect(values[3]).toBe('2.05 万亿') // totalMv=204560000 万 → 万亿
+    expect(values[4]).toBe('2.05 亿') // circMv=20456 万 → 亿
+    expect(values[5]).toBe('2.05 万亿') // totalMv=204560000 万 → 万亿
   })
 
   it('小市值走 formatMarketCap 显示"亿"', () => {
     const wrapper = mountFields(makeRow({ totalMv: '50000', circMv: '50000' }))
     const values = wrapper.findAll('.info-row__value').map((el) => el.text())
     // 50000 万 = 5 亿（toFixed(2)）
-    expect(values[2]).toBe('5.00 亿')
+    expect(values[4]).toBe('5.00 亿')
   })
 
   it('PE 走 formatNumber 保留 2 位', () => {
     const wrapper = mountFields(makeRow({ peTtm: '5.431', pe: '5.674' }))
     const values = wrapper.findAll('.info-row__value').map((el) => el.text())
-    expect(values[4]).toBe('5.43')
-    expect(values[5]).toBe('5.67')
+    expect(values[6]).toBe('5.43')
+    expect(values[7]).toBe('5.67')
   })
 
   it('量比走 formatVolumeRatio 带"倍"后缀', () => {
     const wrapper = mountFields(makeRow({ volumeRatio: '1.5' }))
     const values = wrapper.findAll('.info-row__value').map((el) => el.text())
-    expect(values[8]).toBe('1.50倍')
+    expect(values[10]).toBe('1.50倍')
   })
 
   it('row null → 显示未选择标的空状态', () => {
@@ -100,7 +107,7 @@ describe('AStockInfoFields', () => {
   it('单字段 null → 显示 "-"', () => {
     const wrapper = mountFields(makeRow({ peTtm: null }))
     const values = wrapper.findAll('.info-row__value').map((el) => el.text())
-    expect(values[4]).toBe('-')
+    expect(values[6]).toBe('-')
   })
 
   it('totalMv 为 undefined → 显示 "-"（验证 ?? null 规整）', () => {
@@ -108,6 +115,6 @@ describe('AStockInfoFields', () => {
     delete (row as Partial<AShareRow>).totalMv
     const wrapper = mountFields(row)
     const values = wrapper.findAll('.info-row__value').map((el) => el.text())
-    expect(values[3]).toBe('-')
+    expect(values[5]).toBe('-')
   })
 })

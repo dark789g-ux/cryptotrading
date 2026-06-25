@@ -100,7 +100,9 @@ export interface SymbolRow extends Record<string, unknown> {
 /** 自选表 quotes 行（camelCase 字段与 watchlistColumnDefs 对齐） */
 export interface WatchlistQuoteRow extends SymbolRow {
   market?: string | null
-  industry?: string | null
+  swIndustryL1Code?: string | null
+  swIndustryL2Code?: string | null
+  swIndustryL3Code?: string | null
   pctChg?: string | number | null
   amount?: string | number | null
   turnoverRate?: string | number | null

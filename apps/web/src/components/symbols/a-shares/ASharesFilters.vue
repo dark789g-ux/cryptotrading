@@ -20,13 +20,31 @@
         @update:value="emit('update:selectedMarket', $event)"
       />
       <n-select
-        :value="selectedIndustry"
-        :options="industryOptions"
-        placeholder="行业"
+        :value="selectedSwIndustryL1Code"
+        :options="swIndustryL1Options"
+        placeholder="申万一级"
         clearable
         filterable
         class="filter-select"
-        @update:value="emit('update:selectedIndustry', $event)"
+        @update:value="emit('update:selectedSwIndustryL1Code', $event)"
+      />
+      <n-select
+        :value="selectedSwIndustryL2Code"
+        :options="swIndustryL2Options"
+        placeholder="申万二级"
+        clearable
+        filterable
+        class="filter-select"
+        @update:value="emit('update:selectedSwIndustryL2Code', $event)"
+      />
+      <n-select
+        :value="selectedSwIndustryL3Code"
+        :options="swIndustryL3Options"
+        placeholder="申万三级"
+        clearable
+        filterable
+        class="filter-select"
+        @update:value="emit('update:selectedSwIndustryL3Code', $event)"
       />
       <n-select
         :value="selectedWatchlistIds"
@@ -137,7 +155,9 @@ import type { Condition, SelectOption } from './types'
 defineProps<{
   searchQuery: string
   selectedMarket: string | null
-  selectedIndustry: string | null
+  selectedSwIndustryL1Code: string | null
+  selectedSwIndustryL2Code: string | null
+  selectedSwIndustryL3Code: string | null
   selectedWatchlistIds: string[]
   selectedStrategyIds: string[]
   priceMode: 'qfq' | 'raw'
@@ -145,7 +165,9 @@ defineProps<{
   turnoverRateMin: number | null
   advancedConditions: Condition[]
   marketOptions: SelectOption[]
-  industryOptions: SelectOption[]
+  swIndustryL1Options: SelectOption[]
+  swIndustryL2Options: SelectOption[]
+  swIndustryL3Options: SelectOption[]
   watchlistOptions: SelectOption[]
   strategyOptions: SelectOption[]
   filterPresets: AShareFilterPreset[]
@@ -156,7 +178,9 @@ defineProps<{
 const emit = defineEmits<{
   'update:searchQuery': [value: string]
   'update:selectedMarket': [value: string | null]
-  'update:selectedIndustry': [value: string | null]
+  'update:selectedSwIndustryL1Code': [value: string | null]
+  'update:selectedSwIndustryL2Code': [value: string | null]
+  'update:selectedSwIndustryL3Code': [value: string | null]
   'update:selectedWatchlistIds': [value: string[]]
   'update:selectedStrategyIds': [value: string[]]
   'update:priceMode': [value: 'qfq' | 'raw']
