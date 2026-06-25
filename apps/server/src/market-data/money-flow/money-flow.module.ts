@@ -6,10 +6,14 @@ import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-in
 import { MoneyFlowSectorEntity } from '../../entities/money-flow/money-flow-sector.entity';
 import { MoneyFlowMarketEntity } from '../../entities/money-flow/money-flow-market.entity';
 import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock.entity';
+import { MoneyFlowThsIndustryEntity } from '../../entities/money-flow/money-flow-ths-industry.entity';
+import { MoneyFlowIndexEntity } from '../../entities/money-flow/money-flow-index.entity';
+import { IndexWeightEntity } from '../../entities/index-catalog/index-weight.entity';
 import { MoneyFlowController } from './money-flow.controller';
 import { MoneyFlowSyncController } from './money-flow-sync.controller';
 import { MoneyFlowService } from './money-flow.service';
 import { MoneyFlowSyncService } from './money-flow-sync.service';
+import { MoneyFlowAggregationService } from './money-flow-aggregation.service';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
 
 @Module({
@@ -20,9 +24,12 @@ import { TushareClientService } from '../a-shares/services/tushare-client.servic
     MoneyFlowSectorEntity,
     MoneyFlowMarketEntity,
     ThsMemberStockEntity,
+    MoneyFlowIndexEntity,
+    MoneyFlowThsIndustryEntity,
+    IndexWeightEntity,
   ])],
   controllers: [MoneyFlowController, MoneyFlowSyncController],
-  providers: [MoneyFlowService, MoneyFlowSyncService, TushareClientService],
+  providers: [MoneyFlowService, MoneyFlowSyncService, MoneyFlowAggregationService, TushareClientService],
   exports: [MoneyFlowSyncService],
 })
 export class MoneyFlowModule {}

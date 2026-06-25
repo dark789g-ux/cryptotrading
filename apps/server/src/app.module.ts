@@ -68,6 +68,7 @@ import { MoneyFlowSectorEntity } from './entities/money-flow/money-flow-sector.e
 import { MoneyFlowMarketEntity } from './entities/money-flow/money-flow-market.entity';
 import { ThsMemberStockEntity } from './entities/money-flow/ths-member-stock.entity';
 import { ThsIndexCatalogEntity } from './entities/index-catalog/ths-index-catalog.entity';
+import { IndexWeightEntity } from './entities/index-catalog/index-weight.entity';
 import { IndexDailyQuoteEntity } from './entities/index-daily/index-daily-quote.entity';
 import { IndexDailyIndicatorEntity } from './entities/index-daily/index-daily-indicator.entity';
 import { SwIndexCatalogEntity } from './entities/sw-index/sw-index-catalog.entity';
@@ -186,6 +187,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           MoneyFlowMarketEntity,
           ThsMemberStockEntity,
           ThsIndexCatalogEntity,
+          IndexWeightEntity,
           IndexDailyQuoteEntity,
           IndexDailyIndicatorEntity,
           SwIndexCatalogEntity,

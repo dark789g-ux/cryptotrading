@@ -14,8 +14,14 @@ export class AShareSymbolEntity {
   @Column({ nullable: true })
   area: string;
 
-  @Column({ nullable: true })
-  industry: string;
+  @Column({ name: 'sw_industry_l1_code', length: 20, nullable: true })
+  swIndustryL1Code: string | null;
+
+  @Column({ name: 'sw_industry_l2_code', length: 20, nullable: true })
+  swIndustryL2Code: string | null;
+
+  @Column({ name: 'sw_industry_l3_code', length: 20, nullable: true })
+  swIndustryL3Code: string | null;
 
   @Column({ nullable: true })
   market: string;
