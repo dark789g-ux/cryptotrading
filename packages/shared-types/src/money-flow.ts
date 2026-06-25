@@ -53,9 +53,23 @@ export interface MoneyFlowSyncResult {
 /** GET /money-flow/latest-dates */
 export interface MoneyFlowLatestDates {
   stock: string | null
-  industry: string | null
+  swIndustry: string | null
+  thsIndustry: string | null
   sector: string | null
   market: string | null
+  index: string | null
+}
+
+/** GET /money-flow/indices 单行（moneyflow_index_ths，指数资金流向） */
+export interface MoneyFlowIndexRow {
+  id: string
+  tsCode: string
+  tradeDate: string
+  name: string | null
+  netAmount: string | null
+  buyLgAmount: string | null
+  buyMdAmount: string | null
+  buySmAmount: string | null
 }
 
 /** GET /money-flow/stocks 单行 */
@@ -145,9 +159,11 @@ export type MoneyFlowSyncEvent =
 
 export interface MoneyFlowSyncSummary {
   stocks: MoneyFlowSyncResult
-  industries: MoneyFlowSyncResult
+  swIndustries: MoneyFlowSyncResult
+  thsIndustries: MoneyFlowSyncResult
   sectors: MoneyFlowSyncResult
   market: MoneyFlowSyncResult
+  indices: MoneyFlowSyncResult
 }
 
 export interface IndexCatalogSyncSummary {

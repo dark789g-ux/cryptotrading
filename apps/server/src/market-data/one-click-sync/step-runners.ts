@@ -67,9 +67,11 @@ export function awaitSubject<E>(subject: Subject<E>, onEvent: (e: E) => void): P
 
 const PHASE_LABEL_MAP: Record<keyof MoneyFlowSyncSummary, string> = {
   stocks: '个股',
-  industries: '行业',
+  swIndustries: '申万行业',
+  thsIndustries: '同花顺行业',
   sectors: '板块',
   market: '大盘',
+  indices: '指数',
 };
 
 /**

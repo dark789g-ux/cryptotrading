@@ -75,7 +75,7 @@ export class LookupStockHandler implements ToolHandler {
 
     const basic = {
       name: symbol?.name ?? tsCode,
-      industry: symbol?.industry ?? null,
+      industry: symbol?.swIndustryL3Code ?? null,
       area: symbol?.area ?? null,
       listDate: symbol?.listDate ?? null,
       // a_share_symbols 实体未携带市值列，保留字段但置 null

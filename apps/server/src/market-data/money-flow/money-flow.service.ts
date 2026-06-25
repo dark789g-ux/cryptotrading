@@ -204,9 +204,11 @@ export class MoneyFlowService {
     ]);
     return {
       stock: stock?.max ?? null,
-      industry: industry?.max ?? null,
+      swIndustry: industry?.max ?? null,
+      thsIndustry: null,
       sector: sector?.max ?? null,
       market: market?.max ?? null,
+      index: null,
     };
   }
 

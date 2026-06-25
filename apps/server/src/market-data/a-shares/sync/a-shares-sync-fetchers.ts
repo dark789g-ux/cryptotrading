@@ -25,7 +25,6 @@ export async function syncSymbols(deps: ASharesSyncFetcherDeps): Promise<number>
       symbol: asString(row.symbol),
       name: asString(row.name),
       area: asNullableString(row.area),
-      industry: asNullableString(row.industry),
       market: asNullableString(row.market),
       exchange: asNullableString(row.exchange),
       listStatus: asNullableString(row.list_status),
@@ -35,6 +34,23 @@ export async function syncSymbols(deps: ASharesSyncFetcherDeps): Promise<number>
     }),
   );
   await upsertInChunks(deps.symbolRepo, entities, ['tsCode']);
+
+  await deps.symbolRepo.query(`
+    UPDATE a_share_symbols s
+    SET
+      sw_industry_l1_code = im.l1_code,
+      sw_industry_l2_code = im.l2_code,
+      sw_industry_l3_code = im.l3_code
+    FROM (
+      SELECT DISTINCT ON (ts_code)
+        ts_code, l1_code, l2_code, l3_code
+      FROM raw.index_member
+      WHERE is_new = 'Y' OR out_date IS NULL
+      ORDER BY ts_code, in_date DESC
+    ) im
+    WHERE s.ts_code = im.ts_code
+  `);
+
   return entities.length;
 }
 
