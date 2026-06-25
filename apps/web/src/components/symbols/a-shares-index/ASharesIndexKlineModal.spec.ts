@@ -70,6 +70,10 @@ const sampleRow: IndexLatestRow = {
   pe: null,
   pb: null,
   count: null,
+  netAmount: null,
+  buyLgAmount: null,
+  buyMdAmount: null,
+  buySmAmount: null,
 }
 
 const mountedWrappers: VueWrapper[] = []

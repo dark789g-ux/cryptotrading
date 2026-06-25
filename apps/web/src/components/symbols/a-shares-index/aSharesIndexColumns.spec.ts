@@ -29,6 +29,10 @@ const baseRow: IndexLatestRow = {
   pe: null,
   pb: null,
   count: null,
+  netAmount: null,
+  buyLgAmount: null,
+  buyMdAmount: null,
+  buySmAmount: null,
 }
 
 describe('createASharesIndexColumnDefs', () => {

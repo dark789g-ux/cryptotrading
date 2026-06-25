@@ -16,7 +16,11 @@ export type IndexLatestSortField =
   | 'tradeDate'
   | 'pe'
   | 'pb'
-  | 'count';
+  | 'count'
+  | 'net_amount'
+  | 'buy_lg_amount'
+  | 'buy_md_amount'
+  | 'buy_sm_amount';
 
 export class QueryLatestDto {
   type?: 'market' | 'industry' | 'concept' | 'sw';

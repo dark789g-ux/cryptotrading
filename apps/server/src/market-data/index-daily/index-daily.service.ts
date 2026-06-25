@@ -24,6 +24,10 @@ const SORT_COL_MAP: Record<IndexLatestSortField, string> = {
   pe: 'pe',
   pb: 'pb',
   count: 'count',
+  net_amount: '"netAmount"',
+  buy_lg_amount: '"buyLgAmount"',
+  buy_md_amount: '"buyMdAmount"',
+  buy_sm_amount: '"buySmAmount"',
 };
 
 interface LatestRawRow {
@@ -39,6 +43,10 @@ interface LatestRawRow {
   pe: string | number | null;
   pb: string | number | null;
   count: string | number | null;
+  netAmount: string | number | null;
+  buyLgAmount: string | number | null;
+  buyMdAmount: string | number | null;
+  buySmAmount: string | number | null;
 }
 
 interface KlineRawRow {
@@ -170,10 +178,34 @@ export class IndexDailyService {
            q.pct_change AS "pctChange", q.vol_hand AS "vol",
            q.amount, q.total_mv_wan AS "totalMvWan",
            q.pe, q.pb,
-           COALESCE(c.count, s.member_count) AS count
+           COALESCE(c.count, s.member_count) AS count,
+           CASE q.category
+             WHEN 'sw'       THEN mf_ind.net_amount
+             WHEN 'industry' THEN mf_ths.net_amount
+             WHEN 'concept'  THEN mf_sec.net_amount
+             WHEN 'market'   THEN mf_mkt.net_amount
+             ELSE                 COALESCE(mf_ind.net_amount, mf_sec.net_amount, mf_ths.net_amount, mf_mkt.net_amount, mf_idx.net_amount)
+           END AS "netAmount",
+           CASE q.category
+             WHEN 'market' THEN mf_mkt.buy_lg_amount
+             ELSE             mf_idx.buy_lg_amount
+           END AS "buyLgAmount",
+           CASE q.category
+             WHEN 'market' THEN mf_mkt.buy_md_amount
+             ELSE             mf_idx.buy_md_amount
+           END AS "buyMdAmount",
+           CASE q.category
+             WHEN 'market' THEN mf_mkt.buy_sm_amount
+             ELSE             mf_idx.buy_sm_amount
+           END AS "buySmAmount"
          FROM index_daily_quotes q
          LEFT JOIN ths_index_catalog c ON c.ts_code = q.ts_code
          LEFT JOIN sw_index_catalog s ON s.ts_code = q.ts_code
+         LEFT JOIN money_flow_industries mf_ind ON mf_ind.ts_code = q.ts_code AND mf_ind.trade_date = q.trade_date
+         LEFT JOIN money_flow_sectors mf_sec ON mf_sec.ts_code = q.ts_code AND mf_sec.trade_date = q.trade_date
+         LEFT JOIN money_flow_ths_industries mf_ths ON mf_ths.ts_code = q.ts_code AND mf_ths.trade_date = q.trade_date
+         LEFT JOIN money_flow_market mf_mkt ON mf_mkt.trade_date = q.trade_date
+         LEFT JOIN money_flow_index mf_idx ON mf_idx.ts_code = q.ts_code AND mf_idx.trade_date = q.trade_date
          WHERE ${whereCore}${tsClauseFor(5)}
          ORDER BY q.ts_code, q.trade_date DESC
        ) latest
@@ -195,6 +227,10 @@ export class IndexDailyService {
       pe: nullableNum(r.pe),
       pb: nullableNum(r.pb),
       count: nullableNum(r.count),
+      netAmount: nullableNum(r.netAmount),
+      buyLgAmount: nullableNum(r.buyLgAmount),
+      buyMdAmount: nullableNum(r.buyMdAmount),
+      buySmAmount: nullableNum(r.buySmAmount),
     }));
 
     return { rows: mapped, total };

@@ -24,6 +24,14 @@ export interface IndexLatestRow {
   pe: number | null;
   /** 成分股数量；大盘宽基无此信息时为 null */
   count: number | null;
+  /** 净流入（万元） */
+  netAmount: number | null;
+  /** 大单净流入（万元） */
+  buyLgAmount: number | null;
+  /** 中单净流入（万元） */
+  buyMdAmount: number | null;
+  /** 小单净流入（万元） */
+  buySmAmount: number | null;
 }
 
 export interface IndexLatestResult {
