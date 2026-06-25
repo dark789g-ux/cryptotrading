@@ -74,7 +74,7 @@ const AGGREGATION_SQL: Array<{ phase: string; sql: string }> = [
   {
     phase: 'ths_sector',
     sql: `
-      INSERT INTO money_flow_sectors (ts_code, trade_date, sector, pct_change, net_buy_amount, net_sell_amount, net_amount)
+      INSERT INTO money_flow_sectors (ts_code, trade_date, name, pct_change, net_buy_amount, net_sell_amount, net_amount)
       SELECT t.ts_code,
              m.trade_date,
              c.name,
@@ -142,12 +142,10 @@ const AGGREGATION_SQL: Array<{ phase: string; sql: string }> = [
 ];
 
 async function backfillDate(client: Client, tradeDate: string): Promise<void> {
-  await Promise.all(
-    AGGREGATION_SQL.map(async ({ phase, sql }) => {
-      const res = await client.query(sql, [tradeDate]);
-      console.log(`  ${phase}: ${res.rowCount ?? 0} rows`);
-    }),
-  );
+  for (const { phase, sql } of AGGREGATION_SQL) {
+    const res = await client.query(sql, [tradeDate]);
+    console.log(`  ${phase}: ${res.rowCount ?? 0} rows`);
+  }
 }
 
 async function main() {

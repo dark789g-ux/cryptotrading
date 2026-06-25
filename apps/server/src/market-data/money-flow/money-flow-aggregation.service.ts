@@ -169,7 +169,7 @@ export class MoneyFlowAggregationService {
    */
   async aggregateThsSector(startDate: string, endDate: string): Promise<number> {
     const sql = `
-      INSERT INTO money_flow_sectors (ts_code, trade_date, sector, pct_change, net_buy_amount, net_sell_amount, net_amount)
+      INSERT INTO money_flow_sectors (ts_code, trade_date, name, pct_change, net_buy_amount, net_sell_amount, net_amount)
       SELECT t.ts_code,
              m.trade_date,
              c.name,
