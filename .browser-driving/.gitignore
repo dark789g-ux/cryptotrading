@@ -1,0 +1,20 @@
+# 真实配置含明文账号密码，绝不入库（从 config.example.json 复制后填）
+config.json
+
+# 复用的登录态（含会话 cookie storage_state），机器本地产物，绝不入库
+storage_state.json
+
+# 常驻浏览器(CDP 交互模式)的持久 profile（含登录态、按端口分子目录），机器本地产物，绝不入库
+.user-data/
+
+# 临时截图：保留目录，不入库内容
+temp-img/*
+!temp-img/.gitkeep
+
+# Python 字节码
+__pycache__/
+*.pyc
+
+# 注：.tmp/（agent 临时脚本/JS 片段）已由仓库根 .gitignore 全局忽略；
+# 注：.tmp/（agent 临时脚本/JS 片段）已由仓库根 .gitignore 全局忽略；
+#     storage_state.json 写在本目录根、按需创建（_common.save_state），无需占位目录。
