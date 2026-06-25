@@ -66,17 +66,15 @@ export class SnapshotBuilderService {
   }
 
   async aggregateSectors(tradeDate: string) {
-    // money_flow_industries: 列名 industry（非 name），无 leader_name
     const industry = await this.ds.query(
-      `SELECT industry AS name, pct_change::numeric AS pct_chg
-         FROM money_flow_industries WHERE trade_date = $1
+      `SELECT name, pct_change::numeric AS pct_chg
+         FROM index_daily_quotes WHERE category = 'sw' AND trade_date = $1
          ORDER BY pct_change::numeric DESC LIMIT 10`,
       [tradeDate],
     );
-    // money_flow_sectors: 列名 name，无 leader_name
     const concept = await this.ds.query(
       `SELECT name, pct_change::numeric AS pct_chg
-         FROM money_flow_sectors WHERE trade_date = $1
+         FROM index_daily_quotes WHERE category = 'concept' AND trade_date = $1
          ORDER BY pct_change::numeric DESC LIMIT 10`,
       [tradeDate],
     );

@@ -55,7 +55,9 @@ const RAW_SORT_COL_MAP: Record<string, string> = {
   symbol: 's.symbol',
   name: 's.name',
   market: 's.market',
-  industry: 's.industry',
+  swIndustryL1Code: 's.sw_industry_l1_code',
+  swIndustryL2Code: 's.sw_industry_l2_code',
+  swIndustryL3Code: 's.sw_industry_l3_code',
   close: 'q.close',
   change: 'q.change',
   pctChg: 'q.pct_chg',
@@ -148,7 +150,9 @@ export function buildASharesBaseQuery(
         s.symbol,
         s.name,
         s.market,
-        s.industry,
+        s.sw_industry_l1_code AS "swIndustryL1Code",
+        s.sw_industry_l2_code AS "swIndustryL2Code",
+        s.sw_industry_l3_code AS "swIndustryL3Code",
         ${priceCols.close} AS close,
         ${priceCols.change} AS change,
         ${priceCols.pctChg} AS "pctChg",
@@ -197,9 +201,21 @@ export function buildASharesBaseQuery(
     paramIndex++;
   }
 
-  if (dto.industry) {
-    sql += ` AND s.industry = $${paramIndex}`;
-    params.push(dto.industry);
+  if (dto.swIndustryL1Code) {
+    sql += ` AND s.sw_industry_l1_code = $${paramIndex}`;
+    params.push(dto.swIndustryL1Code);
+    paramIndex++;
+  }
+
+  if (dto.swIndustryL2Code) {
+    sql += ` AND s.sw_industry_l2_code = $${paramIndex}`;
+    params.push(dto.swIndustryL2Code);
+    paramIndex++;
+  }
+
+  if (dto.swIndustryL3Code) {
+    sql += ` AND s.sw_industry_l3_code = $${paramIndex}`;
+    params.push(dto.swIndustryL3Code);
     paramIndex++;
   }
 

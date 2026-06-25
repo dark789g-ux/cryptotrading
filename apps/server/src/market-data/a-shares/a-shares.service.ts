@@ -158,14 +158,28 @@ export class ASharesService {
       .andWhere("s.market <> ''")
       .orderBy('s.market')
       .getRawMany<{ value: string }>();
-    const industries = await this.symbolRepo
+    const swIndustriesL1 = await this.symbolRepo
       .createQueryBuilder('s')
-      .select('DISTINCT s.industry', 'value')
-      .where('s.industry IS NOT NULL')
-      .andWhere("s.industry <> ''")
-      .orderBy('s.industry')
+      .select('DISTINCT s.sw_industry_l1_code', 'value')
+      .where('s.sw_industry_l1_code IS NOT NULL')
+      .andWhere("s.sw_industry_l1_code <> ''")
+      .orderBy('s.sw_industry_l1_code')
       .getRawMany<{ value: string }>();
-    return { markets, industries };
+    const swIndustriesL2 = await this.symbolRepo
+      .createQueryBuilder('s')
+      .select('DISTINCT s.sw_industry_l2_code', 'value')
+      .where('s.sw_industry_l2_code IS NOT NULL')
+      .andWhere("s.sw_industry_l2_code <> ''")
+      .orderBy('s.sw_industry_l2_code')
+      .getRawMany<{ value: string }>();
+    const swIndustriesL3 = await this.symbolRepo
+      .createQueryBuilder('s')
+      .select('DISTINCT s.sw_industry_l3_code', 'value')
+      .where('s.sw_industry_l3_code IS NOT NULL')
+      .andWhere("s.sw_industry_l3_code <> ''")
+      .orderBy('s.sw_industry_l3_code')
+      .getRawMany<{ value: string }>();
+    return { markets, swIndustriesL1, swIndustriesL2, swIndustriesL3 };
   }
 
   async getDateRange(): Promise<{ min: string | null; max: string | null }> {

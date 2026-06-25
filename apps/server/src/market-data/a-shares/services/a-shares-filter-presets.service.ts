@@ -87,7 +87,9 @@ export class ASharesFilterPresetsService {
     return {
       searchQuery: typeof value.searchQuery === 'string' ? value.searchQuery : '',
       selectedMarket: this.nullableString(value.selectedMarket),
-      selectedIndustry: this.nullableString(value.selectedIndustry),
+      selectedSwIndustryL1Code: this.nullableString(value.selectedSwIndustryL1Code),
+      selectedSwIndustryL2Code: this.nullableString(value.selectedSwIndustryL2Code),
+      selectedSwIndustryL3Code: this.nullableString(value.selectedSwIndustryL3Code),
       priceMode,
       pctChangeMin: this.nullableFiniteNumber(value.pctChangeMin, 'pctChangeMin'),
       turnoverRateMin: this.nullableFiniteNumber(value.turnoverRateMin, 'turnoverRateMin'),

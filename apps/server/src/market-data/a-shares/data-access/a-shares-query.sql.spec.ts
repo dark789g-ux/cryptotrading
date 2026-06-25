@@ -201,19 +201,19 @@ describe('a-shares-query.sql indexTsCode 指数成分股筛选', () => {
     expect(base.nextParamIndex).toBe(3);
   });
 
-  it('indexTsCode 与 industry + conditions 同时存在时参数顺序正确', () => {
+  it('indexTsCode 与 swIndustryL1Code + conditions 同时存在时参数顺序正确', () => {
     const dto: QueryASharesDto = {
       indexTsCode: '801010.SI',
-      industry: '银行',
+      swIndustryL1Code: '801010',
       conditions: [{ field: 'pe', op: 'lt', value: 10 }],
     };
     const base = buildASharesBaseQuery(dto);
 
-    // industry=$1, pe=$2, l3_code=$3（indexTsCode 最后拼接）
-    expect(base.sql).toContain('s.industry = $1');
+    // swIndustryL1Code=$1, pe=$2, l3_code=$3（indexTsCode 最后拼接）
+    expect(base.sql).toContain('s.sw_industry_l1_code = $1');
     expect(base.sql).toContain('m.pe < $2');
     expect(base.sql).toContain('im.l3_code = $3');
-    expect(base.params).toEqual(['银行', 10, '801010.SI']);
+    expect(base.params).toEqual(['801010', 10, '801010.SI']);
     expect(base.nextParamIndex).toBe(4);
   });
 

@@ -25,7 +25,9 @@ export interface QueryASharesDto {
   pageSize?: number;
   q?: string;
   market?: string | null;
-  industry?: string | null;
+  swIndustryL1Code?: string | null;
+  swIndustryL2Code?: string | null;
+  swIndustryL3Code?: string | null;
   priceMode?: 'qfq' | 'raw';
   sort?: { field?: string; order?: SortOrder; asc?: boolean };
   conditions?: QueryCondition[];
@@ -37,7 +39,9 @@ export interface QueryASharesDto {
 export interface ASharesFilterPresetFilters {
   searchQuery: string;
   selectedMarket: string | null;
-  selectedIndustry: string | null;
+  selectedSwIndustryL1Code: string | null;
+  selectedSwIndustryL2Code: string | null;
+  selectedSwIndustryL3Code: string | null;
   priceMode: 'qfq' | 'raw';
   pctChangeMin: number | null;
   turnoverRateMin: number | null;
