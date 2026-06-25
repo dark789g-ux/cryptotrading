@@ -66,7 +66,7 @@ import { NMenu, NButton, NIcon, NTooltip } from 'naive-ui'
 import {
   ChevronBack, ChevronForward,
   TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline, CalculatorOutline,
-  LogOutOutline, PersonCircleOutline, AnalyticsOutline, SwapHorizontalOutline, NewspaperOutline,
+  LogOutOutline, PersonCircleOutline, AnalyticsOutline, NewspaperOutline,
   StatsChartOutline, BarChartOutline, GridOutline, LayersOutline,
 } from '@vicons/ionicons5'
 import { useSidebarCollapsed } from '../../composables/hooks/useSidebarCollapsed'
@@ -108,7 +108,6 @@ const menuOptions = computed(() => [
   ...(auth.isAdmin.value
     ? [{ label: '组合模拟', key: 'portfolio-sim', icon: renderIcon(LayersOutline) }]
     : []),
-  { label: '资金流向', key: 'money-flow', icon: renderIcon(SwapHorizontalOutline) },
   { label: '每日复盘', key: 'daily-review', icon: renderIcon(NewspaperOutline) },
   // factor-registry-frontend spec：/quant/* 整树 admin-only，菜单同步隐藏
   ...(auth.isAdmin.value

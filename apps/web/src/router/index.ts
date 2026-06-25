@@ -88,12 +88,6 @@ const routes: any[] = [
     meta: { title: '组合级模拟器', adminOnly: true },
   },
   {
-    path: '/money-flow',
-    name: 'money-flow',
-    component: () => import('../views/market/MoneyFlowView.vue'),
-    meta: { title: '资金流向' },
-  },
-  {
     path: '/daily-review',
     name: 'daily-review',
     component: () => import('../views/strategy/DailyReviewView.vue'),
