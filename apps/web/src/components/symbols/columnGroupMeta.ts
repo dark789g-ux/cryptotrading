@@ -7,6 +7,7 @@ export const COLUMN_GROUPS = [
   { key: 'kdjMacd', label: 'KDJ / MACD' },
   { key: 'risk', label: '风控 / 波动' },
   { key: 'amv', label: '活跃市值' },
+  { key: 'moneyFlow', label: '资金流' },
   { key: 'brick', label: '砖块图' },
   { key: 'signal', label: '策略 / 信号' },
   { key: 'fixed', label: '固定' },
@@ -76,6 +77,12 @@ export const COLUMN_KEY_GROUP: Record<string, ColumnGroupKey> = {
   amvDif: 'amv',
   amvDea: 'amv',
   amvMacd: 'amv',
+
+  // 资金流
+  netInflow: 'moneyFlow',
+  netInflow5d: 'moneyFlow',
+  netInflow10d: 'moneyFlow',
+  netInflow20d: 'moneyFlow',
 
   // 砖块图
   brick: 'brick',

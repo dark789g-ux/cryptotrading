@@ -32,6 +32,15 @@ export function formatMarketCap(value: string | null) {
   return `${num.toFixed(2)} 万`
 }
 
+/** 资金净流入（万元口径 → 亿/万）。net_amount 单位为万元，禁用千元口径的 formatAmount。 */
+export function formatMoneyFlow(value: string | null): string {
+  if (value == null) return '—'
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '—'
+  if (Math.abs(num) >= 1_0000) return `${(num / 1_0000).toFixed(2)} 亿`
+  return `${num.toFixed(2)} 万`
+}
+
 export function formatTradeDate(value: string | null) {
   if (!value || value.length !== 8) return '-'
   return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`

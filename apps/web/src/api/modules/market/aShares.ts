@@ -51,6 +51,11 @@ export interface AShareRow {
   brick: string | null; brickDelta: string | null; brickXg: boolean | null
   amvDif: string | null; amvDea: string | null; amvMacd: string | null
   roc10: string | null; roc20: string | null; roc60: string | null
+  // 资金流向
+  netInflow: string | null
+  netInflow5d: string | null
+  netInflow10d: string | null
+  netInflow20d: string | null
   tags?: { id: string; name: string }[]
 }
 

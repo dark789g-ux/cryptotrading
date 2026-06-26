@@ -4,7 +4,7 @@ import { OpenOutline } from '@vicons/ionicons5'
 import SymbolStarButton from '../../common/SymbolStarButton.vue'
 import type { AShareRow } from '@/api'
 import { colors } from '../../../styles/tokens'
-import { formatAmount, formatMarketCap, formatNumber, formatPercent, formatTradeDate, trendClass } from './aSharesFormatters'
+import { formatAmount, formatMarketCap, formatMoneyFlow, formatNumber, formatPercent, formatTradeDate, trendClass } from './aSharesFormatters'
 import type { SymbolColumnDef } from '../columnTypes'
 import { INDICATOR_DESCRIPTORS, buildIndicatorColumns } from '../indicatorColumnDefs'
 
@@ -113,6 +113,55 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
     // 共享技术指标列（descriptor 驱动）。A股 全部默认隐藏，不撑默认表宽；
     // sorter:true（builder 默认）→ remote 表点表头触发 T1 后端排序。
     ...buildIndicatorColumns<AShareRow>(INDICATOR_DESCRIPTORS, { defaultVisible: false }),
+    // 资金流向（A股专属，不进共享 INDICATOR_DESCRIPTORS）
+    {
+      title: '净流入',
+      key: 'netInflow',
+      descKey: 'net_inflow',
+      width: 120,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => {
+        const color = getPctChangeColor(row.netInflow)
+        return h('span', { style: color ? { color } : undefined }, formatMoneyFlow(row.netInflow))
+      },
+    },
+    {
+      title: '5日净流入',
+      key: 'netInflow5d',
+      descKey: 'net_inflow_5d',
+      width: 120,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => {
+        const color = getPctChangeColor(row.netInflow5d)
+        return h('span', { style: color ? { color } : undefined }, formatMoneyFlow(row.netInflow5d))
+      },
+    },
+    {
+      title: '10日净流入',
+      key: 'netInflow10d',
+      descKey: 'net_inflow_10d',
+      width: 120,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => {
+        const color = getPctChangeColor(row.netInflow10d)
+        return h('span', { style: color ? { color } : undefined }, formatMoneyFlow(row.netInflow10d))
+      },
+    },
+    {
+      title: '20日净流入',
+      key: 'netInflow20d',
+      descKey: 'net_inflow_20d',
+      width: 120,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => {
+        const color = getPctChangeColor(row.netInflow20d)
+        return h('span', { style: color ? { color } : undefined }, formatMoneyFlow(row.netInflow20d))
+      },
+    },
     ...(options.onViewDetail
       ? [
           {

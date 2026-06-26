@@ -80,6 +80,12 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = {
   pb: '市净率（PB）= 股价 ÷ 每股净资产。',
   total_mv: '总市值 = 股价 × 总股本（单位：亿元）。',
   circ_mv: '流通市值 = 股价 × 流通股本（单位：亿元）。',
+
+  // 资金流向
+  net_inflow: '基准日主力资金净流入，单位万元（来自同花顺个股资金流）。',
+  net_inflow_5d: '近 5 日主力净流入累计（最近 5 条记录），单位万元。',
+  net_inflow_10d: '近 10 日主力净流入累计（最近 10 条记录），单位万元。',
+  net_inflow_20d: '近 20 日主力净流入累计（最近 20 条记录），单位万元。',
 };
 
 /** 取字段说明；conceptId 缺失或未收录 → undefined（调用方据此决定不渲染 "?"）。 */
