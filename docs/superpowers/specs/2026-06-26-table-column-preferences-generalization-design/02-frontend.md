@@ -45,13 +45,15 @@
   - `load()` → `preferencesApi.getTableColumns(tableId)` → `hydrateScope(defs, payload)`。
   - `save()` → `preferencesApi.saveTableColumns(tableId, preferences.value)`（只写自己，**删掉**"save 前补全其它 scope"逻辑）。
   - 初始化：`preferences` ref 先填 `defaultScopeView()`（默认列），load 后覆盖（异步兜底，见 §4）。
-- **返回值接口保持完全一致**：`loading/saving/loaded/scopePreferences/tableColumns/splitColumns/load/save/reset/setColumnVisible/moveColumn/moveColumnByKey` 不变 → 老消费方零行为改动。
+- **通用 composable 自身返回字段不变**：`loading/saving/loaded/scopePreferences/tableColumns/splitColumns/load/save/reset/setColumnVisible/moveColumn/moveColumnByKey`。据此：
+  - **已持久化 5 表**：返回字段名与原 `useSymbolColumnPreferences` 完全相同 → 调用方零行为改动（仅改函数名 + tableId）。
+  - **自选股 / 回测表**：现有 composable 返回字段名不同（`columns` / `columnsBase`，且无 `load`/`loading`），**不是零改动**——需在转调层把 `tableColumns` 别名回 `columns`、并新增 `load()` 调用（详见 §3.4 / §3.5）。
 - 纯函数（`createDefaultScopePreferences` 等）原样保留（自选股 store / 回测 composable 仍 import 它们，路径若随改名变动需同步更新 import）。
 - 类型 `SymbolPreferenceScope = keyof SymbolsViewColumnPreferences`（`:8`）改为 `type ColumnPreferenceTableId = string`（或从共享类型引白名单联合）。
 
-### 3.3 五个老消费方
+### 3.3 五个已持久化老消费方
 
-逐个把 `useSymbolColumnPreferences('aShares', ...)` → `useTableColumnPreferences('aShares', ...)`（tableId 字符串**逐字不变**）+ 更新 import 路径。其余用法（drawer 绑定、tableColumns/splitColumns）不动。
+逐个把 `useSymbolColumnPreferences('aShares', ...)` → `useTableColumnPreferences('aShares', ...)`（tableId 字符串**逐字不变**）+ 更新 import 路径。其余用法（drawer 绑定、tableColumns/splitColumns）不动。另 2 个表（watchlist / backtestMetrics）的改造见 §3.4 / §3.5。
 
 | 消费方 | tableId |
 |---|---|
@@ -66,19 +68,20 @@
 - `useWatchlistColumnPreferences.ts` 改为转调 `useTableColumnPreferences('watchlist', defs, 'table')`，返回 `{ saving, scopePreferences, columns: tableColumns, reset, save, load }`（保持 WatchlistTable 调用面，补 `load`）。
 - **移除 `stores/watchlist.ts` 的列偏好逻辑**：删 `columnPreferences` ref（`:70`）、`saveColumnPreferences`（`:168-171`）、`loadColumnPreferences`/`buildDefaultColumnPreferences`/`migrateLegacyColumns`（`:10-56`）、`STORAGE_KEY`（`:7`）及导出（`:186,192`）。store 只保留自选列表本身。
 - **实现前必做**：grep `store.columnPreferences` / `saveColumnPreferences` / `useWatchlistStore().*columnPreferences` 全部引用，确认除 `useWatchlistColumnPreferences` 外无其它消费方（有则一并迁移）。
-- WatchlistTable 挂载时触发 `load()`（原 localStorage 同步，现需异步，见 §4）。注意 keep-alive：若该表在被缓存的路由内，load 放 `onActivated`（见 `.claude/rules/vue3-frontend.md`）。
+- WatchlistTable 挂载时触发 `load()`（原 localStorage 同步，现需异步，见 §4）。**挂载时机硬约束**：若该组件在 `<keep-alive>` 或 naive-ui `n-tabs` lazy pane 内，须 `onMounted` + `onActivated` **双挂** `load()`——`n-tabs` lazy pane 首挂载**不触发** `onActivated`（见 `.claude/rules/vue3-frontend.md` 与 MEMORY `reference_lazy_tab_pane_onactivated`）。实现前先确认 WatchlistTable 的实际挂载边界。
 
 ### 3.5 回测表
 
 - `useBacktestMetricsColumnPreferences.ts` 改为转调 `useTableColumnPreferences('backtestMetrics', defs, 'table')`，删 localStorage 读写（`:10-30`）。
 - 原返回 `columnsBase` → 改用通用 `tableColumns`（二者均 `buildColumnsFromPreference` 结果，等价）；host 的受控排序 post-map 挂到 `tableColumns` 上不变。补 `load` 给消费方在挂载时调用。
-- `CandleRunSymbolMetrics` 挂载时触发 `load()`。
+- `CandleRunSymbolMetrics` 挂载时触发 `load()`（同步→异步，见 §4）；挂载时机同样遵守 §3.4 的 keep-alive / `n-tabs` lazy pane 双挂约束，实现前确认其挂载边界。
 
 ## 4. 必须暴露的行为变化：同步 → 异步
 
 - 自选股/回测表原来 localStorage **同步**读，组件渲染时列已就绪。
 - 改后端后变**异步** `load()`，首帧偏好未回 → 用 `createDefaultScopePreferences(defs)` 兜底默认列，load 完成响应式刷新。
 - 通用 composable 现有初始化（`preferences` ref 先填默认、load 后覆盖）天然处理 → **这是统一红利，不需额外 loading 占位**，但实现时确认默认列在首帧正确渲染、load 回来无闪烁回退。
+- **空记录兜底链路**：新用户无记录时后端返回 `EMPTY_SCOPE_VIEW`（`{table:[],split:[]}`），前端 `hydrateScope(defs, {table:[],split:[]})` 内 `normalizeScopePreferences` 会按 defs 补全所有列的默认可见性 → 最终渲染**完整默认列**而非空表，无需额外处理。
 
 ## 5. 前端门禁（合并前必跑，见 `.claude/rules/vue3-frontend.md`）
 

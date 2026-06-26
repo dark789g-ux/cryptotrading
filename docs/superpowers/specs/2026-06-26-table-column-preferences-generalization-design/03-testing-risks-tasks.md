@@ -56,7 +56,7 @@
 | 任务 | subagent | 职责边界（文件域） | 依赖 |
 |---|---|---|---|
 | **T1 后端接口** | general-purpose | `preferences.service.ts`（删旧 symbols-view 三件套、加 per-table get/save + 白名单 + `EMPTY_SCOPE_VIEW`）、`preferences.controller.ts`（删旧、加 `columns/:tableId` GET/PUT + 400 校验）、`preferences.service.spec.ts` 改写 | 无 |
-| **T2 数据迁移** | general-purpose | `migration/20260626XXXXXX-generalize-column-preferences.sql` + `.ps1` + `.down.sql` + `.down.ps1`（按 `01` §4）；**不执行**，只产出脚本 | 无 |
+| **T2 数据迁移** | general-purpose | 产出 **4 个文件**：`migration/20260626XXXXXX-generalize-column-preferences.sql` + 同名 `.ps1` + `.down.sql` + `.down.ps1`（内容按 `01` §4）；**只产出脚本、不执行**（执行在 T6 真 DB 跑） | 无 |
 | **T3 前端底座** | general-purpose | API 层 `preferences.ts` + `@/api` 桶（删旧类型/方法、加 `getTableColumns/saveTableColumns`）；`useSymbolColumnPreferences.ts`→`useTableColumnPreferences.ts` 改名+重构（单表状态、删补全逻辑、接口不变） | 无（前端公共底座） |
 | **T4 五个老消费方** | general-purpose | 5 个 `*Panel.vue` 改函数名+import+tableId；对应 `*Panel.spec.ts` + `useSymbolColumnPreferences.usStocks.spec.ts` 改 mock | T3 |
 | **T5 两表迁移** | general-purpose | `useWatchlistColumnPreferences.ts` + `stores/watchlist.ts`（删 localStorage 列偏好逻辑，先 grep 消费方）+ WatchlistTable；`useBacktestMetricsColumnPreferences.ts` + `CandleRunSymbolMetrics`；相关 spec | T3 |

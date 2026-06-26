@@ -25,7 +25,7 @@
 
 ## 已定决策（贯穿全文）
 
-1. **存储粒度 = 每表一行**：key 约定 `columns:<tableId>`，value 复用 `ScopeViewPreferences`（`{table, split}`），单层表只用 `table` 槽、`split` 留空。
+1. **存储粒度 = 每表一行**：key 约定 `columns:<tableId>`，value 复用 `ScopeViewPreferences`（`{table, split}`），单层表 `split` 存空数组 `[]`（前端 `hydrateScope` 会用 `table` 深拷贝填充）。
 2. **旧数据迁移 = 一次性 SQL 脚本**：把 `symbols_view_columns` 行的 5 个 scope 拆成 5 行 `columns:<scope>`，幂等、**保留旧行**作回滚兜底。不迁则老用户 5 表设置丢失。
 3. **旧 endpoint 直接废弃**：不留 `symbols-view` 兼容封装。
 4. **不迁移 localStorage 历史值**：以后端为单一事实源，老用户两表本机旧设置丢弃、首次按默认列展示（用户已确认"不用管 localStorage"）。

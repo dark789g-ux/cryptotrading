@@ -121,7 +121,7 @@ docker exec crypto-postgres psql -U cryptouser -d cryptodb -c \
 -- 旧行保留不删，作回滚兜底
 INSERT INTO user_preferences (id, user_id, key, value, updated_at)
 SELECT
-  'colmig:' || up.user_id || ':' || s.scope,
+  'colmig:20260626:' || up.user_id || ':' || s.scope,  -- 日期版本化前缀，避免与未来迁移冲突
   up.user_id,
   'columns:' || s.scope,
   up.value -> s.scope,
@@ -137,8 +137,11 @@ ON CONFLICT (user_id, key) DO NOTHING;
 ### 回滚 SQL（`.down.sql`）
 
 ```sql
--- 只删迁移脚本插入的行（确定性 id 前缀），用户后续新存的 columns:* 行（id 为 newId）保留
-DELETE FROM user_preferences WHERE id LIKE 'colmig:%';
+-- 只删本次迁移插入的行（日期版本化前缀，避免与未来迁移冲突）；
+-- 用户后续通过新接口新建的 columns:* 行（id 为 newId，非 colmig 前缀）不受影响。
+-- ⚠️ 警告：若用户在迁移后已通过 PUT /preferences/columns/:tableId 更新过这些行
+--   （UPDATE 命中同一行、id 仍为 colmig:20260626 前缀），回滚会连同这些更新一并删除。
+DELETE FROM user_preferences WHERE id LIKE 'colmig:20260626:%';
 ```
 
 ### PS1 配套（`.sql` 同名 `.ps1` + `.down.ps1`）
