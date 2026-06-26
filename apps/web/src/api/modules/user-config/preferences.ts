@@ -11,16 +11,9 @@ export interface ScopeViewPreferences {
   split: ColumnPreferenceItem[]
 }
 
-export interface SymbolsViewColumnPreferences {
-  crypto: ScopeViewPreferences
-  aShares: ScopeViewPreferences
-  usStocks: ScopeViewPreferences
-  aSharesIndex: ScopeViewPreferences
-  aSharesIndexSw: ScopeViewPreferences
-}
-
 export const preferencesApi = {
-  getSymbolsView: () => request<SymbolsViewColumnPreferences>(`${API_BASE}/preferences/symbols-view`),
-  saveSymbolsView: (body: SymbolsViewColumnPreferences) =>
-    put<{ ok: true }>(`${API_BASE}/preferences/symbols-view`, body),
+  getTableColumns: (tableId: string) =>
+    request<ScopeViewPreferences>(`${API_BASE}/preferences/columns/${tableId}`),
+  saveTableColumns: (tableId: string, body: ScopeViewPreferences) =>
+    put<{ ok: true }>(`${API_BASE}/preferences/columns/${tableId}`, body),
 }

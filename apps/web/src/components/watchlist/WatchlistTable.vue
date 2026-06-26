@@ -94,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onActivated, onMounted, ref, watch } from 'vue'
 import {
   NButton, NDataTable, NDrawer, NDrawerContent, NEmpty, NIcon, NSpin, NTag,
   type DataTableSortState,
@@ -216,7 +216,7 @@ const columnDefs = computed(() => createWatchlistColumnDefs({
   onRemove: removeSymbol,
 }))
 
-const { columns } = useWatchlistColumnPreferences(columnDefs)
+const { columns, load } = useWatchlistColumnPreferences(columnDefs)
 
 const paginationState = computed(() => ({
   page: store.page,
@@ -351,6 +351,14 @@ async function onSymbolsAdded() {
   await store.loadWatchlists()
   await store.loadQuotes()
 }
+
+onMounted(() => {
+  void load()
+})
+
+onActivated(() => {
+  void load()
+})
 
 async function removeSymbol(symbol: string) {
   if (!store.currentId) return

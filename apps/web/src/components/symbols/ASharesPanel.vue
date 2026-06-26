@@ -113,7 +113,7 @@ import ASharesFilters from './a-shares/ASharesFilters.vue'
 import { createASharesColumnDefs } from './a-shares/aSharesColumns'
 import { useASharesQuery } from './a-shares/useASharesQuery'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
-import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
+import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
 import { usePanelViewMode } from '@/composables/symbols/usePanelViewMode'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
 import { strategyConditionsApi } from '@/api/modules/strategy/strategyConditions'
@@ -233,7 +233,7 @@ const {
   splitColumns,
   load: loadColumnPreferences,
   save: saveColumnPreferences,
-} = useSymbolColumnPreferences('aShares', columnDefs, viewMode)
+} = useTableColumnPreferences('aShares', columnDefs, viewMode)
 
 const columnSettingsTitle = computed(() =>
   `A 股 Columns（${viewMode.value === 'split' ? '分栏视图' : '表格视图'}）`,

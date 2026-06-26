@@ -1,59 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { watchlistApi, type Watchlist, type WatchlistQuoteRow, type ColumnPreferenceItem } from '@/api'
-import { createDefaultScopePreferences, normalizeScopePreferences } from '@/composables/symbols/useSymbolColumnPreferences'
-import { createWatchlistColumnDefs } from '@/components/watchlist/watchlistColumnDefs'
+import { watchlistApi, type Watchlist, type WatchlistQuoteRow } from '@/api'
 
-const STORAGE_KEY = 'watchlist-columns'
 const ASHARE_SYMBOL_RE = /^\d{6}\.(SZ|SH|BJ)$/
-
-function buildDefaultColumnPreferences(): ColumnPreferenceItem[] {
-  const defs = createWatchlistColumnDefs({
-    scoresMap: ref(new Map()),
-    scoresLoading: ref(false),
-    hitLookup: ref(new Map()),
-    onViewChart: () => {},
-    onRemove: () => {},
-  })
-  return createDefaultScopePreferences(defs)
-}
-
-function migrateLegacyColumns(raw: unknown): ColumnPreferenceItem[] {
-  const defaults = buildDefaultColumnPreferences()
-  if (!Array.isArray(raw)) return defaults
-
-  if (raw.length > 0 && typeof raw[0] === 'string') {
-    const legacyKeys = raw as string[]
-    const defaultVisible = new Set(legacyKeys)
-    return defaults.map((item) => ({
-      key: item.key,
-      visible: item.visible || defaultVisible.has(item.key),
-    }))
-  }
-
-  if (raw.every((item) => item && typeof item === 'object' && typeof (item as ColumnPreferenceItem).key === 'string')) {
-    const defs = createWatchlistColumnDefs({
-      scoresMap: ref(new Map()),
-      scoresLoading: ref(false),
-      hitLookup: ref(new Map()),
-      onViewChart: () => {},
-      onRemove: () => {},
-    })
-    return normalizeScopePreferences(defs, raw)
-  }
-
-  return defaults
-}
-
-function loadColumnPreferences(): ColumnPreferenceItem[] {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (!saved) return buildDefaultColumnPreferences()
-    return migrateLegacyColumns(JSON.parse(saved))
-  } catch {
-    return buildDefaultColumnPreferences()
-  }
-}
 
 export const useWatchlistStore = defineStore('watchlist', () => {
   // State
@@ -67,7 +16,6 @@ export const useWatchlistStore = defineStore('watchlist', () => {
   const pageSize = ref(20)
   const sortKey = ref<string | null>(null)
   const sortOrder = ref<'ascend' | 'descend' | null>(null)
-  const columnPreferences = ref<ColumnPreferenceItem[]>(loadColumnPreferences())
   const loaded = ref(false)
   let loadPromise: Promise<void> | null = null
 
@@ -165,11 +113,6 @@ export const useWatchlistStore = defineStore('watchlist', () => {
     }
   }
 
-  function saveColumnPreferences(prefs: ColumnPreferenceItem[]) {
-    columnPreferences.value = prefs
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
-  }
-
   return {
     watchlists,
     currentId,
@@ -183,13 +126,11 @@ export const useWatchlistStore = defineStore('watchlist', () => {
     pageSize,
     sortKey,
     sortOrder,
-    columnPreferences,
     loadWatchlists,
     setCurrentId,
     loadQuotes,
     reorderWatchlists,
     reorderItems,
-    saveColumnPreferences,
     ensureWatchlistsLoaded,
   }
 })

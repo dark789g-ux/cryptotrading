@@ -109,13 +109,13 @@ const openKline = (symbol: string) => {
 
 const showColumnSettings = ref(false)
 const defs = createBacktestMetricsColumnDefs({ onOpenKline: openKline })
-const { scopePreferences, columnsBase, save, saving } = useBacktestMetricsColumnPreferences(defs)
+const { scopePreferences, tableColumns, save, saving, load } = useBacktestMetricsColumnPreferences(defs)
 
 // post-map 注入受控 sortOrder（共享 buildColumnsFromPreference 产物不含 sortOrder）。
 // headerOrder 读 explicitSort/sortKey/sortOrder 三 ref，columns 随排序变化自动重算；
 // 按 column key 注入，与列在 prefs 中的可见性/顺序无关，天然正确。
 const columns = computed(() =>
-  columnsBase.value.map((column) => {
+  tableColumns.value.map((column) => {
     // buildColumnsFromPreference 产物均为带 key 的数据列（无 selection/expand 列），
     // 但 naive-ui DataTableColumns 联合类型不含 key，故安全读取后注入受控 sortOrder。
     const key = String((column as { key?: string | number }).key ?? '')
@@ -244,6 +244,7 @@ onMounted(() => {
   if (props.show && props.runId && props.ts.trim()) {
     void loadData()
   }
+  void load()
 })
 </script>
 

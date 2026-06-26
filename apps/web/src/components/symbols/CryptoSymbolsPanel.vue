@@ -107,7 +107,7 @@ import type { NumericCondition, NumericConditionFieldOption } from '../common/nu
 import { symbolApi, type SymbolRow } from '@/api'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
 import { createCryptoColumnDefs } from './cryptoColumns'
-import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
+import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
 import { usePanelViewMode } from '@/composables/symbols/usePanelViewMode'
 import { useWatchlistTagFilter } from '@/composables/symbols/useWatchlistTagFilter'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
@@ -193,7 +193,7 @@ const {
   splitColumns,
   load: loadColumnPreferences,
   save: saveColumnPreferences,
-} = useSymbolColumnPreferences('crypto', columnDefs, viewMode)
+} = useTableColumnPreferences('crypto', columnDefs, viewMode)
 
 const columnSettingsTitle = computed(() =>
   `Crypto Columns（${viewMode.value === 'split' ? '分栏视图' : '表格视图'}）`,

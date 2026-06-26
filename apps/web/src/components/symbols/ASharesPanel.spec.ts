@@ -69,8 +69,8 @@ vi.mock('./a-shares/useASharesQuery', () => ({
   }),
 }))
 
-vi.mock('@/composables/symbols/useSymbolColumnPreferences', () => ({
-  useSymbolColumnPreferences: vi.fn(() => ({
+vi.mock('@/composables/symbols/useTableColumnPreferences', () => ({
+  useTableColumnPreferences: vi.fn(() => ({
     loading: ref(false),
     saving: ref(false),
     scopePreferences: ref([]),
@@ -233,15 +233,15 @@ describe('ASharesPanel layout integration', () => {
 })
 
 describe('ASharesPanel split view', () => {
-  it('split 模式下 useSymbolColumnPreferences 收到 viewMode 参数，splitColumns 驱动分栏表格', async () => {
+  it('split 模式下 useTableColumnPreferences 收到 viewMode 参数，splitColumns 驱动分栏表格', async () => {
     localStorage.setItem('symbols_panel_view_mode_aShares', 'split')
     const wrapper = mountPanel()
     await flushPromises()
     await nextTick()
 
-    // 契约：Panel 把 usePanelViewMode 的 viewMode 作为第 3 参传给 useSymbolColumnPreferences
-    const { useSymbolColumnPreferences } = await import('@/composables/symbols/useSymbolColumnPreferences')
-    const calls = vi.mocked(useSymbolColumnPreferences).mock.calls
+    // 契约：Panel 把 usePanelViewMode 的 viewMode 作为第 3 参传给 useTableColumnPreferences
+    const { useTableColumnPreferences } = await import('@/composables/symbols/useTableColumnPreferences')
+    const calls = vi.mocked(useTableColumnPreferences).mock.calls
     const aSharesCall = calls.find((c) => c[0] === 'aShares')
     expect(aSharesCall).toBeTruthy()
     // 第 3 参数是 viewMode ref，初值随 localStorage = 'split'

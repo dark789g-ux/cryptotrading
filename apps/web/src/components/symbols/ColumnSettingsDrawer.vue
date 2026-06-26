@@ -199,7 +199,7 @@ import {
 import {
   createDefaultScopePreferences,
   normalizeScopePreferences,
-} from '@/composables/symbols/useSymbolColumnPreferences'
+} from '@/composables/symbols/useTableColumnPreferences'
 
 interface SettingsRow {
   key: string

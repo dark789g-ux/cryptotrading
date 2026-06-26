@@ -1,7 +1,7 @@
 /**
  * UsStocksPanel：接入 SymbolsPanelLayout 后的单测。
  * - 删除美股 title
- * - split 模式下 viewMode 传给 useSymbolColumnPreferences，splitColumns 驱动分栏表格
+ * - split 模式下 viewMode 传给 useTableColumnPreferences，splitColumns 驱动分栏表格
  * - split 模式下点击精简表格行更新 selectedDetailRow
  * - table 模式下不再打开详情 drawer
  * - 同步 / 标的管理按钮仍在 header 右侧
@@ -59,8 +59,8 @@ vi.mock('@/components/symbols/us-stocks/useUsStocksQuery', () => ({
   })),
 }))
 
-vi.mock('@/composables/symbols/useSymbolColumnPreferences', () => ({
-  useSymbolColumnPreferences: vi.fn(() => ({
+vi.mock('@/composables/symbols/useTableColumnPreferences', () => ({
+  useTableColumnPreferences: vi.fn(() => ({
     loading: ref(false),
     saving: ref(false),
     scopePreferences: ref([]),
@@ -211,15 +211,15 @@ describe('UsStocksPanel', () => {
     expect(wrapper.findComponent(UsStockDetailPanelStub).exists()).toBe(false)
   })
 
-  it('split 模式下 useSymbolColumnPreferences 收到 viewMode，splitColumns 驱动分栏表格', async () => {
+  it('split 模式下 useTableColumnPreferences 收到 viewMode，splitColumns 驱动分栏表格', async () => {
     localStorage.setItem(VIEW_MODE_KEY, 'split')
     const wrapper = mountPanel()
     await flushPromises()
     await nextTick()
 
-    // 契约：Panel 把 usePanelViewMode 的 viewMode 作为第 3 参传给 useSymbolColumnPreferences
-    const { useSymbolColumnPreferences } = await import('@/composables/symbols/useSymbolColumnPreferences')
-    const calls = vi.mocked(useSymbolColumnPreferences).mock.calls
+    // 契约：Panel 把 usePanelViewMode 的 viewMode 作为第 3 参传给 useTableColumnPreferences
+    const { useTableColumnPreferences } = await import('@/composables/symbols/useTableColumnPreferences')
+    const calls = vi.mocked(useTableColumnPreferences).mock.calls
     const usCall = calls.find((c) => c[0] === 'usStocks')
     expect(usCall).toBeTruthy()
     const viewModeArg = usCall![2] as { value: string }

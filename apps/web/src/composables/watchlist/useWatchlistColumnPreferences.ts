@@ -1,46 +1,26 @@
-import { computed, ref, unref, type MaybeRef } from 'vue'
-import type { ColumnPreferenceItem } from '@/api'
+import { type MaybeRef } from 'vue'
 import type { SymbolColumnDef } from '@/components/symbols/columnTypes'
-import {
-  buildColumnsFromPreference,
-  createDefaultScopePreferences,
-  normalizeScopePreferences,
-} from '@/composables/symbols/useSymbolColumnPreferences'
-import { useWatchlistStore } from '@/stores/watchlist'
+import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
 
 export function useWatchlistColumnPreferences<Row>(
   defs: MaybeRef<SymbolColumnDef<Row>[]>,
 ) {
-  const store = useWatchlistStore()
-  const saving = ref(false)
-
-  const scopePreferences = computed<ColumnPreferenceItem[]>({
-    get: () => normalizeScopePreferences(unref(defs), store.columnPreferences),
-    set: (next) => {
-      store.saveColumnPreferences(normalizeScopePreferences(unref(defs), next))
-    },
-  })
-
-  const columns = computed(() => buildColumnsFromPreference(unref(defs), scopePreferences.value))
-
-  function reset() {
-    scopePreferences.value = createDefaultScopePreferences(unref(defs))
-  }
-
-  function save() {
-    saving.value = true
-    try {
-      store.saveColumnPreferences(scopePreferences.value)
-    } finally {
-      saving.value = false
-    }
-  }
+  const {
+    saving,
+    scopePreferences,
+    tableColumns,
+    reset,
+    save,
+    load,
+  } = useTableColumnPreferences('watchlist', defs, 'table')
 
   return {
     saving,
     scopePreferences,
-    columns,
+    // 保持现有调用面：columns 即通用底座的 tableColumns（表格视图列）
+    columns: tableColumns,
     reset,
     save,
+    load,
   }
 }

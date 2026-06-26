@@ -124,7 +124,7 @@ import UsSyncProgressModal from './us-stocks/UsSyncProgressModal.vue'
 import { createUsStocksColumnDefs } from './us-stocks/usStocksColumns'
 import { useUsStocksQuery } from './us-stocks/useUsStocksQuery'
 import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
-import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
+import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
 import { usePanelViewMode } from '@/composables/symbols/usePanelViewMode'
 
 const message = useMessage()
@@ -172,7 +172,7 @@ const {
   splitColumns,
   load: loadColumnPreferences,
   save: saveColumnPreferences,
-} = useSymbolColumnPreferences('usStocks', columnDefs, viewMode)
+} = useTableColumnPreferences('usStocks', columnDefs, viewMode)
 
 const columnSettingsTitle = computed(() =>
   `美股 Columns（${viewMode.value === 'split' ? '分栏视图' : '表格视图'}）`,

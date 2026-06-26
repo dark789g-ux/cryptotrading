@@ -1,11 +1,11 @@
 import { computed, h, ref, unref, type MaybeRef } from 'vue'
 import { type DataTableColumns } from 'naive-ui'
-import { preferencesApi, type ColumnPreferenceItem, type ScopeViewPreferences, type SymbolsViewColumnPreferences } from '@/api'
+import { preferencesApi, type ColumnPreferenceItem, type ScopeViewPreferences } from '@/api'
 import type { SymbolColumnDef } from '../../components/symbols/columnTypes'
 import FieldHelpTip from '../../components/common/FieldHelpTip.vue'
 import { getFieldDescription } from '../../components/common/fieldDescriptions'
 
-export type SymbolPreferenceScope = keyof SymbolsViewColumnPreferences
+export type ColumnPreferenceTableId = string
 
 function cloneColumnPreferences(items: ColumnPreferenceItem[]): ColumnPreferenceItem[] {
   return items.map((item) => ({ ...item }))
@@ -15,16 +15,6 @@ function cloneScopeView(value: ScopeViewPreferences): ScopeViewPreferences {
   return {
     table: cloneColumnPreferences(value.table),
     split: cloneColumnPreferences(value.split),
-  }
-}
-
-function cloneSymbolsViewPreferences(value: SymbolsViewColumnPreferences): SymbolsViewColumnPreferences {
-  return {
-    crypto: cloneScopeView(value.crypto),
-    aShares: cloneScopeView(value.aShares),
-    usStocks: cloneScopeView(value.usStocks),
-    aSharesIndex: cloneScopeView(value.aSharesIndex),
-    aSharesIndexSw: cloneScopeView(value.aSharesIndexSw),
   }
 }
 
@@ -134,8 +124,8 @@ function hydrateScope<Row>(
   return { table, split }
 }
 
-export function useSymbolColumnPreferences<Row>(
-  scope: SymbolPreferenceScope,
+export function useTableColumnPreferences<Row>(
+  tableId: string,
   defs: MaybeRef<SymbolColumnDef<Row>[]>,
   viewMode: MaybeRef<SymbolViewSlot> = 'table',
 ) {
@@ -149,36 +139,26 @@ export function useSymbolColumnPreferences<Row>(
     return { table: defaults, split: cloneColumnPreferences(defaults) }
   }
 
-  // 注：preferences 在 load 前，仅当前 scope 初始化默认；其它 scope 留空，save 前会 load 补全。
-  const preferences = ref<SymbolsViewColumnPreferences>({
-    crypto: scope === 'crypto' ? defaultScopeView() : { table: [], split: [] },
-    aShares: scope === 'aShares' ? defaultScopeView() : { table: [], split: [] },
-    usStocks: scope === 'usStocks' ? defaultScopeView() : { table: [], split: [] },
-    aSharesIndex: scope === 'aSharesIndex' ? defaultScopeView() : { table: [], split: [] },
-    aSharesIndexSw: scope === 'aSharesIndexSw' ? defaultScopeView() : { table: [], split: [] },
-  })
+  const preferences = ref<ScopeViewPreferences>(defaultScopeView())
 
   /** 当前视图槽位的列偏好（随 viewMode 切片）；drawer 绑定它。 */
   const scopePreferences = computed<ColumnPreferenceItem[]>({
     get: () => {
       const slot = unref(viewMode)
-      return normalizeScopePreferences(resolvedDefs.value, preferences.value[scope][slot])
+      return normalizeScopePreferences(resolvedDefs.value, preferences.value[slot])
     },
     set: (next) => {
       const slot = unref(viewMode)
       preferences.value = {
         ...preferences.value,
-        [scope]: {
-          ...preferences.value[scope],
-          [slot]: normalizeScopePreferences(resolvedDefs.value, next),
-        },
+        [slot]: normalizeScopePreferences(resolvedDefs.value, next),
       }
     },
   })
 
   function slotColumns(slot: SymbolViewSlot) {
     return computed(() =>
-      buildColumnsFromPreference(resolvedDefs.value, preferences.value[scope][slot]),
+      buildColumnsFromPreference(resolvedDefs.value, preferences.value[slot]),
     )
   }
 
@@ -190,14 +170,8 @@ export function useSymbolColumnPreferences<Row>(
   async function load() {
     loading.value = true
     try {
-      const payload = await preferencesApi.getSymbolsView()
-      preferences.value = {
-        crypto: hydrateScope(resolvedDefs.value, payload.crypto),
-        aShares: hydrateScope(resolvedDefs.value, payload.aShares),
-        usStocks: hydrateScope(resolvedDefs.value, payload.usStocks),
-        aSharesIndex: hydrateScope(resolvedDefs.value, payload.aSharesIndex),
-        aSharesIndexSw: hydrateScope(resolvedDefs.value, payload.aSharesIndexSw),
-      }
+      const payload = await preferencesApi.getTableColumns(tableId)
+      preferences.value = hydrateScope(resolvedDefs.value, payload)
       loaded.value = true
       return preferences.value
     } catch (err) {
@@ -208,14 +182,11 @@ export function useSymbolColumnPreferences<Row>(
   }
 
   async function save() {
-    if (!loaded.value) {
-      await load()
-    }
-    const previous = cloneSymbolsViewPreferences(preferences.value)
-    const payload = cloneSymbolsViewPreferences(preferences.value)
+    const previous = cloneScopeView(preferences.value)
+    const payload = cloneScopeView(preferences.value)
     saving.value = true
     try {
-      await preferencesApi.saveSymbolsView(payload)
+      await preferencesApi.saveTableColumns(tableId, payload)
       preferences.value = payload
       return payload
     } catch (err) {

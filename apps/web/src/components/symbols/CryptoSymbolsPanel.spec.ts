@@ -17,8 +17,8 @@ import { symbolApi, type SymbolRow } from '@/api'
 
 const VIEW_MODE_KEY = 'symbols_panel_view_mode_crypto'
 
-vi.mock('@/composables/symbols/useSymbolColumnPreferences', () => ({
-  useSymbolColumnPreferences: vi.fn(() => ({
+vi.mock('@/composables/symbols/useTableColumnPreferences', () => ({
+  useTableColumnPreferences: vi.fn(() => ({
     loading: ref(false),
     saving: ref(false),
     scopePreferences: ref([]),

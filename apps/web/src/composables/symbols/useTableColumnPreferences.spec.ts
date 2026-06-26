@@ -1,24 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import type { SymbolColumnDef } from '@/components/symbols/columnTypes'
-import type { SymbolsViewColumnPreferences } from '@/api'
+import type { ScopeViewPreferences } from '@/api'
 
-// 拦截网络层：load 走 mock getSymbolsView，save 捕获最终 payload 断言 usStocks 不丢字段
-const getSymbolsView = vi.fn()
-const saveSymbolsView = vi.fn()
+// 拦截网络层：load 走 mock getTableColumns，save 捕获最终 payload 断言
+const getTableColumns = vi.fn()
+const saveTableColumns = vi.fn()
 
 vi.mock('@/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api')>()
   return {
     ...actual,
     preferencesApi: {
-      getSymbolsView: () => getSymbolsView(),
-      saveSymbolsView: (body: SymbolsViewColumnPreferences) => saveSymbolsView(body),
+      getTableColumns: (tableId: string) => getTableColumns(tableId),
+      saveTableColumns: (tableId: string, body: ScopeViewPreferences) => saveTableColumns(tableId, body),
     },
   }
 })
 
-import { useSymbolColumnPreferences } from './useSymbolColumnPreferences'
+import { useTableColumnPreferences } from './useTableColumnPreferences'
 
 interface Row { a: number }
 
@@ -37,25 +37,22 @@ function columnKeyOf(col: unknown): string {
   return typeof key === 'string' ? key : ''
 }
 
-const DEFAULT_US = [
+const DEFAULT_TABLE = [
   { key: 'ticker', visible: true },
   { key: 'close', visible: true },
   { key: 'ma5', visible: false },
 ]
 
-const EMPTY_REMOTE: SymbolsViewColumnPreferences = {
-  crypto: { table: [], split: [] },
-  aShares: { table: [], split: [] },
-  usStocks: { table: [], split: [] },
-  aSharesIndex: { table: [], split: [] },
-  aSharesIndexSw: { table: [], split: [] },
+const EMPTY_REMOTE: ScopeViewPreferences = {
+  table: [],
+  split: [],
 }
 
-describe('useSymbolColumnPreferences · usStocks scope', () => {
+describe('useTableColumnPreferences', () => {
   beforeEach(() => {
-    getSymbolsView.mockReset()
-    saveSymbolsView.mockReset()
-    saveSymbolsView.mockResolvedValue({ ok: true })
+    getTableColumns.mockReset()
+    saveTableColumns.mockReset()
+    saveTableColumns.mockResolvedValue({ ok: true })
   })
 
   afterEach(() => {
@@ -63,12 +60,12 @@ describe('useSymbolColumnPreferences · usStocks scope', () => {
   })
 
   it('初始化（默认 viewMode=table）→ scopePreferences 取 table 槽默认列偏好', () => {
-    const { scopePreferences } = useSymbolColumnPreferences('usStocks', makeDefs())
-    expect(scopePreferences.value).toEqual(DEFAULT_US)
+    const { scopePreferences } = useTableColumnPreferences('usStocks', makeDefs())
+    expect(scopePreferences.value).toEqual(DEFAULT_TABLE)
   })
 
   it('初始化时 splitColumns 与 tableColumns 相同（未 load，默认拷贝）', () => {
-    const { tableColumns, splitColumns } = useSymbolColumnPreferences('usStocks', makeDefs())
+    const { tableColumns, splitColumns } = useTableColumnPreferences('usStocks', makeDefs())
     expect(splitColumns.value.map(columnKeyOf)).toEqual(
       tableColumns.value.map(columnKeyOf),
     )
@@ -76,29 +73,26 @@ describe('useSymbolColumnPreferences · usStocks scope', () => {
 
   it('viewMode=split 时 scopePreferences 读 split 槽', () => {
     const viewMode = ref<'table' | 'split'>('split')
-    const { scopePreferences } = useSymbolColumnPreferences('usStocks', makeDefs(), viewMode)
+    const { scopePreferences } = useTableColumnPreferences('usStocks', makeDefs(), viewMode)
     // 未 load，split 槽默认与 table 一致
-    expect(scopePreferences.value).toEqual(DEFAULT_US)
+    expect(scopePreferences.value).toEqual(DEFAULT_TABLE)
   })
 
   it('切换 viewMode → scopePreferences 在 table/split 间切片', async () => {
-    getSymbolsView.mockResolvedValue({
-      ...EMPTY_REMOTE,
-      usStocks: {
-        table: [
-          { key: 'ticker', visible: true },
-          { key: 'close', visible: false },
-          { key: 'ma5', visible: true },
-        ],
-        split: [
-          { key: 'ticker', visible: true },
-          { key: 'close', visible: true },
-          { key: 'ma5', visible: false },
-        ],
-      },
+    getTableColumns.mockResolvedValue({
+      table: [
+        { key: 'ticker', visible: true },
+        { key: 'close', visible: false },
+        { key: 'ma5', visible: true },
+      ],
+      split: [
+        { key: 'ticker', visible: true },
+        { key: 'close', visible: true },
+        { key: 'ma5', visible: false },
+      ],
     })
     const viewMode = ref<'table' | 'split'>('table')
-    const { load, scopePreferences } = useSymbolColumnPreferences('usStocks', makeDefs(), viewMode)
+    const { load, scopePreferences } = useTableColumnPreferences('usStocks', makeDefs(), viewMode)
     await load()
 
     expect(scopePreferences.value).toEqual([
@@ -115,24 +109,21 @@ describe('useSymbolColumnPreferences · usStocks scope', () => {
     ])
   })
 
-  it('load → 新格式 usStocks 两槽位分别归一化保留', async () => {
-    getSymbolsView.mockResolvedValue({
-      ...EMPTY_REMOTE,
-      usStocks: {
-        table: [
-          { key: 'ticker', visible: true },
-          { key: 'close', visible: true },
-          { key: 'ma5', visible: true },
-        ],
-        // split 只显式给了 ticker；close 走 defaultVisible(true) 被 normalize 补全，
-        // ma5 defaultVisible(false) 不显示 → splitColumns 只看到 ticker + close
-        split: [
-          { key: 'ticker', visible: true },
-          { key: 'close', visible: true },
-        ],
-      },
+  it('load → 新格式两槽位分别归一化保留', async () => {
+    getTableColumns.mockResolvedValue({
+      table: [
+        { key: 'ticker', visible: true },
+        { key: 'close', visible: true },
+        { key: 'ma5', visible: true },
+      ],
+      // split 只显式给了 ticker；close 走 defaultVisible(true) 被 normalize 补全，
+      // ma5 defaultVisible(false) 不显示 → splitColumns 只看到 ticker + close
+      split: [
+        { key: 'ticker', visible: true },
+        { key: 'close', visible: true },
+      ],
     })
-    const { load, tableColumns, splitColumns } = useSymbolColumnPreferences('usStocks', makeDefs())
+    const { load, tableColumns, splitColumns } = useTableColumnPreferences('usStocks', makeDefs())
     await load()
     expect(tableColumns.value.map(columnKeyOf)).toEqual(['ticker', 'close', 'ma5'])
     expect(splitColumns.value.map(columnKeyOf)).toEqual(['ticker', 'close'])
@@ -140,18 +131,15 @@ describe('useSymbolColumnPreferences · usStocks scope', () => {
 
   it('hydrateScope：空 split → 用 table 深拷贝填充（老数据迁移默认）', async () => {
     // 后端 sanitize 会把老扁平数组转成 { table: [...], split: [] }，前端 hydrate 回填 split
-    getSymbolsView.mockResolvedValue({
-      ...EMPTY_REMOTE,
-      usStocks: {
-        table: [
-          { key: 'ticker', visible: true },
-          { key: 'close', visible: false },
-        ],
-        split: [],
-      },
+    getTableColumns.mockResolvedValue({
+      table: [
+        { key: 'ticker', visible: true },
+        { key: 'close', visible: false },
+      ],
+      split: [],
     })
     const viewMode = ref<'table' | 'split'>('table')
-    const { load, scopePreferences } = useSymbolColumnPreferences('usStocks', makeDefs(), viewMode)
+    const { load, scopePreferences } = useTableColumnPreferences('usStocks', makeDefs(), viewMode)
     await load()
 
     // 切到 split：空 split 应被 table 深拷贝填充，normalize 补全缺失的 ma5 到末尾
@@ -163,18 +151,16 @@ describe('useSymbolColumnPreferences · usStocks scope', () => {
     ])
   })
 
-  it('save → payload 为新结构（scope → { table, split }）', async () => {
-    getSymbolsView.mockResolvedValue({ ...EMPTY_REMOTE })
-    const { load, save, setColumnVisible } = useSymbolColumnPreferences('usStocks', makeDefs())
+  it('save → 调用 saveTableColumns 并只传当前表数据', async () => {
+    getTableColumns.mockResolvedValue({ ...EMPTY_REMOTE })
+    const { load, save, setColumnVisible } = useTableColumnPreferences('usStocks', makeDefs())
     await load()
     setColumnVisible('ma5', true)
     await save()
-    expect(saveSymbolsView).toHaveBeenCalledTimes(1)
-    const payload = saveSymbolsView.mock.calls[0][0] as SymbolsViewColumnPreferences
-    expect(payload).toHaveProperty('crypto')
-    expect(payload).toHaveProperty('aShares')
-    expect(payload).toHaveProperty('usStocks')
-    expect(payload.usStocks).toEqual({
+    expect(saveTableColumns).toHaveBeenCalledTimes(1)
+    const [calledTableId, payload] = saveTableColumns.mock.calls[0] as [string, ScopeViewPreferences]
+    expect(calledTableId).toBe('usStocks')
+    expect(payload).toEqual({
       table: [
         { key: 'ticker', visible: true },
         { key: 'close', visible: true },
@@ -192,7 +178,7 @@ describe('useSymbolColumnPreferences · usStocks scope', () => {
   it('normalizeScopePreferences 签名不变（backtest/watchlist 兼容回归）', async () => {
     // 确认 3 个导出纯函数仍可直接 import 使用（见 backtest/watchlist composable）
     const { buildColumnsFromPreference, createDefaultScopePreferences, normalizeScopePreferences } =
-      await import('./useSymbolColumnPreferences')
+      await import('./useTableColumnPreferences')
     const defs = makeDefs()
     const defaults = createDefaultScopePreferences(defs)
     expect(normalizeScopePreferences(defs, defaults)).toEqual(defaults)
@@ -202,7 +188,7 @@ describe('useSymbolColumnPreferences · usStocks scope', () => {
   it('defs 响应式变化（如 priceMode 切换重建 columnDefs）→ tableColumns / splitColumns 重算', async () => {
     // 模拟 Panel 中 columnDefs 随 priceMode 变化重建的场景：defs 从 3 列换成 2 列
     const defsRef = ref(makeDefs())
-    const { tableColumns, splitColumns } = useSymbolColumnPreferences('usStocks', defsRef, 'table')
+    const { tableColumns, splitColumns } = useTableColumnPreferences('usStocks', defsRef, 'table')
 
     expect(tableColumns.value.map(columnKeyOf)).toEqual(['ticker', 'close']) // ma5 不可见
     expect(splitColumns.value.map(columnKeyOf)).toEqual(['ticker', 'close'])
@@ -215,5 +201,44 @@ describe('useSymbolColumnPreferences · usStocks scope', () => {
     ]
     expect(tableColumns.value.map(columnKeyOf)).toEqual(['ticker', 'close', 'volume'])
     expect(splitColumns.value.map(columnKeyOf)).toEqual(['ticker', 'close', 'volume'])
+  })
+
+  it('load 时传入 tableId 到 getTableColumns', async () => {
+    getTableColumns.mockResolvedValue({ ...EMPTY_REMOTE })
+    const { load } = useTableColumnPreferences('aShares', makeDefs())
+    await load()
+    expect(getTableColumns).toHaveBeenCalledWith('aShares')
+  })
+
+  it('reset 后 scopePreferences 恢复默认', async () => {
+    getTableColumns.mockResolvedValue({
+      table: [
+        { key: 'ticker', visible: true },
+        { key: 'close', visible: false },
+        { key: 'ma5', visible: true },
+      ],
+      split: [],
+    })
+    const { load, scopePreferences, reset } = useTableColumnPreferences('usStocks', makeDefs())
+    await load()
+    expect(scopePreferences.value).toEqual([
+      { key: 'ticker', visible: true },
+      { key: 'close', visible: false },
+      { key: 'ma5', visible: true },
+    ])
+    reset()
+    expect(scopePreferences.value).toEqual(DEFAULT_TABLE)
+  })
+
+  it('moveColumnByKey up/down 正确调整顺序', async () => {
+    getTableColumns.mockResolvedValue({ ...EMPTY_REMOTE })
+    const { load, scopePreferences, moveColumnByKey } = useTableColumnPreferences('usStocks', makeDefs())
+    await load()
+    // 初始: ticker, close, ma5
+    moveColumnByKey('ma5', 'up')
+    expect(scopePreferences.value.map((i) => i.key)).toEqual(['ticker', 'ma5', 'close'])
+    moveColumnByKey('ticker', 'down')
+    // ticker locked，不能移动
+    expect(scopePreferences.value.map((i) => i.key)).toEqual(['ticker', 'ma5', 'close'])
   })
 })

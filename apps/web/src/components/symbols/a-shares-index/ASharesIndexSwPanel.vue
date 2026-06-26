@@ -70,7 +70,7 @@ import ColumnSettingsDrawer from '../ColumnSettingsDrawer.vue'
 import ASharesIndexKlineModal from './ASharesIndexKlineModal.vue'
 import { createASharesIndexColumnDefs } from './aSharesIndexColumns'
 import { useASharesIndexQuery } from './useASharesIndexQuery'
-import { useSymbolColumnPreferences } from '@/composables/symbols/useSymbolColumnPreferences'
+import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
 import type { IndexLatestRow } from './types'
 import type { SwLevel } from './useASharesIndexQuery'
 
@@ -122,7 +122,7 @@ const {
   tableColumns,
   load: loadColumnPreferences,
   save: saveColumnPreferences,
-} = useSymbolColumnPreferences('aSharesIndexSw', columnDefs, 'table')
+} = useTableColumnPreferences('aSharesIndexSw', columnDefs, 'table')
 
 async function handleSaveColumnPreferences() {
   try {
