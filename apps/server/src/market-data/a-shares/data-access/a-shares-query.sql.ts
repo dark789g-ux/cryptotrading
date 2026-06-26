@@ -269,7 +269,7 @@ export function buildASharesBaseQuery(
       sql += ` AND s.ts_code IN (
         SELECT im.ts_code
         FROM raw.index_member im
-        WHERE im.l3_code = $${paramIndex}
+        WHERE (im.l1_code = $${paramIndex} OR im.l2_code = $${paramIndex} OR im.l3_code = $${paramIndex})
           AND im.in_date <= l.trade_date
           AND (im.out_date IS NULL OR im.out_date >= l.trade_date)
       )`;
