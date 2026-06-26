@@ -4,7 +4,10 @@ import { Repository } from 'typeorm';
 import { UserPreferenceEntity } from '../entities/config/user-preference.entity';
 import {
   PreferencesService,
-  SYMBOLS_VIEW_PREFERENCES_KEY,
+  COLUMN_PREFERENCE_KEY_PREFIX,
+  COLUMN_PREFERENCE_TABLE_IDS,
+  isValidTableId,
+  EMPTY_SCOPE_VIEW,
 } from './preferences.service';
 
 describe('PreferencesService', () => {
@@ -30,249 +33,142 @@ describe('PreferencesService', () => {
     repo = module.get(getRepositoryToken(UserPreferenceEntity));
   });
 
-  const EMPTY = {
-    crypto: { table: [], split: [] },
-    aShares: { table: [], split: [] },
-    usStocks: { table: [], split: [] },
-    aSharesIndex: { table: [], split: [] },
-    aSharesIndexSw: { table: [], split: [] },
-  };
-
-  describe('getSymbolsView · sanitizeScopeView（只净化结构，不做业务 fallback）', () => {
-    it('无记录 → 各 scope 均为 { table: [], split: [] }', async () => {
-      repo.findOneBy.mockResolvedValueOnce(null);
-
-      await expect(service.getSymbolsView('user-1')).resolves.toEqual(EMPTY);
+  describe('isValidTableId', () => {
+    it('合法 tableId → true', () => {
+      for (const id of COLUMN_PREFERENCE_TABLE_IDS) {
+        expect(isValidTableId(id)).toBe(true);
+      }
     });
 
-    it('新格式对象（table + split 都有）→ 原样净化', async () => {
+    it('非法 tableId → false', () => {
+      expect(isValidTableId('unknown')).toBe(false);
+      expect(isValidTableId('')).toBe(false);
+      expect(isValidTableId('symbols_view_columns')).toBe(false);
+    });
+  });
+
+  describe('getTableColumns', () => {
+    it('无记录 → EMPTY_SCOPE_VIEW', async () => {
+      repo.findOneBy.mockResolvedValueOnce(null);
+
+      await expect(service.getTableColumns('user-1', 'aShares')).resolves.toEqual(EMPTY_SCOPE_VIEW);
+      expect(repo.findOneBy).toHaveBeenCalledWith({
+        userId: 'user-1',
+        key: COLUMN_PREFERENCE_KEY_PREFIX + 'aShares',
+      });
+    });
+
+    it('有记录 → sanitize 后返回', async () => {
       const stored = {
-        crypto: {
-          table: [{ key: 'close', visible: false }],
-          split: [{ key: 'close', visible: true }],
-        },
-        aShares: {
-          table: [
-            { key: 'name', visible: true },
-            { key: 'buySignal', visible: true },
-          ],
-          split: [{ key: 'name', visible: true }],
-        },
-        usStocks: {
-          table: [{ key: 'ma5', visible: false }],
-          split: [{ key: 'ticker', visible: true }],
-        },
-        aSharesIndex: {
-          table: [{ key: 'pctChange', visible: true }],
-          split: [{ key: 'close', visible: false }],
-        },
-        aSharesIndexSw: {
-          table: [{ key: 'pe', visible: true }],
-          split: [{ key: 'pb', visible: false }],
-        },
+        table: [{ key: 'name', visible: true }],
+        split: [{ key: 'close', visible: false }],
       };
       repo.findOneBy.mockResolvedValueOnce({
         id: 'pref-1',
         userId: 'user-1',
-        key: SYMBOLS_VIEW_PREFERENCES_KEY,
+        key: COLUMN_PREFERENCE_KEY_PREFIX + 'aShares',
         value: stored,
       } as UserPreferenceEntity);
 
-      await expect(service.getSymbolsView('user-1')).resolves.toEqual(stored);
-    });
-
-    it('新格式对象只有 table → split 落空 []（缺失 scope 也落空）', async () => {
-      repo.findOneBy.mockResolvedValueOnce({
-        id: 'pref-1',
-        userId: 'user-1',
-        key: SYMBOLS_VIEW_PREFERENCES_KEY,
-        value: {
-          crypto: { table: [{ key: 'close', visible: false }] },
-          aShares: { table: [{ key: 'name', visible: true }] },
-          // usStocks 缺失
-        },
-      } as UserPreferenceEntity);
-
-      await expect(service.getSymbolsView('user-1')).resolves.toEqual({
-        crypto: { table: [{ key: 'close', visible: false }], split: [] },
-        aShares: { table: [{ key: 'name', visible: true }], split: [] },
-        usStocks: { table: [], split: [] },
-        aSharesIndex: { table: [], split: [] },
-        aSharesIndexSw: { table: [], split: [] },
-      });
+      await expect(service.getTableColumns('user-1', 'aShares')).resolves.toEqual(stored);
     });
 
     it('老格式扁平数组 → 当作 table，split 落空 []', async () => {
       repo.findOneBy.mockResolvedValueOnce({
         id: 'pref-1',
         userId: 'user-1',
-        key: SYMBOLS_VIEW_PREFERENCES_KEY,
-        value: {
-          crypto: [{ key: 'close', visible: false }],
-          aShares: [
-            { key: 'name', visible: true },
-            { key: 'buySignal', visible: true },
-          ],
-          usStocks: [{ key: 'ticker', visible: true }],
-        },
+        key: COLUMN_PREFERENCE_KEY_PREFIX + 'usStocks',
+        value: [{ key: 'ticker', visible: true }],
       } as UserPreferenceEntity);
 
-      await expect(service.getSymbolsView('user-1')).resolves.toEqual({
-        crypto: { table: [{ key: 'close', visible: false }], split: [] },
-        aShares: {
-          table: [
-            { key: 'name', visible: true },
-            { key: 'buySignal', visible: true },
-          ],
-          split: [],
-        },
-        usStocks: { table: [{ key: 'ticker', visible: true }], split: [] },
-        aSharesIndex: { table: [], split: [] },
-        aSharesIndexSw: { table: [], split: [] },
+      await expect(service.getTableColumns('user-1', 'usStocks')).resolves.toEqual({
+        table: [{ key: 'ticker', visible: true }],
+        split: [],
       });
     });
 
-    it('非法输入（null / string / number）→ { table: [], split: [] }', async () => {
+    it('非法输入（null / string / number）→ EMPTY_SCOPE_VIEW', async () => {
       repo.findOneBy.mockResolvedValueOnce({
         id: 'pref-1',
         userId: 'user-1',
-        key: SYMBOLS_VIEW_PREFERENCES_KEY,
-        value: {
-          crypto: null,
-          aShares: 'not-an-object',
-          usStocks: 42,
-        },
+        key: COLUMN_PREFERENCE_KEY_PREFIX + 'crypto',
+        value: null,
       } as UserPreferenceEntity);
 
-      await expect(service.getSymbolsView('user-1')).resolves.toEqual(EMPTY);
+      await expect(service.getTableColumns('user-1', 'crypto')).resolves.toEqual(EMPTY_SCOPE_VIEW);
     });
 
-    it('数组含非法项（key 空串 / visible 非布尔 / 缺字段 / null）→ 过滤掉（table 与 split 对称）', async () => {
+    it('数组含非法项 → 过滤掉（table 与 split 对称）', async () => {
       repo.findOneBy.mockResolvedValueOnce({
         id: 'pref-1',
         userId: 'user-1',
-        key: SYMBOLS_VIEW_PREFERENCES_KEY,
+        key: COLUMN_PREFERENCE_KEY_PREFIX + 'aSharesIndex',
         value: {
-          crypto: {
-            table: [
-              { key: 'close', visible: true },
-              { key: '', visible: true }, // key 空串
-              { key: 'name' }, // 缺 visible
-              { visible: false }, // 缺 key
-              null, // null
-              { key: 'open', visible: 'yes' }, // visible 非布尔
-              { key: 'high', visible: false }, // 合法
-            ],
-            split: [
-              { key: 'low', visible: true }, // 合法
-              { key: '', visible: false }, // 非法
-            ],
-          },
+          table: [
+            { key: 'close', visible: true },
+            { key: '', visible: true }, // key 空串
+            { key: 'name' }, // 缺 visible
+            { visible: false }, // 缺 key
+            null, // null
+            { key: 'open', visible: 'yes' }, // visible 非布尔
+            { key: 'high', visible: false }, // 合法
+          ],
+          split: [
+            { key: 'low', visible: true }, // 合法
+            { key: '', visible: false }, // 非法
+          ],
         },
       } as UserPreferenceEntity);
 
-      await expect(service.getSymbolsView('user-1')).resolves.toEqual({
-        crypto: {
-          table: [
-            { key: 'close', visible: true },
-            { key: 'high', visible: false },
-          ],
-          split: [{ key: 'low', visible: true }],
-        },
-        aShares: { table: [], split: [] },
-        usStocks: { table: [], split: [] },
-        aSharesIndex: { table: [], split: [] },
-        aSharesIndexSw: { table: [], split: [] },
+      await expect(service.getTableColumns('user-1', 'aSharesIndex')).resolves.toEqual({
+        table: [
+          { key: 'close', visible: true },
+          { key: 'high', visible: false },
+        ],
+        split: [{ key: 'low', visible: true }],
       });
     });
   });
 
-  describe('saveSymbolsView', () => {
-    it('保留未知列键与顺序（新结构）', async () => {
+  describe('saveTableColumns', () => {
+    it('首次存储 → INSERT，用 newId', async () => {
       repo.findOneBy.mockResolvedValueOnce(null);
       repo.create.mockImplementation((entity) => entity as UserPreferenceEntity);
       repo.save.mockImplementation(async (entity) => entity as UserPreferenceEntity);
 
       const input = {
-        crypto: { table: [], split: [] },
-        aShares: {
-          table: [
-            { key: 'tsCode', visible: true },
-            { key: 'name', visible: true },
-            { key: 'tags', visible: true },
-            { key: 'buySignal', visible: false },
-          ],
-          split: [{ key: 'name', visible: true }],
-        },
-        usStocks: { table: [{ key: 'ticker', visible: true }], split: [] },
-        aSharesIndex: { table: [], split: [] },
-        aSharesIndexSw: { table: [], split: [] },
+        table: [{ key: 'tsCode', visible: true }],
+        split: [],
       };
 
-      await service.saveSymbolsView('user-1', input);
-
-      expect(repo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ value: input }),
-      );
-    });
-
-    it('table 槽内非法项被过滤（split 槽同样过滤）', async () => {
-      repo.findOneBy.mockResolvedValueOnce(null);
-      repo.create.mockImplementation((entity) => entity as UserPreferenceEntity);
-      repo.save.mockImplementation(async (entity) => entity as UserPreferenceEntity);
-
-      await service.saveSymbolsView('user-1', {
-        crypto: {
-          table: [
-            { key: 'name', visible: true },
-            { key: '', visible: true },
-            { visible: true },
-            { key: 'actions' },
-            null,
-            { key: 'tsCode', visible: false },
-          ],
-          split: [{ key: 'close', visible: 'maybe' }],
-        },
-      });
+      await service.saveTableColumns('user-1', 'watchlist', input);
 
       expect(repo.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          value: {
-            crypto: {
-              table: [
-                { key: 'name', visible: true },
-                { key: 'tsCode', visible: false },
-              ],
-              split: [],
-            },
-            aShares: { table: [], split: [] },
-            usStocks: { table: [], split: [] },
-            aSharesIndex: { table: [], split: [] },
-            aSharesIndexSw: { table: [], split: [] },
-          },
+          userId: 'user-1',
+          key: COLUMN_PREFERENCE_KEY_PREFIX + 'watchlist',
+          value: input,
         }),
       );
+      expect(repo.save).toHaveBeenCalled();
     });
 
-    it('更新已有记录（不走 create 分支）', async () => {
+    it('重复存储 → UPDATE 同一行', async () => {
       const existing = {
         id: 'pref-1',
         userId: 'user-1',
-        key: SYMBOLS_VIEW_PREFERENCES_KEY,
-        value: EMPTY,
+        key: COLUMN_PREFERENCE_KEY_PREFIX + 'backtestMetrics',
+        value: { table: [], split: [] },
       } as UserPreferenceEntity;
       repo.findOneBy.mockResolvedValueOnce(existing);
       repo.save.mockImplementation(async (entity) => entity as UserPreferenceEntity);
 
       const newValue = {
-        crypto: { table: [{ key: 'close', visible: false }], split: [] },
-        aShares: { table: [{ key: 'tsCode', visible: true }], split: [] },
-        usStocks: { table: [{ key: 'ticker', visible: true }], split: [] },
-        aSharesIndex: { table: [], split: [] },
-        aSharesIndexSw: { table: [], split: [] },
+        table: [{ key: 'return', visible: true }],
+        split: [],
       };
 
-      await service.saveSymbolsView('user-1', newValue);
+      await service.saveTableColumns('user-1', 'backtestMetrics', newValue);
 
       expect(repo.save).toHaveBeenCalledWith(
         expect.objectContaining({ value: newValue }),
@@ -280,7 +176,37 @@ describe('PreferencesService', () => {
       expect(repo.create).not.toHaveBeenCalled();
     });
 
-    it('save 后 getSymbolsView 读回一致（round-trip）', async () => {
+    it('sanitize 过滤非法 item', async () => {
+      repo.findOneBy.mockResolvedValueOnce(null);
+      repo.create.mockImplementation((entity) => entity as UserPreferenceEntity);
+      repo.save.mockImplementation(async (entity) => entity as UserPreferenceEntity);
+
+      await service.saveTableColumns('user-1', 'aSharesIndexSw', {
+        table: [
+          { key: 'pe', visible: true },
+          { key: '', visible: true },
+          { visible: true },
+          { key: 'pb' },
+          null,
+          { key: 'close', visible: false },
+        ],
+        split: [{ key: 'open', visible: 'maybe' }],
+      });
+
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          value: {
+            table: [
+              { key: 'pe', visible: true },
+              { key: 'close', visible: false },
+            ],
+            split: [],
+          },
+        }),
+      );
+    });
+
+    it('save 后 getTableColumns 读回一致（round-trip）', async () => {
       repo.findOneBy.mockResolvedValueOnce(null);
       repo.create.mockImplementation((entity) => entity as UserPreferenceEntity);
 
@@ -291,29 +217,14 @@ describe('PreferencesService', () => {
       });
 
       const input = {
-        crypto: {
-          table: [{ key: 'close', visible: false }],
-          split: [{ key: 'close', visible: true }],
-        },
-        aShares: {
-          table: [{ key: 'name', visible: true }],
-          split: [{ key: 'name', visible: true }, { key: 'tsCode', visible: false }],
-        },
-        usStocks: { table: [], split: [] },
-        aSharesIndex: {
-          table: [{ key: 'pctChange', visible: true }],
-          split: [{ key: 'close', visible: false }],
-        },
-        aSharesIndexSw: {
-          table: [{ key: 'pe', visible: true }],
-          split: [{ key: 'pb', visible: false }],
-        },
+        table: [{ key: 'close', visible: false }],
+        split: [{ key: 'volume', visible: true }],
       };
 
-      await service.saveSymbolsView('user-1', input);
+      await service.saveTableColumns('user-1', 'aShares', input);
 
       repo.findOneBy.mockResolvedValueOnce(captured);
-      await expect(service.getSymbolsView('user-1')).resolves.toEqual(input);
+      await expect(service.getTableColumns('user-1', 'aShares')).resolves.toEqual(input);
     });
   });
 });

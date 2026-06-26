@@ -15,21 +15,31 @@ export interface ScopeViewPreferences {
   split: ColumnPreferenceItem[];
 }
 
-export interface SymbolsViewColumnPreferences {
-  crypto: ScopeViewPreferences;
-  aShares: ScopeViewPreferences;
-  usStocks: ScopeViewPreferences;
-  aSharesIndex: ScopeViewPreferences;
-  aSharesIndexSw: ScopeViewPreferences;
+export const COLUMN_PREFERENCE_KEY_PREFIX = 'columns:';
+
+export const COLUMN_PREFERENCE_TABLE_IDS = [
+  'aShares',
+  'usStocks',
+  'crypto',
+  'aSharesIndex',
+  'aSharesIndexSw',
+  'watchlist',
+  'backtestMetrics',
+] as const;
+
+export type ColumnPreferenceTableId = (typeof COLUMN_PREFERENCE_TABLE_IDS)[number];
+
+export function isValidTableId(x: string): x is ColumnPreferenceTableId {
+  return (COLUMN_PREFERENCE_TABLE_IDS as readonly string[]).includes(x);
 }
 
-export const SYMBOLS_VIEW_PREFERENCES_KEY = 'symbols_view_columns';
+export const EMPTY_SCOPE_VIEW: ScopeViewPreferences = { table: [], split: [] };
 
 /**
  * 只做结构净化，不做业务 fallback。
  * 兼容老格式（扁平数组）→ 当作 table 槽位，split 落空 []（表示未设置，由前端 hydrate 回填）。
  */
-function sanitizeScopeView(input: unknown): ScopeViewPreferences {
+export function sanitizeScopeView(input: unknown): ScopeViewPreferences {
   if (Array.isArray(input)) {
     return { table: sanitizeItems(input), split: [] };
   }
@@ -44,7 +54,7 @@ function sanitizeScopeView(input: unknown): ScopeViewPreferences {
 }
 
 /** 只校验基本结构合法性，不校验 key 是否在已知列表中。 */
-function sanitizeItems(input: unknown): ColumnPreferenceItem[] {
+export function sanitizeItems(input: unknown): ColumnPreferenceItem[] {
   if (!Array.isArray(input)) return [];
   return input.filter(
     (item): item is ColumnPreferenceItem =>
@@ -56,26 +66,6 @@ function sanitizeItems(input: unknown): ColumnPreferenceItem[] {
   );
 }
 
-function sanitizeSymbolsView(value: unknown): SymbolsViewColumnPreferences {
-  const input =
-    value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  return {
-    crypto: sanitizeScopeView(input.crypto),
-    aShares: sanitizeScopeView(input.aShares),
-    usStocks: sanitizeScopeView(input.usStocks),
-    aSharesIndex: sanitizeScopeView(input.aSharesIndex),
-    aSharesIndexSw: sanitizeScopeView(input.aSharesIndexSw),
-  };
-}
-
-const EMPTY_SYMBOLS_VIEW_PREFERENCES: SymbolsViewColumnPreferences = {
-  crypto: { table: [], split: [] },
-  aShares: { table: [], split: [] },
-  usStocks: { table: [], split: [] },
-  aSharesIndex: { table: [], split: [] },
-  aSharesIndexSw: { table: [], split: [] },
-};
-
 @Injectable()
 export class PreferencesService {
   constructor(
@@ -83,15 +73,26 @@ export class PreferencesService {
     private readonly repo: Repository<UserPreferenceEntity>,
   ) {}
 
-  async getSymbolsView(userId: string): Promise<SymbolsViewColumnPreferences> {
-    const row = await this.repo.findOneBy({ userId, key: SYMBOLS_VIEW_PREFERENCES_KEY });
-    if (!row) return EMPTY_SYMBOLS_VIEW_PREFERENCES;
-    return sanitizeSymbolsView(row.value);
+  async getTableColumns(
+    userId: string,
+    tableId: ColumnPreferenceTableId,
+  ): Promise<ScopeViewPreferences> {
+    const row = await this.repo.findOneBy({
+      userId,
+      key: COLUMN_PREFERENCE_KEY_PREFIX + tableId,
+    });
+    if (!row) return EMPTY_SCOPE_VIEW;
+    return sanitizeScopeView(row.value);
   }
 
-  async saveSymbolsView(userId: string, value: unknown): Promise<{ ok: true }> {
-    const sanitized = sanitizeSymbolsView(value);
-    const existing = await this.repo.findOneBy({ userId, key: SYMBOLS_VIEW_PREFERENCES_KEY });
+  async saveTableColumns(
+    userId: string,
+    tableId: ColumnPreferenceTableId,
+    value: unknown,
+  ): Promise<{ ok: true }> {
+    const sanitized = sanitizeScopeView(value);
+    const key = COLUMN_PREFERENCE_KEY_PREFIX + tableId;
+    const existing = await this.repo.findOneBy({ userId, key });
     if (existing) {
       existing.value = sanitized;
       await this.repo.save(existing);
@@ -102,7 +103,7 @@ export class PreferencesService {
       this.repo.create({
         id: newId(),
         userId,
-        key: SYMBOLS_VIEW_PREFERENCES_KEY,
+        key,
         value: sanitized,
       }),
     );

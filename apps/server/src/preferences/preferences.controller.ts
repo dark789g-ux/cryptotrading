@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Put } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Put } from '@nestjs/common';
 import { CurrentUserParam as CurrentUser } from '../auth/decorators/current-user.decorator';
-import { PreferencesService } from './preferences.service';
+import { PreferencesService, isValidTableId } from './preferences.service';
 
 type CurrentUserPayload = { id: string };
 
@@ -8,22 +8,23 @@ type CurrentUserPayload = { id: string };
 export class PreferencesController {
   constructor(private readonly preferencesService: PreferencesService) {}
 
-  @Get('symbols-view')
-  getSymbolsView(@CurrentUser() user: CurrentUserPayload) {
-    return this.preferencesService.getSymbolsView(user.id);
+  @Get('columns/:tableId')
+  getTableColumns(@CurrentUser() user: CurrentUserPayload, @Param('tableId') tableId: string) {
+    if (!isValidTableId(tableId)) {
+      throw new BadRequestException(`unknown tableId: ${tableId}`);
+    }
+    return this.preferencesService.getTableColumns(user.id, tableId);
   }
 
-  @Put('symbols-view')
-  saveSymbolsView(
+  @Put('columns/:tableId')
+  saveTableColumns(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() body: {
-      crypto: unknown;
-      aShares: unknown;
-      usStocks?: unknown;
-      aSharesIndex?: unknown;
-      aSharesIndexSw?: unknown;
-    },
+    @Param('tableId') tableId: string,
+    @Body() body: { table?: unknown; split?: unknown },
   ) {
-    return this.preferencesService.saveSymbolsView(user.id, body);
+    if (!isValidTableId(tableId)) {
+      throw new BadRequestException(`unknown tableId: ${tableId}`);
+    }
+    return this.preferencesService.saveTableColumns(user.id, tableId, body);
   }
 }
