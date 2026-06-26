@@ -171,14 +171,25 @@ export class IndexDailyService {
       : [category, q, pageSize, offset];
 
     const rows = await this.dataSource.query<LatestRawRow[]>(
-      `SELECT * FROM (
+      `WITH sw_member_count AS (
+         SELECT idx_code, COUNT(DISTINCT ts_code) AS cnt
+         FROM (
+           SELECT l1_code AS idx_code, ts_code FROM raw.index_member WHERE is_new = 'Y' AND l1_code IS NOT NULL
+           UNION ALL
+           SELECT l2_code AS idx_code, ts_code FROM raw.index_member WHERE is_new = 'Y' AND l2_code IS NOT NULL
+           UNION ALL
+           SELECT l3_code AS idx_code, ts_code FROM raw.index_member WHERE is_new = 'Y' AND l3_code IS NOT NULL
+         ) u
+         GROUP BY idx_code
+       )
+       SELECT * FROM (
          SELECT DISTINCT ON (q.ts_code)
            q.ts_code AS "tsCode", COALESCE(c.name, s.name) AS name, q.category,
            q.trade_date AS "tradeDate", q.close,
            q.pct_change AS "pctChange", q.vol_hand AS "vol",
            q.amount, q.total_mv_wan AS "totalMvWan",
            q.pe, q.pb,
-           COALESCE(c.count, s.member_count) AS count,
+           COALESCE(c.count, smc.cnt) AS count,
            CASE q.category
              WHEN 'sw'       THEN mf_ind.net_amount
              WHEN 'industry' THEN mf_ths.net_amount
@@ -201,6 +212,7 @@ export class IndexDailyService {
          FROM index_daily_quotes q
          LEFT JOIN ths_index_catalog c ON c.ts_code = q.ts_code
          LEFT JOIN sw_index_catalog s ON s.ts_code = q.ts_code
+         LEFT JOIN sw_member_count smc ON smc.idx_code = q.ts_code
          LEFT JOIN money_flow_industries mf_ind ON mf_ind.ts_code = q.ts_code AND mf_ind.trade_date = q.trade_date
          LEFT JOIN money_flow_sectors mf_sec ON mf_sec.ts_code = q.ts_code AND mf_sec.trade_date = q.trade_date
          LEFT JOIN money_flow_ths_industries mf_ths ON mf_ths.ts_code = q.ts_code AND mf_ths.trade_date = q.trade_date
