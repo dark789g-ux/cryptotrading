@@ -38,6 +38,7 @@ import {
   runAShares,
   runBaseData,
   runConceptAmv,
+  runSwAmv,
   runIndustryAmv,
   runMoneyFlow,
   runOamv,
@@ -59,6 +60,7 @@ const STEP_RUNNERS: StepRunner[] = [
   runStockAmv,
   runIndustryAmv,
   runConceptAmv,
+  runSwAmv,
   runOamv,
 ];
 

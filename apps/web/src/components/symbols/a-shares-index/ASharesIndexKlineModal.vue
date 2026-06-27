@@ -54,10 +54,10 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { NSpin, NTabPane, NTabs, useMessage } from 'naive-ui'
 import AppModal from '@/components/common/AppModal.vue'
 import KlineChart from '@/components/kline/KlineChart.vue'
-import { indexDailyApi } from '@/api/modules/market/indexDaily'
 import type { KlineChartBar } from '@/api/modules/market/symbols'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { useKlineRangePicker } from '@/composables/kline/useKlineRangePicker'
+import { fetchIndexKline } from './aSharesIndexKlineFetcher'
 import type { IndexLatestRow } from './types'
 
 const props = defineProps<{
@@ -72,11 +72,17 @@ const emit = defineEmits<{
 const message = useMessage()
 
 /**
- * 指数 K 线副图白名单：成交量 + KDJ + MACD。
- * MA（MA5/MA30/…）在主图叠加，KlineChart 默认渲染；指数无资金流 / 活跃市值，
- * 故不含 FLOW / 0AMV（与 FlowTrendModal 行业入口的副图集区分）。
+ * 指数 K 线副图白名单：成交量 + KDJ + MACD；sw/industry/concept 另含 0AMV / 0AMV_MACD。
+ * MA（MA5/MA30/…）在主图叠加，KlineChart 默认渲染。
  */
-const availableSubplots: SubplotKey[] = ['VOL', 'KDJ', 'MACD']
+const BASE_SUBPLOTS: SubplotKey[] = ['VOL', 'KDJ', 'MACD']
+const AMV_SUBPLOTS: SubplotKey[] = ['0AMV', '0AMV_MACD']
+
+const availableSubplots = computed(() =>
+  props.row?.category === 'market'
+    ? BASE_SUBPLOTS
+    : [...BASE_SUBPLOTS, ...AMV_SUBPLOTS],
+)
 
 /** 首屏默认窗口（近 365 天，≈244 大盘交易日）。用户可用工具栏日期选择器扩到更长区间。 */
 const DEFAULT_WINDOW_DAYS = 365
@@ -123,11 +129,7 @@ async function loadKline(startDate: string, endDate: string) {
   if (!props.row) return
   loading.value = true
   try {
-    bars.value = await indexDailyApi.queryKline({
-      ts_code: props.row.tsCode,
-      start_date: startDate,
-      end_date: endDate,
-    })
+    bars.value = await fetchIndexKline(props.row, startDate, endDate)
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : String(err))
     bars.value = []

@@ -24,12 +24,10 @@ vi.mock('echarts', () => ({
   registerTheme: vi.fn(),
 }))
 
-const queryKline = vi.fn()
+const fetchIndexKline = vi.fn()
 
-vi.mock('@/api/modules/market/indexDaily', () => ({
-  indexDailyApi: {
-    queryKline: (...args: unknown[]) => queryKline(...args),
-  },
+vi.mock('./aSharesIndexKlineFetcher', () => ({
+  fetchIndexKline: (...args: unknown[]) => fetchIndexKline(...args),
 }))
 
 const renderChartSpy = vi.fn(async () => {})
@@ -146,13 +144,13 @@ describe('ASharesIndexKlineModal KlineChart mount timing', () => {
   afterEach(() => {
     mountedWrappers.forEach((w) => w.unmount())
     mountedWrappers.length = 0
-    queryKline.mockReset()
+    fetchIndexKline.mockReset()
     renderChartSpy.mockReset()
   })
 
   it('loading 时 KlineChart 已挂载但 data 为空；数据就绪后 renderChart 被显式调用', async () => {
     let resolveKline: (bars: KlineChartBar[]) => void = () => {}
-    queryKline.mockImplementation(
+    fetchIndexKline.mockImplementation(
       () =>
         new Promise<KlineChartBar[]>((resolve) => {
           resolveKline = resolve
@@ -174,7 +172,7 @@ describe('ASharesIndexKlineModal KlineChart mount timing', () => {
   })
 
   it('无数据时展示 empty-state，KlineChart 仍挂载', async () => {
-    queryKline.mockResolvedValue([])
+    fetchIndexKline.mockResolvedValue([])
     const { wrapper, show } = mountModal()
     show.value = true
     await flushPromises()
@@ -185,14 +183,55 @@ describe('ASharesIndexKlineModal KlineChart mount timing', () => {
   })
 
   it('YYYYMMDD 数据就绪后 queryKline 仅首屏一次且 loading 遮罩消失', async () => {
-    queryKline.mockResolvedValue([makeBar(), makeBar(), makeBar()])
+    fetchIndexKline.mockResolvedValue([makeBar(), makeBar(), makeBar()])
     const { wrapper, show } = mountModal({ realKlineChart: true })
     show.value = true
     await flushPromises()
     await new Promise((r) => setTimeout(r, 200))
 
-    expect(queryKline).toHaveBeenCalledTimes(1)
+    expect(fetchIndexKline).toHaveBeenCalledTimes(1)
     expect(wrapper.find('.modal-pane-overlay').exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'KlineChart' }).exists()).toBe(true)
+  })
+
+  it('sw category 白名单含 0AMV_MACD', async () => {
+    fetchIndexKline.mockResolvedValue([makeBar()])
+    const swRow: IndexLatestRow = { ...sampleRow, tsCode: '801750.SI', category: 'sw' }
+    const show = ref(false)
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          return () =>
+            h(NConfigProvider, null, {
+              default: () =>
+                h(NMessageProvider, null, {
+                  default: () =>
+                    h(ASharesIndexKlineModal, { show: show.value, row: swRow }),
+                }),
+            })
+        },
+      }),
+      {
+        attachTo: document.body,
+        global: { stubs: { AppModal: AppModalStub, KlineChart: KlineChartStub } },
+      },
+    )
+    mountedWrappers.push(wrapper)
+    show.value = true
+    await flushPromises()
+
+    const chart = wrapper.findComponent({ name: 'KlineChart' })
+    expect(chart.props('availableSubplots')).toContain('0AMV_MACD')
+  })
+
+  it('market category 白名单不含 AMV 副图', async () => {
+    fetchIndexKline.mockResolvedValue([makeBar()])
+    const { wrapper, show } = mountModal()
+    show.value = true
+    await flushPromises()
+
+    const chart = wrapper.findComponent({ name: 'KlineChart' })
+    expect(chart.props('availableSubplots')).not.toContain('0AMV')
+    expect(chart.props('availableSubplots')).not.toContain('0AMV_MACD')
   })
 })

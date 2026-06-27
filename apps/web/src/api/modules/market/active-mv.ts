@@ -2,10 +2,12 @@
 //
 // 活跃市值（AMV）API client。后端 spec §7：
 //   GET  /api/active-mv/stock/:tsCode?days=250
-//   GET  /api/active-mv/industry/:tsCode?days=250
+//   GET  /api/active-mv/industry/:tsCode?days=250&startDate=&endDate=
+//   GET  /api/active-mv/concept/:tsCode?days=250&startDate=&endDate=
+//   GET  /api/active-mv/sw/:tsCode?days=250&startDate=&endDate=
 //   GET  /api/active-mv/stock/signals?tradeDate=
 //   GET  /api/active-mv/industry/signals?tradeDate=
-//   POST /api/active-mv/{stock,industry}/sync
+//   POST /api/active-mv/{stock,industry,concept,sw}/sync
 //
 // 返回字段为驼峰（与后端 AmvSeriesRow / AmvSignalRow 对齐），trade_date 为 'YYYYMMDD'。
 
@@ -55,6 +57,29 @@ export interface AmvSyncResult {
   failedItems?: Array<{ tsCode: string; apiName: string; reason?: string }>
 }
 
+export interface AmvQueryOpts {
+  days?: number
+  startDate?: string
+  endDate?: string
+}
+
+function normalizeAmvQueryOpts(daysOrOpts?: number | AmvQueryOpts): AmvQueryOpts {
+  if (typeof daysOrOpts === 'number') return { days: daysOrOpts }
+  return daysOrOpts ?? {}
+}
+
+export function buildAmvQueryString(opts?: AmvQueryOpts): string {
+  const params = new URLSearchParams()
+  if (opts?.startDate || opts?.endDate) {
+    if (opts.startDate) params.set('startDate', opts.startDate)
+    if (opts.endDate) params.set('endDate', opts.endDate)
+  } else {
+    params.set('days', String(opts?.days ?? 250))
+  }
+  const qs = params.toString()
+  return qs ? `?${qs}` : ''
+}
+
 export const activeMvApi = {
   // ---- 个股 ----
   getStock: (tsCode: string, days = 250) =>
@@ -69,9 +94,9 @@ export const activeMvApi = {
     post<AmvSyncResult>(`${API_BASE}/active-mv/stock/sync`, params),
 
   // ---- 行业 ----
-  getIndustry: (tsCode: string, days = 250) =>
+  getIndustry: (tsCode: string, daysOrOpts: number | AmvQueryOpts = 250) =>
     request<AmvSeriesRow[]>(
-      `${API_BASE}/active-mv/industry/${encodeURIComponent(tsCode)}?days=${days}`,
+      `${API_BASE}/active-mv/industry/${encodeURIComponent(tsCode)}${buildAmvQueryString(normalizeAmvQueryOpts(daysOrOpts))}`,
     ),
   getIndustrySignals: (tradeDate: string) =>
     request<AmvSignalRow[]>(
@@ -81,9 +106,9 @@ export const activeMvApi = {
     post<AmvSyncResult>(`${API_BASE}/active-mv/industry/sync`, params),
 
   // ---- 概念板块（同花顺 type='N'，独立表 concept_amv_daily / 独立端点） ----
-  getConcept: (tsCode: string, days = 250) =>
+  getConcept: (tsCode: string, daysOrOpts: number | AmvQueryOpts = 250) =>
     request<AmvSeriesRow[]>(
-      `${API_BASE}/active-mv/concept/${encodeURIComponent(tsCode)}?days=${days}`,
+      `${API_BASE}/active-mv/concept/${encodeURIComponent(tsCode)}${buildAmvQueryString(normalizeAmvQueryOpts(daysOrOpts))}`,
     ),
   getConceptSignals: (tradeDate: string) =>
     request<AmvSignalRow[]>(
@@ -91,4 +116,12 @@ export const activeMvApi = {
     ),
   syncConcept: (params: AmvSyncParams = {}) =>
     post<AmvSyncResult>(`${API_BASE}/active-mv/concept/sync`, params),
+
+  // ---- 申万指数（.SI） ----
+  getSw: (tsCode: string, daysOrOpts: number | AmvQueryOpts = 250) =>
+    request<AmvSeriesRow[]>(
+      `${API_BASE}/active-mv/sw/${encodeURIComponent(tsCode)}${buildAmvQueryString(normalizeAmvQueryOpts(daysOrOpts))}`,
+    ),
+  syncSw: (params: AmvSyncParams = {}) =>
+    post<AmvSyncResult>(`${API_BASE}/active-mv/sw/sync`, params),
 }

@@ -1,7 +1,8 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common'
 import { AdminOnly } from '../../auth/decorators/admin-only.decorator'
 import { ActiveMvService } from './active-mv.service'
-import type { StockAmvSyncOptions, ThsIndexAmvSyncOptions } from './active-mv.types'
+import { assertSwIndexSuffix, parseAmvDaysAndRange } from './amv-query-params'
+import type { StockAmvSyncOptions, SwIndexAmvSyncOptions, ThsIndexAmvSyncOptions } from './active-mv.types'
 
 /**
  * 活跃市值（AMV）API。spec §7。全局 /api 前缀 + 全局 AuthGuard 已注册，
@@ -46,9 +47,14 @@ export class ActiveMvController {
   }
 
   @Get('industry/:tsCode')
-  getIndustry(@Param('tsCode') tsCode: string, @Query('days') days?: string) {
-    const daysNum = days ? parseInt(days, 10) : 250
-    return this.activeMvService.getIndustry(tsCode, daysNum)
+  getIndustry(
+    @Param('tsCode') tsCode: string,
+    @Query('days') days?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    const { daysNum, range } = parseAmvDaysAndRange(days, startDate, endDate)
+    return this.activeMvService.getIndustry(tsCode, daysNum, range)
   }
 
   // ==== 概念/板块（type='N'） ====
@@ -66,8 +72,33 @@ export class ActiveMvController {
   }
 
   @Get('concept/:tsCode')
-  getConcept(@Param('tsCode') tsCode: string, @Query('days') days?: string) {
-    const daysNum = days ? parseInt(days, 10) : 250
-    return this.activeMvService.getConcept(tsCode, daysNum)
+  getConcept(
+    @Param('tsCode') tsCode: string,
+    @Query('days') days?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    const { daysNum, range } = parseAmvDaysAndRange(days, startDate, endDate)
+    return this.activeMvService.getConcept(tsCode, daysNum, range)
+  }
+
+  // ==== 申万指数（.SI） ====
+
+  @Post('sw/sync')
+  @AdminOnly()
+  syncSw(@Body() body: SwIndexAmvSyncOptions = {}) {
+    return this.activeMvService.syncSw(body)
+  }
+
+  @Get('sw/:tsCode')
+  getSw(
+    @Param('tsCode') tsCode: string,
+    @Query('days') days?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    assertSwIndexSuffix(tsCode)
+    const { daysNum, range } = parseAmvDaysAndRange(days, startDate, endDate)
+    return this.activeMvService.getSw(tsCode, daysNum, range)
   }
 }

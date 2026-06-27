@@ -52,6 +52,18 @@ export interface ThsIndexAmvSyncOptions {
 /** 兼容别名（行业语境）：与 ThsIndexAmvSyncOptions 完全同形。 */
 export type IndustryAmvSyncOptions = ThsIndexAmvSyncOptions
 
+/**
+ * 申万指数（.SI）AMV 同步入参。
+ * spec 2026-06-28：POST /active-mv/sw/sync。
+ */
+export interface SwIndexAmvSyncOptions {
+  startDate?: string
+  endDate?: string
+  syncMode?: AmvSyncMode
+  /** 可选：仅同步指定申万指数代码（.SI；不传则 sw_index_catalog 全部） */
+  tsCodes?: string[]
+}
+
 /** 同步结果 */
 export interface AmvSyncResult {
   synced: number

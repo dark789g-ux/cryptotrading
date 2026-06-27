@@ -1,25 +1,28 @@
 import { Injectable } from '@nestjs/common'
 import { StockAmvService } from './stock-amv.service'
 import { ThsIndexAmvService } from './industry-amv.service'
+import { SwAmvService } from './sw-amv.service'
+import type { AmvSeriesRange } from './amv-series-query'
 import type {
   AmvSeriesRow,
   AmvSignalRow,
   AmvSyncResult,
   StockAmvSyncOptions,
+  SwIndexAmvSyncOptions,
   ThsIndexAmvSyncOptions,
 } from './active-mv.types'
 
 /**
  * 活跃市值（AMV）协调服务。
  *
- * 薄封装：把 controller 的调用分派到个股 / 同花顺指数（行业 type='I' / 概念 type='N'）子服务。
- * 行业与概念共用同一 ThsIndexAmvService，按 type 落到 industry_amv_daily / concept_amv_daily。
+ * 薄封装：把 controller 的调用分派到个股 / 同花顺指数（行业 type='I' / 概念 type='N'）/ 申万 SW 子服务。
  */
 @Injectable()
 export class ActiveMvService {
   constructor(
     private readonly stockAmv: StockAmvService,
     private readonly thsIndexAmv: ThsIndexAmvService,
+    private readonly swAmv: SwAmvService,
   ) {}
 
   // ---- 个股 ----
@@ -40,8 +43,12 @@ export class ActiveMvService {
     return this.thsIndexAmv.syncIndustry(opts)
   }
 
-  getIndustry(tsCode: string, days: number): Promise<AmvSeriesRow[]> {
-    return this.thsIndexAmv.getIndustry(tsCode, days)
+  getIndustry(
+    tsCode: string,
+    days: number,
+    range?: AmvSeriesRange,
+  ): Promise<AmvSeriesRow[]> {
+    return this.thsIndexAmv.getIndustry(tsCode, days, range)
   }
 
   getIndustrySignals(tradeDate: string): Promise<AmvSignalRow[]> {
@@ -53,11 +60,28 @@ export class ActiveMvService {
     return this.thsIndexAmv.syncConcept(opts)
   }
 
-  getConcept(tsCode: string, days: number): Promise<AmvSeriesRow[]> {
-    return this.thsIndexAmv.getConcept(tsCode, days)
+  getConcept(
+    tsCode: string,
+    days: number,
+    range?: AmvSeriesRange,
+  ): Promise<AmvSeriesRow[]> {
+    return this.thsIndexAmv.getConcept(tsCode, days, range)
   }
 
   getConceptSignals(tradeDate: string): Promise<AmvSignalRow[]> {
     return this.thsIndexAmv.getConceptSignals(tradeDate)
+  }
+
+  // ---- 申万指数（.SI） ----
+  syncSw(opts: SwIndexAmvSyncOptions): Promise<AmvSyncResult> {
+    return this.swAmv.syncSw(opts)
+  }
+
+  getSw(
+    tsCode: string,
+    days: number,
+    range?: AmvSeriesRange,
+  ): Promise<AmvSeriesRow[]> {
+    return this.swAmv.getSw(tsCode, days, range)
   }
 }

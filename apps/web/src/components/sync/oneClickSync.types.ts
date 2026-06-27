@@ -12,6 +12,7 @@ export type OneClickStepKey =
   | 'stock-amv'
   | 'industry-amv'
   | 'concept-amv'
+  | 'sw-amv'
   | 'oamv'
 export type OneClickStepStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped'
 
@@ -87,6 +88,7 @@ export const STEP_LABELS: Record<OneClickStepKey, string> = {
   'stock-amv': '个股 AMV',
   'industry-amv': '行业指数 AMV',
   'concept-amv': '板块（概念）AMV',
+  'sw-amv': '申万指数 AMV',
   oamv: '大盘 0AMV（中证全指）',
 }
 
@@ -150,6 +152,7 @@ export function buildInitialSteps(): OneClickStepState[] {
     emptyStep('stock-amv'),
     emptyStep('industry-amv'),
     emptyStep('concept-amv'),
+    emptyStep('sw-amv'),
     emptyStep('oamv'),
   ]
 }

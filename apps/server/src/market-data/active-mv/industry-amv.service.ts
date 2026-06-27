@@ -12,6 +12,7 @@ import {
   calcSignal,
   calcZdf,
 } from './amv-formula'
+import { getSeriesWithRange, type AmvSeriesRange } from './amv-series-query'
 import type {
   AmvDailyRow,
   AmvSeriesRow,
@@ -92,9 +93,13 @@ export class ThsIndexAmvService {
     return this.syncByType('I', this.industryAmvRepo, opts)
   }
 
-  /** 单行业 AMV K 线 + 指标 + signal（最近 days 个交易日）。spec §7。 */
-  getIndustry(tsCode: string, days: number): Promise<AmvSeriesRow[]> {
-    return this.getSeriesByType(this.industryAmvRepo, tsCode, days)
+  /** 单行业 AMV K 线 + 指标 + signal（最近 days 个交易日或区间）。spec §7。 */
+  getIndustry(
+    tsCode: string,
+    days: number,
+    range?: AmvSeriesRange,
+  ): Promise<AmvSeriesRow[]> {
+    return getSeriesWithRange(this.industryAmvRepo, tsCode, days, range)
   }
 
   /** 某交易日行业信号榜。spec §7。 */
@@ -109,9 +114,13 @@ export class ThsIndexAmvService {
     return this.syncByType('N', this.conceptAmvRepo, opts)
   }
 
-  /** 单概念 AMV K 线 + 指标 + signal（最近 days 个交易日）。spec §7。 */
-  getConcept(tsCode: string, days: number): Promise<AmvSeriesRow[]> {
-    return this.getSeriesByType(this.conceptAmvRepo, tsCode, days)
+  /** 单概念 AMV K 线 + 指标 + signal（最近 days 个交易日或区间）。spec §7。 */
+  getConcept(
+    tsCode: string,
+    days: number,
+    range?: AmvSeriesRange,
+  ): Promise<AmvSeriesRow[]> {
+    return getSeriesWithRange(this.conceptAmvRepo, tsCode, days, range)
   }
 
   /** 某交易日概念信号榜。spec §7。 */
@@ -177,33 +186,6 @@ export class ThsIndexAmvService {
     if (errors.length > 0) result.errors = errors
     if (failedItems.length > 0) result.failedItems = failedItems
     return result
-  }
-
-  /** 单标的 AMV 序列（最近 days 个交易日），从目标 repo 取。 */
-  private async getSeriesByType(
-    targetRepo: Repository<AmvDailyEntity>,
-    tsCode: string,
-    days: number,
-  ): Promise<AmvSeriesRow[]> {
-    const take = days > 0 ? days : 250
-    const rows = await targetRepo.find({
-      where: { tsCode },
-      order: { tradeDate: 'DESC' },
-      take,
-    })
-    return rows.reverse().map((r) => ({
-      tradeDate: r.tradeDate,
-      amvOpen: r.amvOpen ?? NaN,
-      amvHigh: r.amvHigh ?? NaN,
-      amvLow: r.amvLow ?? NaN,
-      amvClose: r.amvClose ?? NaN,
-      amvDif: r.amvDif ?? NaN,
-      amvDea: r.amvDea ?? NaN,
-      amvMacd: r.amvMacd ?? NaN,
-      amvZdf: r.amvZdf,
-      signal: r.signal as AmvSeriesRow['signal'],
-      memberCount: r.memberCount ?? undefined,
-    }))
   }
 
   /** 某交易日信号榜（按 signal DESC、DIF DESC 排序，走 INDEX(trade_date, signal)）。 */

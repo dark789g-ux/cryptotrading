@@ -90,6 +90,7 @@ import { SignalRollingIndicatorEntity } from './entities/strategy/signal-rolling
 import { StockAmvDailyEntity } from './entities/active-mv/stock-amv-daily.entity';
 import { IndustryAmvDailyEntity } from './entities/active-mv/industry-amv-daily.entity';
 import { ConceptAmvDailyEntity } from './entities/active-mv/concept-amv-daily.entity';
+import { SwAmvDailyEntity } from './entities/active-mv/sw-amv-daily.entity';
 import { DailyReviewEntity } from './entities/daily-review/daily-review.entity';
 import { MacroEventEntity } from './entities/macro-event/macro-event.entity';
 import { DailyReviewModule } from './daily-review/daily-review.module';
@@ -195,6 +196,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           StockAmvDailyEntity,
           IndustryAmvDailyEntity,
           ConceptAmvDailyEntity,
+          SwAmvDailyEntity,
           DailyReviewEntity,
           MacroEventEntity,
           // ---- M2 Part C 新增：ml.* 4 张表 entities（jobs 是写者，其余只读，service 留 M3） ----

@@ -405,6 +405,12 @@ export async function runConceptAmv(ctx: StepContext, index: number): Promise<vo
   );
 }
 
+export async function runSwAmv(ctx: StepContext, index: number): Promise<void> {
+  await runAmvStep(ctx, index, 'sw-amv', '同步申万指数 AMV', (opts) =>
+    ctx.services.activeMv.syncSw(opts),
+  );
+}
+
 async function runAmvStep(
   ctx: StepContext,
   index: number,
