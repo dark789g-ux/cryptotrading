@@ -32,6 +32,8 @@
               :range="range"
               prefs-key="a-shares-index-kline"
               :available-subplots="availableSubplots"
+              :symbol-code="row?.tsCode"
+              :symbol-name="row?.name"
               @update:range="onRangeUpdate"
             />
             <n-spin v-if="loading" class="modal-pane-overlay modal-spin" />

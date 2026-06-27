@@ -23,6 +23,8 @@
       prefs-key="us-index"
       :height="'640px'"
       show-toolbar
+      :symbol-code="selectedIndex"
+      :symbol-name="selectedIndexName"
       @update:range="onRangeUpdate"
     />
 
@@ -72,6 +74,9 @@ const message = useMessage()
 const DEFAULT_BAR_COUNT = 200
 
 const selectedIndex = ref('.NDX')
+const selectedIndexName = computed(() =>
+  indexOptions.find(o => o.value === selectedIndex.value)?.label ?? ''
+)
 // 全量合并数据（K 线 + AMV，trade_date ASC）；displayBars 在其上派生显示窗口。
 const allBars = ref<KlineChartBar[]>([])
 const klineRef = ref<{ resize: () => void } | null>(null)

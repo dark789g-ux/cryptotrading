@@ -35,6 +35,8 @@
                 prefs-key="money-flow-kline"
                 :available-subplots="availableSubplots"
                 :recalc-indicators="recalcKdjIndicators"
+                :symbol-code="tsCode"
+                :symbol-name="entityName"
                 @update:range="onKlineRangeChange"
               />
               <!-- 0AMV 副图合规标注（spec §8/§11）：信号未回测校准 + 成分股当前快照。

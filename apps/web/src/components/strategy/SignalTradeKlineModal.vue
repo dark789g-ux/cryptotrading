@@ -21,6 +21,8 @@
           prefs-key="signal-kline"
           :available-subplots="availableSubplots"
           :recalc-indicators="recalcKdjIndicators"
+          :symbol-code="trade?.tsCode"
+          :symbol-name="trade?.name ?? ''"
         />
         <n-empty v-else-if="!loading" description="无 K 线数据" />
       </n-spin>

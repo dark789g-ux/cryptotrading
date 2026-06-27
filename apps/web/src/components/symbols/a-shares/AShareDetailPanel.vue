@@ -20,6 +20,8 @@
                   prefs-key="a-share"
                   :available-subplots="aShareAvailableSubplots"
                   :recalc-indicators="recalcKdjIndicators"
+                  :symbol-code="row?.tsCode"
+                  :symbol-name="row?.name"
                   @update:range="onKlineRangeChange"
                 />
               </template>

@@ -94,6 +94,8 @@
           :range="oamvRange"
           prefs-key="oamv"
           :available-subplots="oamvAvailableSubplots"
+          :symbol-code="'930903.CSI'"
+          :symbol-name="'中证A股指数'"
           @update:range="onOamvRangeChange"
         />
         <n-empty v-else description="暂无数据，请先同步" />

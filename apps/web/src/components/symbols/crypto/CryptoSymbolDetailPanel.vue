@@ -15,6 +15,8 @@
       prefs-key="crypto"
       :available-subplots="cryptoAvailableSubplots"
       :recalc-indicators="recalcKdjIndicators"
+      :symbol-code="row.symbol"
+      :symbol-name="row.name ?? ''"
       @update:range="onKlineRangeChange"
     />
   </div>

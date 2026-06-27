@@ -45,6 +45,7 @@
         prefs-key="backtest"
         :available-subplots="backtestAvailableSubplots"
         :recalc-indicators="recalcKdjIndicators"
+        :symbol-code="symbol ?? ''"
       />
     </template>
   </n-modal>

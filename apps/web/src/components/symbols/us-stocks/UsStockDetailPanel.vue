@@ -18,6 +18,8 @@
             prefs-key="us-stock"
             :available-subplots="usStockAvailableSubplots"
             :recalc-indicators="recalcKdjIndicators"
+            :symbol-code="row?.ticker"
+            :symbol-name="row?.name"
             @update:range="onKlineRangeChange"
           />
         </template>
