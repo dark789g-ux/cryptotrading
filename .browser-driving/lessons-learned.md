@@ -8,6 +8,16 @@
 
 ---
 
+## 2026-06-27: naive-ui n-checkbox 状态判勾选需看 className，别找 input[type='checkbox']
+**Symptom**: ColumnSettingsDrawer 里点击列项的 checkbox 无法 toggle，用 `locator("input[type='checkbox']")` 找不到元素，`is_checked()` 也报空。
+**Cause**: naive-ui `n-checkbox` 是自定义组件，不渲染原生 `<input type="checkbox">`；勾选状态通过外层 `.n-checkbox` 的 `n-checkbox--checked` class 体现。
+**Lesson**: 操作 naive-ui checkbox 时：1) 定位 `.n-checkbox` 元素点击 toggle；2) 通过 `el.className.includes("n-checkbox--checked")` 判状态；3) 别试图找原生 input 或 `.n-checkbox__dot--checked`（旧版本可能不同）。
+
+## 2026-06-26: naive-ui n-collapse 默认折叠分组内的 checkbox 需先展开再定位
+**Symptom**: 列设置 dialog 里「其它」分组的 checkbox（净流入/大单净流入等）用 `dialog.locator(".n-checkbox").all_inner_texts()` 只返回 `['\xa0', ...]`，filter(has_text="净流入") 找不到。
+**Cause**: `n-collapse` 默认折叠非 `DEFAULT_EXPANDED_GROUPS` 的分组，折叠状态下子 DOM 不渲染或文本提取不到。
+**Lesson**: 操作折叠分组内的元素前，先点击 `.n-collapse-item__header` 展开分组；展开后再用 `.column-settings-grid-item` filter 定位具体列项。列设置 dialog 是 `n-modal`（`[role='dialog']`），不是 `.n-drawer`。
+
 ## 2026-06-26: 要常驻浏览器逐步交互/跑完别关 → connect_over_cdp attach，别一脚本一浏览器
 **Symptom**: 想「跑一步看结果再决定下一步、浏览器全程别关」或「跑完停在终态复核」，但每个 `python xxx.py` 进程退出浏览器就关，下个脚本是全新浏览器、丢掉页面/登录/交互态。
 **Cause**: `chromium.launch()` 起的浏览器绑当前进程生命周期，`with sync_playwright()` 块退出即杀。
