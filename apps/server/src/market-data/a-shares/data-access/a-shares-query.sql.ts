@@ -97,6 +97,10 @@ const RAW_SORT_COL_MAP: Record<string, string> = {
   roc10: 'i.roc10',
   roc20: 'i.roc20',
   roc60: 'i.roc60',
+  netInflow: 'mf.net_inflow',
+  netInflow5d: 'mf.net_inflow_5d',
+  netInflow10d: 'mf.net_inflow_10d',
+  netInflow20d: 'mf.net_inflow_20d',
 };
 
 const QFQ_SORT_COL_MAP: Record<string, string> = {
@@ -176,6 +180,10 @@ export function buildASharesBaseQuery(
         i.brick AS "brick", i.brick_delta AS "brickDelta", i.brick_xg AS "brickXg",
         sa.amv_dif AS "amvDif", sa.amv_dea AS "amvDea", sa.amv_macd AS "amvMacd",
         i.roc10, i.roc20, i.roc60,
+        mf.net_inflow      AS "netInflow",
+        mf.net_inflow_5d   AS "netInflow5d",
+        mf.net_inflow_10d  AS "netInflow10d",
+        mf.net_inflow_20d  AS "netInflow20d",
         COALESCE(
           (SELECT jsonb_agg(DISTINCT jsonb_build_object('id', w.id::text, 'name', w.name))
            FROM watchlist_items wi
@@ -192,6 +200,21 @@ export function buildASharesBaseQuery(
       LEFT JOIN sw_index_catalog sw1 ON sw1.ts_code = s.sw_industry_l1_code
       LEFT JOIN sw_index_catalog sw2 ON sw2.ts_code = s.sw_industry_l2_code
       LEFT JOIN sw_index_catalog sw3 ON sw3.ts_code = s.sw_industry_l3_code${scoreJoin}
+      LEFT JOIN LATERAL (
+        SELECT
+          SUM(t.net_amount) FILTER (WHERE t.trade_date = l.trade_date) AS net_inflow,
+          SUM(t.net_amount) FILTER (WHERE t.rn <= 5)  AS net_inflow_5d,
+          SUM(t.net_amount) FILTER (WHERE t.rn <= 10) AS net_inflow_10d,
+          SUM(t.net_amount)                            AS net_inflow_20d
+        FROM (
+          SELECT net_amount, trade_date,
+                 ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
+          FROM money_flow_stocks
+          WHERE ts_code = s.ts_code AND trade_date <= l.trade_date
+          ORDER BY trade_date DESC
+          LIMIT 20
+        ) t
+      ) mf ON true
       WHERE s.list_status = 'L'
     `;
 

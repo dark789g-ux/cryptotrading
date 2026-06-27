@@ -1,6 +1,17 @@
 import { buildASharesBaseQuery, appendASharesSort } from './a-shares-query.sql';
 import { QueryASharesDto } from '../a-shares.types';
 
+// 共享辅助：取某字段在指定 priceMode 下解析出的排序列名。
+// appendASharesSort 末尾拼 `ORDER BY <col> ASC NULLS LAST`；LATERAL 子查询内的
+// `ORDER BY trade_date DESC` 是 DESC，不会被 ASC 正则误匹配。
+function sortColFor(field: string, priceMode: 'raw' | 'qfq' = 'qfq'): string {
+  const dto: QueryASharesDto = { sort: { field, order: 'ascend' }, priceMode };
+  const base = buildASharesBaseQuery(dto);
+  const sorted = appendASharesSort(base.sql, dto, false);
+  const m = sorted.match(/ORDER BY (.+?) ASC NULLS LAST/);
+  return m ? m[1] : '';
+}
+
 describe('a-shares-query.sql 评分排序', () => {
   const PROD = 'lgb-lambdarank-v1-20260521-seed42';
 
@@ -104,27 +115,62 @@ describe('a-shares-query.sql 技术指标 + 个股 AMV 列', () => {
     expect(sql).not.toContain('raw.stock_amv_daily');
   });
 
-  it('指标 JOIN 在 scoreJoin 之前：评分排序时 sa JOIN 仍存在且不打断 scoreJoin', () => {
+  it('SELECT 补资金流向四列（来自 LATERAL money_flow_stocks）', () => {
+    const { sql } = buildASharesBaseQuery(baseDto);
+    expect(sql).toContain('mf.net_inflow      AS "netInflow"');
+    expect(sql).toContain('mf.net_inflow_5d   AS "netInflow5d"');
+    expect(sql).toContain('mf.net_inflow_10d  AS "netInflow10d"');
+    expect(sql).toContain('mf.net_inflow_20d  AS "netInflow20d"');
+  });
+
+  it('LEFT JOIN LATERAL money_flow_stocks（逐票最近 20 条，纯 SQL 无参数）', () => {
+    const { sql } = buildASharesBaseQuery(baseDto);
+    expect(sql).toContain('LEFT JOIN LATERAL (');
+    expect(sql).toContain('FROM money_flow_stocks');
+    expect(sql).toContain('WHERE ts_code = s.ts_code AND trade_date <= l.trade_date');
+    expect(sql).toContain('SUM(t.net_amount) FILTER (WHERE t.rn <= 5)');
+    expect(sql).toContain('SUM(t.net_amount) FILTER (WHERE t.rn <= 10)');
+    expect(sql).toContain('SUM(t.net_amount)                            AS net_inflow_20d');
+    expect(sql).toContain(') mf ON true');
+  });
+
+  it('LATERAL JOIN 在 scoreJoin 之后、WHERE 之前', () => {
     const dto: QueryASharesDto = { sort: { field: 'modelScore', order: 'descend' } };
     const { sql } = buildASharesBaseQuery(dto, PROD);
-    expect(sql).toContain('LEFT JOIN stock_amv_daily sa');
-    expect(sql).toContain('LEFT JOIN ml.scores_daily sd');
-    // sa JOIN 必须排在 scoreJoin 之前
-    expect(sql.indexOf('LEFT JOIN stock_amv_daily sa')).toBeLessThan(
-      sql.indexOf('LEFT JOIN ml.scores_daily sd'),
-    );
+    const scoreJoinIdx = sql.indexOf('LEFT JOIN ml.scores_daily sd');
+    const lateralIdx   = sql.indexOf('LEFT JOIN LATERAL (');
+    const whereIdx     = sql.indexOf("WHERE s.list_status = 'L'");
+    expect(lateralIdx).toBeGreaterThan(scoreJoinIdx);
+    expect(lateralIdx).toBeLessThan(whereIdx);
+  });
+
+  it('资金流向列排序映射：netInflow / netInflow5d / netInflow10d / netInflow20d', () => {
+    expect(sortColFor('netInflow',    'raw')).toBe('mf.net_inflow');
+    expect(sortColFor('netInflow5d',  'raw')).toBe('mf.net_inflow_5d');
+    expect(sortColFor('netInflow10d', 'raw')).toBe('mf.net_inflow_10d');
+    expect(sortColFor('netInflow20d', 'raw')).toBe('mf.net_inflow_20d');
+  });
+
+  it('QFQ 模式继承资金流向列排序映射', () => {
+    expect(sortColFor('netInflow5d', 'qfq')).toBe('mf.net_inflow_5d');
+  });
+
+  it('资金流向列不进入 condition 映射（不能作筛选条件）', () => {
+    // netInflow5d 不在 RAW/QFQ_CONDITION_COL_MAP，作 condition 时 conditions 循环
+    // 因 column 未命中而 continue：既不拼 WHERE 过滤片段，也不推入参数。
+    // 注意：SQL 里本就含 `mf.net_inflow_5d AS "netInflow5d"`（SELECT 别名），
+    // 故不能断言整段 SQL 不含该串——要验证的是「没被拼成 AND 过滤条件」。
+    const dto: QueryASharesDto = {
+      priceMode: 'qfq',
+      conditions: [{ field: 'netInflow5d', op: 'gt', value: 100 }],
+    };
+    const base = buildASharesBaseQuery(dto);
+    expect(base.params).toEqual([]); // condition 被跳过，value=100 未推入
+    expect(base.sql).not.toContain('AND mf.net_inflow_5d'); // 未拼成 WHERE 过滤片段
   });
 });
 
 describe('a-shares-query.sql 指标列排序映射', () => {
-  function sortColFor(field: string, priceMode: 'raw' | 'qfq' = 'qfq'): string {
-    const dto: QueryASharesDto = { sort: { field, order: 'ascend' }, priceMode };
-    const base = buildASharesBaseQuery(dto);
-    const sorted = appendASharesSort(base.sql, dto, false);
-    const m = sorted.match(/ORDER BY (.+?) ASC NULLS LAST/);
-    return m ? m[1] : '';
-  }
-
   it.each([
     ['ma5', 'i.ma5'],
     ['ma30', 'i.ma30'],
