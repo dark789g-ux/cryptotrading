@@ -221,12 +221,16 @@ export function useASharesQuery(message: {
   }
 
   function applyIndexFilter(tsCode: string, name: string) {
+    rows.value = []
+    loading.value = true
     indexFilter.value = { tsCode, name }
     page.value = 1
     void loadData()
   }
 
   function clearIndexFilter() {
+    rows.value = []
+    loading.value = true
     indexFilter.value = null
     page.value = 1
     void loadData()

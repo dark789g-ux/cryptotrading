@@ -27,8 +27,8 @@ const indexPanelRef = ref<{ resize: () => void } | null>(null)
 const stocksPanelRef = ref<{ applyIndexFilter: (tsCode: string, name: string) => void } | null>(null)
 
 function handleSwitchToStocks(payload: { tsCode: string; name: string }) {
+  stocksPanelRef.value?.applyIndexFilter(payload.tsCode, payload.name)
   subTab.value = 'stocks'
-  void nextTick(() => stocksPanelRef.value?.applyIndexFilter(payload.tsCode, payload.name))
 }
 
 // echarts inside the index pane does not auto-resize after being lazily revealed; resize on switch in.
