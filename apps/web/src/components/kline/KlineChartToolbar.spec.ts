@@ -55,6 +55,8 @@ function mountToolbar(props: {
   range?: [number, number] | null
   data?: KlineChartBar[]
   prefs?: SubplotPrefs
+  symbolCode?: string
+  symbolName?: string
 } = {}, slots?: { actions?: () => ReturnType<typeof h> }) {
   const onUpdateRange = vi.fn()
 
@@ -91,6 +93,8 @@ function mountToolbar(props: {
               prefs: prefs.value,
               update,
               reset,
+              symbolCode: props.symbolCode,
+              symbolName: props.symbolName,
               'onUpdate:range': onUpdateRange,
             },
             slots,
@@ -429,6 +433,52 @@ describe('KlineChartToolbar 时间范围同步', () => {
 
     expect(onUpdateRange).toHaveBeenCalledTimes(1)
     expect(onUpdateRange).toHaveBeenCalledWith(range)
+  })
+})
+
+describe('KlineChartToolbar 标的代码/名称展示', () => {
+  let lastWrapper: ReturnType<typeof mountToolbar>['wrapper'] | null = null
+
+  afterEach(() => {
+    if (lastWrapper) {
+      lastWrapper.unmount()
+      lastWrapper = null
+    }
+    document.body.innerHTML = ''
+    vi.restoreAllMocks()
+  })
+
+  it('传 symbolCode + symbolName → 渲染代码和名称', async () => {
+    const { wrapper } = mountToolbar({ symbolCode: '000001.SZ', symbolName: '平安银行' })
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    const symbolEl = wrapper.find('.kline-toolbar__symbol')
+    expect(symbolEl.exists()).toBe(true)
+    expect(symbolEl.find('.kline-toolbar__symbol-code').text()).toContain('000001.SZ')
+    expect(symbolEl.find('.kline-toolbar__symbol-name').text()).toContain('平安银行')
+  })
+
+  it('只传 symbolCode → 渲染代码，不渲染名称', async () => {
+    const { wrapper } = mountToolbar({ symbolCode: '000001.SZ' })
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    const symbolEl = wrapper.find('.kline-toolbar__symbol')
+    expect(symbolEl.exists()).toBe(true)
+    expect(symbolEl.find('.kline-toolbar__symbol-code').text()).toContain('000001.SZ')
+    expect(symbolEl.find('.kline-toolbar__symbol-name').exists()).toBe(false)
+  })
+
+  it('不传 symbolCode → 不渲染 symbol 块', async () => {
+    const { wrapper } = mountToolbar()
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.find('.kline-toolbar__symbol').exists()).toBe(false)
   })
 })
 

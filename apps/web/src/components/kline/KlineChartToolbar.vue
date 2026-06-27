@@ -2,6 +2,10 @@
   <div class="kline-toolbar">
     <!-- 左侧：时间范围选择器 -->
     <div class="kline-toolbar__range">
+      <span v-if="symbolCode" class="kline-toolbar__symbol">
+        <span class="kline-toolbar__symbol-code">{{ symbolCode }}</span>
+        <span v-if="symbolName" class="kline-toolbar__symbol-name">{{ symbolName }}</span>
+      </span>
       <n-date-picker
         v-if="granularity === 'date'"
         type="daterange"
@@ -188,9 +192,13 @@ const props = withDefaults(
     prefs: SubplotPrefs
     update: (partial: RawSubplotPrefs) => void
     reset: () => void
+    symbolCode?: string
+    symbolName?: string
   }>(),
   {
     disabledRange: false,
+    symbolCode: '',
+    symbolName: '',
   },
 )
 
@@ -300,6 +308,28 @@ function onReset(): void {
   align-items: center;
   gap: 8px;
   flex: 0 1 auto;
+}
+
+.kline-toolbar__symbol {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+.kline-toolbar__symbol-code {
+  color: #d0d4dc;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.kline-toolbar__symbol-name {
+  color: #848e9c;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kline-toolbar__actions {

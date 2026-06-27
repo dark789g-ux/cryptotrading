@@ -10,6 +10,8 @@
       :prefs="prefs"
       :update="update"
       :reset="reset"
+      :symbol-code="props.symbolCode"
+      :symbol-name="props.symbolName"
       @update:range="onRangeUpdate"
     >
       <template v-if="hasActionsSlot" #actions><slot name="actions" /></template>
@@ -55,6 +57,8 @@ const props = withDefaults(
     prefsKey?: string
     availableSubplots?: SubplotKey[]
     recalcIndicators?: (params?: IndicatorSubplotParams) => Promise<void>
+    symbolCode?: string
+    symbolName?: string
   }>(),
   {
     currentTs: '',
@@ -66,6 +70,8 @@ const props = withDefaults(
     disabledRange: false,
     prefsKey: 'default',
     availableSubplots: () => [...ALL_SUBPLOT_KEYS],
+    symbolCode: '',
+    symbolName: '',
   },
 )
 
