@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## 核心规范
 **不要假设，不要隐藏困惑，要暴露权衡。**
 - 用**中文**思考与回答。
@@ -12,12 +10,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 子代理派发
 - 在用 Agent 工具派发 subagent_type: Explore 时显式传 model: sonnet
-
-## 工作方法（踩坑沉淀）
-- **写 spec 时计数/清单类"伪事实"当场落源头数**：进文档的列数、字段清单、行号等具体计数，写时即去权威源（实体 / 真文件 / 真 DB）数一遍，别凭印象写再让实现者反查。
-- **驱动 naive-ui 等响应式 UI 做批量操作要分多次调用**：一个 eval / 批次里连点多个会改同一响应式状态的控件（如多组"全选"），Vue 响应式未 flush 会让前面的操作被后面覆盖、只生效最后一个。一次一个动作分多次调用（让响应式 flush），或直接验数据层 payload / 网络响应——比连点更稳更准。
-- **e2e 写了持久化状态验完恢复**：真机验证若触发了写库的用户偏好 / 账号设置（列偏好、筛选方案等），验完顺手恢复默认，别在用户账号留脚印。
-- **并行派发共享契约前，契约先锚源头再下发**：给多个并行子代理 / 工作流分发会共用的跨切面契约（字段名 / 时间格式 / 类型 / 接口形状）前，先 grep 既有实现锚定真值（现成 formatter / 实体 / DTO），别凭"看起来合理"现编一份。否则各路实现各按你编的契约做、彼此内部自洽，单任务 review 谁都发现不了，只在集成期才暴露漂移；把"防漂移"前移到下发设计期，而非靠 review / 集成期补抓。教训：本会话给前后端定时间串契约写成无尾 Z，而既有 `formatUtcWallClock` 本就带尾 Z → 前端解析再补一个 Z → `ZZ` → Invalid Date → elapsedMs 恒 0，集成才抓到；下发前 grep 一眼 formatter 即可零漂移。
 
 ## 项目
 cryptotrading：量化交易回测系统。覆盖 A 股（Tushare Pro）与美股（Yahoo Finance）的 K 线 / 资金流向 / 基本面采集、策略回测与 Web 可视化。
