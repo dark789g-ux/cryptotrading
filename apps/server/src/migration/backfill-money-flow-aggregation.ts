@@ -25,29 +25,46 @@ async function getTradeDates(client: Client, startDate: string, endDate: string)
   return res.rows.map((r) => r.trade_date);
 }
 
+function buildSwIndustrySql(level: 1 | 2 | 3, col: string): string {
+  return `
+    INSERT INTO money_flow_industries
+      (ts_code, trade_date, industry, pct_change, net_buy_amount, net_sell_amount, net_amount, buy_lg_amount, buy_md_amount, buy_sm_amount)
+    SELECT s.${col} AS ts_code, m.trade_date, c.name AS industry,
+           NULL, NULL, NULL,
+           SUM(m.net_amount), SUM(m.buy_lg_amount), SUM(m.buy_md_amount), SUM(m.buy_sm_amount)
+    FROM money_flow_stocks m
+    JOIN a_share_symbols s ON s.ts_code = m.ts_code
+    JOIN sw_index_catalog c ON c.ts_code = s.${col} AND c.level = ${level}
+    WHERE m.trade_date = $1
+      AND s.${col} IS NOT NULL
+    GROUP BY s.${col}, m.trade_date, c.name
+    ON CONFLICT (ts_code, trade_date) DO UPDATE SET
+      net_amount = EXCLUDED.net_amount,
+      buy_lg_amount = EXCLUDED.buy_lg_amount,
+      buy_md_amount = EXCLUDED.buy_md_amount,
+      buy_sm_amount = EXCLUDED.buy_sm_amount,
+      updated_at = NOW()
+  `;
+}
+
+const SW_LEVEL_COL: Record<1 | 2 | 3, string> = {
+  1: 'sw_industry_l1_code',
+  2: 'sw_industry_l2_code',
+  3: 'sw_industry_l3_code',
+};
+
 const AGGREGATION_SQL: Array<{ phase: string; sql: string }> = [
   {
-    phase: 'sw_industry',
-    sql: `
-      INSERT INTO money_flow_industries (ts_code, trade_date, industry, pct_change, net_buy_amount, net_sell_amount, net_amount)
-      SELECT s.sw_industry_l3_code AS ts_code,
-             m.trade_date,
-             c.name AS industry,
-             NULL,
-             NULL,
-             NULL,
-             SUM(m.net_amount)
-      FROM money_flow_stocks m
-      JOIN a_share_symbols s ON s.ts_code = m.ts_code
-      JOIN sw_index_catalog c ON c.ts_code = s.sw_industry_l3_code AND c.level = 3
-      WHERE m.trade_date = $1
-        AND s.sw_industry_l3_code IS NOT NULL
-      GROUP BY s.sw_industry_l3_code, m.trade_date, c.name
-      ON CONFLICT (ts_code, trade_date)
-      DO UPDATE SET
-        net_amount = EXCLUDED.net_amount,
-        updated_at = NOW()
-    `,
+    phase: 'sw_industry_l1',
+    sql: buildSwIndustrySql(1, SW_LEVEL_COL[1]),
+  },
+  {
+    phase: 'sw_industry_l2',
+    sql: buildSwIndustrySql(2, SW_LEVEL_COL[2]),
+  },
+  {
+    phase: 'sw_industry_l3',
+    sql: buildSwIndustrySql(3, SW_LEVEL_COL[3]),
   },
   {
     phase: 'ths_industry',

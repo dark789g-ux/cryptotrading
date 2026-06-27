@@ -38,13 +38,17 @@ describe('MoneyFlowAggregationService', () => {
     expect(results.every((r) => r.success)).toBe(true);
   });
 
-  it('申万行业聚合 SQL 包含 sw_industry_l3_code 汇总', async () => {
+  it('申万行业聚合 SQL 包含 money_flow_industries 且含 buy_lg_amount 等新列', async () => {
     const industryRepo = (service as any).industryRepo as { query: jest.Mock };
     await service.aggregateSwIndustry('20240601', '20240630');
-    const sql = industryRepo.query.mock.calls[0][0] as string;
-    expect(sql).toContain('money_flow_industries');
-    expect(sql).toContain('sw_industry_l3_code');
-    expect(sql).toContain('SUM(m.net_amount)');
+    expect(industryRepo.query).toHaveBeenCalledTimes(3);
+    const sqls = industryRepo.query.mock.calls.map((call) => call[0] as string);
+    for (const sql of sqls) {
+      expect(sql).toContain('money_flow_industries');
+      expect(sql).toContain('buy_lg_amount');
+      expect(sql).toContain('buy_md_amount');
+      expect(sql).toContain('buy_sm_amount');
+    }
   });
 
   it('同花顺行业聚合 SQL 过滤 type=I', async () => {

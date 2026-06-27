@@ -55,7 +55,7 @@ export class MoneyFlowAggregationService {
     onProgress?: (p: AggregationProgress) => void,
   ): Promise<AggregationResult[]> {
     const phases = [
-      { key: 'sw_industry', label: '申万三级行业聚合', fn: this.aggregateSwIndustry.bind(this) },
+      { key: 'sw_industry', label: '申万行业聚合(一/二/三级)', fn: this.aggregateSwIndustry.bind(this) },
       { key: 'ths_industry', label: '同花顺行业聚合', fn: this.aggregateThsIndustry.bind(this) },
       { key: 'ths_sector', label: '同花顺概念/板块聚合', fn: this.aggregateThsSector.bind(this) },
       { key: 'index', label: '宽基指数 PIT 聚合', fn: this.aggregateIndex.bind(this) },
@@ -107,32 +107,45 @@ export class MoneyFlowAggregationService {
   }
 
   /**
-   * 申万三级行业聚合
-   * 从 money_flow_stocks 按 sw_industry_l3_code 汇总 net_amount
+   * 申万行业聚合（一/二/三级）
+   * 从 money_flow_stocks 按 sw_industry_lN_code 汇总 net_amount 及大/中/小单
    */
   async aggregateSwIndustry(startDate: string, endDate: string): Promise<number> {
-    const sql = `
-      INSERT INTO money_flow_industries (ts_code, trade_date, industry, pct_change, net_buy_amount, net_sell_amount, net_amount)
-      SELECT s.sw_industry_l3_code AS ts_code,
-             m.trade_date,
-             c.name AS industry,
-             NULL,
-             NULL,
-             NULL,
-             SUM(m.net_amount)
+    const SW_LEVEL_COL: Record<1 | 2 | 3, string> = {
+      1: 'sw_industry_l1_code',
+      2: 'sw_industry_l2_code',
+      3: 'sw_industry_l3_code',
+    };
+
+    let totalAffected = 0;
+    for (const level of [1, 2, 3] as const) {
+      const sql = this.buildSwIndustrySql(level, SW_LEVEL_COL[level]);
+      const result = await this.industryRepo.query(sql, [startDate, endDate]);
+      totalAffected += this.extractAffectedRows(result);
+    }
+    return totalAffected;
+  }
+
+  private buildSwIndustrySql(level: 1 | 2 | 3, col: string): string {
+    return `
+      INSERT INTO money_flow_industries
+        (ts_code, trade_date, industry, pct_change, net_buy_amount, net_sell_amount, net_amount, buy_lg_amount, buy_md_amount, buy_sm_amount)
+      SELECT s.${col} AS ts_code, m.trade_date, c.name AS industry,
+             NULL, NULL, NULL,
+             SUM(m.net_amount), SUM(m.buy_lg_amount), SUM(m.buy_md_amount), SUM(m.buy_sm_amount)
       FROM money_flow_stocks m
       JOIN a_share_symbols s ON s.ts_code = m.ts_code
-      JOIN sw_index_catalog c ON c.ts_code = s.sw_industry_l3_code AND c.level = 3
+      JOIN sw_index_catalog c ON c.ts_code = s.${col} AND c.level = ${level}
       WHERE m.trade_date BETWEEN $1 AND $2
-        AND s.sw_industry_l3_code IS NOT NULL
-      GROUP BY s.sw_industry_l3_code, m.trade_date, c.name
-      ON CONFLICT (ts_code, trade_date)
-      DO UPDATE SET
+        AND s.${col} IS NOT NULL
+      GROUP BY s.${col}, m.trade_date, c.name
+      ON CONFLICT (ts_code, trade_date) DO UPDATE SET
         net_amount = EXCLUDED.net_amount,
+        buy_lg_amount = EXCLUDED.buy_lg_amount,
+        buy_md_amount = EXCLUDED.buy_md_amount,
+        buy_sm_amount = EXCLUDED.buy_sm_amount,
         updated_at = NOW()
     `;
-    const result = await this.industryRepo.query(sql, [startDate, endDate]);
-    return this.extractAffectedRows(result);
   }
 
   /**

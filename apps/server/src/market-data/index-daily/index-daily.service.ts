@@ -227,14 +227,17 @@ export class IndexDailyService {
            END AS "netAmount",
            CASE q.category
              WHEN 'market' THEN mf_mkt.buy_lg_amount
+             WHEN 'sw'     THEN mf_ind.buy_lg_amount
              ELSE             mf_idx.buy_lg_amount
            END AS "buyLgAmount",
            CASE q.category
              WHEN 'market' THEN mf_mkt.buy_md_amount
+             WHEN 'sw'     THEN mf_ind.buy_md_amount
              ELSE             mf_idx.buy_md_amount
            END AS "buyMdAmount",
            CASE q.category
              WHEN 'market' THEN mf_mkt.buy_sm_amount
+             WHEN 'sw'     THEN mf_ind.buy_sm_amount
              ELSE             mf_idx.buy_sm_amount
            END AS "buySmAmount"
          FROM index_daily_quotes q
