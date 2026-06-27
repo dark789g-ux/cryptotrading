@@ -43,6 +43,8 @@ A 股指数侧的现状（与子代理转述有出入的点已亲查源文件 / 
 
 **性能关键（必须遵守）**：滚动 LATERAL **放外层 `SELECT * FROM (innerDistinctOn) latest` 之上**，而非内层 `DISTINCT ON` 子查询里。内层 FROM 的是 `index_daily_quotes` **全历史**，LATERAL 放内层会对每条历史行跑一次（爆炸）；放外层则每 `tsCode` 仅一次（≤ 该面板指数数，与股票 query 同量级）。
 
+**诚实边界**：`LIMIT/OFFSET` 在外层 `ORDER BY` 之后，故外层 LATERAL 在分页前对**全部** ts_code（非仅当前页）计算——翻第 N 页也要全量算。规模：申万三级 ≤336 行、同花顺行业+概念 ≈1200+ 行，× 5 表 × 20 行扫描，实测可接受；如未来规模膨胀可再议「先分页再 LATERAL」（但按多周期列排序时无法提前分页，故当前不做）。
+
 ---
 
 ## 4. 最终「资金流」分组列清单
@@ -69,7 +71,7 @@ A 股指数侧的现状（与子代理转述有出入的点已亲查源文件 / 
 ## 5. 数据契约（spec 钉死，前后端并行据此实现）
 
 - **响应行字段（camelCase）**：`netAmount5d`、`netAmount10d`、`netAmount20d`，类型 `number | null`，单位**万元**（与 `netAmount` 同）。
-- **sort 白名单字段（snake）**：`net_amount_5d`、`net_amount_10d`、`net_amount_20d`。
+- **sort 白名单字段（snake）**：**新增** `net_amount_5d`、`net_amount_10d`、`net_amount_20d`（现有 `net_amount/buy_lg_amount/buy_md_amount/buy_sm_amount/count` 已在白名单，保持不变）。
 - **列 key**：`net_amount_5d`、`net_amount_10d`、`net_amount_20d`（= sort 字段，铁律不变）。
 - **分组**：上述 3 个 + 现有 4 个（`net_amount/buy_lg_amount/buy_md_amount/buy_sm_amount`）→ `moneyFlow`。
 
@@ -107,15 +109,19 @@ A 股指数侧的现状（与子代理转述有出入的点已亲查源文件 / 
        WHERE ts_code = latest."tsCode" AND trade_date <= latest."tradeDate"
        ORDER BY trade_date DESC LIMIT 20
      ) t
-   ) ind_roll ON latest.category = 'sw'
-   LEFT JOIN LATERAL ( ... money_flow_ths_industries ... ) ths_roll ON latest.category = 'industry'
-   LEFT JOIN LATERAL ( ... money_flow_sectors ...        ) sec_roll ON latest.category = 'concept'
-   LEFT JOIN LATERAL ( ... money_flow_market（无 ts_code 过滤，仅 trade_date<=latest."tradeDate"）... ) mkt_roll ON latest.category = 'market'
-   LEFT JOIN LATERAL ( ... money_flow_index ...          ) idx_roll ON TRUE   -- 供 ELSE/宽基兜底
+   ) ind_roll ON TRUE
+   -- 其余 4 个 LATERAL 同构（仅换表 + 各自内层 WHERE），一律 ON TRUE，由上面 CASE 按 category 路由：
+   LEFT JOIN LATERAL ( ...money_flow_ths_industries, 内层 WHERE ts_code = latest."tsCode" AND trade_date <= latest."tradeDate"... ) ths_roll ON TRUE
+   LEFT JOIN LATERAL ( ...money_flow_sectors,         内层 WHERE ts_code = latest."tsCode" AND trade_date <= latest."tradeDate"... ) sec_roll ON TRUE
+   LEFT JOIN LATERAL ( ...money_flow_market,          内层 WHERE 仅 trade_date <= latest."tradeDate"（该表无 ts_code）... ) mkt_roll ON TRUE
+   LEFT JOIN LATERAL ( ...money_flow_index,           内层 WHERE ts_code = latest."tsCode" AND trade_date <= latest."tradeDate"... ) idx_roll ON TRUE
    ORDER BY ${orderExpr}
    LIMIT $3 OFFSET $4
    ```
 
+   - **多周期仅扩 `net_amount`**：5 张表均有 `net_amount` 列，故 5 个 `*_roll` 只 `SUM(net_amount)`；大/中/小单（`buyXxAmount`）**不做多周期**——其现有当日 CASE（含 `money_flow_ths_industries`/`money_flow_sectors` 表**无**大中小单列、`industry/concept` 分支走 `mf_idx` 兜底的既有逻辑）原样保留、本次不动。
+   - 5 个 LATERAL 一律 `ON TRUE`，由外层 CASE 按 `latest.category` 路由（严格镜像现有 `netAmount` 的 5 分支）。注意：`LEFT JOIN LATERAL (...) ON TRUE` 的 `ON` 仅过滤结果、**不阻止子查询执行**；性能依赖的是「每 tsCode 仅一次」（见 §3），非匹配表的内层按 `ts_code` 索引探针无果即秒返 NULL，CASE 自然选不到它。
+   - `idx_roll` 的内层**必须**带 `ts_code = latest."tsCode"` 过滤（`money_flow_index` 有 `ts_code` 列），**禁止**无过滤全表聚合。
    - `LatestRawRow`（raw 行类型）追加 `netAmount5d/10d/20d`；`mapped` 映射追加 `netAmount5d: nullableNum(r.netAmount5d)` 等 3 行。
    - **不动**内层 `DISTINCT ON` 子查询、不动现有 `netAmount/buyXxAmount` 的等值 JOIN。
 
@@ -140,7 +146,7 @@ A 股指数侧的现状（与子代理转述有出入的点已亲查源文件 / 
 ## 8. 数据现实与边界（暴露权衡，非本次回归）
 
 - `money_flow_industries` 真 DB 仅约 7 个月（`20251201~`）；窗口不足时 5d/10d/20d 用现有交易日累计（不补零、不报错），20 日窗口数据充足。
-- **同花顺面板的「大单/中单/小单（当日）」本就无数据**（Tushare `moneyflow_ind_ths` 不含大中小单拆分，`getLatest` 对 `industry/concept` 的 `buyXx` 走 `mf_idx` 兜底多为 NULL）。归组后这 3 列在同花顺面板仍显「—」——**既有现象**，本次不修。多周期**净流入**不受影响（净流入各类均有数据）。
+- **同花顺面板的「大单/中单/小单（当日）」本就无数据**：`money_flow_ths_industries`、`money_flow_sectors` 两表**仅有 `net_amount` 列、无 `buy_lg/md/sm_amount`**（Tushare `moneyflow_ind_ths` 不含大中小单拆分），故 `getLatest` 对 `industry/concept` 的 `buyXx` CASE 走 `mf_idx` 兜底、多为 NULL。归组后这 3 列在同花顺面板仍显「—」——**既有现象**，本次不修。多周期**净流入**不受影响（5 张表均有 `net_amount`，各类指数都有数据）。
 - 现有 4 列用 `formatAmount` 显示万元值的单位口径问题（`amount` 注释为千元、`netAmount` 为万元却共用 `formatAmount`）属**既有项**，本次保持一致、不在范围内修改（避免 drift）。
 - 外层 5 LATERAL 对非匹配 category 靠 `ON latest.category=...` 短路或唯一索引秒回；单面板 ≤ 336 行（申万三级），性能可接受。
 - 无 schema 变更 → **无 migration**；聚合服务（在制 buy 列工作）是前置依赖、已落 DB，本次**不碰**。
