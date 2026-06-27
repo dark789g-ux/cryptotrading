@@ -103,6 +103,9 @@ export interface WatchlistQuoteRow extends SymbolRow {
   swIndustryL1Code?: string | null
   swIndustryL2Code?: string | null
   swIndustryL3Code?: string | null
+  swIndustryL1Name?: string | null
+  swIndustryL2Name?: string | null
+  swIndustryL3Name?: string | null
   pctChg?: string | number | null
   amount?: string | number | null
   turnoverRate?: string | number | null

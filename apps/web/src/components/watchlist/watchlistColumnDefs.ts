@@ -103,7 +103,7 @@ export function createWatchlistColumnDefs(
       sorter: true,
       defaultVisible: false,
       render: (row) => {
-        const v = dashForCrypto(row.symbol, row.swIndustryL1Code)
+        const v = dashForCrypto(row.symbol, row.swIndustryL1Name ?? row.swIndustryL1Code)
         return typeof v === 'string' ? v : (row.swIndustryL1Code ?? '-')
       },
     },
@@ -114,7 +114,7 @@ export function createWatchlistColumnDefs(
       sorter: true,
       defaultVisible: false,
       render: (row) => {
-        const v = dashForCrypto(row.symbol, row.swIndustryL2Code)
+        const v = dashForCrypto(row.symbol, row.swIndustryL2Name ?? row.swIndustryL2Code)
         return typeof v === 'string' ? v : (row.swIndustryL2Code ?? '-')
       },
     },
@@ -125,7 +125,7 @@ export function createWatchlistColumnDefs(
       sorter: true,
       defaultVisible: false,
       render: (row) => {
-        const v = dashForCrypto(row.symbol, row.swIndustryL3Code)
+        const v = dashForCrypto(row.symbol, row.swIndustryL3Name ?? row.swIndustryL3Code)
         return typeof v === 'string' ? v : (row.swIndustryL3Code ?? '-')
       },
     },

@@ -315,6 +315,9 @@ export class WatchlistsService {
           NULL::text AS sw_industry_l1_code,
           NULL::text AS sw_industry_l2_code,
           NULL::text AS sw_industry_l3_code,
+          NULL::text AS sw_industry_l1_name,
+          NULL::text AS sw_industry_l2_name,
+          NULL::text AS sw_industry_l3_name,
           NULL::numeric AS "pctChg",
           NULL::numeric AS amount,
           NULL::numeric AS "turnoverRate",
@@ -366,6 +369,9 @@ export class WatchlistsService {
           s.sw_industry_l1_code AS sw_industry_l1_code,
           s.sw_industry_l2_code AS sw_industry_l2_code,
           s.sw_industry_l3_code AS sw_industry_l3_code,
+          sw1.name AS sw_industry_l1_name,
+          sw2.name AS sw_industry_l2_name,
+          sw3.name AS sw_industry_l3_name,
           COALESCE(q.qfq_pct_chg, q.pct_chg) AS "pctChg",
           q.amount,
           m.turnover_rate AS "turnoverRate",
@@ -408,7 +414,10 @@ export class WatchlistsService {
         JOIN raw.daily_quote q ON q.ts_code = latest.ts_code AND q.trade_date = latest.trade_date
         LEFT JOIN raw.daily_basic m ON m.ts_code = q.ts_code AND m.trade_date = q.trade_date
         LEFT JOIN raw.daily_indicator i ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
-        LEFT JOIN a_share_symbols s ON s.ts_code = ps.symbol${scoreJoin}
+        LEFT JOIN a_share_symbols s ON s.ts_code = ps.symbol
+        LEFT JOIN sw_index_catalog sw1 ON sw1.ts_code = s.sw_industry_l1_code
+        LEFT JOIN sw_index_catalog sw2 ON sw2.ts_code = s.sw_industry_l2_code
+        LEFT JOIN sw_index_catalog sw3 ON sw3.ts_code = s.sw_industry_l3_code${scoreJoin}
       ),
       rows AS (
         SELECT * FROM crypto_rows
@@ -419,9 +428,12 @@ export class WatchlistsService {
         symbol,
         name,
         market,
-        sw_industry_l1_code AS swIndustryL1Code,
-        sw_industry_l2_code AS swIndustryL2Code,
-        sw_industry_l3_code AS swIndustryL3Code,
+        sw_industry_l1_code AS "swIndustryL1Code",
+        sw_industry_l2_code AS "swIndustryL2Code",
+        sw_industry_l3_code AS "swIndustryL3Code",
+        sw_industry_l1_name AS "swIndustryL1Name",
+        sw_industry_l2_name AS "swIndustryL2Name",
+        sw_industry_l3_name AS "swIndustryL3Name",
         "pctChg",
         amount,
         "turnoverRate",
