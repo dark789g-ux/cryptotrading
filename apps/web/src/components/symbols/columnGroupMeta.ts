@@ -83,6 +83,13 @@ export const COLUMN_KEY_GROUP: Record<string, ColumnGroupKey> = {
   netInflow5d: 'moneyFlow',
   netInflow10d: 'moneyFlow',
   netInflow20d: 'moneyFlow',
+  net_amount: 'moneyFlow',
+  net_amount_5d: 'moneyFlow',
+  net_amount_10d: 'moneyFlow',
+  net_amount_20d: 'moneyFlow',
+  buy_lg_amount: 'moneyFlow',
+  buy_md_amount: 'moneyFlow',
+  buy_sm_amount: 'moneyFlow',
 
   // 砖块图
   brick: 'brick',

@@ -40,7 +40,9 @@ function pctColor(value: number | null): string | undefined {
  *
  * 列 key 设计：可排序列的 key **直接等于后端 sort 白名单**
  * （apps/server/.../index-daily/dto/latest.dto.ts IndexLatestSortField：
- * pct_change / vol / amount / total_mv_wan / tradeDate / pe / pb），
+ * pct_change / vol / amount / total_mv_wan / tradeDate / pe / pb / count /
+ * net_amount / buy_lg_amount / buy_md_amount / buy_sm_amount /
+ * net_amount_5d / net_amount_10d / net_amount_20d），
  * 这样 n-data-table 表头排序事件 handleSort 拿到的 columnKey 可直发后端，无需中转映射。
  * render 内再取 row 的驼峰字段。
  *
@@ -134,6 +136,30 @@ export function createASharesIndexColumnDefs({
       sorter: true,
       defaultVisible: false,
       render: (row) => formatAmount(toStr(row.netAmount)),
+    },
+    {
+      title: '5日净流入',
+      key: 'net_amount_5d',
+      width: 120,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => formatAmount(toStr(row.netAmount5d)),
+    },
+    {
+      title: '10日净流入',
+      key: 'net_amount_10d',
+      width: 120,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => formatAmount(toStr(row.netAmount10d)),
+    },
+    {
+      title: '20日净流入',
+      key: 'net_amount_20d',
+      width: 120,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => formatAmount(toStr(row.netAmount20d)),
     },
     {
       title: '大单净流入',

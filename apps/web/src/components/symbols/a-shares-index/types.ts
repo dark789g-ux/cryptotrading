@@ -40,6 +40,12 @@ export interface IndexLatestRow {
   count: number | null
   /** 净流入（万元） */
   netAmount: number | null
+  /** 净流入（万元，5日累计） */
+  netAmount5d: number | null
+  /** 净流入（万元，10日累计） */
+  netAmount10d: number | null
+  /** 净流入（万元，20日累计） */
+  netAmount20d: number | null
   /** 大单净流入（万元） */
   buyLgAmount: number | null
   /** 中单净流入（万元） */
@@ -67,6 +73,9 @@ export type IndexLatestSortField =
   | 'pb'
   | 'count'
   | 'net_amount'
+  | 'net_amount_5d'
+  | 'net_amount_10d'
+  | 'net_amount_20d'
   | 'buy_lg_amount'
   | 'buy_md_amount'
   | 'buy_sm_amount'

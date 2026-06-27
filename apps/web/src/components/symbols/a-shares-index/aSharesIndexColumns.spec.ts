@@ -30,6 +30,9 @@ const baseRow: IndexLatestRow = {
   pb: null,
   count: null,
   netAmount: null,
+  netAmount5d: null,
+  netAmount10d: null,
+  netAmount20d: null,
   buyLgAmount: null,
   buyMdAmount: null,
   buySmAmount: null,
@@ -55,6 +58,9 @@ describe('createASharesIndexColumnDefs', () => {
     const cols = createASharesIndexColumnDefs()
     const keys = cols.map((c) => c.key)
     expect(keys).toContain('net_amount')
+    expect(keys).toContain('net_amount_5d')
+    expect(keys).toContain('net_amount_10d')
+    expect(keys).toContain('net_amount_20d')
     expect(keys).toContain('buy_lg_amount')
     expect(keys).toContain('buy_md_amount')
     expect(keys).toContain('buy_sm_amount')
@@ -62,7 +68,15 @@ describe('createASharesIndexColumnDefs', () => {
 
   it('资金流列默认隐藏', () => {
     const cols = createASharesIndexColumnDefs()
-    const moneyFlowKeys = ['net_amount', 'buy_lg_amount', 'buy_md_amount', 'buy_sm_amount']
+    const moneyFlowKeys = [
+      'net_amount',
+      'net_amount_5d',
+      'net_amount_10d',
+      'net_amount_20d',
+      'buy_lg_amount',
+      'buy_md_amount',
+      'buy_sm_amount',
+    ]
     for (const key of moneyFlowKeys) {
       const col = cols.find((c) => c.key === key)!
       expect(col.defaultVisible).toBe(false)
