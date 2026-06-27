@@ -138,18 +138,28 @@ function rowProps(row: IndexLatestRow) {
   }
 }
 
+const RELOAD_THROTTLE_MS = 60_000
+const lastLoadedAt = ref(0)
+
+/** 首屏 / 节流放行后的 onActivated 重查；用户筛选/分页/排序/刷新按钮不走此路径。 */
+async function reloadAndMarkLoaded() {
+  await reload()
+  lastLoadedAt.value = Date.now()
+}
+
 // 本面板懒挂在 sub-tab（同花顺/申万）内，且整体位于 SymbolsView 顶层 <keep-alive>。
 // 首挂载时 onActivated 不触发（激活时机已过）→ 首屏用 onMounted；
-// 从其它顶层 Tab 切回时 onActivated 刷新行情（参考 ASharesPanel / vue3-frontend.md）。
+// 从其它顶层 Tab 切回时 onActivated 节流刷新（指数日频，60s 内跳过无条件重查）。
 onMounted(() => {
-  void reload()
+  void reloadAndMarkLoaded()
   void loadColumnPreferences().catch((err: unknown) => {
     message.error(err instanceof Error ? err.message : String(err))
   })
 })
 
 onActivated(() => {
-  void reload()
+  if (Date.now() - lastLoadedAt.value < RELOAD_THROTTLE_MS) return
+  void reloadAndMarkLoaded()
 })
 </script>
 

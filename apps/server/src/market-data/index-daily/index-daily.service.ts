@@ -33,6 +33,13 @@ const SORT_COL_MAP: Record<IndexLatestSortField, string> = {
   net_amount_20d: '"netAmount20d"',
 };
 
+/** 排序依赖 LATERAL 滚动资金流时须全量算完再排序，不可先分页。 */
+const LATERAL_SORT_FIELDS: IndexLatestSortField[] = [
+  'net_amount_5d',
+  'net_amount_10d',
+  'net_amount_20d',
+];
+
 interface LatestRawRow {
   tsCode: string;
   name: string | null;
@@ -124,6 +131,7 @@ export class IndexDailyService {
     const offset = (page - 1) * pageSize;
     const sortCol = SORT_COL_MAP[sortField] ?? SORT_COL_MAP.pct_change;
     const orderExpr = `${sortCol} ${order} NULLS LAST`;
+    const sortUsesLateral = LATERAL_SORT_FIELDS.includes(sortField);
 
     // 申万按 level 过滤：name 也在此表，一并取回避免 JOIN。
     // GET 查询参数 level 是字符串，需显式转 number 再校验（原 `=== 1` 会漏字符串）。
@@ -176,8 +184,7 @@ export class IndexDailyService {
       ? [category, q, pageSize, offset, swTsCodes]
       : [category, q, pageSize, offset];
 
-    const rows = await this.dataSource.query<LatestRawRow[]>(
-      `WITH sw_member_count AS (
+    const swMemberCountCte = `WITH sw_member_count AS (
          SELECT idx_code, COUNT(DISTINCT ts_code) AS cnt
          FROM (
            SELECT l1_code AS idx_code, ts_code FROM raw.index_member WHERE is_new = 'Y' AND l1_code IS NOT NULL
@@ -187,30 +194,9 @@ export class IndexDailyService {
            SELECT l3_code AS idx_code, ts_code FROM raw.index_member WHERE is_new = 'Y' AND l3_code IS NOT NULL
          ) u
          GROUP BY idx_code
-       )
-       SELECT latest.*,
-         CASE latest.category
-           WHEN 'sw'       THEN ind_roll.n5
-           WHEN 'industry' THEN ths_roll.n5
-           WHEN 'concept'  THEN sec_roll.n5
-           WHEN 'market'   THEN mkt_roll.n5
-           ELSE COALESCE(ind_roll.n5, sec_roll.n5, ths_roll.n5, mkt_roll.n5, idx_roll.n5)
-         END AS "netAmount5d",
-         CASE latest.category
-           WHEN 'sw'       THEN ind_roll.n10
-           WHEN 'industry' THEN ths_roll.n10
-           WHEN 'concept'  THEN sec_roll.n10
-           WHEN 'market'   THEN mkt_roll.n10
-           ELSE COALESCE(ind_roll.n10, sec_roll.n10, ths_roll.n10, mkt_roll.n10, idx_roll.n10)
-         END AS "netAmount10d",
-         CASE latest.category
-           WHEN 'sw'       THEN ind_roll.n20
-           WHEN 'industry' THEN ths_roll.n20
-           WHEN 'concept'  THEN sec_roll.n20
-           WHEN 'market'   THEN mkt_roll.n20
-           ELSE COALESCE(ind_roll.n20, sec_roll.n20, ths_roll.n20, mkt_roll.n20, idx_roll.n20)
-         END AS "netAmount20d"
-       FROM (
+       )`;
+
+    const innerDistinctSql = `
          SELECT DISTINCT ON (q.ts_code)
            q.ts_code AS "tsCode", COALESCE(c.name, s.name) AS name, q.category,
            q.trade_date AS "tradeDate", q.close,
@@ -250,8 +236,32 @@ export class IndexDailyService {
          LEFT JOIN money_flow_market mf_mkt ON mf_mkt.trade_date = q.trade_date
          LEFT JOIN money_flow_index mf_idx ON mf_idx.ts_code = q.ts_code AND mf_idx.trade_date = q.trade_date
          WHERE ${whereCore}${tsClauseFor(5)}
-         ORDER BY q.ts_code, q.trade_date DESC
-       ) latest
+         ORDER BY q.ts_code, q.trade_date DESC`;
+
+    const netAmountLateralSelect = `
+         CASE latest.category
+           WHEN 'sw'       THEN ind_roll.n5
+           WHEN 'industry' THEN ths_roll.n5
+           WHEN 'concept'  THEN sec_roll.n5
+           WHEN 'market'   THEN mkt_roll.n5
+           ELSE COALESCE(ind_roll.n5, sec_roll.n5, ths_roll.n5, mkt_roll.n5, idx_roll.n5)
+         END AS "netAmount5d",
+         CASE latest.category
+           WHEN 'sw'       THEN ind_roll.n10
+           WHEN 'industry' THEN ths_roll.n10
+           WHEN 'concept'  THEN sec_roll.n10
+           WHEN 'market'   THEN mkt_roll.n10
+           ELSE COALESCE(ind_roll.n10, sec_roll.n10, ths_roll.n10, mkt_roll.n10, idx_roll.n10)
+         END AS "netAmount10d",
+         CASE latest.category
+           WHEN 'sw'       THEN ind_roll.n20
+           WHEN 'industry' THEN ths_roll.n20
+           WHEN 'concept'  THEN sec_roll.n20
+           WHEN 'market'   THEN mkt_roll.n20
+           ELSE COALESCE(ind_roll.n20, sec_roll.n20, ths_roll.n20, mkt_roll.n20, idx_roll.n20)
+         END AS "netAmount20d"`;
+
+    const lateralJoinsSql = `
        LEFT JOIN LATERAL (
          SELECT SUM(net_amount) FILTER (WHERE rn <= 5)  AS n5,
                 SUM(net_amount) FILTER (WHERE rn <= 10) AS n10,
@@ -311,11 +321,27 @@ export class IndexDailyService {
            ORDER BY trade_date DESC
            LIMIT 20
          ) t
-       ) idx_roll ON TRUE
+       ) idx_roll ON TRUE`;
+
+    const latestFromSql = sortUsesLateral
+      ? `(
+       ${innerDistinctSql}
+       ) latest`
+      : `(
+       SELECT * FROM (
+       ${innerDistinctSql}
+       ) page
        ORDER BY ${orderExpr}
-       LIMIT $3 OFFSET $4`,
-      rowsParams,
-    );
+       LIMIT $3 OFFSET $4
+       ) latest`;
+
+    const rowsSql = `${swMemberCountCte}
+       SELECT latest.*,${netAmountLateralSelect}
+       FROM ${latestFromSql}
+       ${lateralJoinsSql}
+       ORDER BY ${orderExpr}${sortUsesLateral ? '\n       LIMIT $3 OFFSET $4' : ''}`;
+
+    const rows = await this.dataSource.query<LatestRawRow[]>(rowsSql, rowsParams);
 
     const mapped: IndexLatestRow[] = rows.map((r) => ({
       tsCode: r.tsCode,

@@ -145,9 +145,8 @@ export function buildASharesBaseQuery(
 
   let sql = `
       WITH latest AS (
-        SELECT ts_code, MAX(trade_date) AS trade_date
+        SELECT MAX(trade_date) AS trade_date
         FROM raw.daily_quote
-        GROUP BY ts_code
       )
       SELECT
         s.ts_code AS "tsCode",
@@ -192,7 +191,7 @@ export function buildASharesBaseQuery(
           '[]'::jsonb
         ) AS tags
       FROM a_share_symbols s
-      LEFT JOIN latest l ON l.ts_code = s.ts_code
+      CROSS JOIN latest l
       LEFT JOIN raw.daily_quote q ON q.ts_code = s.ts_code AND q.trade_date = l.trade_date
       LEFT JOIN raw.daily_basic m ON m.ts_code = s.ts_code AND m.trade_date = l.trade_date
       LEFT JOIN raw.daily_indicator i ON i.ts_code = s.ts_code AND i.trade_date = l.trade_date

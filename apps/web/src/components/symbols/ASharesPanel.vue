@@ -186,18 +186,27 @@ const strategyFilterOptions = computed(() => {
 
 async function loadHitLookup() {
   const newLookup = new Map<string, Set<string>>()
-  for (const condition of strategyStore.conditions) {
-    if (condition.targetType !== 'a-share') continue
-    const status = strategyStore.runStatuses.get(condition.id)
-    if (!status || status.freshness !== 'fresh') continue
-    try {
-      const result = await strategyConditionsApi.getRunResult(condition.id)
-      for (const hit of result.hits) {
-        const names = newLookup.get(hit.tsCode) ?? new Set<string>()
-        names.add(condition.name)
-        newLookup.set(hit.tsCode, names)
-      }
-    } catch { /* ignore */ }
+  const freshConditions = strategyStore.conditions.filter(c => {
+    if (c.targetType !== 'a-share') return false
+    const status = strategyStore.runStatuses.get(c.id)
+    return status && status.freshness === 'fresh'
+  })
+  const results = await Promise.all(
+    freshConditions.map(condition =>
+      strategyConditionsApi
+        .getRunResult(condition.id)
+        .then(result => ({ condition, result }))
+        .catch(() => null),
+    ),
+  )
+  for (const entry of results) {
+    if (!entry) continue
+    const { condition, result } = entry
+    for (const hit of result.hits) {
+      const names = newLookup.get(hit.tsCode) ?? new Set<string>()
+      names.add(condition.name)
+      newLookup.set(hit.tsCode, names)
+    }
   }
   hitLookup.value = newLookup
 }
@@ -270,8 +279,10 @@ onMounted(() => {
 // keep-alive 场景：onActivated 在首次挂载和每次从缓存激活时都会触发，
 // 确保从策略条件管理切回后 hitLookup 能感知最新运行结果
 onActivated(async () => {
-  await strategyStore.fetchConditions('a-share')
-  await strategyStore.fetchLastRunStatus()
+  await Promise.all([
+    strategyStore.fetchConditions('a-share'),
+    strategyStore.fetchLastRunStatus(),
+  ])
   await loadHitLookup()
 })
 

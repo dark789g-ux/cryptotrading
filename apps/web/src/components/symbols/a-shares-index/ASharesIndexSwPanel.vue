@@ -147,16 +147,26 @@ function rowProps(row: IndexLatestRow) {
   }
 }
 
-// 生命周期同 ThsPanel：首屏 onMounted，切回 onActivated 刷新（keep-alive）。
+const RELOAD_THROTTLE_MS = 60_000
+const lastLoadedAt = ref(0)
+
+/** 首屏 / 节流放行后的 onActivated 重查；用户筛选/分页/排序/刷新按钮不走此路径。 */
+async function reloadAndMarkLoaded() {
+  await reload()
+  lastLoadedAt.value = Date.now()
+}
+
+// 生命周期同 ThsPanel：首屏 onMounted，切回 onActivated 节流刷新（keep-alive）。
 onMounted(() => {
-  void reload()
+  void reloadAndMarkLoaded()
   void loadColumnPreferences().catch((err: unknown) => {
     message.error(err instanceof Error ? err.message : String(err))
   })
 })
 
 onActivated(() => {
-  void reload()
+  if (Date.now() - lastLoadedAt.value < RELOAD_THROTTLE_MS) return
+  void reloadAndMarkLoaded()
 })
 </script>
 
