@@ -28,6 +28,9 @@ const SORT_COL_MAP: Record<IndexLatestSortField, string> = {
   buy_lg_amount: '"buyLgAmount"',
   buy_md_amount: '"buyMdAmount"',
   buy_sm_amount: '"buySmAmount"',
+  net_amount_5d: '"netAmount5d"',
+  net_amount_10d: '"netAmount10d"',
+  net_amount_20d: '"netAmount20d"',
 };
 
 interface LatestRawRow {
@@ -47,6 +50,9 @@ interface LatestRawRow {
   buyLgAmount: string | number | null;
   buyMdAmount: string | number | null;
   buySmAmount: string | number | null;
+  netAmount5d: string | number | null;
+  netAmount10d: string | number | null;
+  netAmount20d: string | number | null;
 }
 
 interface KlineRawRow {
@@ -182,7 +188,29 @@ export class IndexDailyService {
          ) u
          GROUP BY idx_code
        )
-       SELECT * FROM (
+       SELECT latest.*,
+         CASE latest.category
+           WHEN 'sw'       THEN ind_roll.n5
+           WHEN 'industry' THEN ths_roll.n5
+           WHEN 'concept'  THEN sec_roll.n5
+           WHEN 'market'   THEN mkt_roll.n5
+           ELSE COALESCE(ind_roll.n5, sec_roll.n5, ths_roll.n5, mkt_roll.n5, idx_roll.n5)
+         END AS "netAmount5d",
+         CASE latest.category
+           WHEN 'sw'       THEN ind_roll.n10
+           WHEN 'industry' THEN ths_roll.n10
+           WHEN 'concept'  THEN sec_roll.n10
+           WHEN 'market'   THEN mkt_roll.n10
+           ELSE COALESCE(ind_roll.n10, sec_roll.n10, ths_roll.n10, mkt_roll.n10, idx_roll.n10)
+         END AS "netAmount10d",
+         CASE latest.category
+           WHEN 'sw'       THEN ind_roll.n20
+           WHEN 'industry' THEN ths_roll.n20
+           WHEN 'concept'  THEN sec_roll.n20
+           WHEN 'market'   THEN mkt_roll.n20
+           ELSE COALESCE(ind_roll.n20, sec_roll.n20, ths_roll.n20, mkt_roll.n20, idx_roll.n20)
+         END AS "netAmount20d"
+       FROM (
          SELECT DISTINCT ON (q.ts_code)
            q.ts_code AS "tsCode", COALESCE(c.name, s.name) AS name, q.category,
            q.trade_date AS "tradeDate", q.close,
@@ -221,6 +249,66 @@ export class IndexDailyService {
          WHERE ${whereCore}${tsClauseFor(5)}
          ORDER BY q.ts_code, q.trade_date DESC
        ) latest
+       LEFT JOIN LATERAL (
+         SELECT SUM(net_amount) FILTER (WHERE rn <= 5)  AS n5,
+                SUM(net_amount) FILTER (WHERE rn <= 10) AS n10,
+                SUM(net_amount) FILTER (WHERE rn <= 20) AS n20
+         FROM (
+           SELECT net_amount, ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
+           FROM money_flow_industries
+           WHERE ts_code = latest."tsCode" AND trade_date <= latest."tradeDate"
+           ORDER BY trade_date DESC
+           LIMIT 20
+         ) t
+       ) ind_roll ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT SUM(net_amount) FILTER (WHERE rn <= 5)  AS n5,
+                SUM(net_amount) FILTER (WHERE rn <= 10) AS n10,
+                SUM(net_amount) FILTER (WHERE rn <= 20) AS n20
+         FROM (
+           SELECT net_amount, ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
+           FROM money_flow_ths_industries
+           WHERE ts_code = latest."tsCode" AND trade_date <= latest."tradeDate"
+           ORDER BY trade_date DESC
+           LIMIT 20
+         ) t
+       ) ths_roll ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT SUM(net_amount) FILTER (WHERE rn <= 5)  AS n5,
+                SUM(net_amount) FILTER (WHERE rn <= 10) AS n10,
+                SUM(net_amount) FILTER (WHERE rn <= 20) AS n20
+         FROM (
+           SELECT net_amount, ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
+           FROM money_flow_sectors
+           WHERE ts_code = latest."tsCode" AND trade_date <= latest."tradeDate"
+           ORDER BY trade_date DESC
+           LIMIT 20
+         ) t
+       ) sec_roll ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT SUM(net_amount) FILTER (WHERE rn <= 5)  AS n5,
+                SUM(net_amount) FILTER (WHERE rn <= 10) AS n10,
+                SUM(net_amount) FILTER (WHERE rn <= 20) AS n20
+         FROM (
+           SELECT net_amount, ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
+           FROM money_flow_market
+           WHERE trade_date <= latest."tradeDate"
+           ORDER BY trade_date DESC
+           LIMIT 20
+         ) t
+       ) mkt_roll ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT SUM(net_amount) FILTER (WHERE rn <= 5)  AS n5,
+                SUM(net_amount) FILTER (WHERE rn <= 10) AS n10,
+                SUM(net_amount) FILTER (WHERE rn <= 20) AS n20
+         FROM (
+           SELECT net_amount, ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
+           FROM money_flow_index
+           WHERE ts_code = latest."tsCode" AND trade_date <= latest."tradeDate"
+           ORDER BY trade_date DESC
+           LIMIT 20
+         ) t
+       ) idx_roll ON TRUE
        ORDER BY ${orderExpr}
        LIMIT $3 OFFSET $4`,
       rowsParams,
@@ -240,6 +328,9 @@ export class IndexDailyService {
       pb: nullableNum(r.pb),
       count: nullableNum(r.count),
       netAmount: nullableNum(r.netAmount),
+      netAmount5d: nullableNum(r.netAmount5d),
+      netAmount10d: nullableNum(r.netAmount10d),
+      netAmount20d: nullableNum(r.netAmount20d),
       buyLgAmount: nullableNum(r.buyLgAmount),
       buyMdAmount: nullableNum(r.buyMdAmount),
       buySmAmount: nullableNum(r.buySmAmount),
