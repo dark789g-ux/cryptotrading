@@ -84,6 +84,7 @@
               prefs-key="watchlist"
               :available-subplots="watchlistAvailableSubplots"
               :recalc-indicators="recalcKdjIndicators"
+              :symbol-code="selectedSymbol"
               @update:range="onKlineRangeChange"
             />
           </div>
