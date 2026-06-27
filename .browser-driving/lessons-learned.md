@@ -8,6 +8,21 @@
 
 ---
 
+## 2026-06-27: Vue 路由同 URL 跳转不重新挂载 → goto 前先到 / 中转
+**Symptom**: flow 脚本单独跑通过，串行跑时下一个 flow 在同 URL (/symbols) 上 `goto_route` 后页面状态残留（tab 内容、DOM 元素），断言超时。
+**Cause**: Vue Router 对相同路由跳转默认复用组件实例，不重新 mount；前一个 flow 留下的 tab 状态/异步 DOM 干扰后一个 flow 的假设。
+**Lesson**: 需要强制重置页面状态时，先 `goto_route(page, "/")` 再 `goto_route(page, "/target")`，或直接用 `page.reload()`，确保组件重新挂载。
+
+## 2026-06-27: KlineChart 异步渲染 → wait_for_selector 比固定等待更稳
+**Symptom**: 点击表格行打开详情面板后，`.kline-toolbar` 元素在 DOM 中但 `wait_for_selector` 超时；增加 `page.wait_for_timeout` 到 4 秒仍不稳定。
+**Cause**: KlineChart 组件异步初始化，toolbar 子元素（`.kline-toolbar__symbol-code` / `name`）在父元素挂载后才逐步渲染；固定等待时间受机器负载影响不可靠。
+**Lesson**: 对异步渲染的 Vue 组件，用 `page.wait_for_selector(".target-element", timeout=15000)` 替代固定 `sleep`，让 Playwright 自动轮询到元素出现；若组件有懒加载特性，可先 query 一次 `count()` 触发 DOM 更新再 wait。
+
+## 2026-06-27: naive-ui n-tabs 用 [role=tab] 而非 .n-tabs-tab，Playwright locator 需适配
+**Symptom**: `page.locator(".n-tabs-tab").all_inner_texts()` 返回空数组，但页面明明有标签页；`page.wait_for_selector(".n-tabs-tab:has-text('A 股数据')")` 恒超时。
+**Cause**: naive-ui `n-tabs` 渲染的 tab 元素 class 名不一定是 `.n-tabs-tab`（可能因版本/配置用 `[role="tab"]` 或其它 class），Playwright 的 CSS 选择器匹配不到。
+**Lesson**: 操作 naive-ui tabs 时优先用 `[role=tab]` 或 `text=` 内容选择器（如 `page.click("text=A 股数据")`），不要硬依赖 `.n-tabs-tab` class。
+
 ## 2026-06-27: naive-ui n-checkbox 状态判勾选需看 className，别找 input[type='checkbox']
 **Symptom**: ColumnSettingsDrawer 里点击列项的 checkbox 无法 toggle，用 `locator("input[type='checkbox']")` 找不到元素，`is_checked()` 也报空。
 **Cause**: naive-ui `n-checkbox` 是自定义组件，不渲染原生 `<input type="checkbox">`；勾选状态通过外层 `.n-checkbox` 的 `n-checkbox--checked` class 体现。
