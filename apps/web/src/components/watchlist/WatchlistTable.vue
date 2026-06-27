@@ -39,7 +39,14 @@
     />
 
     <!-- 列设置 -->
-    <watchlist-table-settings :show="showSettings" @update:show="showSettings = $event" />
+    <watchlist-table-settings
+      :show="showSettings"
+      :definitions="columnDefs"
+      :scope-preferences="scopePreferences"
+      :saving="saving"
+      @update:show="showSettings = $event"
+      @save="handleSaveColumns"
+    />
 
     <!-- 添加标的弹窗 -->
     <watchlist-add-symbols-modal
@@ -109,6 +116,7 @@ import {
   klinesApi,
   quantApi,
   watchlistApi,
+  type ColumnPreferenceItem,
   type KlineChartBar,
   type WatchlistQuoteRow,
 } from '@/api'
@@ -217,7 +225,14 @@ const columnDefs = computed(() => createWatchlistColumnDefs({
   onRemove: removeSymbol,
 }))
 
-const { columns, load } = useWatchlistColumnPreferences(columnDefs)
+const { columns, scopePreferences, saving, save, load } = useWatchlistColumnPreferences(columnDefs)
+
+// 唯一 composable 实例的状态由本组件持有；列设置抽屉（WatchlistTableSettings）只回传草稿，
+// 这里写回 scopePreferences 触发表格列即时重算，再 save() 持久化到后端。
+function handleSaveColumns(draft: ColumnPreferenceItem[]) {
+  scopePreferences.value = draft
+  void save()
+}
 
 const paginationState = computed(() => ({
   page: store.page,
