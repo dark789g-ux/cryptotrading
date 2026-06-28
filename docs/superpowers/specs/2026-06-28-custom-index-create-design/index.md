@@ -1,7 +1,7 @@
 # A 股自定义指数 — 创建指数 Modal 与计算管线
 
 - 创建日期：2026-06-28
-- 状态：设计已确认，待实现
+- 状态：设计已确认；计算层已迁移至 NestJS（2026-06-28）
 
 ## 背景摘要
 
@@ -25,7 +25,7 @@
 | [01-background-and-goals.md](./01-background-and-goals.md) | 背景、目标、非目标、设计决策 |
 | [02-data-model.md](./02-data-model.md) | PostgreSQL schema、权重版本链、ts_code 规则 |
 | [03-index-computation.md](./03-index-computation.md) | 点位合成算法、除权除息、版本切换链式链接 |
-| [04-api-and-jobs.md](./04-api-and-jobs.md) | REST API、ml.jobs、`custom_index_compute` worker |
+| [04-api-and-jobs.md](./04-api-and-jobs.md) | REST API、NestJS Runner、SSE 轮询 |
 | [05-frontend-ui.md](./05-frontend-ui.md) | Tab 改造、5 步 Modal、列设置、K 线复用 |
 | [06-derived-metrics.md](./06-derived-metrics.md) | 技术指标、资金流、AMV 派生 |
 | [07-testing-and-rollout.md](./07-testing-and-rollout.md) | 测试计划、迁移脚本、分阶段交付 |
@@ -63,8 +63,8 @@
   POST /api/custom-indices            ASharesIndexKlineModal (category=custom)
          │
          ▼
-  ml.jobs run_type=custom_index_compute
+  CustomIndexComputeRunner (NestJS 进程内)
          │
          ▼
-  quant-pipeline worker → custom_index_daily_* 表
+  custom_index_daily_* 表
 ```

@@ -127,9 +127,9 @@ Body：
 
 **首版 `effective_date` 规则**：可等于 `base_date`（不必 ≥ 下一交易日）。
 
-Response：`{ id, ts_code, job_id, status: 'pending' }`
+Response：`{ id, ts_code, status: 'pending' }`（**无** `job_id`）
 
-服务端事务：insert definition + version + members → enqueue job → return。
+服务端事务：insert definition + version + members → `scheduleCompute()` → return。
 
 ### 更新
 
@@ -155,7 +155,7 @@ PATCH /api/custom-indices/:id
 DELETE /api/custom-indices/:id
 ```
 
-V1 **硬删** + 级联子表；若 job `running` 则先 cancel 再删。
+V1 **硬删** + 级联子表；`status=computing` 时 **409**（前端按钮已 disabled）。
 
 ### 重试计算
 
@@ -163,7 +163,7 @@ V1 **硬删** + 级联子表；若 job `running` 则先 cancel 再删。
 POST /api/custom-indices/:id/recompute
 ```
 
-`status=failed` 或用户主动触发；enqueue 新 job。
+`status=failed` 或用户主动触发；`scheduleCompute()`（NestJS Runner）。
 
 ### K 线
 
@@ -188,48 +188,39 @@ POST /api/custom-indices/:id/sse-token
 GET  /api/custom-indices/:id/stream?token=
 ```
 
-- 校验：`definition.user_id === currentUser`
-- 转发 `ml.jobs` NOTIFY 或轮询 `compute_progress` / `compute_stage`
-- TTL 5 分钟，模式同 `quant-jobs-sse.controller.ts`
+- 校验：`definition.user_id === currentUser`；token payload `{ custom_index_id, user_id }`
+- **1s 轮询** `custom_index_definitions` 的 `status` / `compute_progress` / `compute_stage`（不依赖 `ml.jobs` NOTIFY）
+- TTL 5 分钟；`pending` / `computing` 即可签发 token（不要求 `latest_job_id`）
 
 **不**对普通用户开放 `POST /api/quant/jobs`。
 
 ---
 
-## ml.jobs 集成
+## NestJS 计算 Runner（2026-06-28 迁移）
 
-### 新增 run_type
+自定义指数历史合成在 **NestJS 进程内**完成，**不再**写入 `ml.jobs` / Python worker。
 
-| 值 | 说明 |
-|----|------|
-| `custom_index_compute` | 自定义指数全量/增量计算 |
-
-写入 `ml.jobs`：
-
-```json
-{
-  "run_type": "custom_index_compute",
-  "params": {
-    "custom_index_id": "uuid",
-    "user_id": "uuid",
-    "full_rebuild": true
-  },
-  "priority": 200,
-  "max_attempts": 2
-}
+```text
+CustomIndexComputeService.scheduleCompute()
+  → void CustomIndexComputeRunner.run()
+  → custom_index_daily_* 表
 ```
 
-### Worker 行为
+模块位置：`apps/server/src/market-data/custom-index/compute/`
 
-1. `poll` 拾取 job
-2. `UPDATE custom_index_definitions SET status='computing'`
-3. 按 `./03-index-computation.md` 阶段执行 + `update_progress`
-4. 成功 → `status='ready'`, `compute_progress=100`
-5. 失败 → `status='failed'`, `last_error=...`
+| Stage | progress | 动作 |
+|-------|----------|------|
+| load_members | 5 | 加载版本链；full_rebuild 删衍生表 |
+| sync_quotes | 15 | 只读 DB 加载成分 OHLCV |
+| quotes | 50 | Laspeyres 链式链接 → quotes |
+| indicators | 60 | MA/MACD/KDJ/BBI/砖图 |
+| money_flow | 70 | 等权 SUM |
+| amv | 80 | AMV 序列 |
+| finalize | 100 | status=ready |
 
-### 取消（V2，V1 不实现）
+**启动恢复**：NestJS `onModuleInit` 将遗留 `status=computing` 标为 `failed`（`last_error=interrupted`）。
 
-`POST /api/custom-indices/:id/cancel-compute` 留待后续；V1 computing 期间禁止 PATCH/删除以外操作，用户等待完成或失败后 recompute。
+详细迁移 spec：[2026-06-28-custom-index-compute-nestjs-migration-design](../2026-06-28-custom-index-compute-nestjs-migration-design/index.md)
 
 ---
 
@@ -239,7 +230,7 @@ GET  /api/custom-indices/:id/stream?token=
 |------|------|
 | 400 | 成分 < 2、权重总和 ≠ 1、调仓 effective_date 非未来交易日 |
 | 404 | 非本人指数 |
-| 409 | 正在 computing 时重复提交 PATCH/recompute |
+| 409 | 正在 computing 时 PATCH/recompute/delete |
 | 422 | base_date 无交易日 |
 
 ---

@@ -9,7 +9,6 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { SseTokenService } from '../../modules/quant/services/sse-token.service';
-import { PgListenService } from '../../modules/quant/realtime/pg-listen.service';
 import { calcMacd, calcZdf } from '../active-mv/amv-formula';
 import type { AmvSignal } from '../active-mv/active-mv.types';
 import { CustomIndexDefinitionEntity } from '../../entities/custom-index/custom-index-definition.entity';
@@ -118,7 +117,6 @@ export class CustomIndexService {
     private readonly memberRepo: Repository<CustomIndexMemberEntity>,
     private readonly computeService: CustomIndexComputeService,
     private readonly sseTokens: SseTokenService,
-    private readonly pgListen: PgListenService,
   ) {}
 
   async getLatest(userId: string, dto: QueryCustomIndexLatestDto): Promise<CustomIndexLatestResult> {
@@ -296,7 +294,7 @@ export class CustomIndexService {
     };
   }
 
-  async create(userId: string, body: CreateCustomIndexBody): Promise<{ id: string; ts_code: string; job_id: string; status: string }> {
+  async create(userId: string, body: CreateCustomIndexBody): Promise<{ id: string; ts_code: string; status: string }> {
     await this.assertOpenTradeDate(body.base_date);
 
     const tsCode = generateCustomIndexTsCode();
@@ -304,7 +302,6 @@ export class CustomIndexService {
     const weights = await this.resolveWeights(body.weight_method, conCodes, body.effective_date, body.members);
 
     let definitionId = '';
-    let jobId = '';
 
     await this.dataSource.transaction(async (manager) => {
       const def = manager.create(CustomIndexDefinitionEntity, {
@@ -339,17 +336,20 @@ export class CustomIndexService {
       await manager.save(CustomIndexMemberEntity, memberRows);
     });
 
-    const job = await this.computeService.enqueue({
-      customIndexId: definitionId,
-      userId,
-      fullRebuild: true,
-    });
-    jobId = job.id;
+    if (
+      !this.computeService.scheduleCompute({
+        customIndexId: definitionId,
+        userId,
+        fullRebuild: true,
+      })
+    ) {
+      throw new ConflictException('指数正在计算中');
+    }
 
-    return { id: definitionId, ts_code: tsCode, job_id: jobId, status: 'pending' };
+    return { id: definitionId, ts_code: tsCode, status: 'pending' };
   }
 
-  async update(userId: string, id: string, body: UpdateCustomIndexBody): Promise<{ id: string; job_id?: string; status: string }> {
+  async update(userId: string, id: string, body: UpdateCustomIndexBody): Promise<{ id: string; status: string }> {
     const def = await this.requireOwnedDefinition(userId, id);
 
     if (def.status === 'computing') {
@@ -453,33 +453,43 @@ export class CustomIndexService {
       await manager.save(CustomIndexMemberEntity, memberEntities);
     });
 
-    const job = await this.computeService.enqueue({
-      customIndexId: def.id,
-      userId,
-      fullRebuild: indexTypeChanged,
-    });
+    if (
+      !this.computeService.scheduleCompute({
+        customIndexId: def.id,
+        userId,
+        fullRebuild: indexTypeChanged,
+      })
+    ) {
+      throw new ConflictException('指数正在计算中');
+    }
 
-    return { id: def.id, job_id: job.id, status: 'pending' };
+    return { id: def.id, status: 'pending' };
   }
 
   async remove(userId: string, id: string): Promise<{ ok: true }> {
     const def = await this.requireOwnedDefinition(userId, id);
-    await this.computeService.cancelLatestJob(def);
+    if (def.status === 'computing') {
+      throw new ConflictException('指数正在计算中，请稍后再试');
+    }
     await this.definitionRepo.delete({ id: def.id, userId });
     return { ok: true };
   }
 
-  async recompute(userId: string, id: string): Promise<{ job_id: string; status: string }> {
+  async recompute(userId: string, id: string): Promise<{ status: string }> {
     const def = await this.requireOwnedDefinition(userId, id);
     if (def.status === 'computing') {
       throw new ConflictException('指数正在计算中');
     }
-    const job = await this.computeService.enqueue({
-      customIndexId: def.id,
-      userId,
-      fullRebuild: true,
-    });
-    return { job_id: job.id, status: 'pending' };
+    if (
+      !this.computeService.scheduleCompute({
+        customIndexId: def.id,
+        userId,
+        fullRebuild: true,
+      })
+    ) {
+      throw new ConflictException('指数正在计算中');
+    }
+    return { status: 'pending' };
   }
 
   async getKline(
@@ -623,17 +633,13 @@ export class CustomIndexService {
   async issueSseToken(
     userId: string,
     customIndexId: string,
-  ): Promise<{ token: string; expires_at: string; custom_index_id: string; job_id: string | null }> {
-    const def = await this.requireOwnedDefinition(userId, customIndexId);
-    if (!def.latestJobId) {
-      throw new BadRequestException('尚无计算任务');
-    }
-    const issued = this.sseTokens.issueToken(def.latestJobId, userId);
+  ): Promise<{ token: string; expires_at: string; custom_index_id: string }> {
+    await this.requireOwnedDefinition(userId, customIndexId);
+    const issued = this.sseTokens.issueCustomIndexToken(customIndexId, userId);
     return {
       token: issued.token,
       expires_at: formatUtcWallClock(issued.expiresAt),
       custom_index_id: customIndexId,
-      job_id: def.latestJobId,
     };
   }
 
@@ -642,27 +648,11 @@ export class CustomIndexService {
     const def = await this.requireOwnedDefinition(userId, customIndexId);
     return {
       custom_index_id: def.id,
-      job_id: def.latestJobId,
       status: def.status,
       progress: def.computeProgress ?? 0,
       stage: def.computeStage,
       last_error: def.lastError,
     };
-  }
-
-  getPgListen() {
-    return this.pgListen;
-  }
-
-  async findJob(jobId: string) {
-    const rows = await this.dataSource.query<
-      Array<{ id: string; status: string; progress: number; stage: string | null }>
-    >(
-      `SELECT id, status, progress, stage FROM ml.jobs WHERE id = $1`,
-      [jobId],
-    );
-    if (!rows[0]) throw new NotFoundException(`job ${jobId} 不存在`);
-    return rows[0];
   }
 
   private async requireOwnedDefinition(userId: string, id: string): Promise<CustomIndexDefinitionEntity> {

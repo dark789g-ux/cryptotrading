@@ -473,13 +473,6 @@ def _runner_kelly_sweep(job: Job) -> None:
     _update_job_result(job.id, result)
 
 
-def _runner_custom_index_compute(job: Job) -> None:
-    """custom_index_compute runner（spec 2026-06-28-custom-index-create-design）。"""
-
-    from quant_pipeline.custom_index.compute import compute_custom_index
-
-    compute_custom_index(job)
-
 
 def _make_progress_callback(job_id: UUID) -> Any:
     """构造一个把进度回写 ml.jobs 的 callback，供 prepare_runner 使用。
@@ -617,8 +610,6 @@ _ROUTES = {
     "monitor": _runner_monitor,
     # spec 2026-06-09 kelly_sweep
     "kelly_sweep": _runner_kelly_sweep,
-    # spec 2026-06-28 custom index compute
-    "custom_index_compute": _runner_custom_index_compute,
 }
 
 

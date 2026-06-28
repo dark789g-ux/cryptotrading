@@ -12,7 +12,6 @@ import { CustomIndexDefinitionEntity } from '../../entities/custom-index/custom-
 import { CustomIndexWeightVersionEntity } from '../../entities/custom-index/custom-index-weight-version.entity';
 import { CustomIndexMemberEntity } from '../../entities/custom-index/custom-index-member.entity';
 import { SseTokenService } from '../../modules/quant/services/sse-token.service';
-import { PgListenService } from '../../modules/quant/realtime/pg-listen.service';
 import {
   assertWeightSum,
   generateCustomIndexTsCode,
@@ -50,7 +49,7 @@ describe('CustomIndexService', () => {
   };
   let versionRepo: { findOne: jest.Mock };
   let memberRepo: { find: jest.Mock; findOne: jest.Mock };
-  let computeService: { enqueue: jest.Mock; cancelLatestJob: jest.Mock };
+  let computeService: { scheduleCompute: jest.Mock; enqueue: jest.Mock };
   let dataSource: { query: jest.Mock; transaction: jest.Mock };
 
   const userA = 'user-a';
@@ -91,8 +90,8 @@ describe('CustomIndexService', () => {
       findOne: jest.fn(),
     };
     computeService = {
-      enqueue: jest.fn(async () => ({ id: 'job-new' })),
-      cancelLatestJob: jest.fn(),
+      scheduleCompute: jest.fn().mockReturnValue(true),
+      enqueue: jest.fn().mockReturnValue(true),
     };
     dataSource = {
       query: jest.fn(),
@@ -119,15 +118,11 @@ describe('CustomIndexService', () => {
         {
           provide: SseTokenService,
           useValue: {
-            issueToken: jest.fn(() => ({
+            issueCustomIndexToken: jest.fn(() => ({
               token: 'tok',
               expiresAt: new Date('2030-01-01T00:00:00Z'),
             })),
           },
-        },
-        {
-          provide: PgListenService,
-          useValue: { events$: jest.fn(() => ({ subscribe: jest.fn() })) },
         },
         { provide: getDataSourceToken(), useValue: dataSource },
       ],
@@ -146,8 +141,13 @@ describe('CustomIndexService', () => {
     it('remove 仅删除本人数据', async () => {
       definitionRepo.findOne.mockResolvedValue(baseDef);
       await service.remove(userA, indexId);
-      expect(computeService.cancelLatestJob).toHaveBeenCalledWith(baseDef);
       expect(definitionRepo.delete).toHaveBeenCalledWith({ id: indexId, userId: userA });
+    });
+
+    it('remove computing 状态抛 409', async () => {
+      definitionRepo.findOne.mockResolvedValue({ ...baseDef, status: 'computing' });
+      await expect(service.remove(userA, indexId)).rejects.toBeInstanceOf(ConflictException);
+      expect(definitionRepo.delete).not.toHaveBeenCalled();
     });
   });
 
@@ -167,7 +167,7 @@ describe('CustomIndexService', () => {
       ).rejects.toBeInstanceOf(UnprocessableEntityException);
     });
 
-    it('equal 权重创建并入队 job', async () => {
+    it('equal 权重创建并 schedule 计算', async () => {
       dataSource.query
         .mockResolvedValueOnce([{ ok: 1 }]) // trade_cal
         .mockResolvedValueOnce([]); // loadStockNames (empty ok)
@@ -184,7 +184,7 @@ describe('CustomIndexService', () => {
 
       expect(out.status).toBe('pending');
       expect(out.ts_code).toMatch(/^CUST\./);
-      expect(computeService.enqueue).toHaveBeenCalledWith(
+      expect(computeService.scheduleCompute).toHaveBeenCalledWith(
         expect.objectContaining({ userId: userA, fullRebuild: true }),
       );
     });
@@ -215,11 +215,11 @@ describe('CustomIndexService', () => {
       );
     });
 
-    it('仅改 name 不 enqueue', async () => {
+    it('仅改 name 不 scheduleCompute', async () => {
       definitionRepo.findOne.mockResolvedValue({ ...baseDef });
       const out = await service.update(userA, indexId, { name: '新名' });
       expect(out.status).toBe('ready');
-      expect(computeService.enqueue).not.toHaveBeenCalled();
+      expect(computeService.scheduleCompute).not.toHaveBeenCalled();
     });
 
     it('成分无变化抛 400', async () => {

@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { MlJobEntity } from '../../entities/ml/ml-job.entity';
 import { CustomIndexDefinitionEntity } from '../../entities/custom-index/custom-index-definition.entity';
+import { CustomIndexComputeRunner } from './compute/custom-index-compute.runner';
 
 export interface EnqueueCustomIndexComputeOptions {
   customIndexId: string;
@@ -15,61 +15,61 @@ export class CustomIndexComputeService {
   private readonly logger = new Logger(CustomIndexComputeService.name);
 
   constructor(
-    @InjectRepository(MlJobEntity)
-    private readonly jobsRepo: Repository<MlJobEntity>,
     @InjectRepository(CustomIndexDefinitionEntity)
     private readonly definitionRepo: Repository<CustomIndexDefinitionEntity>,
+    private readonly runner: CustomIndexComputeRunner,
   ) {}
 
-  /**
-   * 插入 ml.jobs（run_type=custom_index_compute）并回写 definition.latest_job_id / status=pending。
-   * 普通用户不直接调 POST /api/quant/jobs。
-   */
-  async enqueue(opts: EnqueueCustomIndexComputeOptions): Promise<MlJobEntity> {
-    const job = this.jobsRepo.create({
-      runType: 'custom_index_compute',
-      params: {
-        custom_index_id: opts.customIndexId,
-        user_id: opts.userId,
-        full_rebuild: opts.fullRebuild !== false,
-      },
-      priority: 200,
-      maxAttempts: 2,
-      status: 'pending',
-      progress: 0,
-      attempts: 0,
-      cancelRequested: false,
-      createdBy: opts.userId,
-    });
-    const saved = await this.jobsRepo.save(job);
-
-    await this.definitionRepo.update(
-      { id: opts.customIndexId, userId: opts.userId },
-      {
-        latestJobId: saved.id,
-        status: 'pending',
-        computeProgress: 0,
-        computeStage: null,
-        lastError: null,
-      },
-    );
-
-    this.logger.log(
-      `custom_index_compute enqueued custom_index_id=${opts.customIndexId} job_id=${saved.id}`,
-    );
-    return saved;
+  /** @deprecated 别名，指向 scheduleCompute */
+  enqueue(opts: EnqueueCustomIndexComputeOptions): boolean {
+    return this.scheduleCompute(opts);
   }
 
-  /** 若关联 job 仍在 running/pending，请求 cancel */
-  async cancelLatestJob(definition: CustomIndexDefinitionEntity): Promise<void> {
-    if (!definition.latestJobId) return;
-    const job = await this.jobsRepo.findOne({ where: { id: definition.latestJobId } });
-    if (!job) return;
-    if (['success', 'failed', 'blocked', 'cancelled'].includes(job.status)) return;
-    if (job.status === 'draft') {
-      await this.jobsRepo.update({ id: job.id }, { status: 'cancelled' });
-      return;
+  /** @returns false 若该指数已在计算中（内存锁拒绝重复调度） */
+  scheduleCompute(opts: EnqueueCustomIndexComputeOptions): boolean {
+    if (!this.runner.tryAcquire(opts.customIndexId)) {
+      this.logger.warn(
+        `custom_index_compute duplicate schedule rejected id=${opts.customIndexId}`,
+      );
+      return false;
     }
-    await this.jobsRepo.update({ id: job.id }, { cancelRequested: true });
+
+    void this.definitionRepo
+      .update(
+        { id: opts.customIndexId, userId: opts.userId },
+        {
+          status: 'pending',
+          computeProgress: 0,
+          computeStage: null,
+          lastError: null,
+        },
+      )
+      .then(() =>
+        this.runner.run({
+          customIndexId: opts.customIndexId,
+          userId: opts.userId,
+          fullRebuild: opts.fullRebuild !== false,
+        }),
+      )
+      .catch(async (err: unknown) => {
+        this.runner.release(opts.customIndexId);
+        const message = err instanceof Error ? err.message : String(err);
+        await this.definitionRepo.update(
+          { id: opts.customIndexId, userId: opts.userId },
+          {
+            status: 'failed',
+            computeProgress: null,
+            computeStage: null,
+            lastError: message,
+          },
+        );
+        this.logger.error(
+          `custom_index_compute failed id=${opts.customIndexId}: ${message}`,
+          err instanceof Error ? err.stack : undefined,
+        );
+      });
+
+    this.logger.log(`custom_index_compute scheduled id=${opts.customIndexId}`);
+    return true;
   }
 }

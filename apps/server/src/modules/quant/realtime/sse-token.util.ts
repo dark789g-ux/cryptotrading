@@ -26,6 +26,13 @@ export interface SseTokenPayload {
   exp: number;
 }
 
+/** 自定义指数 SSE token payload（无 job_id） */
+export interface CustomIndexSseTokenPayload {
+  custom_index_id: string;
+  user_id: string;
+  exp: number;
+}
+
 export const SSE_TOKEN_TTL_SECONDS = 300; // 5 分钟
 
 function base64urlEncode(buf: Buffer): string {
@@ -49,6 +56,19 @@ function base64urlDecode(s: string): Buffer {
  * 不需要 JWT 的 alg 协商 / kid 体系。
  */
 export function signSseToken(payload: SseTokenPayload, secret: string): string {
+  if (!secret) {
+    throw new Error('QUANT_SSE_SECRET 未配置');
+  }
+  const json = JSON.stringify(payload);
+  const body = base64urlEncode(Buffer.from(json, 'utf8'));
+  const sig = createHmac('sha256', secret).update(body).digest();
+  return `${body}.${base64urlEncode(sig)}`;
+}
+
+export function signCustomIndexSseToken(
+  payload: CustomIndexSseTokenPayload,
+  secret: string,
+): string {
   if (!secret) {
     throw new Error('QUANT_SSE_SECRET 未配置');
   }
@@ -113,6 +133,65 @@ export function verifySseToken(
   }
 
   // 3. 过期校验
+  if (payload.exp <= nowSeconds) {
+    return { ok: false, reason: 'expired' };
+  }
+
+  return { ok: true, payload };
+}
+
+export type VerifyCustomIndexSseTokenResult =
+  | { ok: true; payload: CustomIndexSseTokenPayload }
+  | { ok: false; reason: 'malformed' | 'bad_signature' | 'expired' | 'invalid_payload' };
+
+export function verifyCustomIndexSseToken(
+  token: string,
+  secret: string,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): VerifyCustomIndexSseTokenResult {
+  if (!secret) {
+    return { ok: false, reason: 'malformed' };
+  }
+  if (typeof token !== 'string' || !token.includes('.')) {
+    return { ok: false, reason: 'malformed' };
+  }
+  const [body, sig] = token.split('.', 2);
+  if (!body || !sig) {
+    return { ok: false, reason: 'malformed' };
+  }
+
+  const expectedSig = createHmac('sha256', secret).update(body).digest();
+  let providedSig: Buffer;
+  try {
+    providedSig = base64urlDecode(sig);
+  } catch {
+    return { ok: false, reason: 'bad_signature' };
+  }
+  if (providedSig.length !== expectedSig.length) {
+    return { ok: false, reason: 'bad_signature' };
+  }
+  if (!timingSafeEqual(providedSig, expectedSig)) {
+    return { ok: false, reason: 'bad_signature' };
+  }
+
+  let payload: CustomIndexSseTokenPayload;
+  try {
+    const json = base64urlDecode(body).toString('utf8');
+    const parsed = JSON.parse(json);
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      typeof parsed.custom_index_id !== 'string' ||
+      typeof parsed.user_id !== 'string' ||
+      typeof parsed.exp !== 'number'
+    ) {
+      return { ok: false, reason: 'invalid_payload' };
+    }
+    payload = parsed as CustomIndexSseTokenPayload;
+  } catch {
+    return { ok: false, reason: 'invalid_payload' };
+  }
+
   if (payload.exp <= nowSeconds) {
     return { ok: false, reason: 'expired' };
   }

@@ -109,7 +109,6 @@ export interface PreviewWeightsBody {
 export interface CreateCustomIndexResult {
   id: string
   ts_code: string
-  job_id: string | null
   status: CustomIndexStatus
 }
 

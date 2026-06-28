@@ -2,8 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   SSE_TOKEN_TTL_SECONDS,
+  signCustomIndexSseToken,
   signSseToken,
+  verifyCustomIndexSseToken,
   verifySseToken,
+  type CustomIndexSseTokenPayload,
   type SseTokenPayload,
 } from '../realtime/sse-token.util';
 
@@ -24,6 +27,12 @@ export interface IssueTokenResult {
   token: string;
   expiresAt: Date;
   payload: SseTokenPayload;
+}
+
+export interface IssueCustomIndexTokenResult {
+  token: string;
+  expiresAt: Date;
+  payload: CustomIndexSseTokenPayload;
 }
 
 @Injectable()
@@ -82,5 +91,50 @@ export class SseTokenService {
       return null;
     }
     return { jobId: result.payload.job_id, userId: result.payload.user_id };
+  }
+
+  issueCustomIndexToken(
+    customIndexId: string,
+    userId: string,
+  ): IssueCustomIndexTokenResult {
+    const secret = this.getSecret();
+    if (!secret) {
+      this.logger.error(
+        'SSE token secret 未配置（QUANT_SSE_TOKEN_SECRET / QUANT_SSE_SECRET / JWT_SECRET 至少一项必填）',
+      );
+      throw new Error('SSE token secret 未配置');
+    }
+    const nowSec = Math.floor(Date.now() / 1000);
+    const payload: CustomIndexSseTokenPayload = {
+      custom_index_id: customIndexId,
+      user_id: userId,
+      exp: nowSec + SSE_TOKEN_TTL_SECONDS,
+    };
+    const token = signCustomIndexSseToken(payload, secret);
+    return {
+      token,
+      expiresAt: new Date(payload.exp * 1000),
+      payload,
+    };
+  }
+
+  verifyCustomIndexToken(
+    token: string,
+  ): { customIndexId: string; userId: string } | null {
+    const secret = this.getSecret();
+    if (!secret) {
+      this.logger.error('SSE token secret 未配置，verifyCustomIndexToken 直接拒绝');
+      return null;
+    }
+    const result = verifyCustomIndexSseToken(token, secret);
+    if (result.ok === false) {
+      const reason = (result as { ok: false; reason: string }).reason;
+      this.logger.warn(`custom_index_sse_token_reject reason=${reason}`);
+      return null;
+    }
+    return {
+      customIndexId: result.payload.custom_index_id,
+      userId: result.payload.user_id,
+    };
   }
 }
