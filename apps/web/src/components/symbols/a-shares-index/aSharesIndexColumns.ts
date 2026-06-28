@@ -4,6 +4,7 @@ import type { IndexCategory, IndexLatestRow } from './types'
 import {
   formatAmount,
   formatMarketCap,
+  formatMoneyFlow,
   formatNumber,
   formatPercent,
   formatTradeDate,
@@ -34,6 +35,16 @@ function pctColor(value: number | null): string | undefined {
   if (value > 0) return colors.success.DEFAULT
   if (value < 0) return colors.error.DEFAULT
   return undefined
+}
+
+/**
+ * 资金净流入单元格：按正负着色（正绿负红，0/null 无色）+ 万元口径格式化。
+ * 净流入字段单位为万元，必须用 formatMoneyFlow（formatAmount 是千元口径，会差 10 倍）。
+ * pctColor 为通用「按正负取涨跌色」，名字沿用历史（与涨跌幅列共用）。
+ */
+function renderMoneyFlowCell(value: number | null) {
+  const color = pctColor(value)
+  return h('span', { style: color ? { color } : undefined }, formatMoneyFlow(toStr(value)))
 }
 
 /**
@@ -136,7 +147,7 @@ export function createASharesIndexColumnDefs({
       width: 120,
       sorter: true,
       defaultVisible: false,
-      render: (row) => formatAmount(toStr(row.netAmount)),
+      render: (row) => renderMoneyFlowCell(row.netAmount),
     },
     {
       title: '5日净流入',
@@ -144,7 +155,7 @@ export function createASharesIndexColumnDefs({
       width: 120,
       sorter: true,
       defaultVisible: false,
-      render: (row) => formatAmount(toStr(row.netAmount5d)),
+      render: (row) => renderMoneyFlowCell(row.netAmount5d),
     },
     {
       title: '10日净流入',
@@ -152,7 +163,7 @@ export function createASharesIndexColumnDefs({
       width: 120,
       sorter: true,
       defaultVisible: false,
-      render: (row) => formatAmount(toStr(row.netAmount10d)),
+      render: (row) => renderMoneyFlowCell(row.netAmount10d),
     },
     {
       title: '20日净流入',
@@ -160,7 +171,7 @@ export function createASharesIndexColumnDefs({
       width: 120,
       sorter: true,
       defaultVisible: false,
-      render: (row) => formatAmount(toStr(row.netAmount20d)),
+      render: (row) => renderMoneyFlowCell(row.netAmount20d),
     },
     {
       title: '大单净流入',
@@ -168,7 +179,7 @@ export function createASharesIndexColumnDefs({
       width: 120,
       sorter: true,
       defaultVisible: false,
-      render: (row) => formatAmount(toStr(row.buyLgAmount)),
+      render: (row) => renderMoneyFlowCell(row.buyLgAmount),
     },
     {
       title: '中单净流入',
@@ -176,7 +187,7 @@ export function createASharesIndexColumnDefs({
       width: 120,
       sorter: true,
       defaultVisible: false,
-      render: (row) => formatAmount(toStr(row.buyMdAmount)),
+      render: (row) => renderMoneyFlowCell(row.buyMdAmount),
     },
     {
       title: '小单净流入',
@@ -184,7 +195,7 @@ export function createASharesIndexColumnDefs({
       width: 120,
       sorter: true,
       defaultVisible: false,
-      render: (row) => formatAmount(toStr(row.buySmAmount)),
+      render: (row) => renderMoneyFlowCell(row.buySmAmount),
     },
     {
       title: '个股数',
