@@ -1,6 +1,10 @@
-# 02 数据模型变更
+﻿# 02 数据模型变更
+
+> **查库场景**见 [doc/db/quick-guide/index.md](../../../doc/db/quick-guide/index.md)。本文档保留设计决策；表结构按需 `\d` 查真库。
 
 ## 2.1 `a_share_symbols` 表
+
+表结构：`public.a_share_symbols`
 
 ### 变更内容
 
@@ -9,21 +13,7 @@
 
 ### Migration
 
-```sql
--- 20260625000001-drop-a-share-industry-add-sw-fields.sql
-ALTER TABLE a_share_symbols
-  DROP COLUMN IF EXISTS industry;
-
-ALTER TABLE a_share_symbols
-  ADD COLUMN IF NOT EXISTS sw_industry_l1_code VARCHAR(20),
-  ADD COLUMN IF NOT EXISTS sw_industry_l2_code VARCHAR(20),
-  ADD COLUMN IF NOT EXISTS sw_industry_l3_code VARCHAR(20);
-
-DROP INDEX IF EXISTS idx_a_share_symbols_industry;
-CREATE INDEX IF NOT EXISTS idx_a_share_symbols_sw_l1 ON a_share_symbols(sw_industry_l1_code);
-CREATE INDEX IF NOT EXISTS idx_a_share_symbols_sw_l2 ON a_share_symbols(sw_industry_l2_code);
-CREATE INDEX IF NOT EXISTS idx_a_share_symbols_sw_l3 ON a_share_symbols(sw_industry_l3_code);
-```
+DDL 已迁移至 doc/db/。列变更 migration 见 `apps/server/src/migration/20260625000001-drop-a-share-industry-add-sw-fields.sql`。
 
 ### 实体变更
 
@@ -64,24 +54,7 @@ WHERE s.ts_code = im.ts_code;
 
 用于存储宽基指数成分股版本链。
 
-```sql
--- 20260625000002-create-index-weight.sql
-CREATE TABLE IF NOT EXISTS index_weight (
-  id BIGSERIAL PRIMARY KEY,
-  index_code VARCHAR(20) NOT NULL,
-  con_code VARCHAR(20) NOT NULL,
-  effective_date VARCHAR(8) NOT NULL,
-  expire_date VARCHAR(8),
-  weight NUMERIC(20, 10),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(index_code, con_code, effective_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_index_weight_lookup 
-  ON index_weight(index_code, con_code, effective_date);
-CREATE INDEX IF NOT EXISTS idx_index_weight_active 
-  ON index_weight(index_code) WHERE expire_date IS NULL;
-```
+表结构：`public.index_weight`（列定义按需 `\d schema.table`）
 
 ### 实体
 
@@ -128,25 +101,7 @@ export class IndexWeightEntity {
 
 原表用于存储同花顺行业资金流，本次改造后数据含义改为申万三级行业。由于表结构不变，无需 migration，只需清空/重算数据。
 
-完整表结构（与现有表一致）：
-
-```sql
-CREATE TABLE IF NOT EXISTS money_flow_industries (
-  id BIGSERIAL PRIMARY KEY,
-  ts_code VARCHAR(16) NOT NULL,      -- 改造后：申万三级行业代码，如 850531.SI
-  trade_date VARCHAR(8) NOT NULL,
-  industry VARCHAR(64) NOT NULL,
-  pct_change NUMERIC(20,4),
-  net_buy_amount NUMERIC(20,4),
-  net_sell_amount NUMERIC(20,4),
-  net_amount NUMERIC(20,4),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(ts_code, trade_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_money_flow_industries_ts_date 
-  ON money_flow_industries(ts_code, trade_date);
-```
+表结构：`public.money_flow_industries`（列定义按需 `\d schema.table`）
 
 | 字段 | 说明 |
 |---|---|
@@ -160,78 +115,23 @@ CREATE INDEX IF NOT EXISTS idx_money_flow_industries_ts_date
 
 ### `money_flow_ths_industries`（新增）：同花顺行业
 
-```sql
--- 20260625000004-create-money-flow-ths-industries.sql
-CREATE TABLE IF NOT EXISTS money_flow_ths_industries (
-  id BIGSERIAL PRIMARY KEY,
-  ts_code VARCHAR(20) NOT NULL,      -- 同花顺行业指数代码，如 881267.TI
-  trade_date VARCHAR(8) NOT NULL,
-  industry VARCHAR(64) NOT NULL,
-  pct_change NUMERIC(20,4),
-  net_buy_amount NUMERIC(20,4),
-  net_sell_amount NUMERIC(20,4),
-  net_amount NUMERIC(20,4),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(ts_code, trade_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_money_flow_ths_industries_ts_date 
-  ON money_flow_ths_industries(ts_code, trade_date);
-```
+表结构：`public.money_flow_ths_industries`（列定义按需 `\d schema.table`）
 
 ### `money_flow_sectors`：同花顺概念/板块
 
 原表复用，数据含义不变（同花顺概念/板块），但 `pct_change` / `net_buy` / `net_sell` 填 `NULL`。
 
-完整表结构（与现有表一致）：
-
-```sql
-CREATE TABLE IF NOT EXISTS money_flow_sectors (
-  id BIGSERIAL PRIMARY KEY,
-  ts_code VARCHAR(16) NOT NULL,      -- 同花顺概念/板块指数代码，如 885748.TI
-  trade_date VARCHAR(8) NOT NULL,
-  name VARCHAR(64) NOT NULL,
-  pct_change NUMERIC(20,4),
-  net_buy_amount NUMERIC(20,4),
-  net_sell_amount NUMERIC(20,4),
-  net_amount NUMERIC(20,4),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(ts_code, trade_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_money_flow_sectors_ts_date 
-  ON money_flow_sectors(ts_code, trade_date);
-```
+表结构：`public.money_flow_sectors`（列定义按需 `\d schema.table`）
 
 ### `money_flow_index`（新增）：宽基指数
 
-```sql
--- 20260625000003-create-money-flow-index.sql
-CREATE TABLE IF NOT EXISTS money_flow_index (
-  id BIGSERIAL PRIMARY KEY,
-  ts_code VARCHAR(20) NOT NULL,      -- 宽基指数代码，如 000300.SH
-  trade_date VARCHAR(8) NOT NULL,
-  net_amount NUMERIC(20,4),
-  buy_lg_amount NUMERIC(20,4),
-  buy_md_amount NUMERIC(20,4),
-  buy_sm_amount NUMERIC(20,4),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(ts_code, trade_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_money_flow_index_ts_date 
-  ON money_flow_index(ts_code, trade_date);
-```
+表结构：`public.money_flow_index`（列定义按需 `\d schema.table`）
 
 ### `money_flow_market`：全市场大盘
 
-当前表已有 `net_amount` / `buy_lg_amount` / `buy_sm_amount`，本次新增 `buy_md_amount`：
+当前表已有 `net_amount` / `buy_lg_amount` / `buy_sm_amount`，本次新增 `buy_md_amount`。
 
-```sql
--- 20260625000005-alter-money-flow-market.sql
-ALTER TABLE money_flow_market
-  ADD COLUMN IF NOT EXISTS buy_md_amount NUMERIC(20,4);
-```
+表结构：`public.money_flow_market`（列定义按需 `\d`；`buy_md_amount` 列 migration 见 `20260625000005-alter-money-flow-market.sql`）
 
 `buy_lg_amount` / `buy_sm_amount` 保留，但来源从东方财富改为同花顺个股加总。
 

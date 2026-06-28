@@ -1,31 +1,12 @@
-# 01 · 数据库 Schema
+﻿# 01 · 数据库 Schema
+
+> **表结构权威文档**见 [doc/db/index.md](../../../doc/db/index.md)。本文档保留设计 rationale；**DDL 已迁移至 doc/db/**。
 
 ← 回到 [index.md](./index.md)
 
 ## 表结构
 
-```text
-factors.factor_definitions
-┌────────────────────────┬──────────────────────┬──────────────────────────┐
-│ 列                     │ 类型                 │ 说明                     │
-├────────────────────────┼──────────────────────┼──────────────────────────┤
-│ factor_id              │ varchar(64)          │ PK                       │
-│ factor_version         │ varchar(16)          │ PK，当前唯一值 'v1'      │
-│ description            │ text                 │ 中文短描述               │
-│ formula                │ text NULL            │ 计算表达式（仅供阅读）   │
-│ data_source            │ text[] NULL          │ 用到的底层列/表（仅阅读）│
-│ category               │ varchar(32)          │ price/industry/          │
-│                        │                      │ fundamental/mixed        │
-│ pit_window_days        │ int                  │ lookback 天数 (1..400)   │
-│ pit_anchor             │ varchar(16)          │ trade_date / ann_date    │
-│ enabled                │ bool DEFAULT true    │ 启停                     │
-│ display_order          │ int DEFAULT 100      │ 前端排序                 │
-│ updated_at             │ timestamptz          │ NestJS 写入时刷新        │
-│ updated_by             │ varchar(64) NULL     │ 修改人 user uuid         │
-└────────────────────────┴──────────────────────┴──────────────────────────┘
-PK: (factor_id, factor_version)
-INDEX: (enabled, category) 用于前端筛选
-```
+表结构：`factors.factor_definitions`（列定义按需 `\d schema.table`）
 
 ## 字段约束
 
@@ -42,7 +23,7 @@ INDEX: (enabled, category) 用于前端筛选
 **步骤**：
 
 1. `CREATE SCHEMA IF NOT EXISTS factors;`（若不存在）
-2. `CREATE TABLE factors.factor_definitions (...)` 含上表列、PK、CHECK、INDEX
+2. `CREATE TABLE factors.factor_definitions (...)` 含上表列、PK、CHECK、INDEX — 列定义见 `factor_definitions`
 3. `INSERT INTO factors.factor_definitions VALUES (...)`，16 个元组**人工抄写自当前 registry 类属性**
 
 **为什么不在 migration 中 import quant_pipeline 包**：

@@ -1,5 +1,7 @@
 # PG schema 总览 + 迁移策略
 
+> **表结构权威文档**已迁移至 [doc/db/index.md](../../db/index.md)。本文档保留 schema 划分、sync 所有权、迁移策略等设计决策；**DDL 已迁移至 doc/db/**，请勿在此维护列定义。
+
 > 本文档是 [00-index.md](00-index.md) 的子文档。所有里程碑 agent 都需要本文档作为 schema / 通信契约的底座。
 
 ## 1 Schema 划分
@@ -15,93 +17,40 @@
 
 | 旧表 (public) | 新表 (raw) | 说明 |
 |---|---|---|
-| `a_share_daily_quote` | `raw.daily_quote` | OHLCV 日线 |
-| `a_share_daily_metric` | `raw.daily_basic` | PE/PB/换手等 |
-| `a_share_adj_factor` | `raw.adj_factor` | 复权因子 |
-| `a_share_daily_indicator` | `raw.daily_indicator` | 自算技术指标 |
-| `a_share_indicator_calc_state` | `raw.indicator_calc_state` | 计算状态 |
+| `a_share_daily_quote` | [`raw.daily_quote`](../../db/tables/raw/daily_quote.md) | OHLCV 日线 |
+| `a_share_daily_metric` | [`raw.daily_basic`](../../db/tables/raw/daily_basic.md) | PE/PB/换手等 |
+| `a_share_adj_factor` | [`raw.adj_factor`](../../db/tables/raw/adj_factor.md) | 复权因子 |
+| `a_share_daily_indicator` | [`raw.daily_indicator`](../../db/tables/raw/daily_indicator.md) | 自算技术指标 |
+| `a_share_indicator_calc_state` | [`raw.indicator_calc_state`](../../db/tables/raw/indicator_calc_state.md) | 计算状态 |
 
 **M1 起需新增同步的表**（Python 侧扩展 sync 模块）：
-- `raw.stk_limit` 涨跌停价
-- `raw.suspend_d` 停牌
-- `raw.index_classify` / `raw.index_member` 行业分类与成份
-- `raw.fina_indicator` 财务（必须以 `ann_date` 而非 `end_date` 入库）
-- `raw.trade_cal` 交易日历
+- [`raw.stk_limit`](../../db/tables/raw/stk_limit.md) 涨跌停价
+- [`raw.suspend_d`](../../db/tables/raw/suspend_d.md) 停牌
+- [`raw.index_classify`](../../db/tables/raw/index_classify.md) / [`raw.index_member`](../../db/tables/raw/index_member.md) 行业分类与成份
+- [`raw.fina_indicator`](../../db/tables/raw/fina_indicator.md) 财务（必须以 `ann_date` 而非 `end_date` 入库）
+- [`raw.trade_cal`](../../db/tables/raw/trade_cal.md) 交易日历
 
 ## 3 factors schema 表清单（M1 起建）
 
 | 表 | 用途 | 主键 |
 |---|---|---|
-| `factors.daily_factors` | 长格式：(trade_date, ts_code, factor_id, factor_version, value) | PK(trade_date, ts_code, factor_id, factor_version) |
-| `factors.labels` | (trade_date, ts_code, scheme, value, exit_reason, hold_days) | PK(trade_date, ts_code, scheme) |
-| `factors.feature_sets` | 元数据：(feature_set_id, factor_version, scheme, factor_ids[], created_at) | PK(feature_set_id) |
-| `factors.feature_matrix` | 宽格式训练矩阵（按 feature_set 分区） | PK(trade_date, ts_code, feature_set_id) |
+| [`factors.daily_factors`](../../db/tables/factors/daily_factors.md) | 长格式：(trade_date, ts_code, factor_id, factor_version, value) | PK(trade_date, ts_code, factor_id, factor_version) |
+| [`factors.labels`](../../db/tables/factors/labels.md) | (trade_date, ts_code, scheme, value, exit_reason, hold_days) | PK(trade_date, ts_code, scheme) |
+| [`factors.feature_sets`](../../db/tables/factors/feature_sets.md) | 元数据：(feature_set_id, factor_version, scheme, factor_ids[], created_at) | PK(feature_set_id) |
+| [`factors.feature_matrix`](../../db/tables/factors/feature_matrix.md) | 宽格式训练矩阵（按 feature_set 分区） | PK(trade_date, ts_code, feature_set_id) |
 
 按月分区（`PARTITION BY RANGE (trade_date)`）。
 
 ## 4 ml schema 表清单（M0 建空壳；M2 起填充）
 
-```sql
-ml.jobs (
-  id                uuid PK,
-  run_type          text NOT NULL,  -- noop|sync|quality|factors|labels|features|train|infer|optuna|seed_avg
-  params            jsonb NOT NULL DEFAULT '{}'::jsonb, -- 各 run_type 的参数 schema 见 §4.1
-  status            text NOT NULL DEFAULT 'pending',    -- pending|running|success|failed|blocked|cancelled
-  progress          smallint NOT NULL DEFAULT 0,        -- 0..100；语义随 run_type 不同（见 §4.2）
-  stage             text,                               -- 当前阶段名（与 NOTIFY 的 stage 字段一致）
-  priority          smallint NOT NULL DEFAULT 100,      -- 数字小者先取，便于 reaper / 用户置顶
-  attempts          smallint NOT NULL DEFAULT 0,
-  max_attempts      smallint NOT NULL DEFAULT 1,        -- > 1 时允许 reaper 重试
-  heartbeat_at      timestamptz,                        -- worker 每 30s 回写
-  cancel_requested  boolean NOT NULL DEFAULT false,     -- NestJS 写 true，worker 读到后中止
-  parent_job_id     uuid REFERENCES ml.jobs(id),        -- Optuna trial / seed_avg 单次 → 父 job
-  log_url           text,                               -- POSIX 风格相对路径
-  error_text        text,                               -- 失败 traceback 全量
-  blocked_reason    text,                               -- 被数据质量门禁拦截时的规则名
-  created_by        text,                               -- web 用户 id 或 'cron'
-  created_at        timestamptz NOT NULL DEFAULT now(),
-  started_at        timestamptz,
-  finished_at       timestamptz
-);
-CREATE INDEX ON ml.jobs (status, priority, created_at);
-CREATE INDEX ON ml.jobs (status, heartbeat_at) WHERE status = 'running';
-CREATE INDEX ON ml.jobs (parent_job_id) WHERE parent_job_id IS NOT NULL;
+DDL 已迁移至 doc/db/，见：
 
-ml.model_runs (
-  id              uuid PK,
-  job_id          uuid REFERENCES ml.jobs(id),
-  model_version   text NOT NULL,  -- 'lgb-lambdarank-v1-20260620-seed42'
-  feature_set_id  text NOT NULL,
-  hyperparams     jsonb NOT NULL,
-  oos_metrics     jsonb NOT NULL, -- {ndcg@5, ndcg@10, ic, rank_ic, portfolio_annual_after_cost, fold_metrics[]}
-  artifact_uri    text NOT NULL,  -- './artifacts/<uuid>/model.txt'
-  report_uri      text,           -- './artifacts/<uuid>/report.md'
-  shap_uri        text,           -- M4 才写
-  created_at      timestamptz NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX ON ml.model_runs (model_version);
-
-ml.scores_daily (
-  trade_date      char(8) NOT NULL,        -- YYYYMMDD (A 股规范)
-  ts_code         varchar(16) NOT NULL,
-  model_version   text NOT NULL,
-  score           double precision NOT NULL,
-  rank_in_day     integer NOT NULL,        -- (PARTITION BY trade_date, model_version ORDER BY score DESC)
-                                           -- 注意：避免使用 PG 关键字 `rank`（窗口函数同名）
-  PRIMARY KEY (trade_date, ts_code, model_version)
-);
-CREATE INDEX ON ml.scores_daily (trade_date, model_version, rank_in_day);
-
-ml.quality_reports (
-  id              bigserial PK,
-  trade_date      char(8) NOT NULL,
-  level           text NOT NULL,    -- info|warn|critical
-  rule            text NOT NULL,    -- 见 §4.3 规则名清单
-  detail          jsonb NOT NULL,   -- 各 rule 的 detail schema 见 §4.3
-  created_at      timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX ON ml.quality_reports (trade_date, level);
-```
+| 表 | 文档 |
+|---|---|
+| `ml.jobs` | [jobs](../../db/tables/ml/jobs.md) |
+| `ml.model_runs` | [model_runs](../../db/tables/ml/model_runs.md) |
+| `ml.scores_daily` | [scores_daily](../../db/tables/ml/scores_daily.md) |
+| `ml.quality_reports` | [quality_reports](../../db/tables/ml/quality_reports.md) |
 
 ### 4.1 `ml.jobs.params` 各 run_type 的最小 schema
 

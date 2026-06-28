@@ -1,39 +1,17 @@
-# 02 · 数据模型（两张新表 + run_type CHECK）
+﻿# 02 · 数据模型（两张新表 + run_type CHECK）
+
+> **表结构权威文档**见 [doc/db/index.md](../../../doc/db/index.md)。本文档保留设计 rationale；**DDL 已迁移至 doc/db/**。
 
 > 所有 schema 变更走 `apps/server/migrations/*.sql` + 同名 `.ps1`（`.claude/rules/database-sql.md`），
 > 实体 TypeORM 双注册（module forFeature + `app.module.ts` 根 `entities[]`）。
-> DDL 列类型均已落真 DB `\d` 核验（见 [index 锚点核验](./index.md)）。
 
 ## 1. `raw.us_index_amv_daily`（AMV 输出表）
+
+表结构：`raw.us_index_amv_daily`（列定义按需 `\d schema.table`）
 
 镜像 `public.industry_amv_daily`（真 DB `\d` 核验），把 `ts_code` → `index_code`，schema 放 `raw`
 （与 `raw.us_index_daily` 等 `us_*` 表一致；A 股 `industry_amv_daily`/`oamv_daily` 在 `public`，
 us 系列全在 `raw`）。
-
-```sql
-CREATE TABLE IF NOT EXISTS raw.us_index_amv_daily (
-  id           bigserial PRIMARY KEY,
-  index_code   character varying(16) NOT NULL,
-  trade_date   character varying(8)  NOT NULL,
-  amv_open     double precision,
-  amv_high     double precision,
-  amv_low      double precision,
-  amv_close    double precision,
-  amv_dif      double precision,
-  amv_dea      double precision,
-  amv_macd     double precision,
-  amv_zdf      double precision,
-  signal       smallint NOT NULL,
-  member_count integer,
-  updated_at   timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT uq_us_index_amv_daily UNIQUE (index_code, trade_date),
-  CONSTRAINT ck_us_index_amv_daily_signal CHECK (signal IN (-1, 0, 1))
-);
-CREATE INDEX IF NOT EXISTS ix_us_index_amv_daily_code_date
-  ON raw.us_index_amv_daily (index_code, trade_date DESC);
-CREATE INDEX IF NOT EXISTS ix_us_index_amv_daily_date_signal
-  ON raw.us_index_amv_daily (trade_date, signal);
-```
 
 - 列语义与 `industry_amv_daily` 完全一致：四价 + MACD 三列 + `amv_zdf`（涨跌幅，可空）+
   `signal`（-1/0/1，NOT NULL）+ `member_count`（当日有效成分数）。
@@ -42,19 +20,7 @@ CREATE INDEX IF NOT EXISTS ix_us_index_amv_daily_date_signal
 
 ## 2. `raw.us_index_constituent`（成分名单表）
 
-```sql
-CREATE TABLE IF NOT EXISTS raw.us_index_constituent (
-  id          bigserial PRIMARY KEY,
-  index_code  character varying(16) NOT NULL,
-  ticker      character varying(16) NOT NULL,
-  weight_pct  double precision,            -- 仅 top-25 有值，余 NULL（裸Σ不用，仅参考）
-  name        character varying,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT uq_us_index_constituent UNIQUE (index_code, ticker)
-);
-CREATE INDEX IF NOT EXISTS ix_us_index_constituent_code
-  ON raw.us_index_constituent (index_code);
-```
+表结构：`raw.us_index_constituent`（列定义按需 `\d schema.table`）
 
 - seed 101 只 `.NDX` 成分（Wikipedia 全集），`weight_pct` 用 stockanalysis 可匹配的 25 只，余 NULL。
 - 成分 ticker **不**写入 `raw.us_symbol`（无外键，见 [04 §1 取数](./04-python-pipeline.md#1-成分股取数不污染策划清单)）。
@@ -107,8 +73,8 @@ CREATE INDEX IF NOT EXISTS ix_us_index_constituent_code
 **执行（T1）：**
 1. 先 `uv run alembic current` 核对真实版本号（预期 `20260614_0001`）+ `uv run alembic upgrade head --sql` 审 DDL。
 2. `uv run alembic upgrade head`：会从 `20260614_0001` **连跑 `0001` + `0002` 两步**。`0001` 与 `0002` 都是
-   幂等 `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT`，重放 `0001` 的 CHECK（DDL 效果 DB 已有）**安全**，
-   **无需 stamp**。
+  幂等 `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT`，重放 `0001` 的 CHECK（DDL 效果 DB 已有）**安全**，
+  **无需 stamp**。
 3. upgrade 后 `alembic current` 应推进到 `20260616_0002`、`pg_get_constraintdef` 含 16 值（含 `us_index_amv_sync`）。
 - NestJS SQL：跑 `.ps1`（docker exec）。两侧约束 DDL 必须字面一致（16 值超集）。
 - 实体双注册：见 [05 §5 实体双注册](./05-nestjs-and-api.md#5-实体双注册)。

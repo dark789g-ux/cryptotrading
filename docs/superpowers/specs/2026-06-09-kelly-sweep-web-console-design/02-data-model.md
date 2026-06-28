@@ -1,4 +1,6 @@
-# 02 · 数据模型与迁移
+﻿# 02 · 数据模型与迁移
+
+> **表结构权威文档**见 [doc/db/index.md](../../../doc/db/index.md)。本文档保留设计 rationale；**DDL 已迁移至 doc/db/**。
 
 ← 返回 [index.md](./index.md)
 
@@ -30,45 +32,11 @@
   }
   ```
 
-## 结果表 DDL
+## 结果表
 
-全量 `ResultRow`（一轮约 848 行，`max_entry_filters=2` 时可达 6000+）落独立 `research` schema 专表。字段与 `ResultRow`（`sweep.py:135-212`，已核对）一一对应：
+全量 `ResultRow`（一轮约 848 行，`max_entry_filters=2` 时可达 6000+）落独立 `research` schema 专表。表结构：`research.kelly_sweep_results`（列定义按需 `\d schema.table`）
 
-```sql
-CREATE SCHEMA IF NOT EXISTS research;
-
-CREATE TABLE IF NOT EXISTS research.kelly_sweep_results (
-  id                  BIGSERIAL PRIMARY KEY,
-  job_id              UUID NOT NULL REFERENCES ml.jobs(id) ON DELETE CASCADE,
-  window_group        TEXT NOT NULL,           -- 'with_rs' | 'no_rs'
-  variant_id          TEXT NOT NULL,
-  variant_filters     JSONB NOT NULL,          -- [[feature,op,value],...]
-  exit_id             TEXT NOT NULL,
-  exit_cfg            JSONB NOT NULL,           -- {type,...参数}
-  n_train             INTEGER NOT NULL,
-  kelly_train         DOUBLE PRECISION,        -- 可空(n=0)
-  win_rate_train      DOUBLE PRECISION,
-  payoff_b_train      DOUBLE PRECISION,
-  profit_factor_train DOUBLE PRECISION,
-  n_valid             INTEGER NOT NULL,
-  kelly_valid         DOUBLE PRECISION,        -- OOS 主排序指标, 可空
-  win_rate_valid      DOUBLE PRECISION,
-  payoff_b_valid      DOUBLE PRECISION,
-  profit_factor_valid DOUBLE PRECISION,
-  below_floor         BOOLEAN NOT NULL,        -- n_valid<min_samples
-  kelly_ci_low        DOUBLE PRECISION,        -- 仅 top-K 行非空
-  kelly_ci_high       DOUBLE PRECISION,
-  is_frontier         BOOLEAN NOT NULL DEFAULT FALSE,  -- compute_pareto_frontier 标
-  is_topk             BOOLEAN NOT NULL DEFAULT FALSE,  -- rank_top_k 入选标
-  same_day_rule       TEXT NOT NULL,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_ksr_job_group
-  ON research.kelly_sweep_results (job_id, window_group);
-CREATE INDEX IF NOT EXISTS idx_ksr_job_topk
-  ON research.kelly_sweep_results (job_id, is_topk, kelly_valid DESC);
-```
+字段与 `ResultRow`（`sweep.py:135-212`，已核对）一一对应。
 
 ### ResultRow → 表字段映射要点
 
@@ -111,7 +79,7 @@ op.execute(
 
 ### 动作 2：建 `research` schema + 结果表 + 索引
 
-即上文 DDL，全部 `IF NOT EXISTS` 保证幂等。
+即上文结果表链接，全部 `IF NOT EXISTS` 保证幂等。DDL 见 `research.kelly_sweep_results`。
 
 ### 配套 docker exec 脚本（项目规范要求）
 

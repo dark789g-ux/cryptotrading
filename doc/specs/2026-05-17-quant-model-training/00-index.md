@@ -102,7 +102,7 @@
 
 | 文档 | 内容 | 主要消费者 |
 |---|---|---|
-| [01-pg-schema.md](01-pg-schema.md) | PG 4 个 schema 总览、所有表 DDL、迁移与回滚序列、sync 所有权 | M0 / M1 / M2 全部 |
+| [01-pg-schema.md](01-pg-schema.md) | PG 4 个 schema 总览、迁移与回滚序列、sync 所有权（**表 DDL 见 [doc/db/index.md](../../db/index.md)**） | M0 / M1 / M2 全部 |
 | [02-quant-pipeline.md](02-quant-pipeline.md) | Python `apps/quant-pipeline/` 模块拆分、CLI 表面、worker/runner 进度约定 | M1 / M2 / M3 / M4 |
 | [03-nestjs-vue.md](03-nestjs-vue.md) | NestJS `modules/quant/` + Vue `views/quant/` 改动表面、SSE 鉴权 | M2（jobs controller） / M3（读 controller + UI v1） / M4（UI v2） |
 | [04-error-quality-testing.md](04-error-quality-testing.md) | 错误处理总则、数据质量门禁、测试策略、Vue 行数 CI | 全部 |

@@ -1,5 +1,7 @@
 # 02 数据分层与 PG schema 设计
 
+> **查库场景**见 [doc/db/quick-guide/](../db/quick-guide/index.md)。本文档保留数据分层原则；表结构按需 `\d schema.table` 查真库。
+
 ↩ [返回索引](00-index.md)
 
 ---
@@ -33,7 +35,7 @@
 ## 2.1.3 raw schema 设计原则
 
 1. **一接口一张表，字段 1:1 镜像 TuShare**
-   - `raw.ts_daily` 列名 = TuShare `daily` 接口返回列名
+   - 例：`raw.daily_quote` 列名 = TuShare `daily` 接口返回列名
    - 禁止落库时改名、改类型、做计算
    - TuShare 扩字段时只需 `ALTER ADD COLUMN`，不影响下游
 
@@ -68,21 +70,21 @@
 
 ## 2.1.4 P0 接口对应的 raw 表清单
 
-按 [06-TuShare 接口清单](06-TuShare接口清单.md) 的 P0 列表，raw schema 至少要这 9 张表：
+按 [06-TuShare 接口清单](06-TuShare接口清单.md) 的 P0 列表，raw schema 至少要这 9 张表（旧 `raw.ts_*` 命名已废弃，现用去前缀 snake_case）：
 
 | 表名 | 对应 TuShare 接口 | 主键 | 分区 |
 |---|---|---|---|
-| `raw.ts_stock_basic` | `stock_basic` | `ts_code` | 无（小表） |
-| `raw.ts_trade_cal` | `trade_cal` | `(cal_date, exchange)` | 无 |
-| `raw.ts_daily` | `daily` | `(ts_code, trade_date)` | 按月 |
-| `raw.ts_daily_basic` | `daily_basic` | `(ts_code, trade_date)` | 按月 |
-| `raw.ts_adj_factor` | `adj_factor` | `(ts_code, trade_date)` | 按月 |
-| `raw.ts_stk_limit` | `stk_limit` | `(ts_code, trade_date)` | 按月 |
-| `raw.ts_suspend_d` | `suspend_d` | `(ts_code, suspend_date)` | 无 |
-| `raw.ts_index_classify` | `index_classify` | `(index_code, level)` | 无 |
-| `raw.ts_index_member_all` | `index_member_all` | `(index_code, con_code, in_date)` | 无 |
+| `public.a_share_symbols` | `stock_basic` | `ts_code` | 无（小表，catalog 在 public） |
+| `raw.trade_cal` | `trade_cal` | `(cal_date, exchange)` | 无 |
+| `raw.daily_quote` | `daily` | `(ts_code, trade_date)` | 按月 |
+| `raw.daily_basic` | `daily_basic` | `(ts_code, trade_date)` | 按月 |
+| `raw.adj_factor` | `adj_factor` | `(ts_code, trade_date)` | 按月 |
+| `raw.stk_limit` | `stk_limit` | `(ts_code, trade_date)` | 按月 |
+| `raw.suspend_d` | `suspend_d` | `(ts_code, suspend_date)` | 无 |
+| `raw.index_classify` | `index_classify` | `(index_code, level)` | 无 |
+| `raw.index_member` | `index_member_all` | `(index_code, con_code, in_date)` | 无 |
 
-P1 / P2 接口对应表按相同规范扩展。
+P1 / P2 接口对应表按相同规范扩展。查库场景见 [doc/db/quick-guide/](../db/quick-guide/index.md)。
 
 ---
 
@@ -108,16 +110,16 @@ TuShare API
 PG schema: raw.*           ← 永不修改的源头快照
     │
     ▼  [因子函数 + PIT 测试，按 factor_version 隔离]
-PG schema: factors.*       ← 41 因子宽表 + 中性化版本
+PG schema: factors.*       ← 因子宽表 + 中性化版本
     │
     ▼  [join + 标签生成 + 横截面归一化]
-PG schema: ml.training_set ← 训练表
+PG schema: factors.feature_matrix  ← 训练矩阵
     │
     ▼  [LightGBM 训练 + Optuna 调参]
 文件系统: models/v{N}/model.txt + feature_meta.json
     │
     ▼  [每日推理，结果回写 PG]
-PG schema: ml.inference_input → ml.scores_daily
+PG schema: ml.scores_daily  ← 推理输出
 ```
 
 ---

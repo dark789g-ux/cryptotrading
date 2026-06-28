@@ -1,4 +1,6 @@
-# 02. 数据模型变更
+﻿# 02. 数据模型变更
+
+> **表结构权威文档**见 [doc/db/index.md](../../../doc/db/index.md)。本文档保留设计 rationale；**DDL 已迁移至 doc/db/**。
 
 ## 2.1 DB schema 变更
 
@@ -6,76 +8,9 @@
 
 ### 2.1.1 主 SQL（迁移脚本主体）
 
-`apps/server/migrations/20260524_factor_definitions_min_trade_days.sql`：
+表结构（含 `min_trade_days` 列）：`factors.factor_definitions`（列定义按需 `\d schema.table`）
 
-```sql
--- 1. 新增 min_trade_days 列（先用 DEFAULT 1 占位，下面 UPDATE 回填真实值）
-ALTER TABLE factors.factor_definitions
-  ADD COLUMN min_trade_days INTEGER NOT NULL DEFAULT 1
-  CHECK (min_trade_days BETWEEN 1 AND 250);
-
--- 2. 回填 16 个现有因子的 min_trade_days（值来源见 2.5 节）
---    注意：这里的 factor_id 必须与 Python @register 装饰器声明完全一致，
---    曾踩坑：文件名 industry_neutral_momentum.py 但 factor_id="momentum_20d_neu"。
-UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'momentum_20d';
-UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'volatility_20d';
-UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'volume_ratio_20d';
-UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'amihud_illiq_20d';
-UPDATE factors.factor_definitions SET min_trade_days = 20 WHERE factor_id = 'ma_ratio_20d';
-UPDATE factors.factor_definitions SET min_trade_days = 20 WHERE factor_id = 'turnover_mean_20d';
-UPDATE factors.factor_definitions SET min_trade_days = 20 WHERE factor_id = 'bollinger_position_20d';
-UPDATE factors.factor_definitions SET min_trade_days = 15 WHERE factor_id = 'rsi_14';
-UPDATE factors.factor_definitions SET min_trade_days = 61 WHERE factor_id = 'momentum_60d';
-UPDATE factors.factor_definitions SET min_trade_days = 60 WHERE factor_id = 'close_to_high_60d';
-UPDATE factors.factor_definitions SET min_trade_days = 60 WHERE factor_id = 'price_max_drawdown_60d';
-UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'industry_momentum_20d';
-UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'momentum_20d_neu';                  -- 类: IndustryNeutralMomentum
-UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'industry_rank_in_sector_mom20';    -- 类: IndustryRankInSector
-UPDATE factors.factor_definitions SET min_trade_days = 21 WHERE factor_id = 'industry_relative_strength';
-UPDATE factors.factor_definitions SET min_trade_days = 1  WHERE factor_id = 'sector_volume_concentration';
-
--- 校验：上面 16 条 UPDATE 必须各命中 1 行，否则 factor_id 拼错
-DO $$
-DECLARE expected INTEGER := 16;
-DECLARE actual INTEGER;
-BEGIN
-  SELECT COUNT(*) INTO actual FROM factors.factor_definitions WHERE min_trade_days > 1
-    OR factor_id = 'sector_volume_concentration';
-  IF actual < expected THEN
-    RAISE EXCEPTION 'min_trade_days 回填覆盖不足: 期望 %, 实际 %（factor_id 可能拼错）', expected, actual;
-  END IF;
-END $$;
-
--- 3. 落跨字段约束前，先把 pit_window_days 不足的行抬高到 min_trade_days × 2
---    （CLAUDE.md 反静默吞错：抬高时记 NOTICE）
---
---    ⚠ 副作用提示：本次 UPDATE 可能把现有 pit_window_days 抬高最多 2 倍
---    （如 momentum_20d 现状 32 → 42），运行前先 SELECT 看影响行数：
---      SELECT factor_id, pit_window_days AS old, min_trade_days * 2 AS new
---        FROM factors.factor_definitions
---        WHERE pit_window_days < min_trade_days * 2;
-DO $$
-DECLARE r record;
-BEGIN
-  FOR r IN
-    SELECT factor_id, factor_version, pit_window_days, min_trade_days
-    FROM factors.factor_definitions
-    WHERE pit_window_days < min_trade_days * 2
-  LOOP
-    RAISE NOTICE 'Lifting pit_window_days for %/%: % -> %',
-      r.factor_id, r.factor_version, r.pit_window_days, r.min_trade_days * 2;
-  END LOOP;
-END $$;
-
-UPDATE factors.factor_definitions
-  SET pit_window_days = min_trade_days * 2
-  WHERE pit_window_days < min_trade_days * 2;
-
--- 4. 添加跨字段 CHECK 约束（DB 层兜底）
-ALTER TABLE factors.factor_definitions
-  ADD CONSTRAINT pit_window_covers_min_trade_days
-  CHECK (pit_window_days >= min_trade_days * 2);
-```
+Migration 脚本：`apps/server/migrations/20260524_factor_definitions_min_trade_days.sql`（含 `min_trade_days` 列添加、`pit_window_covers_min_trade_days` 约束、16 因子回填 UPDATE）。
 
 > **CHECK 用 `× 2` 而不是 `ceil(× 2.0)`**：min_trade_days 是整数，× 2 即整数，等价 `ceil(× 2.0)`，避免 PostgreSQL CHECK 用浮点。系数 `2.0` 由 Python `factors/constants.py` 单点定义，CHECK 只是兜底。
 
