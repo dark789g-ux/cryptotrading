@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-catalog.entity';
 import type { IndexCatalogCategory } from './dto/query-catalog.dto';
 
@@ -29,11 +29,19 @@ const TYPE_TO_CATEGORY: Record<'I' | 'N' | 'M', IndexCatalogCategory> = {
   M: 'market',
 };
 
+export interface IndexCatalogMemberRow {
+  conCode: string;
+  name: string | null;
+  weight: number | null;
+}
+
 @Injectable()
 export class IndexCatalogQueryService {
   constructor(
     @InjectRepository(ThsIndexCatalogEntity)
     private readonly catalogRepo: Repository<ThsIndexCatalogEntity>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -68,6 +76,92 @@ export class IndexCatalogQueryService {
     }
 
     return rows;
+  }
+
+  /**
+   * 只读：导入外部指数成分（Modal Step 2）。
+   * 优先 index_weight 当前 active 版本，否则 ths_member_stocks；申万 .SI 走 raw.index_member。
+   */
+  async getMembers(tsCode: string): Promise<{ members: IndexCatalogMemberRow[] }> {
+    const code = tsCode.trim();
+    if (!code) {
+      throw new NotFoundException('指数代码无效');
+    }
+
+    if (code.endsWith('.SI')) {
+      const rows = await this.dataSource.query<
+        Array<{ con_code: string; name: string | null }>
+      >(
+        `SELECT im.ts_code AS con_code, im.name
+           FROM raw.index_member im
+          WHERE im.is_new = 'Y'
+            AND (im.out_date IS NULL OR im.out_date = '')
+            AND (im.l1_code = $1 OR im.l2_code = $1 OR im.l3_code = $1)
+          ORDER BY im.ts_code ASC`,
+        [code],
+      );
+      if (rows.length === 0) {
+        throw new NotFoundException(`未找到指数 ${code} 成分`);
+      }
+      return {
+        members: rows.map((r) => ({
+          conCode: r.con_code,
+          name: r.name,
+          weight: null,
+        })),
+      };
+    }
+
+    const weightRows = await this.dataSource.query<
+      Array<{ con_code: string; weight: string | null }>
+    >(
+      `SELECT w.con_code, w.weight
+         FROM index_weight w
+        WHERE w.index_code = $1 AND w.expire_date IS NULL
+        ORDER BY w.con_code ASC`,
+      [code],
+    );
+    if (weightRows.length > 0) {
+      const names = await this.loadStockNames(weightRows.map((r) => r.con_code));
+      return {
+        members: weightRows.map((r) => ({
+          conCode: r.con_code,
+          name: names.get(r.con_code) ?? null,
+          weight: r.weight != null ? Number(r.weight) : null,
+        })),
+      };
+    }
+
+    const thsRows = await this.dataSource.query<
+      Array<{ con_code: string; con_name: string | null }>
+    >(
+      `SELECT t.con_code, t.con_name
+         FROM ths_member_stocks t
+        WHERE t.ts_code = $1
+        ORDER BY t.con_code ASC`,
+      [code],
+    );
+    if (thsRows.length === 0) {
+      throw new NotFoundException(`未找到指数 ${code} 成分`);
+    }
+    return {
+      members: thsRows.map((r) => ({
+        conCode: r.con_code,
+        name: r.con_name,
+        weight: null,
+      })),
+    };
+  }
+
+  private async loadStockNames(codes: string[]): Promise<Map<string, string | null>> {
+    const map = new Map<string, string | null>();
+    if (codes.length === 0) return map;
+    const rows = await this.dataSource.query<Array<{ ts_code: string; name: string | null }>>(
+      `SELECT ts_code, name FROM a_share_symbols WHERE ts_code = ANY($1)`,
+      [codes],
+    );
+    for (const r of rows) map.set(r.ts_code, r.name);
+    return map;
   }
 
   /** 查 ths_index_catalog type='M'（大盘动态范围），叠加 q 过滤 */

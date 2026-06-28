@@ -24,21 +24,36 @@ import ASharesIndexPanel from './a-shares-index/ASharesIndexPanel.vue'
 
 const subTab = ref<'stocks' | 'index'>('stocks')
 const indexPanelRef = ref<{ resize: () => void } | null>(null)
-const stocksPanelRef = ref<{ applyIndexFilter: (tsCode: string, name: string) => void } | null>(null)
+const stocksPanelRef = ref<{
+  applyIndexFilter: (
+    tsCode: string,
+    name: string,
+    opts?: { category?: string; customIndexId?: string },
+  ) => Promise<void>
+} | null>(null)
 
-function handleSwitchToStocks(payload: { tsCode: string; name: string }) {
-  stocksPanelRef.value?.applyIndexFilter(payload.tsCode, payload.name)
-  subTab.value = 'stocks'
+function handleSwitchToStocks(payload: {
+  tsCode: string
+  name: string
+  category?: string
+  customIndexId?: string
+}) {
+  void stocksPanelRef.value
+    ?.applyIndexFilter(payload.tsCode, payload.name, {
+      category: payload.category,
+      customIndexId: payload.customIndexId,
+    })
+    .then(() => {
+      subTab.value = 'stocks'
+    })
 }
 
-// echarts inside the index pane does not auto-resize after being lazily revealed; resize on switch in.
 watch(subTab, (value) => {
   if (value === 'index') {
     void nextTick(() => indexPanelRef.value?.resize())
   }
 })
 
-// This container lives inside SymbolsView top-level <keep-alive>; resize when switching back if currently on index.
 onActivated(() => {
   if (subTab.value === 'index') {
     void nextTick(() => indexPanelRef.value?.resize())

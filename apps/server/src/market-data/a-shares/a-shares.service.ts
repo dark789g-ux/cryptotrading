@@ -114,6 +114,9 @@ export class ASharesService {
     if (dto.indexTsCode && !dto.indexTsCode.endsWith('.TI') && !dto.indexTsCode.endsWith('.SI')) {
       throw new BadRequestException(`不支持的指数类型：${dto.indexTsCode}。仅支持 .TI（同花顺）和 .SI（申万）后缀的指数代码。`);
     }
+    if (dto.tsCodes?.length && dto.indexTsCode) {
+      throw new BadRequestException('indexTsCode 与 tsCodes 不能同时使用');
+    }
 
     // 按「评分」排序需当日 prod 模型版本以 JOIN ml.scores_daily（跨域只读，仅排序时触发）
     const scoreModelVersion =

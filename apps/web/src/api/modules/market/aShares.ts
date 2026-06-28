@@ -104,6 +104,8 @@ export interface AShareQueryBody {
   watchlistIds?: string[]
   strategyHitIds?: string[]
   indexTsCode?: string
+  /** 自定义指数成分 ts_code 列表（与 indexTsCode 互斥） */
+  tsCodes?: string[]
 }
 
 export interface AShareFilterPresetFilters {

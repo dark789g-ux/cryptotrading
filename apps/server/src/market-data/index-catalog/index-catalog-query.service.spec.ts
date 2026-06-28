@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { IndexCatalogQueryService } from './index-catalog-query.service';
 import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-catalog.entity';
 
@@ -53,6 +53,10 @@ describe('IndexCatalogQueryService', () => {
       providers: [
         IndexCatalogQueryService,
         { provide: getRepositoryToken(ThsIndexCatalogEntity), useValue: catalogRepo },
+        {
+          provide: DataSource,
+          useValue: { query: jest.fn().mockResolvedValue([]) },
+        },
       ],
     }).compile();
 

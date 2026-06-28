@@ -271,4 +271,12 @@ describe('a-shares-query.sql indexTsCode 指数成分股筛选', () => {
     expect(base.sql).not.toContain('raw.index_member');
     expect(base.params).toEqual(['主板']);
   });
+
+  it('tsCodes 显式成分列表筛选', () => {
+    const dto: QueryASharesDto = { tsCodes: ['600519.SH', '000858.SZ'] };
+    const base = buildASharesBaseQuery(dto);
+
+    expect(base.sql).toContain('s.ts_code = ANY($1::varchar[])');
+    expect(base.params).toEqual([['600519.SH', '000858.SZ']]);
+  });
 });

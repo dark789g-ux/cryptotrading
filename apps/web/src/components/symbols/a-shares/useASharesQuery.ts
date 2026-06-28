@@ -8,6 +8,7 @@ import {
   type AShareSummary,
 } from '@/api'
 import { quantApi } from '@/api/modules/quant'
+import { customIndexApi } from '@/api/modules/market/customIndex'
 import { useWatchlistTagFilter } from '@/composables/symbols/useWatchlistTagFilter'
 import { formatTradeDate } from './aSharesFormatters'
 import type { ASharesFilterState, Condition, SelectOption, SummaryItem } from './types'
@@ -33,7 +34,13 @@ export function useASharesQuery(message: {
   const turnoverRateMin = ref<number | null>(null)
   const advancedConditions = ref<Condition[]>([])
   const selectedStrategyIds = ref<string[]>([])
-  const indexFilter = ref<{ tsCode: string; name: string } | null>(null)
+  const indexFilter = ref<{
+    tsCode: string
+    name: string
+    category?: 'custom'
+    customIndexId?: string
+    memberTsCodes?: string[]
+  } | null>(null)
   const sortKey = ref<string | null>(null)
   const sortOrder = ref<'ascend' | 'descend' | null>(null)
   const summary = ref<AShareSummary>({
@@ -136,7 +143,12 @@ export function useASharesQuery(message: {
         sort: { field: sortKey.value ?? 'tsCode', order: sortOrder.value },
         conditions: buildConditions(),
         strategyHitIds: selectedStrategyIds.value,
-        indexTsCode: indexFilter.value?.tsCode,
+        indexTsCode: indexFilter.value?.memberTsCodes?.length
+          ? undefined
+          : indexFilter.value?.tsCode,
+        tsCodes: indexFilter.value?.memberTsCodes?.length
+          ? indexFilter.value.memberTsCodes
+          : undefined,
       })
       rows.value = res.rows
       total.value = res.total
@@ -220,10 +232,33 @@ export function useASharesQuery(message: {
     void loadData()
   }
 
-  function applyIndexFilter(tsCode: string, name: string) {
+  async function applyIndexFilter(
+    tsCode: string,
+    name: string,
+    opts?: { category?: string; customIndexId?: string },
+  ) {
     rows.value = []
     loading.value = true
-    indexFilter.value = { tsCode, name }
+
+    if (opts?.category === 'custom' && opts.customIndexId) {
+      try {
+        const { members } = await customIndexApi.getMembers(opts.customIndexId)
+        indexFilter.value = {
+          tsCode,
+          name,
+          category: 'custom',
+          customIndexId: opts.customIndexId,
+          memberTsCodes: members.map((m) => m.conCode),
+        }
+      } catch (err: unknown) {
+        message.error(err instanceof Error ? err.message : '加载自定义指数成分失败')
+        loading.value = false
+        return
+      }
+    } else {
+      indexFilter.value = { tsCode, name }
+    }
+
     page.value = 1
     void loadData()
   }

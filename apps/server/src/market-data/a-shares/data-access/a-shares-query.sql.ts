@@ -282,6 +282,12 @@ export function buildASharesBaseQuery(
     paramIndex++;
   }
 
+  if (dto.tsCodes && dto.tsCodes.length > 0) {
+    sql += ` AND s.ts_code = ANY($${paramIndex}::varchar[])`;
+    params.push(dto.tsCodes);
+    paramIndex++;
+  }
+
   if (dto.indexTsCode) {
     if (dto.indexTsCode.endsWith('.TI')) {
       sql += ` AND s.ts_code IN (SELECT tms.con_code FROM ths_member_stocks tms WHERE tms.ts_code = $${paramIndex})`;

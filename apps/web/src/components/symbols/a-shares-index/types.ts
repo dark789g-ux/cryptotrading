@@ -8,7 +8,7 @@
  * 设计 spec: docs/superpowers/specs/2026-06-22-a-shares-index-tab-design.md
  */
 
-export type IndexCategory = 'market' | 'industry' | 'concept' | 'sw'
+export type IndexCategory = 'market' | 'industry' | 'concept' | 'sw' | 'custom'
 
 /**
  * GET /api/indices/latest 单行（每个指数取最新一日）。
@@ -19,6 +19,8 @@ export type IndexCategory = 'market' | 'industry' | 'concept' | 'sw'
  *  - totalMvWan：总市值「万元」（字符串），仅行业/概念有
  */
 export interface IndexLatestRow {
+  /** 自定义指数 UUID（category=custom 时用于 K 线/编辑 API） */
+  id?: string
   tsCode: string
   name: string
   category: IndexCategory

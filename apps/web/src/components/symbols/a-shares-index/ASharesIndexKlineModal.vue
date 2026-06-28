@@ -72,7 +72,7 @@ const emit = defineEmits<{
 const message = useMessage()
 
 /**
- * 指数 K 线副图白名单：成交量 + KDJ + MACD；sw/industry/concept 另含 0AMV / 0AMV_MACD。
+ * 指数 K 线副图白名单：成交量 + KDJ + MACD；sw/industry/concept/custom 另含 0AMV / 0AMV_MACD。
  * MA（MA5/MA30/…）在主图叠加，KlineChart 默认渲染。
  */
 const BASE_SUBPLOTS: SubplotKey[] = ['VOL', 'KDJ', 'MACD']
@@ -83,8 +83,6 @@ const availableSubplots = computed(() =>
     ? BASE_SUBPLOTS
     : [...BASE_SUBPLOTS, ...AMV_SUBPLOTS],
 )
-
-/** 首屏默认窗口（近 365 天，≈244 大盘交易日）。用户可用工具栏日期选择器扩到更长区间。 */
 const DEFAULT_WINDOW_DAYS = 365
 /** 最大化时主图高度 = 92vh 减去 modal chrome（header/tabs/padding ~200px）。 */
 const maxHeight = 'calc(92vh - 200px)'

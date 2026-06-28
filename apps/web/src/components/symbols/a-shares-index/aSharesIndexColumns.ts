@@ -18,6 +18,7 @@ const CATEGORY_LABEL: Record<IndexCategory, string> = {
   industry: '行业',
   concept: '概念',
   sw: '申万',
+  custom: '自定义',
 }
 
 /**

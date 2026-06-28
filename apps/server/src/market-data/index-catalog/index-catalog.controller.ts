@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { IndexCatalogQueryService } from './index-catalog-query.service';
 import { QueryCatalogDto } from './dto/query-catalog.dto';
 
@@ -18,5 +18,10 @@ export class IndexCatalogController {
   @Get()
   findAll(@Query() dto: QueryCatalogDto) {
     return this.queryService.findAll(dto.category, dto.q);
+  }
+
+  @Get(':tsCode/members')
+  getMembers(@Param('tsCode') tsCode: string) {
+    return this.queryService.getMembers(tsCode);
   }
 }

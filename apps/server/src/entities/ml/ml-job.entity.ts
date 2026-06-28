@@ -54,7 +54,9 @@ export type MlJobRunType =
   // 美股指数活跃市值（AMV）同步（spec 2026-06-16-us-index-amv-design 02；Python worker 路由 us_index_amv_sync）
   | 'us_index_amv_sync'
   // 美股一键同步（spec 2026-06-17-us-sync-tab-design 02；顺序跑 us_sync→us_index_sync→us_index_amv_sync）
-  | 'us_one_click_sync';
+  | 'us_one_click_sync'
+  // A 股自定义指数计算（spec 2026-06-28-custom-index-create-design）
+  | 'custom_index_compute';
 
 @Entity({ schema: 'ml', name: 'jobs' })
 @Index(['status', 'priority', 'createdAt'])

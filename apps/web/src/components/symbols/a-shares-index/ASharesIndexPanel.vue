@@ -12,33 +12,95 @@
       <n-tab-pane name="sw" tab="申万指数">
         <a-shares-index-sw-panel @jump-to-members="handleJumpToMembers" />
       </n-tab-pane>
+      <n-tab-pane name="custom" tab="我的指数">
+        <a-shares-index-custom-panel
+          ref="customPanelRef"
+          @jump-to-members="handleJumpToMembers"
+          @edit="openEditModal"
+        />
+      </n-tab-pane>
+
+      <template #suffix>
+        <n-button type="primary" size="small" @click="openCreateModal">
+          创建指数
+        </n-button>
+      </template>
     </n-tabs>
+
+    <create-custom-index-modal
+      v-model:show="showCreateModal"
+      :mode="modalMode"
+      :edit-id="editId"
+      @saved="onIndexSaved"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 defineOptions({ name: 'ASharesIndexPanel' })
 
-const emit = defineEmits<{
-  (e: 'switch-to-stocks', payload: { tsCode: string; name: string }): void
-}>()
-
 import { onActivated, ref } from 'vue'
-import { NTabPane, NTabs } from 'naive-ui'
+import { NButton, NTabPane, NTabs } from 'naive-ui'
 import ASharesIndexThsPanel from './ASharesIndexThsPanel.vue'
 import ASharesIndexSwPanel from './ASharesIndexSwPanel.vue'
+import ASharesIndexCustomPanel from './ASharesIndexCustomPanel.vue'
+import CreateCustomIndexModal from './CreateCustomIndexModal.vue'
+import type { CustomIndexLatestRow } from '@/api/modules/market/customIndex'
 
-const subTab = ref<'ths' | 'sw'>('ths')
+const emit = defineEmits<{
+  (
+    e: 'switch-to-stocks',
+    payload: {
+      tsCode: string
+      name: string
+      category?: string
+      customIndexId?: string
+    },
+  ): void
+}>()
 
-function handleJumpToMembers(payload: { tsCode: string; name: string; category: string }) {
-  emit('switch-to-stocks', { tsCode: payload.tsCode, name: payload.name })
+type SubTab = 'ths' | 'sw' | 'custom'
+
+const subTab = ref<SubTab>('ths')
+const showCreateModal = ref(false)
+const modalMode = ref<'create' | 'edit'>('create')
+const editId = ref<string | null>(null)
+const customPanelRef = ref<{ reload: () => void; onIndexSaved: (p: { id: string; status: string }) => void } | null>(null)
+
+function openCreateModal() {
+  if (subTab.value !== 'custom') subTab.value = 'custom'
+  modalMode.value = 'create'
+  editId.value = null
+  showCreateModal.value = true
 }
 
-// 与 ASharesTabsContainer 的 resize 契约对齐（表格无 ECharts，resize 为 no-op）。
-// 本面板现已是 sub-tab 容器，各子面板自带 onMounted/onActivated reload（keep-alive 切回刷新）。
+function openEditModal(row: CustomIndexLatestRow) {
+  subTab.value = 'custom'
+  modalMode.value = 'edit'
+  editId.value = row.id
+  showCreateModal.value = true
+}
+
+function handleJumpToMembers(payload: {
+  tsCode: string
+  name: string
+  category: string
+  customIndexId?: string
+}) {
+  emit('switch-to-stocks', {
+    tsCode: payload.tsCode,
+    name: payload.name,
+    category: payload.category,
+    customIndexId: payload.customIndexId,
+  })
+}
+
+function onIndexSaved(payload: { id: string; status: string }) {
+  customPanelRef.value?.onIndexSaved(payload)
+}
+
 defineExpose({ resize: () => {} })
 
-// 容器层保留 keep-alive 切回时的 resize 触发点（子面板各自 reload，无需在此转发）。
 onActivated(() => {
   // no-op：子面板自行 onActivated reload
 })

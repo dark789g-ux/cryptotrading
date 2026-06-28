@@ -34,6 +34,8 @@ export interface QueryASharesDto {
   watchlistIds?: string[];
   strategyHitIds?: string[];
   indexTsCode?: string;
+  /** 显式 ts_code 列表（如自定义指数成分跳转）；与 indexTsCode 互斥 */
+  tsCodes?: string[];
 }
 
 export interface ASharesFilterPresetFilters {

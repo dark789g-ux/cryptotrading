@@ -172,7 +172,13 @@ defineProps<{
   strategyOptions: SelectOption[]
   filterPresets: AShareFilterPreset[]
   filterPresetsLoading: boolean
-  indexFilter?: { tsCode: string; name: string } | null
+  indexFilter?: {
+    tsCode: string
+    name: string
+    category?: 'custom'
+    customIndexId?: string
+    memberTsCodes?: string[]
+  } | null
 }>()
 
 const emit = defineEmits<{

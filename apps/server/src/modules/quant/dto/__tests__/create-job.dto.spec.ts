@@ -26,6 +26,10 @@ describe('ALLOWED_RUN_TYPES 集合契约', () => {
     expect(ALLOWED_RUN_TYPES).not.toContain('train_e2e');
   });
 
+  it('不包含 custom_index_compute（仅内部 enqueue）', () => {
+    expect(ALLOWED_RUN_TYPES).not.toContain('custom_index_compute');
+  });
+
   it('LABEL_REF_RUN_TYPES = {labels, features, prepare}', () => {
     expect(LABEL_REF_RUN_TYPES.has('labels')).toBe(true);
     expect(LABEL_REF_RUN_TYPES.has('features')).toBe(true);

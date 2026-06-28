@@ -79,6 +79,7 @@ export const ALLOWED_RUN_TYPES: readonly MlJobRunType[] = [
   'us_index_amv_sync',
   // 美股一键同步（spec 2026-06-17-us-sync-tab-design 02）。同上不属 LABEL_REF / FEATURE_SET。
   'us_one_click_sync',
+  // custom_index_compute：仅 CustomIndexComputeService 内部 INSERT，不开放外部 POST（spec 2026-06-28）
 ] as const;
 
 /**

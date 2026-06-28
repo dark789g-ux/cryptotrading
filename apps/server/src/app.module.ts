@@ -111,6 +111,14 @@ import { PortfolioSimDailyEntity } from './entities/strategy/portfolio-sim-daily
 import { PortfolioSimFillEntity } from './entities/strategy/portfolio-sim-fill.entity';
 import { RegimeEngineModule } from './strategies/regime-engine/regime-engine.module';
 import { PortfolioSimModule } from './strategy-conditions/portfolio-sim/portfolio-sim.module';
+import { CustomIndexDefinitionEntity } from './entities/custom-index/custom-index-definition.entity';
+import { CustomIndexWeightVersionEntity } from './entities/custom-index/custom-index-weight-version.entity';
+import { CustomIndexMemberEntity } from './entities/custom-index/custom-index-member.entity';
+import { CustomIndexDailyQuoteEntity } from './entities/custom-index/custom-index-daily-quote.entity';
+import { CustomIndexDailyIndicatorEntity } from './entities/custom-index/custom-index-daily-indicator.entity';
+import { CustomIndexMoneyFlowEntity } from './entities/custom-index/custom-index-money-flow.entity';
+import { CustomIndexAmvEntity } from './entities/custom-index/custom-index-amv.entity';
+import { CustomIndexModule } from './market-data/custom-index/custom-index.module';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -224,6 +232,14 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           PortfolioSimFillEntity,
           // 一键同步后端托管编排进度行（spec 2026-06-16-one-click-sync-backend-orchestration）
           OneClickSyncRunEntity,
+          // ---- A 股自定义指数（spec 2026-06-28-custom-index-create-design）----
+          CustomIndexDefinitionEntity,
+          CustomIndexWeightVersionEntity,
+          CustomIndexMemberEntity,
+          CustomIndexDailyQuoteEntity,
+          CustomIndexDailyIndicatorEntity,
+          CustomIndexMoneyFlowEntity,
+          CustomIndexAmvEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],
@@ -260,6 +276,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     SignalRollingIndicatorModule,
     DailyReviewModule,
     QuantModule,
+    CustomIndexModule,
   ],
 })
 export class AppModule implements OnModuleInit {
