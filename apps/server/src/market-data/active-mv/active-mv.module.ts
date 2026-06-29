@@ -16,6 +16,7 @@ import { ActiveMvService } from './active-mv.service'
 import { StockAmvService } from './stock-amv.service'
 import { ThsIndexAmvService } from './industry-amv.service'
 import { SwAmvService } from './sw-amv.service'
+import { StockAmvDirtyService } from './stock-amv-dirty.service'
 
 /**
  * 活跃市值（AMV）模块。spec §6。
@@ -38,7 +39,7 @@ import { SwAmvService } from './sw-amv.service'
     ]),
   ],
   controllers: [ActiveMvController],
-  providers: [ActiveMvService, StockAmvService, ThsIndexAmvService, SwAmvService],
+  providers: [ActiveMvService, StockAmvService, ThsIndexAmvService, SwAmvService, StockAmvDirtyService],
   exports: [ActiveMvService],
 })
 export class ActiveMvModule {}

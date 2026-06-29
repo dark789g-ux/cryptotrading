@@ -6,11 +6,13 @@ import { SwIndexCatalogEntity } from '../../entities/sw-index/sw-index-catalog.e
 import { IndexDailyQuoteEntity } from '../../entities/index-daily/index-daily-quote.entity'
 import { SwAmvDailyEntity } from '../../entities/active-mv/sw-amv-daily.entity'
 import {
-  calcAmvSeries,
-  calcMacd,
-  calcSignal,
-  calcZdf,
-} from './amv-formula'
+  aggregateAmount,
+  buildAmvDailyRows,
+  persistAmvDaily,
+  resolveIndexDailyWarmupStart,
+  STOCK_SUFFIX_RE,
+  todayYyyymmdd,
+} from './amv-sync-helpers'
 import { getSeriesWithRange, type AmvSeriesRange } from './amv-series-query'
 import { SW_INDEX_SUFFIX_RE } from './amv-query-params'
 import type {
@@ -20,15 +22,7 @@ import type {
   SwIndexAmvSyncOptions,
 } from './active-mv.types'
 
-const WARMUP_ROWS = 90
 const SUFFIX_SAMPLE = 5
-const STOCK_SUFFIX_RE = /\.(SZ|SH|BJ|NQ)$/i
-
-interface AmtAggRow {
-  trade_date: string
-  amt: string | null
-  member_count: string | null
-}
 
 /**
  * 申万行业指数（.SI）活跃市值（AMV）服务。
@@ -53,7 +47,7 @@ export class SwAmvService {
 
   async syncSw(opts: SwIndexAmvSyncOptions): Promise<AmvSyncResult> {
     const syncMode = opts.syncMode ?? 'incremental'
-    const endDate = opts.endDate ?? this.todayYyyymmdd()
+    const endDate = opts.endDate ?? todayYyyymmdd()
     const startDate = opts.startDate ?? '00000000'
 
     const indexCodes = await this.resolveIndexCodes(opts.tsCodes)
@@ -164,7 +158,7 @@ export class SwAmvService {
       return 0
     }
 
-    const fetchStart = await this.resolveWarmupStart(idx, startDate)
+    const fetchStart = await resolveIndexDailyWarmupStart(idx, startDate, this.indexDailyRepo, 'sw')
     const priceRows = await this.indexDailyRepo
       .createQueryBuilder('q')
       .select(['q.tradeDate', 'q.open', 'q.high', 'q.low', 'q.close'])
@@ -183,7 +177,7 @@ export class SwAmvService {
       return 0
     }
 
-    const amtMap = await this.aggregateAmount(conCodes, fetchStart, endDate)
+    const amtMap = await aggregateAmount(this.dataSource, conCodes, fetchStart, endDate)
     if (amtMap.size === 0) {
       this.logger.warn(
         `[sw-amv] amount=empty (items.length===0)：指数 ${idx} 成分股 ${expectedMembers} ` +
@@ -191,61 +185,9 @@ export class SwAmvService {
       )
     }
 
-    const tradeDates = priceRows.map((p) => p.tradeDate)
-    const amountInYuan: number[] = []
-    const open: number[] = []
-    const high: number[] = []
-    const low: number[] = []
-    const close: number[] = []
-    const memberCounts: number[] = []
-
-    for (const p of priceRows) {
-      const agg = amtMap.get(p.tradeDate)
-      const amt = agg ? agg.amt : 0
-      amountInYuan.push(amt * 1000)
-      open.push(p.open ?? NaN)
-      high.push(p.high ?? NaN)
-      low.push(p.low ?? NaN)
-      close.push(p.close ?? NaN)
-      memberCounts.push(agg ? agg.memberCount : 0)
-    }
-
-    const amv = calcAmvSeries({ amountInYuan, open, high, low, close })
-    const macd = calcMacd(amv.amvClose, 12, 26, 9)
-    const zdf = calcZdf(amv.amvClose)
-
-    const rows: AmvDailyRow[] = []
-    let coveredWarned = false
-    for (let i = 0; i < tradeDates.length; i++) {
-      const td = tradeDates[i]
-      if (td < startDate) continue
-      if (amv.invalid[i]) continue
-      const c = amv.amvClose[i]
-      if (!(c > 0) || isNaN(c)) continue
-
-      const mc = memberCounts[i]
-      if (mc < expectedMembers && !coveredWarned) {
-        this.logger.warn(
-          `[sw-amv] 成分股覆盖不足：指数 ${idx} ${td} covered=${mc} expected=${expectedMembers}`,
-        )
-        coveredWarned = true
-      }
-
-      rows.push({
-        tsCode: idx,
-        tradeDate: td,
-        amvOpen: amv.amvOpen[i],
-        amvHigh: amv.amvHigh[i],
-        amvLow: amv.amvLow[i],
-        amvClose: c,
-        amvDif: macd.dif[i],
-        amvDea: macd.dea[i],
-        amvMacd: macd.macd[i],
-        amvZdf: zdf[i],
-        signal: calcSignal(macd.dif[i], macd.macd[i]),
-        memberCount: mc,
-      })
-    }
+    const rows: AmvDailyRow[] = buildAmvDailyRows(
+      priceRows, amtMap, startDate, expectedMembers, idx, this.logger, 'sw',
+    )
 
     if (rows.length === 0) {
       const msg = `${emptyApi}:${idx}: 裁热身/过滤异常后无可落库行`
@@ -255,122 +197,6 @@ export class SwAmvService {
       return 0
     }
 
-    return this.persist(idx, rows, syncMode)
-  }
-
-  private async aggregateAmount(
-    conCodes: string[],
-    startDate: string,
-    endDate: string,
-  ): Promise<Map<string, { amt: number; memberCount: number }>> {
-    const sql = `
-      SELECT trade_date,
-             SUM(amount)            AS amt,
-             COUNT(amount)          AS member_count
-      FROM raw.daily_quote
-      WHERE ts_code = ANY($1::text[])
-        AND trade_date >= $2
-        AND trade_date <= $3
-        AND amount IS NOT NULL
-      GROUP BY trade_date
-    `
-    const rows = (await this.dataSource.query(sql, [
-      conCodes,
-      startDate,
-      endDate,
-    ])) as AmtAggRow[]
-
-    const map = new Map<string, { amt: number; memberCount: number }>()
-    for (const r of rows) {
-      map.set(r.trade_date, {
-        amt: r.amt === null ? 0 : Number(r.amt),
-        memberCount: r.member_count === null ? 0 : Number(r.member_count),
-      })
-    }
-    return map
-  }
-
-  private async resolveWarmupStart(idx: string, startDate: string): Promise<string> {
-    if (startDate === '00000000') return startDate
-    const warmRows = await this.indexDailyRepo
-      .createQueryBuilder('q')
-      .select('q.tradeDate', 'tradeDate')
-      .where('q.tsCode = :idx', { idx })
-      .andWhere("q.category = 'sw'")
-      .andWhere('q.tradeDate < :startDate', { startDate })
-      .orderBy('q.tradeDate', 'DESC')
-      .limit(WARMUP_ROWS)
-      .getRawMany<{ tradeDate: string }>()
-    if (warmRows.length === 0) return startDate
-    return warmRows[warmRows.length - 1].tradeDate
-  }
-
-  private async persist(
-    idx: string,
-    rows: AmvDailyRow[],
-    syncMode: 'incremental' | 'overwrite',
-  ): Promise<number> {
-    let toWrite = rows
-    if (syncMode !== 'overwrite') {
-      const existing = await this.swAmvRepo.find({
-        where: { tsCode: idx },
-        select: ['tradeDate'],
-      })
-      const existingSet = new Set(existing.map((e) => e.tradeDate))
-      toWrite = rows.filter((r) => !existingSet.has(r.tradeDate))
-      if (toWrite.length === 0) {
-        this.logger.log(`[sw-amv] 指数 ${idx} 增量无新数据`)
-        return 0
-      }
-    }
-
-    const dedup = new Map<string, AmvDailyRow>()
-    for (const r of toWrite) dedup.set(`${r.tsCode}|${r.tradeDate}`, r)
-    const finalRows = [...dedup.values()]
-
-    const entities = finalRows.map((r) => ({
-      tsCode: r.tsCode,
-      tradeDate: r.tradeDate,
-      amvOpen: r.amvOpen,
-      amvHigh: r.amvHigh,
-      amvLow: r.amvLow,
-      amvClose: r.amvClose,
-      amvDif: r.amvDif,
-      amvDea: r.amvDea,
-      amvMacd: r.amvMacd,
-      amvZdf: r.amvZdf,
-      signal: r.signal,
-      memberCount: r.memberCount ?? null,
-    }))
-
-    await this.swAmvRepo
-      .createQueryBuilder()
-      .insert()
-      .into(SwAmvDailyEntity)
-      .values(entities)
-      .orUpdate(
-        [
-          'amv_open',
-          'amv_high',
-          'amv_low',
-          'amv_close',
-          'amv_dif',
-          'amv_dea',
-          'amv_macd',
-          'amv_zdf',
-          'signal',
-          'member_count',
-        ],
-        ['ts_code', 'trade_date'],
-      )
-      .execute()
-
-    this.logger.log(`[sw-amv] 指数 ${idx} 落库 ${entities.length} 行`)
-    return entities.length
-  }
-
-  private todayYyyymmdd(): string {
-    const d = new Date()
-    return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`
+    return persistAmvDaily(this.swAmvRepo, idx, rows, syncMode, this.logger, 'sw')
   }
 }
