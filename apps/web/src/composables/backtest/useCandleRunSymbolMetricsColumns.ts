@@ -1,8 +1,8 @@
 import { h } from 'vue'
 import { NButton, NTag as NTagComponent } from 'naive-ui'
 import type { RunSymbolMetricRow } from '@/api'
-import type { SymbolColumnDef } from '@/components/symbols/columnTypes'
-import { INDICATOR_DESCRIPTORS, buildIndicatorColumns } from '@/components/symbols/indicatorColumnDefs'
+import type { SymbolColumnDef } from '@/components/symbols/columns/columnTypes'
+import { INDICATOR_DESCRIPTORS, buildIndicatorColumns } from '@/components/symbols/columns/indicatorColumnDefs'
 
 export type ColSortOrder = false | 'ascend' | 'descend'
 

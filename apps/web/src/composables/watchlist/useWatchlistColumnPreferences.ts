@@ -1,5 +1,5 @@
 import { type MaybeRef } from 'vue'
-import type { SymbolColumnDef } from '@/components/symbols/columnTypes'
+import type { SymbolColumnDef } from '@/components/symbols/columns/columnTypes'
 import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
 
 export function useWatchlistColumnPreferences<Row>(

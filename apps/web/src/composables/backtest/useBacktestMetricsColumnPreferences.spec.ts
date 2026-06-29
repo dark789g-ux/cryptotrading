@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { SymbolColumnDef } from '@/components/symbols/columnTypes'
+import type { SymbolColumnDef } from '@/components/symbols/columns/columnTypes'
 import { useBacktestMetricsColumnPreferences } from './useBacktestMetricsColumnPreferences'
 
 vi.mock('@/composables/symbols/useTableColumnPreferences', () => ({

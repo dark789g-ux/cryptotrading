@@ -66,7 +66,7 @@ import {
   NRadioGroup,
   useMessage,
 } from 'naive-ui'
-import ColumnSettingsDrawer from '../ColumnSettingsDrawer.vue'
+import ColumnSettingsDrawer from '../columns/ColumnSettingsDrawer.vue'
 import ASharesIndexKlineModal from './ASharesIndexKlineModal.vue'
 import { createASharesIndexColumnDefs } from './aSharesIndexColumns'
 import { useASharesIndexQuery } from './useASharesIndexQuery'

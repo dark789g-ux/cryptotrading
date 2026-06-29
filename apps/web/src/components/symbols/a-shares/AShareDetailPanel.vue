@@ -45,7 +45,7 @@ defineOptions({ name: 'AShareDetailPanel' })
 import { ref, watch } from 'vue'
 import { NEmpty, NSpin, NText, useMessage } from 'naive-ui'
 import KlineChart from '../../kline/KlineChart.vue'
-import KlineWithInfoPanel from '../KlineWithInfoPanel.vue'
+import KlineWithInfoPanel from '../shared/KlineWithInfoPanel.vue'
 import AStockInfoFields from './AStockInfoFields.vue'
 import { aSharesApi, type AShareKlineBar, type AShareRow } from '@/api'
 import type { AmvSeriesRow } from '@/api/modules/market/active-mv'

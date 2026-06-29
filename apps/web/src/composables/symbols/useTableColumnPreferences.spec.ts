@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
-import type { SymbolColumnDef } from '@/components/symbols/columnTypes'
+import type { SymbolColumnDef } from '@/components/symbols/columns/columnTypes'
 import type { ScopeViewPreferences } from '@/api'
 
 // 拦截网络层：load 走 mock getTableColumns，save 捕获最终 payload 断言

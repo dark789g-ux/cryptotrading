@@ -5,8 +5,8 @@ import SymbolStarButton from '../../common/SymbolStarButton.vue'
 import type { UsStockRow } from '@/api'
 import { colors } from '../../../styles/tokens'
 import { formatNumber, formatPercent, formatTradeDate, trendClass } from '../a-shares/aSharesFormatters'
-import type { SymbolColumnDef } from '../columnTypes'
-import { INDICATOR_DESCRIPTORS, buildIndicatorColumns, type IndicatorDescriptor } from '../indicatorColumnDefs'
+import type { SymbolColumnDef } from '../columns/columnTypes'
+import { INDICATOR_DESCRIPTORS, buildIndicatorColumns, type IndicatorDescriptor } from '../columns/indicatorColumnDefs'
 
 interface UsStocksColumnsOptions {
   onViewDetail?: (row: UsStockRow) => void

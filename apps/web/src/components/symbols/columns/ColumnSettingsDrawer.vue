@@ -186,8 +186,8 @@ import {
   NTooltip,
 } from 'naive-ui'
 import { MenuOutline, RefreshOutline, SearchOutline } from '@vicons/ionicons5'
-import FieldHelpTip from '../common/FieldHelpTip.vue'
-import { getFieldDescription } from '../common/fieldDescriptions'
+import FieldHelpTip from '../../common/FieldHelpTip.vue'
+import { getFieldDescription } from '../../common/fieldDescriptions'
 import type { ColumnPreferenceItem } from '@/api'
 import type { SymbolColumnDef } from './columnTypes'
 import {

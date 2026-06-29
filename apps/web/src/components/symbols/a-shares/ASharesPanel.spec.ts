@@ -12,10 +12,10 @@ import { NConfigProvider, NMessageProvider } from 'naive-ui'
 import { createPinia, setActivePinia } from 'pinia'
 
 import ASharesPanel from './ASharesPanel.vue'
-import SymbolsPanelLayout from './SymbolsPanelLayout.vue'
+import SymbolsPanelLayout from '../shared/SymbolsPanelLayout.vue'
 import type { AShareRow } from '@/api'
 
-vi.mock('./a-shares/useASharesQuery', () => ({
+vi.mock('./useASharesQuery', () => ({
   useASharesQuery: vi.fn(() => {
     const rows = ref<AShareRow[]>([
       { tsCode: '000001.SZ', name: '平安银行', close: '12.34' } as unknown as AShareRow,

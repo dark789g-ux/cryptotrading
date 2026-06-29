@@ -1,5 +1,5 @@
 import { h } from 'vue'
-import type { SymbolColumnDef } from '../columnTypes'
+import type { SymbolColumnDef } from '../columns/columnTypes'
 import type { IndexCategory, IndexLatestRow } from './types'
 import {
   formatAmount,

@@ -1,9 +1,9 @@
 import { h } from 'vue'
 import { NButton, NIcon, NTag, NTooltip, type DataTableColumns } from 'naive-ui'
 import { TrendingUpOutline } from '@vicons/ionicons5'
-import SymbolStarButton from '../common/SymbolStarButton.vue'
+import SymbolStarButton from '../../common/SymbolStarButton.vue'
 import type { SymbolRow } from '@/api'
-import type { SymbolColumnDef } from './columnTypes'
+import type { SymbolColumnDef } from '../columns/columnTypes'
 
 interface CryptoColumnsOptions {
   onViewChart?: (row: SymbolRow) => void | Promise<void>

@@ -2,8 +2,8 @@ import { h, type Ref } from 'vue'
 import { NButton, NIcon, NSpace, NTag, NTooltip } from 'naive-ui'
 import { TrendingUpOutline } from '@vicons/ionicons5'
 import type { WatchlistQuoteRow } from '@/api'
-import type { SymbolColumnDef } from '../symbols/columnTypes'
-import { INDICATOR_DESCRIPTORS, buildIndicatorColumns } from '../symbols/indicatorColumnDefs'
+import type { SymbolColumnDef } from '../symbols/columns/columnTypes'
+import { INDICATOR_DESCRIPTORS, buildIndicatorColumns } from '../symbols/columns/indicatorColumnDefs'
 import {
   formatAmount,
   formatMarketCap,

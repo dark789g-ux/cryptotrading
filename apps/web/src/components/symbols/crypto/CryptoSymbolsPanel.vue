@@ -101,19 +101,19 @@ import {
   NTag,
   useMessage,
 } from 'naive-ui'
-import CryptoSymbolsFilters from './crypto/CryptoSymbolsFilters.vue'
-import CryptoSymbolDetailPanel from './crypto/CryptoSymbolDetailPanel.vue'
-import type { NumericCondition, NumericConditionFieldOption } from '../common/numericConditionFilterTypes'
+import CryptoSymbolsFilters from './CryptoSymbolsFilters.vue'
+import CryptoSymbolDetailPanel from './CryptoSymbolDetailPanel.vue'
+import type { NumericCondition, NumericConditionFieldOption } from '../../common/numericConditionFilterTypes'
 import { symbolApi, type SymbolRow } from '@/api'
-import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
+import ColumnSettingsDrawer from '../columns/ColumnSettingsDrawer.vue'
 import { createCryptoColumnDefs } from './cryptoColumns'
 import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
 import { usePanelViewMode } from '@/composables/symbols/usePanelViewMode'
 import { useWatchlistTagFilter } from '@/composables/symbols/useWatchlistTagFilter'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
 import { strategyConditionsApi } from '@/api/modules/strategy/strategyConditions'
-import { useCryptoSymbolsQuery } from './crypto/useCryptoSymbolsQuery'
-import SymbolsPanelLayout from './SymbolsPanelLayout.vue'
+import { useCryptoSymbolsQuery } from './useCryptoSymbolsQuery'
+import SymbolsPanelLayout from '../shared/SymbolsPanelLayout.vue'
 
 const message = useMessage()
 

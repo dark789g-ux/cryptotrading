@@ -35,7 +35,7 @@
 import { ref, watch } from 'vue'
 import { NEmpty, NSpin, useMessage } from 'naive-ui'
 import KlineChart from '../../kline/KlineChart.vue'
-import KlineWithInfoPanel from '../KlineWithInfoPanel.vue'
+import KlineWithInfoPanel from '../shared/KlineWithInfoPanel.vue'
 import UsStockInfoFields from './UsStockInfoFields.vue'
 import { usStocksApi, type UsStockKlineBar, type UsStockRow } from '@/api'
 import type { IndicatorSubplotParams, SubplotKey } from '@/composables/kline/subplotConfig'

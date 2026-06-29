@@ -15,7 +15,7 @@ defineOptions({ name: 'UsStockInfoFields' })
 
 import { NEmpty } from 'naive-ui'
 import type { UsStockRow } from '@/api'
-import InfoRow from '../InfoRow.vue'
+import InfoRow from '../shared/InfoRow.vue'
 import {
   formatNumber,
   formatPercent,

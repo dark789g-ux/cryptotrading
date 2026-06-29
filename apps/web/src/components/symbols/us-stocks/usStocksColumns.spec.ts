@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isVNode } from 'vue'
 import { createUsStocksColumnDefs, US_INDICATOR_DESCRIPTORS } from './usStocksColumns'
-import { INDICATOR_DESCRIPTORS } from '../indicatorColumnDefs'
+import { INDICATOR_DESCRIPTORS } from '../columns/indicatorColumnDefs'
 import type { UsStockRow } from '@/api'
 
 /** 渲染产物归一为可断言文本：string 直接返回，VNode 取其 default slot 文本 */

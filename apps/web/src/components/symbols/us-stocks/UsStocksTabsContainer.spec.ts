@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { defineComponent, h, nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 
-import UsStocksTabsContainer from '../UsStocksTabsContainer.vue'
+import UsStocksTabsContainer from './UsStocksTabsContainer.vue'
 
 const resizeSpy = vi.fn()
 

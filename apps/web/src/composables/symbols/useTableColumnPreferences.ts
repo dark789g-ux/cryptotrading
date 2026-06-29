@@ -1,7 +1,7 @@
 import { computed, h, ref, unref, type MaybeRef } from 'vue'
 import { type DataTableColumns } from 'naive-ui'
 import { preferencesApi, type ColumnPreferenceItem, type ScopeViewPreferences } from '@/api'
-import type { SymbolColumnDef } from '../../components/symbols/columnTypes'
+import type { SymbolColumnDef } from '../../components/symbols/columns/columnTypes'
 import FieldHelpTip from '../../components/common/FieldHelpTip.vue'
 import { getFieldDescription } from '../../components/common/fieldDescriptions'
 

@@ -13,8 +13,8 @@
 import { computed, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import type { ColumnPreferenceItem, WatchlistQuoteRow } from '@/api'
-import type { SymbolColumnDef } from '@/components/symbols/columnTypes'
-import ColumnSettingsDrawer from '@/components/symbols/ColumnSettingsDrawer.vue'
+import type { SymbolColumnDef } from '@/components/symbols/columns/columnTypes'
+import ColumnSettingsDrawer from '@/components/symbols/columns/ColumnSettingsDrawer.vue'
 
 // 纯受控：列偏好状态由父级 WatchlistTable 的唯一 composable 实例持有，
 // 本组件只负责草稿编辑 + 提交，避免再调一次 useWatchlistColumnPreferences

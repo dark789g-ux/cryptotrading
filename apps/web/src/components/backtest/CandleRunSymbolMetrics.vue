@@ -59,7 +59,7 @@ import {
 } from '../../composables/backtest/useCandleRunSymbolMetricsColumns'
 import { useBacktestMetricsColumnPreferences } from '../../composables/backtest/useBacktestMetricsColumnPreferences'
 import { backtestApi, symbolApi, type RunSymbolMetricRow } from '@/api'
-import ColumnSettingsDrawer from '@/components/symbols/ColumnSettingsDrawer.vue'
+import ColumnSettingsDrawer from '@/components/symbols/columns/ColumnSettingsDrawer.vue'
 import CandleRunSymbolMetricsFilterBar from './CandleRunSymbolMetricsFilterBar.vue'
 import KlineChartModal from './KlineChartModal.vue'
 

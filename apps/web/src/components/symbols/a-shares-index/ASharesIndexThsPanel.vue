@@ -56,7 +56,7 @@ defineOptions({ name: 'ASharesIndexThsPanel' })
 import { computed, onActivated, onMounted, ref } from 'vue'
 import { NButton, NCard, NDataTable, NInput, NSelect, useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
-import ColumnSettingsDrawer from '../ColumnSettingsDrawer.vue'
+import ColumnSettingsDrawer from '../columns/ColumnSettingsDrawer.vue'
 import ASharesIndexKlineModal from './ASharesIndexKlineModal.vue'
 import { createASharesIndexColumnDefs } from './aSharesIndexColumns'
 import { useASharesIndexQuery } from './useASharesIndexQuery'

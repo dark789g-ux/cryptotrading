@@ -5,8 +5,8 @@ import SymbolStarButton from '../../common/SymbolStarButton.vue'
 import type { AShareRow } from '@/api'
 import { colors } from '../../../styles/tokens'
 import { formatAmount, formatMarketCap, formatMoneyFlow, formatNumber, formatPercent, formatTradeDate, trendClass } from './aSharesFormatters'
-import type { SymbolColumnDef } from '../columnTypes'
-import { INDICATOR_DESCRIPTORS, buildIndicatorColumns } from '../indicatorColumnDefs'
+import type { SymbolColumnDef } from '../columns/columnTypes'
+import { INDICATOR_DESCRIPTORS, buildIndicatorColumns } from '../columns/indicatorColumnDefs'
 
 interface ASharesColumnsOptions {
   onViewDetail?: (row: AShareRow) => void

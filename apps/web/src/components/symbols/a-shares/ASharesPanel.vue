@@ -108,16 +108,16 @@ defineOptions({ name: 'ASharesPanel' })
 import { computed, h, onActivated, onMounted, ref } from 'vue'
 import { NCard, NDataTable, NEmpty, NSpace, NTag, useMessage } from 'naive-ui'
 import type { AShareRow } from '@/api'
-import AShareDetailPanel from './a-shares/AShareDetailPanel.vue'
-import ASharesFilters from './a-shares/ASharesFilters.vue'
-import { createASharesColumnDefs } from './a-shares/aSharesColumns'
-import { useASharesQuery } from './a-shares/useASharesQuery'
-import ColumnSettingsDrawer from './ColumnSettingsDrawer.vue'
+import AShareDetailPanel from './AShareDetailPanel.vue'
+import ASharesFilters from './ASharesFilters.vue'
+import { createASharesColumnDefs } from './aSharesColumns'
+import { useASharesQuery } from './useASharesQuery'
+import ColumnSettingsDrawer from '../columns/ColumnSettingsDrawer.vue'
 import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
 import { usePanelViewMode } from '@/composables/symbols/usePanelViewMode'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
 import { strategyConditionsApi } from '@/api/modules/strategy/strategyConditions'
-import SymbolsPanelLayout from './SymbolsPanelLayout.vue'
+import SymbolsPanelLayout from '../shared/SymbolsPanelLayout.vue'
 
 const message = useMessage()
 const {

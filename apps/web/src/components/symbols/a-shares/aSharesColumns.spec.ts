@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isVNode, ref } from 'vue'
 import { createASharesColumnDefs } from './aSharesColumns'
-import { INDICATOR_DESCRIPTORS } from '../indicatorColumnDefs'
+import { INDICATOR_DESCRIPTORS } from '../columns/indicatorColumnDefs'
 import type { AShareRow } from '@/api'
 
 /** 渲染产物归一为可断言文本：string 直接返回，VNode 取其 default slot 文本 */

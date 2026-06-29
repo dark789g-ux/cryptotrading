@@ -20,7 +20,7 @@ defineOptions({ name: 'UsStocksTabsContainer' })
 import { nextTick, onActivated, ref, watch } from 'vue'
 import { NTabPane, NTabs } from 'naive-ui'
 import UsStocksPanel from './UsStocksPanel.vue'
-import UsIndexPanel from './us-index/UsIndexPanel.vue'
+import UsIndexPanel from '../us-index/UsIndexPanel.vue'
 
 const subTab = ref<'stocks' | 'index'>('stocks')
 const indexPanelRef = ref<{ resize: () => void } | null>(null)

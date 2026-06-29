@@ -62,10 +62,10 @@
 defineOptions({ name: 'SymbolsView' })
 
 import { ref } from 'vue'
-import ASharesTabsContainer from '../../components/symbols/ASharesTabsContainer.vue'
-import CryptoSymbolsPanel from '../../components/symbols/CryptoSymbolsPanel.vue'
-import ActiveMarketValuePanel from '../../components/symbols/ActiveMarketValuePanel.vue'
-import UsStocksTabsContainer from '../../components/symbols/UsStocksTabsContainer.vue'
+import ASharesTabsContainer from '../../components/symbols/a-shares/ASharesTabsContainer.vue'
+import CryptoSymbolsPanel from '../../components/symbols/crypto/CryptoSymbolsPanel.vue'
+import ActiveMarketValuePanel from '../../components/symbols/active-market-value/ActiveMarketValuePanel.vue'
+import UsStocksTabsContainer from '../../components/symbols/us-stocks/UsStocksTabsContainer.vue'
 
 const activeTab = ref<'crypto' | 'aShares' | 'activeMarketValue' | 'usStocks'>('crypto')
 </script>
