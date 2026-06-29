@@ -1,5 +1,6 @@
 import type { MemberWeight, WeightVersion } from './custom-index-compute.types';
 import {
+  clampEarliestEffectiveToBaseDate,
   normalizeWeights,
   resolvePitMembers,
   validateVersions,
@@ -79,6 +80,45 @@ describe('custom-index-weight-resolver', () => {
       ];
 
       expect(() => validateVersions(bad)).toThrow(/权重总和/);
+    });
+  });
+
+  describe('clampEarliestEffectiveToBaseDate', () => {
+    it('夹取：最早版本 effective_date > base_date 时夹到 base_date', () => {
+      const versions = [
+        version(2, '20260628', null, MEMBERS), // effective_date 晚于 base_date
+      ];
+      const clamped = clampEarliestEffectiveToBaseDate(versions, '20260105');
+      expect(clamped[0].effectiveDate).toBe('20260105');
+      // 仅改 effective_date，其余不动
+      expect(clamped[0].id).toBe(2);
+      expect(clamped[0].members).toBe(versions[0].members);
+      // 夹取后 PIT 解析对 base_date 起的交易日命中该版本（旧行为返回 []）
+      expect(resolvePitMembers(clamped, '20260106')).toHaveLength(2);
+    });
+
+    it('no-op：最早版本 effective_date <= base_date', () => {
+      const versions = [
+        version(1, '20240101', '20240110', MEMBERS),
+        version(2, '20240111', null, MEMBERS),
+      ];
+      const clamped = clampEarliestEffectiveToBaseDate(versions, '20240105');
+      expect(clamped[0].effectiveDate).toBe('20240101');
+      expect(clamped[1].effectiveDate).toBe('20240111');
+    });
+
+    it('只夹最早一条，不动后续版本', () => {
+      const versions = [
+        version(1, '20260301', '20260330', MEMBERS),
+        version(2, '20260331', null, MEMBERS),
+      ];
+      const clamped = clampEarliestEffectiveToBaseDate(versions, '20260105');
+      expect(clamped[0].effectiveDate).toBe('20260105');
+      expect(clamped[1].effectiveDate).toBe('20260331'); // 后续版本不变
+    });
+
+    it('空版本链：返回空数组', () => {
+      expect(clampEarliestEffectiveToBaseDate([], '20240101')).toEqual([]);
     });
   });
 });

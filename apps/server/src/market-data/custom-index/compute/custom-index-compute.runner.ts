@@ -15,6 +15,7 @@ import { computePriceIndexQuotes } from './custom-index-price-index';
 import { CustomIndexQuotesWriter } from './custom-index-quotes-writer';
 import { computeTotalReturnQuotes } from './custom-index-total-return';
 import {
+  clampEarliestEffectiveToBaseDate,
   loadWeightVersions,
   validateVersions,
 } from './custom-index-weight-resolver';
@@ -128,8 +129,11 @@ export class CustomIndexComputeRunner {
       lastError: null,
     });
 
-    const versions = await loadWeightVersions(this.dataSource, customIndexId);
-    validateVersions(versions);
+    const rawVersions = await loadWeightVersions(this.dataSource, customIndexId);
+    validateVersions(rawVersions);
+    // 最早版本视作自 base_date 起生效（spec：base_date 为 effective_date 默认值）。
+    // 同一份夹取后的 versions 贯穿 quotes / money_flow / amv，保证 PIT 解析一致。
+    const versions = clampEarliestEffectiveToBaseDate(rawVersions, baseDate);
 
     if (fullRebuild) {
       await this.deleteDerivedData(customIndexId);
@@ -171,6 +175,14 @@ export class CustomIndexComputeRunner {
             basePoint,
             onWarning,
           });
+
+    // 完整性兜底：0 点位不得伪装成 ready（data-integrity）。抛错经 run() catch 落
+    // status=failed + lastError，前端「状态」列显示失败 + tooltip + 重试按钮。
+    if (quotes.length === 0) {
+      throw new Error(
+        `计算产出 0 个点位：检查 base_date(${baseDate})、成分有效性，或 effective_date 是否晚于最近交易日`,
+      );
+    }
 
     await this.upsertQuotesInChunks(customIndexId, quotes);
 

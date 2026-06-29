@@ -124,6 +124,36 @@ export function validateVersions(versions: readonly WeightVersion[]): void {
   }
 }
 
+/**
+ * 把最早权重版本的 effective_date 夹到 base_date。
+ *
+ * spec（03-index-computation #actual-start-date）：base_date 是版本 effective_date 的
+ * **默认值**，base_point 落在 actual_start_date(≥ base_date)。即最早版本应自 base_date 起
+ * 生效。但若该版本 effective_date 被设成晚于 base_date（前端默认值 bug 或 API 直传），
+ * PIT 解析（resolvePitMembers）会对 [base_date, effective_date) 间所有交易日返回空成分，
+ * 导致整段「有效成分 < 2 → 0 点位」。此处把最早一条 effective_date 夹到 base_date，
+ * 让主循环与 findActualStartDate 既有 fallback 语义一致。
+ *
+ * 仅改最早一条的 effective_date（不动成分/权重/其余版本/expire_date）；
+ * 对「最早版本 effective_date <= base_date」的正常指数是 no-op。
+ * versions 须已按 effective_date ASC 排序（loadWeightVersions 即如此）。
+ */
+export function clampEarliestEffectiveToBaseDate(
+  versions: readonly WeightVersion[],
+  baseDate: string,
+): WeightVersion[] {
+  const list = versions.slice();
+  if (list.length === 0) {
+    return list;
+  }
+  const earliest = list[0];
+  if (earliest.effectiveDate <= baseDate) {
+    return list;
+  }
+  list[0] = { ...earliest, effectiveDate: baseDate };
+  return list;
+}
+
 export function pitMembersForDates(
   versions: readonly WeightVersion[],
   tradeDates: readonly string[],

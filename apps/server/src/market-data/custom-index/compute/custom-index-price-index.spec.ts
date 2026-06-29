@@ -11,6 +11,7 @@ import {
   computePriceIndexQuotes,
   computeTwoStockEqualIndex,
 } from './custom-index-price-index';
+import { clampEarliestEffectiveToBaseDate } from './custom-index-weight-resolver';
 
 function bar(params: {
   code: string;
@@ -336,5 +337,39 @@ describe('computePriceIndexQuotes', () => {
     expect(
       warnings.some((w) => w.code === 'custom_index_insufficient_members'),
     ).toBe(true);
+  });
+
+  it('最早版本 effective_date 晚于 base_date：未夹取 0 点位，夹取后从 base_date 起产出', () => {
+    // 复现线上「ready 但空」：唯一版本 effective_date=20240104 晚于 base_date=20240102
+    const lateVersions: WeightVersion[] = [
+      {
+        id: 2,
+        effectiveDate: '20240104',
+        expireDate: null,
+        weightMethod: 'equal',
+        members,
+      },
+    ];
+    const ctx = emptyCtx({ tradeDates: dates, barsByDate, stockMeta });
+
+    // 未夹取：20240102/20240103 PIT 解析为空 → 全程 <2 成分 → 0 点位（bug 行为）
+    const before = computePriceIndexQuotes({
+      versions: lateVersions,
+      ctx,
+      baseDate: '20240102',
+      basePoint: 1000.0,
+    });
+    expect(before).toHaveLength(0);
+
+    // 夹取后（runner 真实流程）：最早版本视作自 base_date 生效 → 从 20240102 起产出
+    const clamped = clampEarliestEffectiveToBaseDate(lateVersions, '20240102');
+    const after = computePriceIndexQuotes({
+      versions: clamped,
+      ctx,
+      baseDate: '20240102',
+      basePoint: 1000.0,
+    });
+    expect(after.map((q) => q.tradeDate)).toEqual(dates);
+    expect(after[0].close).toBeCloseTo(1000.0, 6);
   });
 });

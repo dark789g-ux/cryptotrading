@@ -196,4 +196,19 @@ describe('CustomIndexComputeRunner', () => {
       }),
     );
   });
+
+  it('计算产出 0 点位：显式失败而非伪装 ready', async () => {
+    jest.spyOn(priceIndex, 'computePriceIndexQuotes').mockReturnValue([]);
+    runner.tryAcquire(customIndexId);
+
+    await expect(runner.run({ customIndexId, userId })).rejects.toThrow(/0 个点位/);
+
+    // 0 点位不得 upsert、不得标 ready；应落 failed + lastError
+    expect(quotesWriter.upsertQuotes).not.toHaveBeenCalled();
+    const updates = definitionRepo.update.mock.calls.map(([, patch]) => patch);
+    expect(updates.some((p) => p.status === 'ready')).toBe(false);
+    expect(
+      updates.some((p) => p.status === 'failed' && /0 个点位/.test(String(p.lastError))),
+    ).toBe(true);
+  });
 });
