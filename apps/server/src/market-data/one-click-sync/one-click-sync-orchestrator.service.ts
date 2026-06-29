@@ -9,7 +9,7 @@
 //  - 终态写 status/finished_at/current_step=null
 //  - OnModuleInit boot-sweep：把残留 running 标 failed（服务重启中断）
 //
-// 8 步逻辑细节在 step-runners.ts（忠实搬运前端 useOneClickSync.ts）。
+// 10 步逻辑细节在 step-runners.ts（忠实搬运前端 useOneClickSync.ts）。
 
 import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -42,7 +42,6 @@ import {
   runIndustryAmv,
   runMoneyFlow,
   runOamv,
-  runStockAmv,
   runThsIndexDaily,
   type StepContext,
 } from './step-runners';
@@ -57,7 +56,6 @@ const STEP_RUNNERS: StepRunner[] = [
   runThsIndexDaily,
   runSwIndexDaily,
   runMarketIndexDaily,
-  runStockAmv,
   runIndustryAmv,
   runConceptAmv,
   runSwAmv,

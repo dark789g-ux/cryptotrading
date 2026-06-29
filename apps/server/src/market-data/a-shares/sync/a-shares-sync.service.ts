@@ -7,6 +7,7 @@ import { DailyQuoteEntity } from '../../../entities/raw/daily-quote.entity';
 import { AShareSymbolEntity } from '../../../entities/a-share/a-share-symbol.entity';
 import { AShareSyncStateEntity } from '../../../entities/a-share/a-share-sync-state.entity';
 import { ASharesIndicatorService } from '../services/a-shares-indicator.service';
+import { ActiveMvService } from '../../active-mv/active-mv.service';
 import { SignalRollingIndicatorService } from '../../signal-rolling-indicator/signal-rolling-indicator.service';
 import { shouldSyncDataset } from './a-shares-sync-completeness';
 import { markDirtyRanges, mergeChangedDates, recalculateDirtyQfqQuotes } from './a-shares-sync-dirty-ranges';
@@ -52,6 +53,7 @@ export class ASharesSyncService {
     private readonly tushareClient: TushareClientService,
     private readonly indicatorService: ASharesIndicatorService,
     private readonly signalRollingIndicatorService: SignalRollingIndicatorService,
+    private readonly activeMvService: ActiveMvService,
   ) {}
 
   async syncWithProgress(
@@ -254,6 +256,13 @@ export class ASharesSyncService {
         await this.signalRollingIndicatorService.recalculateDirtyForSymbols([...changedRanges.keys()]);
       } catch (err: unknown) {
         failedItems.push(createStageFailedItem('signal_rolling_recalculate', err));
+      }
+
+      // PR-7③-b：个股 AMV dirty 续算（满足⑥判据「嵌入」，并入 a-shares 收尾，替代独立 Step6）。
+      try {
+        await this.activeMvService.recalculateDirtyStockAmv([...changedRanges.keys()]);
+      } catch (err: unknown) {
+        failedItems.push(createStageFailedItem('amv_recalculate', err));
       }
     }
 

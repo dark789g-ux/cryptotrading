@@ -17,7 +17,7 @@ function makeRepoMock(rows: unknown[] = []) {
 }
 
 function makeService(repo: ReturnType<typeof makeRepoMock>): OamvService {
-  // OamvService 构造：(repo, tushareClient)；get0amvData / recalcKlines 只碰 repo。
+  // OamvService 构造：(repo, indexDailyRepo)；get0amvData / recalcKlines 只碰 repo，indexDailyRepo 传 null。
   return new OamvService(repo as never, null as never);
 }
 

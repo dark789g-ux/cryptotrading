@@ -10,6 +10,7 @@ import { StockAmvDailyEntity } from '../../entities/active-mv/stock-amv-daily.en
 import { IndustryAmvDailyEntity } from '../../entities/active-mv/industry-amv-daily.entity'
 import { ConceptAmvDailyEntity } from '../../entities/active-mv/concept-amv-daily.entity'
 import { SwAmvDailyEntity } from '../../entities/active-mv/sw-amv-daily.entity'
+import { AmvCalcStateEntity } from '../../entities/raw/amv-calc-state.entity'
 import { ActiveMvController } from './active-mv.controller'
 import { ActiveMvService } from './active-mv.service'
 import { StockAmvService } from './stock-amv.service'
@@ -33,6 +34,7 @@ import { SwAmvService } from './sw-amv.service'
       ThsIndexCatalogEntity,
       SwIndexCatalogEntity,
       IndexDailyQuoteEntity,
+      AmvCalcStateEntity,
     ]),
   ],
   controllers: [ActiveMvController],

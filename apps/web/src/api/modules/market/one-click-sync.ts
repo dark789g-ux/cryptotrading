@@ -28,9 +28,9 @@ export interface OneClickSyncRun {
   endDate: string
   /** 总进度 0-100（后端已算，前端直接用作 totalPercent）。 */
   progress: number
-  /** 当前步索引 0..7；终态为 null。 */
+  /** 当前步索引 0..9；终态为 null。 */
   currentStep: number | null
-  /** 8 步明细（结构 = 前端 OneClickStepState，长 8）。 */
+  /** 10 步明细（结构 = 前端 OneClickStepState，长 10）。 */
   steps: OneClickStepState[]
   /** 滚动日志，上限 LOG_LIMIT（500）。 */
   logs: LogEntry[]

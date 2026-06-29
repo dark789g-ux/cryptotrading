@@ -117,21 +117,21 @@ function ma5(values: number[]): number[] {
 
 /**
  * AMV 序列合成（个股 / 行业通用）。spec §3：
- *   v1   = tdSma(volume, 10)                 // volume 已 ×1000 换算到元
+ *   v1   = tdSma(amountInYuan, 10)           // amountInYuan 已换算到元
  *   v3   = MA5(REF(close, 1))                // 前一日收盘价的 5 日均
  *   AMVc = v1 × close / v3 × 0.1             // 不做 /1e6
  *   AMVo/h/l 同理用 open/high/low
  *
  * 异常处置：v3 ≤ 0 或 AMVc ≤ 0（停牌/脏数据）→ 当日四价落 NaN，标记 invalid[t]=true。
  *
- * @param input.volume 量序列（**已 ×1000 到元**，调用方负责换算）
+ * @param input.amountInYuan 量序列（**已换算到元**，调用方负责换算）
  * @param input.open/high/low/close 价序列（个股=前复权 qfq；行业=指数点位）
  */
 export function calcAmvSeries(input: AmvSeriesInput): AmvSeriesResult {
-  const { volume, open, high, low, close } = input
+  const { amountInYuan, open, high, low, close } = input
   const len = close.length
 
-  const v1 = tdSma(volume, 10, 1)
+  const v1 = tdSma(amountInYuan, 10, 1)
 
   // v3 = MA5(REF(close, 1))：先取前一日收盘（首行 NaN），再 5 日均
   const refClose1 = [NaN, ...close.slice(0, len - 1)]

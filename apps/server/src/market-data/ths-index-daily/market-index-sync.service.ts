@@ -103,7 +103,15 @@ export class MarketIndexSyncService {
       return { success: 0, errors };
     }
 
-    for (const { tsCode } of scopeRows) {
+    // 固定额外源：0AMV 基准指数 930903.CSI。不进 type='M'（避免触发 index-weight-sync；它无权重需求），
+    // 与大盘指数同表 category='market' 落库、靠 ts_code 过滤区分；0AMV 自治指标（recomputeIndicatorsAll），
+    // 不走 indicatorService（见下方 affected 循环跳过 EXTRA_OAMV_CODES）。
+    const EXTRA_OAMV_CODES = ['930903.CSI'];
+    const allTsCodes = Array.from(
+      new Set([...scopeRows.map((r) => r.tsCode), ...EXTRA_OAMV_CODES]),
+    );
+
+    for (const tsCode of allTsCodes) {
       for (const seg of segments) {
         let rows: RawRow[] = [];
         try {
@@ -179,6 +187,8 @@ export class MarketIndexSyncService {
 
     // 指标重算（MA/MACD/KDJ/BBI/BRICK，复用 ThsIndexDailyIndicatorService，它读 index_daily_quotes）
     for (const tsCode of affected) {
+      // 0AMV 基准指数（EXTRA_OAMV_CODES）自治指标（OamvService.recomputeIndicatorsAll），跳过 MA/MACD/KDJ 重算。
+      if (EXTRA_OAMV_CODES.includes(tsCode)) continue;
       try {
         await this.indicatorService.recalculateForSymbols([tsCode]);
       } catch (err) {

@@ -8,7 +8,7 @@ import {
   type FindOptionsWhere,
 } from 'typeorm'
 import { OamvDailyEntity } from '../../entities/oamv/oamv-daily.entity'
-import { TushareClientService } from '../a-shares/services/tushare-client.service'
+import { IndexDailyQuoteEntity } from '../../entities/index-daily/index-daily-quote.entity'
 import {
   calcKdjSeries,
   isCustomKdjParams,
@@ -29,7 +29,8 @@ export class OamvService {
   constructor(
     @InjectRepository(OamvDailyEntity)
     private readonly repo: Repository<OamvDailyEntity>,
-    private readonly tushareClient: TushareClientService,
+    @InjectRepository(IndexDailyQuoteEntity)
+    private readonly indexDailyRepo: Repository<IndexDailyQuoteEntity>,
   ) {}
 
   /**
@@ -159,29 +160,33 @@ export class OamvService {
     const WARMUP_DAYS = 30
     const fetchStartDate = this.shiftYyyymmdd(startDate, -WARMUP_DAYS)
 
-    // 从 Tushare 拉取 930903.CSI 数据
-    const fields = 'trade_date,open,high,low,close,amount'
-    const rows = await this.tushareClient.query('index_daily', {
-      ts_code: '930903.CSI',
-      start_date: fetchStartDate,
-      end_date: endDate,
-    }, fields)
+    // 从本地 index_daily_quotes 读 930903.CSI（PR-4：不再自连 Tushare，复用 Step5 大盘行情管线已落库的数据；
+    // 数据连续性依赖 Step5 已同步 930903.CSI 历史段）。本地 amount 同为千元，calc0amv 内 ×1000 不变。
+    const rows = await this.indexDailyRepo.find({
+      where: {
+        tsCode: '930903.CSI',
+        tradeDate: Between(fetchStartDate, endDate),
+      },
+      order: { tradeDate: 'ASC' },
+    })
 
     if (!rows || rows.length === 0) {
-      this.logger.warn('Tushare 返回空数据')
+      this.logger.warn(
+        `0AMV 本地无数据：index_daily_quotes 930903.CSI ${fetchStartDate}~${endDate} 为空（确认 Step5 已同步该指数历史段）`,
+      )
       return { synced: 0 }
     }
 
-    this.logger.log(`从 Tushare 获取到 ${rows.length} 条数据`)
+    this.logger.log(`从本地 index_daily_quotes 读到 ${rows.length} 条 930903.CSI 数据`)
 
-    // 转换为 TushareIndexDaily 类型
-    const indexData: TushareIndexDaily[] = rows.map(r => ({
-      trade_date: String(r.trade_date),
-      open: Number(r.open),
-      high: Number(r.high),
-      low: Number(r.low),
-      close: Number(r.close),
-      amount: Number(r.amount),
+    // 映射成 calc0amv 入参（实体 open/high/low/close/amount 为 number|null，null→NaN 让递推正确跳过）
+    const indexData: TushareIndexDaily[] = rows.map((r) => ({
+      trade_date: r.tradeDate,
+      open: r.open ?? NaN,
+      high: r.high ?? NaN,
+      low: r.low ?? NaN,
+      close: r.close ?? NaN,
+      amount: r.amount ?? NaN,
     }))
 
     // 计算 0AMV

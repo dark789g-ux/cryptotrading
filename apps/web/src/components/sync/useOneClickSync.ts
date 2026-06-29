@@ -37,7 +37,7 @@ function withLabel(s: OneClickStepState): OneClickStepState {
  *   - 状态全部读自 oneClickSync store（currentRun 轮询自后端 DB）；
  *   - start() 把 n-date-picker 的本地午夜 ms 用本地 TZ 转 YYYYMMDD 后调 store.startRun()；
  *   - cancel() 调 store.cancelRun()。
- * 不再持有 8 步编排链 / SSE 订阅 / 本地计时器 / 底层 sync composable 实例（全删）。
+ * 不再持有 10 步编排链 / SSE 订阅 / 本地计时器 / 底层 sync composable 实例（全删）。
  * dateRange 仍是组件本地状态（日期选择器输入，未提交前不进 store）。
  */
 export function useOneClickSync(message: OneClickMessageApi) {

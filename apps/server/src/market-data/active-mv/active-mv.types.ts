@@ -11,7 +11,7 @@ export type AmvSyncMode = 'incremental' | 'overwrite'
 /** calcAmvSeries 入参：量序列（已 ×1000 到元）+ 价序列（个股 qfq / 行业指数点位） */
 export interface AmvSeriesInput {
   /** 量：成交额（已换算到元，调用方负责 ×1000） */
-  volume: number[]
+  amountInYuan: number[]
   open: number[]
   high: number[]
   low: number[]

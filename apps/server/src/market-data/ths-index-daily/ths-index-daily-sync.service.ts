@@ -175,6 +175,8 @@ export class ThsIndexDailySyncService {
       }
 
       // 5) 字段映射 + 单位换算（total_mv / float_mv 元 → 万元；vol 保留「手」）
+      //    单位已核实（2026-06-29，tushare-sync-dev 查 ths_daily 官方文档 doc 260）：
+      //    total_mv/float_mv 原始单位为「元」，÷10000 → 万元；vol 为「手」不换算。
       const entitiesAll = rows.map((row) =>
         this.quotesRepo.create({
           tsCode: asString(row.ts_code),

@@ -30,6 +30,17 @@ export class ActiveMvService {
     return this.stockAmv.syncStock(opts)
   }
 
+  /**
+   * 个股 AMV dirty 续算（PR-7③-b：a-shares-sync 收尾调用）。满足⑥判据「嵌入」三条件
+   * （单源 daily_quote + 1:1 + dirty 续算），并入 a-shares 同步收尾，不再独立成 Step6。
+   */
+  recalculateDirtyStockAmv(
+    tsCodes: string[],
+    onProgress?: (current: number, total: number, tsCode: string) => void,
+  ): Promise<{ synced: number; failedItems: NonNullable<AmvSyncResult['failedItems']> }> {
+    return this.stockAmv.recalculateDirtyAmvForSymbols(tsCodes, onProgress)
+  }
+
   getStock(tsCode: string, days: number): Promise<AmvSeriesRow[]> {
     return this.stockAmv.getStock(tsCode, days)
   }

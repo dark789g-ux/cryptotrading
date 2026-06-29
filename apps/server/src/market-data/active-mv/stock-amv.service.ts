@@ -1,14 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { LessThanOrEqual, Repository } from 'typeorm'
+import { Between, Repository } from 'typeorm'
 import { DailyQuoteEntity } from '../../entities/raw/daily-quote.entity'
 import { StockAmvDailyEntity } from '../../entities/active-mv/stock-amv-daily.entity'
-import {
-  calcAmvSeries,
-  calcMacd,
-  calcSignal,
-  calcZdf,
-} from './amv-formula'
+import { calcSignal } from './amv-formula'
+import { normalizeAmvCalcState } from './amv-stream'
+import { AmvCalcStateEntity } from '../../entities/raw/amv-calc-state.entity'
+import { AmvWorkerPool } from '../../indicators/amv-worker-pool'
+import type { AmvWorkerRow } from '../../indicators/amv-worker'
 import type {
   AmvSeriesRow,
   AmvSignal,
@@ -56,6 +55,8 @@ export class StockAmvService {
     private readonly dailyQuoteRepo: Repository<DailyQuoteEntity>,
     @InjectRepository(StockAmvDailyEntity)
     private readonly stockAmvRepo: Repository<StockAmvDailyEntity>,
+    @InjectRepository(AmvCalcStateEntity)
+    private readonly amvCalcStateRepo: Repository<AmvCalcStateEntity>,
   ) {}
 
   /**
@@ -92,44 +93,45 @@ export class StockAmvService {
     const errors: string[] = []
     const failedItems: NonNullable<AmvSyncResult['failedItems']> = []
 
-    // 按批处理（结构上支持大批量；spec §11.4）。
-    for (let i = 0; i < tsCodes.length; i += STOCK_BATCH) {
-      const batch = tsCodes.slice(i, i + STOCK_BATCH)
-      for (const tsCode of batch) {
-        try {
-          const rows = await this.computeStock(tsCode, startDate, endDate)
-          if (rows.length === 0) {
-            // 范围内 0 有效行：禁止伪装"已同步"（data-integrity）。
-            this.logger.warn(`stock_amv_empty：${tsCode} 在 ${startDate}~${endDate} 无有效行`)
-            failedItems.push({ tsCode, apiName: 'stock_amv_empty' })
-            continue
-          }
-
-          let toWrite = rows
-          if (!overwrite) {
-            const existing = await this.stockAmvRepo.find({
-              where: { tsCode },
-              select: ['tradeDate'],
-            })
-            const existingSet = new Set(existing.map((e) => e.tradeDate))
-            toWrite = rows.filter((r) => !existingSet.has(r.tradeDate))
-            if (toWrite.length === 0) {
-              // 增量模式下全部已存在：不算失败，跳过。
-              continue
-            }
-          }
-
-          await this.upsertRows(toWrite)
-          synced += toWrite.length
-        } catch (err) {
-          // 禁止 .catch(()=>[]) 静默吞错：错误透出响应体 + 日志打印具体来源。
-          const msg = err instanceof Error ? err.message : String(err)
-          this.logger.error(`syncStock ${tsCode} 失败：${msg}`)
-          if (err instanceof Error && err.stack) this.logger.error(err.stack)
-          errors.push(`${tsCode}: ${msg}`)
-          failedItems.push({ tsCode, apiName: 'stock_amv_error', reason: msg })
+    if (overwrite) {
+      // 全量回填：computeStock 窗口读取（PR-3①）+ worker pool 多线程（PR-5②），所有股重算覆盖。
+      const pool = new AmvWorkerPool()
+      try {
+        for (let i = 0; i < tsCodes.length; i += STOCK_BATCH) {
+          const batch = tsCodes.slice(i, i + STOCK_BATCH)
+          await Promise.all(
+            batch.map(async (tsCode) => {
+              try {
+                const rows = await this.computeStock(tsCode, startDate, endDate, pool)
+                if (rows.length === 0) {
+                  // 范围内 0 有效行：禁止伪装"已同步"（data-integrity）。
+                  this.logger.warn(`stock_amv_empty：${tsCode} 在 ${startDate}~${endDate} 无有效行`)
+                  failedItems.push({ tsCode, apiName: 'stock_amv_empty' })
+                  return
+                }
+                await this.upsertRows(rows)
+                synced += rows.length
+              } catch (err) {
+                // 禁止 .catch(()=>[]) 静默吞错：错误透出响应体 + 日志打印具体来源。
+                const msg = err instanceof Error ? err.message : String(err)
+                this.logger.error(`syncStock ${tsCode} 失败：${msg}`)
+                if (err instanceof Error && err.stack) this.logger.error(err.stack)
+                errors.push(`${tsCode}: ${msg}`)
+                failedItems.push({ tsCode, apiName: 'stock_amv_error', reason: msg })
+              }
+            }),
+          )
         }
+      } finally {
+        await pool.terminate()
       }
+    } else {
+      // 增量：dirty 续算（PR-6③-a）。只算 amv_dirty_from_date 非空的股（由 a-shares-sync 的
+      // markDirtyRanges 在 daily_quote / 复权变动时标记）。recalculateDirtyAmvForSymbols 内部
+      // 用 AmvWorkerPool 并发 + calcAmvStreaming(seed) 续算，data-integrity 透出 failedItems。
+      const dirty = await this.recalculateDirtyAmvForSymbols(tsCodes)
+      synced = dirty.synced
+      failedItems.push(...dirty.failedItems)
     }
 
     this.logger.log(
@@ -197,62 +199,244 @@ export class StockAmvService {
     tsCode: string,
     startDate: string,
     endDate: string,
+    pool: AmvWorkerPool,
   ): Promise<StockAmvInsertRow[]> {
-    // 本地表按 tradeDate 升序取 <= endDate 的全部行，再在内存里截 [前90行热身 .. endDate]。
-    const quotes = await this.dailyQuoteRepo.find({
-      where: { tsCode, tradeDate: LessThanOrEqual(endDate) },
+    // 仅取 [fetchStart..endDate]：fetchStart = startDate 前 WARMUP_ROWS 个交易日的最早日，
+    // 含热身段；等价于旧实现「取全部历史再内存 slice」，但只读必要窗口，省 IO（① 优化）。
+    const fetchStart = await this.resolveWarmupStart(tsCode, startDate)
+    const window = await this.dailyQuoteRepo.find({
+      where: { tsCode, tradeDate: Between(fetchStart, endDate) },
       order: { tradeDate: 'ASC' },
     })
-    if (quotes.length === 0) return []
+    if (window.length === 0) return []
 
-    // 第一个 >= startDate 的下标；其前 90 行作热身。
-    let firstInRange = quotes.findIndex((q) => q.tradeDate >= startDate)
-    if (firstInRange === -1) {
+    // window 内第一个 >= startDate 的下标（裁热身段用）。
+    const rangeStart = window.findIndex((q) => q.tradeDate >= startDate)
+    if (rangeStart === -1) {
       // 全部行都 < startDate（该范围无行情），无可落数据。
       return []
     }
-    const warmupStart = Math.max(0, firstInRange - WARMUP_ROWS)
-    const window = quotes.slice(warmupStart)
-    // window 内 [startDate..endDate] 的起始下标（裁热身用）。
-    const rangeStart = firstInRange - warmupStart
 
-    // 构造公式入参：volume = amount(千元)×1000 到元；价用 qfq OHLC。
-    const volume = window.map((q) => this.num(q.amount) * 1000)
-    const open = window.map((q) => this.num(q.qfqOpen))
-    const high = window.map((q) => this.num(q.qfqHigh))
-    const low = window.map((q) => this.num(q.qfqLow))
-    const close = window.map((q) => this.num(q.qfqClose))
+    // 映射 worker 入参（已 num 化；amount 千元，worker 内 ×1000，避双换算）。
+    const workerRows: AmvWorkerRow[] = window.map((q) => ({
+      tradeDate: q.tradeDate,
+      amount: this.num(q.amount),
+      open: this.num(q.qfqOpen),
+      high: this.num(q.qfqHigh),
+      low: this.num(q.qfqLow),
+      close: this.num(q.qfqClose),
+    }))
 
-    const series = calcAmvSeries({ volume, open, high, low, close })
-    const macd = calcMacd(series.amvClose, 12, 26, 9)
-    const zdf = calcZdf(series.amvClose)
+    // 多线程计算（pool 内部 ≤4 worker；calcAmvStreaming 与数组版逐行等价，amv-stream.spec 锁死）。
+    const result = await pool.run(tsCode, workerRows, null)
 
     const out: StockAmvInsertRow[] = []
-    for (let t = rangeStart; t < window.length; t++) {
-      const tradeDate = window[t].tradeDate
-      if (tradeDate > endDate) break // 升序，越过 endDate 即可停。
+    for (let t = rangeStart; t < result.rows.length; t++) {
+      const r = result.rows[t]
+      if (r.tradeDate > endDate) break // 升序，越过 endDate 即可停。
       // 异常处置：当日不产指标 → 不落（spec §3.1 / §9）。
-      if (series.invalid[t]) continue
-      const amvClose = series.amvClose[t]
-      if (!(amvClose > 0) || isNaN(amvClose)) continue
+      if (r.invalid) continue
+      if (!(r.amvClose > 0) || isNaN(r.amvClose)) continue
 
-      const dif = macd.dif[t]
-      const bar = macd.macd[t]
       out.push({
         tsCode,
-        tradeDate,
-        amvOpen: this.finite(series.amvOpen[t]),
-        amvHigh: this.finite(series.amvHigh[t]),
-        amvLow: this.finite(series.amvLow[t]),
-        amvClose: this.finite(amvClose),
-        amvDif: this.finite(dif),
-        amvDea: this.finite(macd.dea[t]),
-        amvMacd: this.finite(bar),
-        amvZdf: zdf[t],
-        signal: calcSignal(dif, bar),
+        tradeDate: r.tradeDate,
+        amvOpen: this.finite(r.amvOpen),
+        amvHigh: this.finite(r.amvHigh),
+        amvLow: this.finite(r.amvLow),
+        amvClose: this.finite(r.amvClose),
+        amvDif: this.finite(r.amvDif),
+        amvDea: this.finite(r.amvDea),
+        amvMacd: this.finite(r.amvMacd),
+        amvZdf: r.amvZdf,
+        signal: calcSignal(r.amvDif, r.amvMacd),
       })
     }
     return out
+  }
+
+  /**
+   * 据交易行数确定热身起始日：取 < startDate 的最近 WARMUP_ROWS 个交易日里最早的一个作 fetchStart
+   * （镜像 industry-amv.resolveWarmupStart；窗口与旧实现「全量+slice」逐位等价，仅省 IO）。
+   */
+  private async resolveWarmupStart(tsCode: string, startDate: string): Promise<string> {
+    if (startDate === '00000000') return startDate
+    const warmRows = await this.dailyQuoteRepo
+      .createQueryBuilder('q')
+      .select('q.tradeDate', 'tradeDate')
+      .where('q.tsCode = :tsCode', { tsCode })
+      .andWhere('q.tradeDate < :startDate', { startDate })
+      .orderBy('q.tradeDate', 'DESC')
+      .limit(WARMUP_ROWS)
+      .getRawMany<{ tradeDate: string }>()
+    if (warmRows.length === 0) return startDate
+    // warmRows 已 DESC，最后一条最早 —— 作 fetchStart（往前含 WARMUP_ROWS 行热身）。
+    return warmRows[warmRows.length - 1].tradeDate
+  }
+
+  // ── PR-6③-a：个股 AMV dirty 续算（镜像 a-shares-indicator.recalculateDirtyIndicatorsForSymbol）──
+
+  /**
+   * 批量 dirty 续算（worker pool 并发）。读 amv_dirty_from_date → amv_calc_state seed → 续算 →
+   * 只写 >= dirtyFrom 段 + 末尾 checkpoint → 清 dirty。无 seed（首跑 / 复权全历史脏）时全量重算。
+   */
+  async recalculateDirtyAmvForSymbols(
+    tsCodes: string[],
+    onProgress?: (current: number, total: number, tsCode: string) => void,
+  ): Promise<{ synced: number; failedItems: NonNullable<AmvSyncResult['failedItems']> }> {
+    const target = [...new Set(tsCodes)].filter((v) => v.length > 0).sort()
+    if (target.length === 0) return { synced: 0, failedItems: [] }
+    const pool = new AmvWorkerPool()
+    let count = 0
+    const failedItems: NonNullable<AmvSyncResult['failedItems']> = []
+    let completed = 0
+    try {
+      for (let i = 0; i < target.length; i += STOCK_BATCH) {
+        const batch = target.slice(i, i + STOCK_BATCH)
+        await Promise.all(
+          batch.map(async (tsCode) => {
+            try {
+              const r = await this.recalculateDirtyAmvForSymbol(tsCode, pool)
+              if (r.status === 'empty') {
+                // dirty 段无有效行：透出（data-integrity）；not_dirty 正常跳过不计失败。
+                failedItems.push({ tsCode, apiName: 'stock_amv_empty' })
+              } else if (r.status === 'synced') {
+                count += r.count
+              }
+            } catch (err) {
+              // 单股错误不拖垮整批：透出 failedItems，继续其余股。
+              const msg = err instanceof Error ? err.message : String(err)
+              this.logger.error(`recalculateDirtyAmv ${tsCode} 失败：${msg}`)
+              failedItems.push({ tsCode, apiName: 'stock_amv_error', reason: msg })
+            }
+            onProgress?.(++completed, target.length, tsCode)
+          }),
+        )
+      }
+    } finally {
+      await pool.terminate()
+    }
+    return { synced: count, failedItems }
+  }
+
+  private async recalculateDirtyAmvForSymbol(
+    tsCode: string,
+    pool: AmvWorkerPool,
+  ): Promise<{ count: number; status: 'synced' | 'empty' | 'not_dirty' }> {
+    // 1) 读 amv_dirty_from_date；无则不脏，跳过（not_dirty 不计失败）
+    const dirtyRows = await this.dailyQuoteRepo.manager.query<Array<{ dirtyFrom: string | null }>>(
+      `SELECT amv_dirty_from_date AS "dirtyFrom" FROM a_share_sync_states WHERE ts_code = $1`,
+      [tsCode],
+    )
+    const dirtyFrom = dirtyRows[0]?.dirtyFrom
+    if (!dirtyFrom) return { count: 0, status: 'not_dirty' }
+
+    // 2) 取 seed：amv_calc_state 中 trade_date < dirtyFrom 的最后一行
+    const seedRows = await this.dailyQuoteRepo.manager.query<
+      Array<{ tradeDate: string; state: unknown }>
+    >(
+      `SELECT trade_date AS "tradeDate", state FROM raw.amv_calc_state
+        WHERE ts_code = $1 AND trade_date < $2 ORDER BY trade_date DESC LIMIT 1`,
+      [tsCode, dirtyFrom],
+    )
+    const seedState = normalizeAmvCalcState(seedRows[0]?.state)
+    const seedTradeDate = seedState ? seedRows[0]?.tradeDate : null
+
+    // 3) 加载 quote rows（seed 后 或 全量；过滤 qfq NULL，升序）
+    const quoteRows = await this.loadAmvQuoteRows(
+      tsCode,
+      seedState && seedTradeDate ? seedTradeDate : null,
+    )
+    if (quoteRows.length === 0) return { count: 0, status: 'empty' }
+
+    // 4) worker 续算（amount 千元，worker 内 ×1000）
+    const workerRows: AmvWorkerRow[] = quoteRows.map((r) => ({
+      tradeDate: r.tradeDate,
+      amount: this.num(r.amount),
+      open: this.num(r.qfqOpen),
+      high: this.num(r.qfqHigh),
+      low: this.num(r.qfqLow),
+      close: this.num(r.qfqClose),
+    }))
+    const result = await pool.run(tsCode, workerRows, seedState)
+
+    // 5) 映射落库行（裁 invalid；无 seed 时只保留 >= dirtyFrom）
+    const out: StockAmvInsertRow[] = []
+    for (let t = 0; t < result.rows.length; t++) {
+      const r = result.rows[t]
+      if (!seedState && r.tradeDate < dirtyFrom) continue
+      if (r.invalid) continue
+      if (!(r.amvClose > 0) || isNaN(r.amvClose)) continue
+      out.push({
+        tsCode,
+        tradeDate: r.tradeDate,
+        amvOpen: this.finite(r.amvOpen),
+        amvHigh: this.finite(r.amvHigh),
+        amvLow: this.finite(r.amvLow),
+        amvClose: this.finite(r.amvClose),
+        amvDif: this.finite(r.amvDif),
+        amvDea: this.finite(r.amvDea),
+        amvMacd: this.finite(r.amvMacd),
+        amvZdf: r.amvZdf,
+        signal: calcSignal(r.amvDif, r.amvMacd),
+      })
+    }
+    if (out.length === 0) return { count: 0, status: 'empty' }
+
+    // 6) upsert stock_amv_daily（dirty 段；upsertRows 内部按 tsCode|tradeDate 去重）
+    await this.upsertRows(out)
+
+    // 7) 末尾 checkpoint（finalState；覆盖后续增量续算）
+    const lastTradeDate = quoteRows[quoteRows.length - 1].tradeDate
+    await this.amvCalcStateRepo.upsert(
+      this.amvCalcStateRepo.create({
+        tsCode,
+        tradeDate: lastTradeDate,
+        state: result.finalState as unknown as Record<string, unknown>,
+      }),
+      ['tsCode', 'tradeDate'],
+    )
+
+    // 8) 清 amv_dirty_from_date，设 amv_calculated_to_date
+    await this.dailyQuoteRepo.manager.query(
+      `INSERT INTO a_share_sync_states (ts_code, amv_dirty_from_date, amv_calculated_to_date, updated_at)
+       VALUES ($1, NULL, $2, now())
+       ON CONFLICT (ts_code) DO UPDATE SET
+         amv_dirty_from_date = NULL,
+         amv_calculated_to_date = EXCLUDED.amv_calculated_to_date,
+         updated_at = now()`,
+      [tsCode, lastTradeDate],
+    )
+    return { count: out.length, status: 'synced' }
+  }
+
+  /**
+   * 加载 daily_quote：传 afterDate 取 > afterDate（seed 后续算），传 null 取全量（首跑 / 无 seed）。
+   * 过滤 qfq NULL（停牌 / 脏数据），升序。列映射与 a-shares-indicator.loadQuoteRows 一致。
+   */
+  private async loadAmvQuoteRows(
+    tsCode: string,
+    afterDate: string | null,
+  ): Promise<
+    Array<{
+      tradeDate: string
+      amount: string | null
+      qfqOpen: string | null
+      qfqHigh: string | null
+      qfqLow: string | null
+      qfqClose: string | null
+    }>
+  > {
+    const cond = afterDate ? 'AND trade_date > $2' : ''
+    const params = afterDate ? [tsCode, afterDate] : [tsCode]
+    return this.dailyQuoteRepo.manager.query(
+      `SELECT trade_date AS "tradeDate", amount, qfq_open AS "qfqOpen", qfq_high AS "qfqHigh", qfq_low AS "qfqLow", qfq_close AS "qfqClose"
+         FROM raw.daily_quote
+        WHERE ts_code = $1 ${cond}
+          AND qfq_open IS NOT NULL AND qfq_high IS NOT NULL AND qfq_low IS NOT NULL AND qfq_close IS NOT NULL
+        ORDER BY trade_date ASC`,
+      params,
+    )
   }
 
   /**

@@ -391,7 +391,7 @@ export class ThsIndexAmvService {
 
     // 按 trade_date 升序对齐量与价（以指数行情日期为主轴）
     const tradeDates = priceRows.map((p) => p.tradeDate)
-    const volume: number[] = []
+    const amountInYuan: number[] = []
     const open: number[] = []
     const high: number[] = []
     const low: number[] = []
@@ -401,7 +401,7 @@ export class ThsIndexAmvService {
     for (const p of priceRows) {
       const agg = amtMap.get(p.tradeDate)
       const amt = agg ? agg.amt : 0 // 指数有行情但成分股当日 Σ 为空 → 量按 0，公式里 AMVc≤0 自然 invalid
-      volume.push(amt * 1000) // 千元 → 元（amount 已是千元；×1000 到元，spec §3）
+      amountInYuan.push(amt * 1000) // 千元 → 元（amount 已是千元；×1000 到元，spec §3）
       open.push(p.open ?? NaN)
       high.push(p.high ?? NaN)
       low.push(p.low ?? NaN)
@@ -410,7 +410,7 @@ export class ThsIndexAmvService {
     }
 
     // 套公式：calcAmvSeries → calcMacd(amvClose) → calcSignal / calcZdf
-    const amv = calcAmvSeries({ volume, open, high, low, close })
+    const amv = calcAmvSeries({ amountInYuan, open, high, low, close })
     const macd = calcMacd(amv.amvClose, 12, 26, 9)
     const zdf = calcZdf(amv.amvClose)
 

@@ -166,10 +166,10 @@ describe('amv-formula', () => {
 
   describe('calcAmvSeries — 量价合成（spec §3，无 /1e6）', () => {
     it('v1=tdSma(vol,10), v3=MA5(REF(close,1)), AMVc=v1×close/v3×0.1（手算固定值）', () => {
-      // 构造常数量价以便手算：volume 已 ×1000，全 100；close 全 10；open/high/low=9/11/8
+      // 构造常数量价以便手算：amountInYuan 已 ×1000，全 100；close 全 10；open/high/low=9/11/8
       const n = 6
       const input = {
-        volume: Array(n).fill(100),
+        amountInYuan: Array(n).fill(100),
         open: Array(n).fill(9),
         high: Array(n).fill(11),
         low: Array(n).fill(8),
@@ -194,11 +194,11 @@ describe('amv-formula', () => {
     })
 
     it('量纲：不做 /1e6（大成交额直接放大为大数值，仅乘 0.1）', () => {
-      // volume 已 ×1000 到元，给一个千万级量；价稳定，验证 AMVc 是元级大数而非 /1e6 后的小数
+      // amountInYuan 已 ×1000 到元，给一个千万级量；价稳定，验证 AMVc 是元级大数而非 /1e6 后的小数
       const n = 6
       const vol = 1e7 // 元
       const input = {
-        volume: Array(n).fill(vol),
+        amountInYuan: Array(n).fill(vol),
         open: Array(n).fill(10),
         high: Array(n).fill(10),
         low: Array(n).fill(10),
@@ -213,7 +213,7 @@ describe('amv-formula', () => {
     it('v3≤0（close 全 0）→ 当日四价 NaN + invalid，且不出现 Inf', () => {
       const n = 5
       const input = {
-        volume: Array(n).fill(100),
+        amountInYuan: Array(n).fill(100),
         open: Array(n).fill(0),
         high: Array(n).fill(0),
         low: Array(n).fill(0),
@@ -239,7 +239,7 @@ describe('amv-formula', () => {
       const close = [10, 10, 10, 10, 10, -5]
       const n = close.length
       const input = {
-        volume: Array(n).fill(100),
+        amountInYuan: Array(n).fill(100),
         open: Array(n).fill(9),
         high: Array(n).fill(11),
         low: Array(n).fill(8),
@@ -258,7 +258,7 @@ describe('amv-formula', () => {
     it('输出四价 + invalid 长度均与输入对齐', () => {
       const n = 8
       const input = {
-        volume: Array(n).fill(100),
+        amountInYuan: Array(n).fill(100),
         open: Array(n).fill(9),
         high: Array(n).fill(11),
         low: Array(n).fill(8),

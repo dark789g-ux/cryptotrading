@@ -192,7 +192,7 @@ export class SwAmvService {
     }
 
     const tradeDates = priceRows.map((p) => p.tradeDate)
-    const volume: number[] = []
+    const amountInYuan: number[] = []
     const open: number[] = []
     const high: number[] = []
     const low: number[] = []
@@ -202,7 +202,7 @@ export class SwAmvService {
     for (const p of priceRows) {
       const agg = amtMap.get(p.tradeDate)
       const amt = agg ? agg.amt : 0
-      volume.push(amt * 1000)
+      amountInYuan.push(amt * 1000)
       open.push(p.open ?? NaN)
       high.push(p.high ?? NaN)
       low.push(p.low ?? NaN)
@@ -210,7 +210,7 @@ export class SwAmvService {
       memberCounts.push(agg ? agg.memberCount : 0)
     }
 
-    const amv = calcAmvSeries({ volume, open, high, low, close })
+    const amv = calcAmvSeries({ amountInYuan, open, high, low, close })
     const macd = calcMacd(amv.amvClose, 12, 26, 9)
     const zdf = calcZdf(amv.amvClose)
 

@@ -3,7 +3,7 @@
 // 每个 runner 接收一个 StepContext（提供 8 个底层 service + 改内存步骤态的回调 + pushLog），
 // 不直接碰 DB / 实体；DB 节流刷库由编排器在事件回调里做。
 //
-// SSE 步骤（0-5）：订阅各 service 的 startSync() Subject，用 awaitSubject 转 Promise；
+// SSE 步骤（0-4）：订阅各 service 的 startSync() Subject，用 awaitSubject 转 Promise；
 //   done 事件携带 result/summary，据此判 success/failed（照搬前端 runBaseData/runAShares/…）。
 // 普通步骤（5-9）：直接 await，rowsWritten 取返回的 synced；抛错→该步 failed。
 //   （Step5 market-index-daily 走普通 await，大盘指数日线无 SSE 入口）
@@ -388,11 +388,7 @@ function applyThsIndexDone(
 // ── Step4/5 申万 + 大盘指数日线 runner 抽到 step-runners-index-daily.ts
 //    （单文件 ≤500 行拆分；事件结构与 ths-index-daily 同构，详见该文件）
 
-// ── Step6-8 三类 AMV（普通 await）─────────────────────────────────────
-export async function runStockAmv(ctx: StepContext, index: number): Promise<void> {
-  await runAmvStep(ctx, index, 'stock-amv', '同步个股 AMV', (opts) => ctx.services.activeMv.syncStock(opts));
-}
-
+// ── 行业 / 概念 / 申万 AMV（普通 await；个股 AMV 已并入 a-shares 同步收尾，PR-7③-b）──
 export async function runIndustryAmv(ctx: StepContext, index: number): Promise<void> {
   await runAmvStep(ctx, index, 'industry-amv', '同步行业指数 AMV', (opts) =>
     ctx.services.activeMv.syncIndustry(opts),

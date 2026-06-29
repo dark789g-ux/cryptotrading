@@ -15,6 +15,7 @@ import { ASharesService } from './a-shares.service';
 import { ASharesSyncService } from './sync/a-shares-sync.service';
 import { TushareClientService } from './services/tushare-client.service';
 import { SignalRollingIndicatorModule } from '../signal-rolling-indicator/signal-rolling-indicator.module';
+import { ActiveMvModule } from '../active-mv/active-mv.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { SignalRollingIndicatorModule } from '../signal-rolling-indicator/signal
       AShareFilterPresetEntity,
     ]),
     SignalRollingIndicatorModule,
+    ActiveMvModule,
   ],
   controllers: [ASharesController],
   providers: [ASharesService, ASharesSyncService, ASharesIndicatorService, ASharesFilterPresetsService, TushareClientService],
