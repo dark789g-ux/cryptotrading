@@ -1,5 +1,0 @@
-# Python 浏览器测试依赖。当前本机已装 playwright 1.58.0。
-# 安装：pip install -r requirements.txt
-# 注意：pip 装的是 Python 包，浏览器二进制要另外装一次（幂等）：
-#   python -m playwright install chromium
-playwright==1.58.0

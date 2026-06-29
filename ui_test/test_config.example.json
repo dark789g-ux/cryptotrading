@@ -1,0 +1,11 @@
+{
+  "_description": "ui_test 测试配置。从 test_config.example.json 复制为 test_config.json 后填写。auth.email/auth.password 必填；api_base_url 需包含 /api 前缀。",
+  "base_url": "http://localhost:5173",
+  "api_base_url": "http://localhost:3000/api",
+  "webbridge_url": "http://127.0.0.1:10086/command",
+  "auth": {
+    "email": "",
+    "password": ""
+  },
+  "default_session": "cryptotrading-e2e"
+}

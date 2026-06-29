@@ -250,6 +250,10 @@ __marimo__/
 .tmp/
 nul
 
+# ui_test：测试配置含敏感信息，探索期临时脚本不提交
+ui_test/test_config.json
+ui_test/.tmp/
+
 # ZCode harness 本地产物（不随仓库共享）
 .zcode/scheduled_tasks.lock
 .zcode/settings.local.json
