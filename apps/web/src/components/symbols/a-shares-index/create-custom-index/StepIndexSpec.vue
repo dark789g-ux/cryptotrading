@@ -87,8 +87,13 @@ const effectiveDateTs = computed(() => ymdToTs(props.effectiveDate))
 
 function onBaseDateChange(ts: number | null) {
   const ymd = tsToYmd(ts)
+  const prevBase = props.baseDate
   emit('update:baseDate', ymd)
-  if (!props.isEdit && !props.effectiveDate) {
+  // create 模式「默认同基期」：effective_date 为空、或仍与改动前基期相同（即未被用户
+  // 显式改成不同值）时，跟随新 base_date。用户手动设过不同的生效日则不覆盖。
+  // 旧实现仅判 `!props.effectiveDate`，而 defaultState 把 effectiveDate 初始化为今天
+  // （永不为空）→ 同步分支永不触发，导致改基期后 effective_date 仍停在今天 → 计算 0 点位。
+  if (!props.isEdit && (!props.effectiveDate || props.effectiveDate === prevBase)) {
     emit('update:effectiveDate', ymd)
   }
 }

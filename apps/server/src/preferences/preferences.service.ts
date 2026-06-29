@@ -23,6 +23,7 @@ export const COLUMN_PREFERENCE_TABLE_IDS = [
   'crypto',
   'aSharesIndex',
   'aSharesIndexSw',
+  'aSharesIndexCustom',
   'watchlist',
   'backtestMetrics',
 ] as const;
