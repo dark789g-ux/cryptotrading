@@ -51,6 +51,13 @@ export class OneClickSyncController {
     return this.orchestrator.getActiveOrLatest();
   }
 
+  /** 最近一次 status='success' 的 run（标题「最近成功」标签）。 */
+  @Get('runs/latest-success')
+  @AdminOnly()
+  getLatestSuccess() {
+    return this.orchestrator.getLatestSuccess();
+  }
+
   /** 轮询单条进度。 */
   @Get('runs/:id')
   @AdminOnly()

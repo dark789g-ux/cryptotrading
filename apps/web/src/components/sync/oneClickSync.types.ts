@@ -66,6 +66,7 @@ export interface OneClickPanelController {
   currentStepIndex: ComputedRef<number>
   elapsedMs: ComputedRef<number>
   summary: ComputedRef<OneClickSummary | null>
+  latestSyncText: ComputedRef<string>
   canStart: ComputedRef<boolean>
   start: () => Promise<void>
   cancel: () => Promise<void>

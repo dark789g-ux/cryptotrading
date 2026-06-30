@@ -1,0 +1,243 @@
+.one-click-sync {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ocs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ocs-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ocs-header-icon {
+  font-size: 28px;
+}
+.ocs-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 16px;
+  font-weight: 600;
+}
+.ocs-title-badge {
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.65;
+}
+.ocs-subtitle {
+  font-size: 12px;
+  opacity: 0.7;
+}
+.ocs-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ocs-date-picker {
+  min-width: 260px;
+}
+
+.ocs-total-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ocs-total-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.ocs-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ocs-step-row {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-surface-elevated, #f5f5f5) 60%, transparent);
+  transition: background 0.2s;
+}
+.ocs-step-row--running {
+  background: color-mix(in srgb, var(--color-primary, #2080f0) 12%, transparent);
+}
+.ocs-step-row--failed {
+  background: color-mix(in srgb, #d03050 12%, transparent);
+}
+.ocs-step-row--success {
+  background: color-mix(in srgb, #18a058 10%, transparent);
+}
+.ocs-step-icon {
+  width: 24px;
+  text-align: center;
+  font-size: 16px;
+  align-self: flex-start;
+  padding-top: 2px;
+}
+.ocs-step-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ocs-step-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+.ocs-step-label {
+  font-weight: 500;
+}
+.ocs-step-meta {
+  font-size: 12px;
+  opacity: 0.8;
+}
+.ocs-step-progress {
+  margin: 2px 0;
+}
+.ocs-step-message {
+  font-size: 12px;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ocs-step-phase {
+  margin-right: 6px;
+  opacity: 0.6;
+}
+
+.ocs-log-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ocs-log-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  opacity: 0.85;
+}
+.ocs-log-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ocs-log-box {
+  height: 200px;
+  overflow-y: auto;
+  background: var(--color-surface, #1e1e1e);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border, #ccc) 50%, transparent);
+}
+.ocs-log-line {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  line-height: 1.5;
+}
+.ocs-log-line--warn {
+  color: #f0a020;
+}
+.ocs-log-line--error {
+  color: #d03050;
+}
+.ocs-log-ts {
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+.ocs-log-step {
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+.ocs-log-text {
+  word-break: break-all;
+}
+.ocs-log-empty {
+  opacity: 0.5;
+  text-align: center;
+  padding: 16px 0;
+}
+
+.ocs-summary {
+  border-radius: 6px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--color-surface-elevated, #f5f5f5) 60%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ocs-summary-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.ocs-summary-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.ocs-summary-meta {
+  margin-left: 8px;
+  opacity: 0.8;
+  font-size: 12px;
+}
+.ocs-summary-footer {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  font-size: 12px;
+  opacity: 0.85;
+  flex-wrap: wrap;
+}
+.ocs-summary-errors {
+  margin-top: 4px;
+  font-size: 12px;
+}
+.ocs-summary-errors ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.ocs-summary-error--warn {
+  color: #f0a020;
+}
+.ocs-summary-error--error {
+  color: #d03050;
+}
+
+@media (max-width: 960px) {
+  .ocs-header,
+  .ocs-header-right {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .ocs-date-picker {
+    min-width: 100%;
+  }
+}

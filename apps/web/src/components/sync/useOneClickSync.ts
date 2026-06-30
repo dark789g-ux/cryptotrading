@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { useOneClickSyncStore } from '@/stores/oneClickSync'
+import { formatUTCDateTime } from '@/components/symbols/a-shares/aSharesFormatters'
 import {
   STEP_LABELS,
   toYYYYMMDD,
@@ -72,6 +73,12 @@ export function useOneClickSync(message: OneClickMessageApi) {
     }
   })
 
+  /** 最近一次 success 的 finishedAt 格式化文本（标题「最近成功」标签用）；无则 ''。 */
+  const latestSyncText = computed(() => {
+    const run = store.latestSuccessRun
+    return run?.finishedAt ? formatUTCDateTime(run.finishedAt) : ''
+  })
+
   // ---- 控制：start / cancel 仅转调 store ----
   async function start(): Promise<void> {
     if (running.value) return
@@ -104,6 +111,7 @@ export function useOneClickSync(message: OneClickMessageApi) {
     elapsedMs,
     logEntries,
     summary,
+    latestSyncText,
     totalPercent,
     canStart,
     start,

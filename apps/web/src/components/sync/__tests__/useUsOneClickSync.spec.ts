@@ -11,6 +11,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useUsOneClickSync } from '../useUsOneClickSync'
 import { US_STEP_LABELS, type OneClickStepState } from '../oneClickSync.types'
 import { useUsOneClickSyncStore } from '../../../stores/usOneClickSync'
+import { formatUTCDateTime } from '../../symbols/a-shares/aSharesFormatters'
 import type { JobRow } from '../../../api/modules/quant'
 
 function makeMessage() {
@@ -125,5 +126,20 @@ describe('useUsOneClickSync 控制器', () => {
     expect(ctrl.totalPercent.value).toBe(50)
     expect(ctrl.steps.value[0].label).toBe(US_STEP_LABELS['us-stocks'])
     expect(ctrl.logEntries.value).toHaveLength(1)
+  })
+
+  it('latestSyncText：store.latestSuccessJob 有 finishedAt 时格式化输出', () => {
+    const store = useUsOneClickSyncStore()
+    const finishedAt = '2026-06-29 10:15:30Z'
+    store.latestSuccessJob = makeJob({ status: 'success', finishedAt })
+    const ctrl = useUsOneClickSync(makeMessage())
+    expect(ctrl.latestSyncText.value).toBe(formatUTCDateTime(finishedAt))
+  })
+
+  it('latestSyncText：store.latestSuccessJob 为 null 时返回空串', () => {
+    const store = useUsOneClickSyncStore()
+    store.latestSuccessJob = null
+    const ctrl = useUsOneClickSync(makeMessage())
+    expect(ctrl.latestSyncText.value).toBe('')
   })
 })

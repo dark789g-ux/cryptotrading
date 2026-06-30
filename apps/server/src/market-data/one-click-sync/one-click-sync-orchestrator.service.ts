@@ -138,6 +138,16 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
     return this.toDto(saved);
   }
 
+  /** 最近一次 status='success' 的 run（标题「最近成功」标签用；无则 null）。走索引 ix_ocsr_status_started。 */
+  async getLatestSuccess(): Promise<OneClickSyncRunDto | null> {
+    const [run] = await this.runRepo.find({
+      where: { status: 'success' },
+      order: { startedAt: 'DESC' },
+      take: 1,
+    });
+    return run ? this.toDto(run) : null;
+  }
+
   /** GET /runs/active：有活跃返回活跃；否则返回最近一条（供 onMounted 恢复）。 */
   async getActiveOrLatest(): Promise<OneClickSyncRunDto | null> {
     const running = await this.findRunning();

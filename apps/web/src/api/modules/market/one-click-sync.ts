@@ -61,6 +61,10 @@ export const oneClickSyncApi = {
   getActive: () =>
     request<OneClickSyncRun | null>(`${API_BASE}/one-click-sync/runs/active`),
 
+  /** GET /api/one-click-sync/runs/latest-success 取最近一次 status=success 的 run（无则 null）。 */
+  getLatestSuccess: () =>
+    request<OneClickSyncRun | null>(`${API_BASE}/one-click-sync/runs/latest-success`),
+
   /** GET /api/one-click-sync/runs/:id 轮询单条进度。 */
   getRun: (id: string) =>
     request<OneClickSyncRun>(`${API_BASE}/one-click-sync/runs/${encodeURIComponent(id)}`),

@@ -69,8 +69,13 @@ function makeInMemoryRepo() {
       }
       return matched[0] ?? null;
     }),
-    find: jest.fn(async (opts?: { order?: Record<string, 'ASC' | 'DESC'>; take?: number }) => {
+    find: jest.fn(async (opts?: { where?: Record<string, unknown>; order?: Record<string, 'ASC' | 'DESC'>; take?: number }) => {
       let matched = [...rows];
+      if (opts?.where) {
+        matched = matched.filter((r) =>
+          Object.entries(opts.where).every(([k, v]) => r[k] === v),
+        );
+      }
       if (opts?.order) {
         const [key, dir] = Object.entries(opts.order)[0];
         matched.sort((a, b) => {
@@ -538,6 +543,41 @@ describe('OneClickSyncOrchestratorService', () => {
     const active = await svc.getActiveOrLatest();
     expect(active?.id).toBe(run.id);
     expect(active?.status).toBe('success'); // 已终态，作为「最近一条」返回
+  });
+
+  it('getLatestSuccess：有 success 记录时返回最近一条 success 的 DTO', async () => {
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    const svc = await buildModule(mocks, repo);
+    const run = await svc.startRun('20260601', '20260610', null);
+    await flushUntil(() => repo.rows[0]?.status !== 'running');
+
+    const result = await svc.getLatestSuccess();
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe(run.id);
+    expect(result!.status).toBe('success');
+    expect(result!.startedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z$/);
+  });
+
+  it('getLatestSuccess：无 success 记录时返回 null', async () => {
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    // 预置一条 failed 记录，不跑同步
+    repo.rows.push({
+      id: 'failed-1',
+      status: 'failed',
+      startDate: '20260101',
+      endDate: '20260110',
+      startedAt: new Date(),
+      updatedAt: new Date(),
+      finishedAt: new Date(),
+      steps: [],
+      logs: [],
+    });
+    const svc = await buildModule(mocks, repo);
+
+    const result = await svc.getLatestSuccess();
+    expect(result).toBeNull();
   });
 
   it('boot-sweep：onModuleInit 把残留 running 标 failed（服务重启中断）', async () => {

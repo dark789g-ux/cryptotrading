@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { useUsOneClickSyncStore } from '@/stores/usOneClickSync'
+import { formatUTCDateTime } from '@/components/symbols/a-shares/aSharesFormatters'
 import {
   toYYYYMMDD,
   type LogEntry,
@@ -38,6 +39,12 @@ export function useUsOneClickSync(message: OneClickMessageApi): OneClickPanelCon
     () => !running.value && !!dateRange.value && !!dateRange.value[0] && !!dateRange.value[1],
   )
 
+  /** 最近一次 success 的 finishedAt 格式化文本（标题「最近成功」标签用）；无则 ''。 */
+  const latestSyncText = computed(() => {
+    const job = store.latestSuccessJob
+    return job?.finishedAt ? formatUTCDateTime(job.finishedAt) : ''
+  })
+
   // ---- 控制：start / cancel 仅转调 store ----
   async function start(): Promise<void> {
     if (running.value) return
@@ -70,6 +77,7 @@ export function useUsOneClickSync(message: OneClickMessageApi): OneClickPanelCon
     elapsedMs,
     logEntries,
     summary,
+    latestSyncText,
     totalPercent,
     canStart,
     start,

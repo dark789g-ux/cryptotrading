@@ -57,11 +57,17 @@ onMounted(async () => {
     message.error(e instanceof Error ? e.message : '加载 A 股一键同步状态失败')
   }
   try {
+    await aStore.fetchLatestSuccess()
+  } catch { /* 标签缺失不阻塞、不弹错 */ }
+  try {
     await usStore.fetchActive()
     usStore.resumePolling()
   } catch (e) {
     message.error(e instanceof Error ? e.message : '加载美股一键同步状态失败')
   }
+  try {
+    await usStore.fetchLatestSuccess()
+  } catch { /* 标签缺失不阻塞、不弹错 */ }
 })
 
 // 离开页面停轮询（后端照跑，回页 fetchActive + resume 重新接管）。

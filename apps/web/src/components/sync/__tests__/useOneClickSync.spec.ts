@@ -12,6 +12,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useOneClickSync } from '../useOneClickSync'
 import { STEP_LABELS, type OneClickStepKey, type OneClickStepState } from '../oneClickSync.types'
 import { useOneClickSyncStore } from '../../../stores/oneClickSync'
+import { formatUTCDateTime } from '../../symbols/a-shares/aSharesFormatters'
 import type { OneClickSyncRun } from '../../../api/modules/market/one-click-sync'
 
 const messageStub = { error: () => {}, success: () => {} }
@@ -74,5 +75,20 @@ describe('useOneClickSync 适配层 label 合并', () => {
     })
     const ctrl = useOneClickSync(messageStub)
     expect(ctrl.summary.value?.steps[0].label).toBe(STEP_LABELS['a-shares'])
+  })
+
+  it('latestSyncText：store.latestSuccessRun 有 finishedAt 时格式化输出', () => {
+    const store = useOneClickSyncStore()
+    const finishedAt = '2026-06-28 14:30:25Z'
+    store.latestSuccessRun = makeRun([], { status: 'success', finishedAt })
+    const ctrl = useOneClickSync(messageStub)
+    expect(ctrl.latestSyncText.value).toBe(formatUTCDateTime(finishedAt))
+  })
+
+  it('latestSyncText：store.latestSuccessRun 为 null 时返回空串', () => {
+    const store = useOneClickSyncStore()
+    store.latestSuccessRun = null
+    const ctrl = useOneClickSync(messageStub)
+    expect(ctrl.latestSyncText.value).toBe('')
   })
 })

@@ -52,6 +52,7 @@ function withUsLabel(s: OneClickStepState): OneClickStepState {
 
 export const useUsOneClickSyncStore = defineStore('usOneClickSync', () => {
   const currentJob = ref<JobRow | null>(null)
+  const latestSuccessJob = ref<JobRow | null>(null)
   const lastPollError = ref<string | null>(null)
 
   // 250ms ticker 平滑显示耗时（仅 running 时跳动；终态停在最终值）
@@ -152,7 +153,10 @@ export const useUsOneClickSyncStore = defineStore('usOneClickSync', () => {
       currentJob.value = next
       consecutiveFailures = 0
       lastPollError.value = null
-      if (isTerminal(next)) stopPolling()
+      if (isTerminal(next)) {
+        stopPolling()
+        if (next.status === 'success') void fetchLatestSuccess()
+      }
     } catch (err) {
       lastPollError.value = err instanceof Error ? err.message : '轮询进度失败'
       // 不立刻 clear：长 run 网络抖动不该永久断轮询，下一轮重试
@@ -216,6 +220,16 @@ export const useUsOneClickSyncStore = defineStore('usOneClickSync', () => {
     return currentJob.value
   }
 
+  /** 拉最近一次 success 的 job（标题「最近成功」标签用）。失败静默保持原值。 */
+  async function fetchLatestSuccess() {
+    try {
+      const page = await quantApi.listJobs({
+        run_type: ['us_one_click_sync'], status: ['success'], page: 1, pageSize: 1,
+      })
+      latestSuccessJob.value = page.rows[0] ?? null
+    } catch { /* 静默 */ }
+  }
+
   /** 取消：currentJob 存在则 POST /quant/jobs/:id/cancel（置 cancel_requested，worker 异步响应）。 */
   async function cancelRun() {
     const job = currentJob.value
@@ -226,6 +240,7 @@ export const useUsOneClickSyncStore = defineStore('usOneClickSync', () => {
   return {
     // state
     currentJob,
+    latestSuccessJob,
     lastPollError,
     // getters
     running,
@@ -238,6 +253,7 @@ export const useUsOneClickSyncStore = defineStore('usOneClickSync', () => {
     // actions
     startRun,
     fetchActive,
+    fetchLatestSuccess,
     cancelRun,
     ensurePolling,
     resumePolling,

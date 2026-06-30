@@ -37,6 +37,7 @@ function utcWallClockToMs(s: string): number {
 
 export const useOneClickSyncStore = defineStore('oneClickSync', () => {
   const currentRun = ref<OneClickSyncRun | null>(null)
+  const latestSuccessRun = ref<OneClickSyncRun | null>(null)
   const lastPollError = ref<string | null>(null)
 
   // 250ms ticker 平滑显示耗时（仅 running 时跳动；终态停在最终值）
@@ -96,7 +97,10 @@ export const useOneClickSyncStore = defineStore('oneClickSync', () => {
       currentRun.value = next
       consecutiveFailures = 0
       lastPollError.value = null
-      if (isTerminal(next)) stopPolling()
+      if (isTerminal(next)) {
+        stopPolling()
+        if (next.status === 'success') void fetchLatestSuccess()
+      }
     } catch (err) {
       lastPollError.value = err instanceof Error ? err.message : '轮询进度失败'
       // 不立刻 clear：长 run 网络抖动不该永久断轮询，下一轮重试
@@ -152,6 +156,12 @@ export const useOneClickSyncStore = defineStore('oneClickSync', () => {
     return run
   }
 
+  /** 拉最近一次 success 的 run（标题「最近成功」标签用）。失败静默保持原值。 */
+  async function fetchLatestSuccess() {
+    try { latestSuccessRun.value = await oneClickSyncApi.getLatestSuccess() }
+    catch { /* 静默：保持原值 */ }
+  }
+
   /** 取消：currentRun 存在则 POST /runs/:id/cancel → patch currentRun。 */
   async function cancelRun() {
     const run = currentRun.value
@@ -163,6 +173,7 @@ export const useOneClickSyncStore = defineStore('oneClickSync', () => {
   return {
     // state
     currentRun,
+    latestSuccessRun,
     lastPollError,
     // getters
     running,
@@ -174,6 +185,7 @@ export const useOneClickSyncStore = defineStore('oneClickSync', () => {
     // actions
     startRun,
     fetchActive,
+    fetchLatestSuccess,
     cancelRun,
     ensurePolling,
     resumeAllPolling,
