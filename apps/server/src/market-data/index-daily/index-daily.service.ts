@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { SwIndexCatalogEntity } from '../../entities/sw-index/sw-index-catalog.entity';
 import { QueryLatestDto, IndexLatestSortField } from './dto/latest.dto';
 import { QueryKlineDto } from './dto/kline.dto';
+import { buildLatestSql } from './index-daily-latest.sql';
 import type {
   IndexDailyKlineRow,
   IndexLatestResult,
@@ -12,8 +13,8 @@ import type {
 } from './index-daily.types';
 
 /**
- * sort 字段白名单：前端字段 → 子查询别名（database-sql.md：禁直接拼前端字段名）。
- * 外层 ORDER BY 用别名（双引号），子查询内已用 AS "xxx" 命名。
+ * sort 字段白名单:前端字段 → 子查询别名(database-sql.md:禁直接拼前端字段名)。
+ * 外层 ORDER BY 用别名(双引号),子查询内已用 AS "xxx" 命名。
  */
 const SORT_COL_MAP: Record<IndexLatestSortField, string> = {
   pct_change: '"pctChange"',
@@ -33,7 +34,7 @@ const SORT_COL_MAP: Record<IndexLatestSortField, string> = {
   net_amount_20d: '"netAmount20d"',
 };
 
-/** 排序依赖 LATERAL 滚动资金流时须全量算完再排序，不可先分页。 */
+/** 排序依赖 LATERAL 滚动资金流时须全量算完再排序,不可先分页。 */
 const LATERAL_SORT_FIELDS: IndexLatestSortField[] = [
   'net_amount_5d',
   'net_amount_10d',
@@ -98,12 +99,12 @@ function nullableNum(v: unknown): number | null {
 }
 
 /**
- * 统一 A 股指数日线查询（大盘 + 行业 + 概念，全 category）。
+ * 统一 A 股指数日线查询(大盘 + 行业 + 概念 + 申万,全 category)。
  * spec: docs/superpowers/specs/2026-06-22-a-shares-index-tab-design.md【后端>接口清单】
  *
- * 与 ThsIndexDailyService 的区别：本 service 查全 category（行情表/K线给「A 股指数」tab）；
- * 旧 /ths-index-daily 路径薄封装仅 industry/concept（防大盘泄漏 money-flow）。
- * 用 DataSource raw SQL 规避 QueryBuilder .select() 水合坑（database-sql.md）。
+ * SQL 拼装按 category 裁剪(sw 只 JOIN money_flow_industries + ind_roll,余类推),
+ * 等价性与裁剪规则见 index-daily-latest.sql.ts。用 DataSource raw SQL 规避
+ * QueryBuilder .select() 水合坑(database-sql.md)。
  */
 @Injectable()
 export class IndexDailyService {
@@ -114,12 +115,11 @@ export class IndexDailyService {
   ) {}
 
   /**
-   * 行情表最新行情：每个指数取最新一行（DISTINCT ON ts_code），支持类型筛选/模糊搜索/排序/分页。
+   * 行情表最新行情:每个指数取最新一行(DISTINCT ON ts_code),支持类型筛选/模糊搜索/排序/分页。
    *
-   * name 来源：同花顺走 ths_index_catalog（c.name），申万走 sw_index_catalog（s.name），
-   * COALESCE(c.name, s.name) 统一取。申万 tsCode 不在 ths_index_catalog，须靠 s 兜底。
-   * level 仅对 type='sw' 生效：先查 sw_index_catalog 拿该层 tsCode + name 集合，
-   * 再用 ANY($tsCodes) 收敛（避免 JOIN sw_index_catalog 后 DISTINCT ON ts_code 与分页交互复杂）。
+   * name 来源:同花顺走 ths_index_catalog(c.name),申万走 sw_index_catalog(s.name)。
+   * level 仅对 type='sw' 生效:先查 sw_index_catalog 拿该层 tsCode 集合,
+   * 再用 ANY($tsCodes) 收敛(避免 JOIN sw_index_catalog 后 DISTINCT ON 与分页交互复杂)。
    */
   async getLatest(dto: QueryLatestDto): Promise<IndexLatestResult> {
     const category = dto.type ?? null;
@@ -133,215 +133,46 @@ export class IndexDailyService {
     const orderExpr = `${sortCol} ${order} NULLS LAST`;
     const sortUsesLateral = LATERAL_SORT_FIELDS.includes(sortField);
 
-    // 申万按 level 过滤：name 也在此表，一并取回避免 JOIN。
-    // GET 查询参数 level 是字符串，需显式转 number 再校验（原 `=== 1` 会漏字符串）。
+    // 申万按 level 过滤:name 也在此表,一并取回避免 JOIN。
+    // GET 查询参数 level 是字符串,需显式转 number 再校验(原 `=== 1` 会漏字符串)。
     const isSw = category === 'sw';
     const levelNum = dto.level == null ? null : Number(dto.level);
     const swLevel: number | null =
-      isSw && (levelNum === 1 || levelNum === 2 || levelNum === 3)
-        ? levelNum
-        : null;
+      isSw && (levelNum === 1 || levelNum === 2 || levelNum === 3) ? levelNum : null;
     let swTsCodes: string[] | null = null;
+    let swNoMatch = false;
     if (isSw) {
       const swRows = await this.swCatalogRepo.find({
         where: swLevel == null ? {} : { level: swLevel as 1 | 2 | 3 },
         select: ['tsCode', 'name'],
       });
       swTsCodes = swRows.map((r) => r.tsCode);
-      // level 过滤下命中 0 个目录项 → 直接返回空（避免 ANY('{}') 退化成「全表」陷阱）
+      // level 过滤下命中 0 个目录项 → 直接返回空(避免 ANY('{}') 退化成「全表」陷阱)
       if (swLevel != null && swTsCodes.length === 0) {
         return { rows: [], total: 0 };
       }
+      swNoMatch = swTsCodes.length === 0;
     }
 
-    // 动态拼 WHERE：$1=category、$2=q 始终在前；sw 分支在末尾追加 ts_code 收敛（占位符位置随查询变）。
-    // name 搜索：sw 走 s.name、其它走 c.name（申万 tsCode 不在 ths_index_catalog）。
-    const swNameCol = isSw ? 's.name' : 'c.name';
-    // sw 无目录项命中（仅 type='sw' 且 catalog 为空）→ 用 AND FALSE 短路返回 0 行
-    const swNoMatch = isSw && (!swTsCodes || swTsCodes.length === 0);
-    const nameClause = `($2::text IS NULL OR ${swNameCol} ILIKE '%' || $2 || '%')`;
-    const categoryClause = `($1::text IS NULL OR q.category = $1)`;
-    // tsCodes 收敛片段：count 查询放 $3，rows 查询放 $5（$3/$4 留给 LIMIT/OFFSET）
-    const tsClauseFor = (pos: number) =>
-      isSw && swTsCodes && swTsCodes.length > 0
-        ? ` AND q.ts_code = ANY($${pos}::text[])`
-        : swNoMatch
-          ? ' AND FALSE'
-          : '';
-    const whereCore = `${categoryClause} AND ${nameClause}`;
+    const built = buildLatestSql({
+      category,
+      isSw,
+      swTsCodes,
+      swNoMatch,
+      q,
+      pageSize,
+      offset,
+      sortUsesLateral,
+      orderExpr,
+    });
 
     const totalRows = await this.dataSource.query<Array<{ total: string }>>(
-      `SELECT COUNT(DISTINCT q.ts_code)::text AS total
-         FROM index_daily_quotes q
-         LEFT JOIN ths_index_catalog c ON c.ts_code = q.ts_code
-         LEFT JOIN sw_index_catalog s ON s.ts_code = q.ts_code
-        WHERE ${whereCore}${tsClauseFor(3)}`,
-      [category, q, ...(isSw && swTsCodes && swTsCodes.length > 0 ? [swTsCodes] : [])],
+      built.countSql,
+      built.countParams,
     );
     const total = Number(totalRows[0]?.total ?? 0);
 
-    const rowsParams: unknown[] = isSw && swTsCodes && swTsCodes.length > 0
-      ? [category, q, pageSize, offset, swTsCodes]
-      : [category, q, pageSize, offset];
-
-    const swMemberCountCte = `WITH sw_member_count AS (
-         SELECT idx_code, COUNT(DISTINCT ts_code) AS cnt
-         FROM (
-           SELECT l1_code AS idx_code, ts_code FROM raw.index_member WHERE is_new = 'Y' AND l1_code IS NOT NULL
-           UNION ALL
-           SELECT l2_code AS idx_code, ts_code FROM raw.index_member WHERE is_new = 'Y' AND l2_code IS NOT NULL
-           UNION ALL
-           SELECT l3_code AS idx_code, ts_code FROM raw.index_member WHERE is_new = 'Y' AND l3_code IS NOT NULL
-         ) u
-         GROUP BY idx_code
-       )`;
-
-    const innerDistinctSql = `
-         SELECT DISTINCT ON (q.ts_code)
-           q.ts_code AS "tsCode", COALESCE(c.name, s.name) AS name, q.category,
-           q.trade_date AS "tradeDate", q.close,
-           q.pct_change AS "pctChange", q.vol_hand AS "vol",
-           q.amount, q.total_mv_wan AS "totalMvWan",
-           q.pe, q.pb,
-           COALESCE(c.count, smc.cnt) AS count,
-           CASE q.category
-             WHEN 'sw'       THEN mf_ind.net_amount
-             WHEN 'industry' THEN mf_ths.net_amount
-             WHEN 'concept'  THEN mf_sec.net_amount
-             WHEN 'market'   THEN mf_mkt.net_amount
-             ELSE                 COALESCE(mf_ind.net_amount, mf_sec.net_amount, mf_ths.net_amount, mf_mkt.net_amount, mf_idx.net_amount)
-           END AS "netAmount",
-           CASE q.category
-             WHEN 'market' THEN mf_mkt.buy_lg_amount
-             WHEN 'sw'     THEN mf_ind.buy_lg_amount
-             ELSE             mf_idx.buy_lg_amount
-           END AS "buyLgAmount",
-           CASE q.category
-             WHEN 'market' THEN mf_mkt.buy_md_amount
-             WHEN 'sw'     THEN mf_ind.buy_md_amount
-             ELSE             mf_idx.buy_md_amount
-           END AS "buyMdAmount",
-           CASE q.category
-             WHEN 'market' THEN mf_mkt.buy_sm_amount
-             WHEN 'sw'     THEN mf_ind.buy_sm_amount
-             ELSE             mf_idx.buy_sm_amount
-           END AS "buySmAmount"
-         FROM index_daily_quotes q
-         LEFT JOIN ths_index_catalog c ON c.ts_code = q.ts_code
-         LEFT JOIN sw_index_catalog s ON s.ts_code = q.ts_code
-         LEFT JOIN sw_member_count smc ON smc.idx_code = q.ts_code
-         LEFT JOIN money_flow_industries mf_ind ON mf_ind.ts_code = q.ts_code AND mf_ind.trade_date = q.trade_date
-         LEFT JOIN money_flow_sectors mf_sec ON mf_sec.ts_code = q.ts_code AND mf_sec.trade_date = q.trade_date
-         LEFT JOIN money_flow_ths_industries mf_ths ON mf_ths.ts_code = q.ts_code AND mf_ths.trade_date = q.trade_date
-         LEFT JOIN money_flow_market mf_mkt ON mf_mkt.trade_date = q.trade_date
-         LEFT JOIN money_flow_index mf_idx ON mf_idx.ts_code = q.ts_code AND mf_idx.trade_date = q.trade_date
-         WHERE ${whereCore}${tsClauseFor(5)}
-         ORDER BY q.ts_code, q.trade_date DESC`;
-
-    const netAmountLateralSelect = `
-         CASE latest.category
-           WHEN 'sw'       THEN ind_roll.n5
-           WHEN 'industry' THEN ths_roll.n5
-           WHEN 'concept'  THEN sec_roll.n5
-           WHEN 'market'   THEN mkt_roll.n5
-           ELSE COALESCE(ind_roll.n5, sec_roll.n5, ths_roll.n5, mkt_roll.n5, idx_roll.n5)
-         END AS "netAmount5d",
-         CASE latest.category
-           WHEN 'sw'       THEN ind_roll.n10
-           WHEN 'industry' THEN ths_roll.n10
-           WHEN 'concept'  THEN sec_roll.n10
-           WHEN 'market'   THEN mkt_roll.n10
-           ELSE COALESCE(ind_roll.n10, sec_roll.n10, ths_roll.n10, mkt_roll.n10, idx_roll.n10)
-         END AS "netAmount10d",
-         CASE latest.category
-           WHEN 'sw'       THEN ind_roll.n20
-           WHEN 'industry' THEN ths_roll.n20
-           WHEN 'concept'  THEN sec_roll.n20
-           WHEN 'market'   THEN mkt_roll.n20
-           ELSE COALESCE(ind_roll.n20, sec_roll.n20, ths_roll.n20, mkt_roll.n20, idx_roll.n20)
-         END AS "netAmount20d"`;
-
-    const lateralJoinsSql = `
-       LEFT JOIN LATERAL (
-         SELECT SUM(net_amount) FILTER (WHERE rn <= 5)  AS n5,
-                SUM(net_amount) FILTER (WHERE rn <= 10) AS n10,
-                SUM(net_amount) FILTER (WHERE rn <= 20) AS n20
-         FROM (
-           SELECT net_amount, ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
-           FROM money_flow_industries
-           WHERE ts_code = latest."tsCode" AND trade_date <= latest."tradeDate"
-           ORDER BY trade_date DESC
-           LIMIT 20
-         ) t
-       ) ind_roll ON TRUE
-       LEFT JOIN LATERAL (
-         SELECT SUM(net_amount) FILTER (WHERE rn <= 5)  AS n5,
-                SUM(net_amount) FILTER (WHERE rn <= 10) AS n10,
-                SUM(net_amount) FILTER (WHERE rn <= 20) AS n20
-         FROM (
-           SELECT net_amount, ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
-           FROM money_flow_ths_industries
-           WHERE ts_code = latest."tsCode" AND trade_date <= latest."tradeDate"
-           ORDER BY trade_date DESC
-           LIMIT 20
-         ) t
-       ) ths_roll ON TRUE
-       LEFT JOIN LATERAL (
-         SELECT SUM(net_amount) FILTER (WHERE rn <= 5)  AS n5,
-                SUM(net_amount) FILTER (WHERE rn <= 10) AS n10,
-                SUM(net_amount) FILTER (WHERE rn <= 20) AS n20
-         FROM (
-           SELECT net_amount, ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
-           FROM money_flow_sectors
-           WHERE ts_code = latest."tsCode" AND trade_date <= latest."tradeDate"
-           ORDER BY trade_date DESC
-           LIMIT 20
-         ) t
-       ) sec_roll ON TRUE
-       LEFT JOIN LATERAL (
-         SELECT SUM(net_amount) FILTER (WHERE rn <= 5)  AS n5,
-                SUM(net_amount) FILTER (WHERE rn <= 10) AS n10,
-                SUM(net_amount) FILTER (WHERE rn <= 20) AS n20
-         FROM (
-           SELECT net_amount, ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
-           FROM money_flow_market
-           WHERE trade_date <= latest."tradeDate"
-           ORDER BY trade_date DESC
-           LIMIT 20
-         ) t
-       ) mkt_roll ON TRUE
-       LEFT JOIN LATERAL (
-         SELECT SUM(net_amount) FILTER (WHERE rn <= 5)  AS n5,
-                SUM(net_amount) FILTER (WHERE rn <= 10) AS n10,
-                SUM(net_amount) FILTER (WHERE rn <= 20) AS n20
-         FROM (
-           SELECT net_amount, ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
-           FROM money_flow_index
-           WHERE ts_code = latest."tsCode" AND trade_date <= latest."tradeDate"
-           ORDER BY trade_date DESC
-           LIMIT 20
-         ) t
-       ) idx_roll ON TRUE`;
-
-    const latestFromSql = sortUsesLateral
-      ? `(
-       ${innerDistinctSql}
-       ) latest`
-      : `(
-       SELECT * FROM (
-       ${innerDistinctSql}
-       ) page
-       ORDER BY ${orderExpr}
-       LIMIT $3 OFFSET $4
-       ) latest`;
-
-    const rowsSql = `${swMemberCountCte}
-       SELECT latest.*,${netAmountLateralSelect}
-       FROM ${latestFromSql}
-       ${lateralJoinsSql}
-       ORDER BY ${orderExpr}${sortUsesLateral ? '\n       LIMIT $3 OFFSET $4' : ''}`;
-
-    const rows = await this.dataSource.query<LatestRawRow[]>(rowsSql, rowsParams);
+    const rows = await this.dataSource.query<LatestRawRow[]>(built.rowsSql, built.rowsParams);
 
     const mapped: IndexLatestRow[] = rows.map((r) => ({
       tsCode: r.tsCode,
@@ -369,8 +200,8 @@ export class IndexDailyService {
   }
 
   /**
-   * K 线：查 index_daily_quotes LEFT JOIN indicators（全 category）。
-   * open_time=YYYYMMDD 字面串契约，volume=volHand*100 转「股」（与 KlineChartBar 对齐）。
+   * K 线:查 index_daily_quotes LEFT JOIN indicators(全 category)。
+   * open_time=YYYYMMDD 字面串契约,volume=volHand*100 转「股」(与 KlineChartBar 对齐)。
    */
   async getKlines(dto: QueryKlineDto): Promise<IndexDailyKlineRow[]> {
     const rows = await this.dataSource.query<KlineRawRow[]>(
