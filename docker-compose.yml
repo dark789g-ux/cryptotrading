@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: crypto-postgres
+    shm_size: '256m'
     environment:
       POSTGRES_USER: cryptouser
       POSTGRES_PASSWORD: cryptopass
