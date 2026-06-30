@@ -81,11 +81,11 @@ import {
   NAlert, NButton, NCard, NDataTable, NEmpty, NSelect, NTag, useDialog, useMessage,
 } from 'naive-ui'
 import type { DataTableColumns, PaginationProps, SelectOption } from 'naive-ui'
-import ProgressLine from '@/components/quant/ProgressLine.vue'
-import QuantTrainTriggerModal from '@/components/quant/QuantTrainTriggerModal.vue'
+import ProgressLine from '@/components/quant/common/ProgressLine.vue'
+import QuantTrainTriggerModal from '@/components/quant/train/QuantTrainTriggerModal.vue'
 import QuantTargetedUpdateModal from '@/components/quant/targeted-update/QuantTargetedUpdateModal.vue'
-import PrepareModal from '@/components/quant/PrepareModal.vue'
-import JobWarningsPanel from '@/components/quant/JobWarningsPanel.vue'
+import PrepareModal from '@/components/quant/train/PrepareModal.vue'
+import JobWarningsPanel from '@/components/quant/common/JobWarningsPanel.vue'
 import {
   quantApi, type JobRow, type JobRunType, type JobStatus, type WarningItem,
 } from '@/api/modules/quant'

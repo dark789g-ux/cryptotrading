@@ -12,7 +12,7 @@ import {
   isLgbModel,
   mapNeutralizeCols,
   type TrainTriggerFormShape,
-} from '../train-modal/buildParams'
+} from '../train/train-modal/buildParams'
 
 const EMPTY_LGB = {
   num_leaves: null,

@@ -70,8 +70,8 @@
 import { computed, onActivated, onMounted, ref } from 'vue'
 import { NAlert, NButton, NCard, NEmpty, NSelect, useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
-import LabelTable from '@/components/quant/LabelTable.vue'
-import LabelEditModal from '@/components/quant/LabelEditModal.vue'
+import LabelTable from '@/components/quant/label/LabelTable.vue'
+import LabelEditModal from '@/components/quant/label/LabelEditModal.vue'
 import { quantApi, type LabelDefinition } from '@/api/modules/quant'
 
 const message = useMessage()

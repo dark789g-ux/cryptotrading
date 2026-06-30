@@ -29,7 +29,7 @@
 import { ref, watch } from 'vue'
 import { NButton, NEmpty, useMessage } from 'naive-ui'
 import AppModal from '../../common/AppModal.vue'
-import ProgressLine from '../../quant/ProgressLine.vue'
+import ProgressLine from '../../quant/common/ProgressLine.vue'
 import type { JobStatus } from '@/api'
 
 const props = withDefaults(

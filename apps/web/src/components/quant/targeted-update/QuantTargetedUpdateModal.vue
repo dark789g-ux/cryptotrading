@@ -80,7 +80,7 @@ import {
 import AppModal from '@/components/common/AppModal.vue'
 import TargetedFactorSelect from './TargetedFactorSelect.vue'
 import TargetedLabelSelect from './TargetedLabelSelect.vue'
-import { formatDateRange } from '@/components/quant/train-modal/buildParams'
+import { formatDateRange } from '@/components/quant/train/train-modal/buildParams'
 import { quantApi } from '@/api/modules/quant'
 
 const props = defineProps<{ show: boolean }>()

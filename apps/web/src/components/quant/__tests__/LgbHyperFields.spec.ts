@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { NInputNumber } from 'naive-ui'
-import LgbHyperFields from '../train-modal/LgbHyperFields.vue'
+import LgbHyperFields from '../train/train-modal/LgbHyperFields.vue'
 
 const EMPTY = {
   num_leaves: null,

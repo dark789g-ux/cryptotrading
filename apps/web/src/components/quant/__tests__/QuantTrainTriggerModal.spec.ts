@@ -19,12 +19,12 @@ import { defineComponent, h, nextTick } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { NConfigProvider, NMessageProvider } from 'naive-ui'
 
-import QuantTrainTriggerModal from '../QuantTrainTriggerModal.vue'
+import QuantTrainTriggerModal from '../train/QuantTrainTriggerModal.vue'
 import {
   buildJobPayload,
   formatDateRange,
   type TrainTriggerFormShape,
-} from '../train-modal/buildParams'
+} from '../train/train-modal/buildParams'
 
 // vue-router stub
 vi.mock('vue-router', () => ({

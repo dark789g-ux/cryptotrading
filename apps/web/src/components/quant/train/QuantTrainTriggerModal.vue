@@ -112,16 +112,16 @@ import {
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import AppModal from '@/components/common/AppModal.vue'
-import LgbHyperFields from '@/components/quant/train-modal/LgbHyperFields.vue'
-import type { LgbHyperModel } from '@/components/quant/train-modal/LgbHyperFields.vue'
-import FeatureSetSelect from '@/components/quant/train-modal/FeatureSetSelect.vue'
+import LgbHyperFields from '@/components/quant/train/train-modal/LgbHyperFields.vue'
+import type { LgbHyperModel } from '@/components/quant/train/train-modal/LgbHyperFields.vue'
+import FeatureSetSelect from '@/components/quant/train/train-modal/FeatureSetSelect.vue'
 import {
   buildJobPayload,
   isLgbModel,
   isDateDisabled,
   parseSeedsText,
-} from '@/components/quant/train-modal/buildParams'
-import type { TrainModelKind } from '@/components/quant/train-modal/buildParams'
+} from '@/components/quant/train/train-modal/buildParams'
+import type { TrainModelKind } from '@/components/quant/train/train-modal/buildParams'
 import { quantApi, type JobRunType, type FeatureSet } from '@/api/modules/quant'
 
 const props = defineProps<{ show: boolean }>()

@@ -75,7 +75,7 @@ import OverallMetricsPanel from '@/components/quant/run-detail/OverallMetricsPan
 import ClassMetricsPanel from '@/components/quant/run-detail/ClassMetricsPanel.vue'
 import FoldMetricsTable from '@/components/quant/run-detail/FoldMetricsTable.vue'
 import DownloadActions from '@/components/quant/run-detail/DownloadActions.vue'
-import ShapBarChart from '@/components/quant/ShapBarChart.vue'
+import ShapBarChart from '@/components/quant/run-detail/ShapBarChart.vue'
 import { quantApi, type ModelRunDetail, type ShapItem } from '@/api/modules/quant'
 
 const route = useRoute()

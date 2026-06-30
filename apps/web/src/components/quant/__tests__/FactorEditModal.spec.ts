@@ -17,7 +17,7 @@ import { NConfigProvider, NMessageProvider } from 'naive-ui'
 // `document.querySelector('[data-testid=...]')` 等断言。
 const mountedWrappers: Array<{ unmount: () => void }> = []
 
-import FactorEditModal from '../FactorEditModal.vue'
+import FactorEditModal from '../factor/FactorEditModal.vue'
 import type { FactorDefinition } from '@/api/modules/quant'
 
 const updateFactorMock = vi.fn()

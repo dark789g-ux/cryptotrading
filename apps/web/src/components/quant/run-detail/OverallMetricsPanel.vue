@@ -29,7 +29,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { NCard } from 'naive-ui'
-import MetricBadge from '@/components/quant/MetricBadge.vue'
+import MetricBadge from '@/components/quant/common/MetricBadge.vue'
 import type { OosMetricsCore } from '@/api/modules/quant'
 
 const props = defineProps<{

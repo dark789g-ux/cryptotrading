@@ -16,7 +16,7 @@ import {
   indexMetaByType,
   paramInRange,
   validateExitRules,
-} from '../strategy-modal/exitRulesValidation'
+} from '../strategy/strategy-modal/exitRulesValidation'
 
 const META: ExitRuleTypeMeta[] = [
   { type: 'stop_loss', label: '止损', params: [{ name: 'pct', valueType: 'float', min: 0, max: 1, minInclusive: false, maxInclusive: false, default: 0.08 }] },

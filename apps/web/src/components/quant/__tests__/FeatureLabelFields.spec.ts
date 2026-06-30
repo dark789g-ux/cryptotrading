@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { NInputNumber } from 'naive-ui'
-import FeatureLabelFields from '../train-modal/FeatureLabelFields.vue'
+import FeatureLabelFields from '../train/train-modal/FeatureLabelFields.vue'
 
 const EMPTY = {
   neutralize_cols: null,

@@ -58,8 +58,8 @@
 import { computed, onActivated, onMounted, ref } from 'vue'
 import { NAlert, NButton, NCard, NEmpty, NSelect, useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
-import StrategyTable from '@/components/quant/StrategyTable.vue'
-import StrategyEditModal from '@/components/quant/strategy-modal/StrategyEditModal.vue'
+import StrategyTable from '@/components/quant/strategy/StrategyTable.vue'
+import StrategyEditModal from '@/components/quant/strategy/strategy-modal/StrategyEditModal.vue'
 import { quantApi } from '@/api/modules/quant'
 import type { StrategyDefinition } from '@cryptotrading/shared-types'
 

@@ -12,7 +12,7 @@
  *  (5) 切换 fs（coverage 变化）后旧日期可能变为禁用
  */
 import { describe, it, expect } from 'vitest'
-import { isDateDisabled } from '../train-modal/buildParams'
+import { isDateDisabled } from '../train/train-modal/buildParams'
 import type { CoverageSegment } from '@/api/modules/quant'
 
 /** 把年月日（本地）转成 n-date-picker 的本地午夜 ms */

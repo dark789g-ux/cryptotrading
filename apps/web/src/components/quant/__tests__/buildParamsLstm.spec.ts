@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   pickDefined,
-} from '../train-modal/buildParams'
+} from '../train/train-modal/buildParams'
 
 const EMPTY_LSTM = {
   lookback: null,

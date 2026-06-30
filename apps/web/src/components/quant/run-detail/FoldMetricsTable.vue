@@ -17,7 +17,7 @@
 import { computed, h } from 'vue'
 import { NCard, NDataTable, NEmpty } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import MetricBadge from '@/components/quant/MetricBadge.vue'
+import MetricBadge from '@/components/quant/common/MetricBadge.vue'
 
 interface FoldRow {
   fold: number

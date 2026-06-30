@@ -97,9 +97,9 @@ import {
   NAlert, NCard, NDatePicker, NDrawer, NDrawerContent, NEmpty, NGi,
   NGrid, NInputNumber, NSpin,
 } from 'naive-ui'
-import ModelVersionSelect from '@/components/quant/ModelVersionSelect.vue'
-import ScoreTable from '@/components/quant/ScoreTable.vue'
-import ScoreSeriesChart from '@/components/quant/ScoreSeriesChart.vue'
+import ModelVersionSelect from '@/components/quant/common/ModelVersionSelect.vue'
+import ScoreTable from '@/components/quant/score/ScoreTable.vue'
+import ScoreSeriesChart from '@/components/quant/score/ScoreSeriesChart.vue'
 import { useQuantStore } from '@/stores/quant'
 import {
   quantApi,

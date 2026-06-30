@@ -80,8 +80,8 @@
 import { computed, onActivated, onMounted, ref } from 'vue'
 import { NAlert, NButton, NCard, NEmpty, NInput, NSelect, useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
-import FactorTable from '@/components/quant/FactorTable.vue'
-import FactorEditModal from '@/components/quant/FactorEditModal.vue'
+import FactorTable from '@/components/quant/factor/FactorTable.vue'
+import FactorEditModal from '@/components/quant/factor/FactorEditModal.vue'
 import { quantApi, type FactorDefinition } from '@/api/modules/quant'
 
 const message = useMessage()

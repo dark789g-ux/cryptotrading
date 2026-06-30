@@ -46,7 +46,7 @@ import {
   NAlert, NCard, NDataTable, NEmpty, NInput,
 } from 'naive-ui'
 import type { DataTableColumns, DataTableSortState, PaginationProps } from 'naive-ui'
-import MetricBadge from '@/components/quant/MetricBadge.vue'
+import MetricBadge from '@/components/quant/common/MetricBadge.vue'
 import { quantApi, type ModelRunListItem, type RunsQuery } from '@/api/modules/quant'
 
 const router = useRouter()

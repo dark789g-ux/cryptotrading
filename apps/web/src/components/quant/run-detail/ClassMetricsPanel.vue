@@ -67,7 +67,7 @@ import {
   NCard, NDataTable, NDivider, NEmpty, NTable,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import MetricBadge from '@/components/quant/MetricBadge.vue'
+import MetricBadge from '@/components/quant/common/MetricBadge.vue'
 
 /** 后端顺序 [down, flat, up]，展示为中文 [跌, 横盘, 涨] */
 const CLASS_KEYS = ['down', 'flat', 'up'] as const

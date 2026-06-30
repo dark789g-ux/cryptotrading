@@ -39,7 +39,7 @@
 3. SSE controller 建连瞬间先 `SELECT progress FROM ml.jobs` 推一条快照，避免 `LISTEN` 注册之前的进度被错过。
 4. 终态（success / failed / blocked / cancelled）→ 服务端发 `complete` 事件后关流；客户端 `onmessage` 看到 progress 达 100 时回查一次拿 status。
 
-**重连策略**（`components/quant/ProgressLine.vue`）：
+**重连策略**（`components/quant/common/ProgressLine.vue`）：
 
 - `onerror` 时若不是终态：等待 5 秒，最多重试 3 次；每次重连前先 `GET /quant/jobs/:id` 兜底拉当前 progress。
 - **keep-alive**：被 `<keep-alive>` 缓存的父组件 → `onDeactivated` 关流、`onActivated` 重连。直接挂载（无 keep-alive）→ `onBeforeUnmount` 关流。
@@ -57,7 +57,7 @@ onDeactivated/onBeforeUnmount: es?.close()
 
 ## ProgressLine 双模式
 
-`components/quant/ProgressLine.vue` 同时支持：
+`components/quant/common/ProgressLine.vue` 同时支持：
 
 - **受控模式**：父组件传 `progress` / `stage` / `state` props（兼容 M3 静态展示）。
 - **SSE 模式**：父组件传 `jobId` props，组件内部自接管 token + EventSource + 重连 + 终态。
@@ -89,7 +89,7 @@ pnpm --filter @cryptotrading/web lint:quant-lines || exit 1
 | `HyperparamsPanel` | `components/quant/run-detail/HyperparamsPanel.vue` |
 | `FoldMetricsTable` | `components/quant/run-detail/FoldMetricsTable.vue` |
 | `DownloadActions` | `components/quant/run-detail/DownloadActions.vue` |
-| `ShapBarChart` | `components/quant/ShapBarChart.vue`（共用） |
+| `ShapBarChart` | `components/quant/run-detail/ShapBarChart.vue`（共用） |
 
 ## QuantTrainTriggerModal 字段
 

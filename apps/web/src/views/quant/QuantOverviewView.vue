@@ -80,10 +80,10 @@ import { useRouter } from 'vue-router'
 import {
   NAlert, NButton, NCard, NDatePicker, NEmpty, NGi, NGrid, NSpin, useMessage,
 } from 'naive-ui'
-import ModelVersionSelect from '@/components/quant/ModelVersionSelect.vue'
-import ScoreTable from '@/components/quant/ScoreTable.vue'
-import OosTrendChart from '@/components/quant/OosTrendChart.vue'
-import QuantTrainTriggerModal from '@/components/quant/QuantTrainTriggerModal.vue'
+import ModelVersionSelect from '@/components/quant/common/ModelVersionSelect.vue'
+import ScoreTable from '@/components/quant/score/ScoreTable.vue'
+import OosTrendChart from '@/components/quant/common/OosTrendChart.vue'
+import QuantTrainTriggerModal from '@/components/quant/train/QuantTrainTriggerModal.vue'
 import { useQuantStore } from '@/stores/quant'
 import {
   quantApi,

@@ -10,8 +10,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { NSelect } from 'naive-ui'
-import BaseTypeFields from '../label-modal/BaseTypeFields.vue'
-import ClassifyFields from '../label-modal/ClassifyFields.vue'
+import BaseTypeFields from '../label/label-modal/BaseTypeFields.vue'
+import ClassifyFields from '../label/label-modal/ClassifyFields.vue'
 
 // BaseTypeFields 在 strategy_aware 下会拉 enabled 策略列表，单测里 mock 掉避免真实 fetch
 vi.mock('@/api/modules/quant', () => ({

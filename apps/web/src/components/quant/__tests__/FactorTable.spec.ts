@@ -13,7 +13,7 @@ import { defineComponent, h, nextTick } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { NConfigProvider, NMessageProvider } from 'naive-ui'
 
-import FactorTable from '../FactorTable.vue'
+import FactorTable from '../factor/FactorTable.vue'
 import type { FactorDefinition } from '@/api/modules/quant'
 
 const updateFactorMock = vi.fn()
