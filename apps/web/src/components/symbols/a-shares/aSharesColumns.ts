@@ -162,6 +162,42 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
         return h('span', { style: color ? { color } : undefined }, formatMoneyFlow(row.netInflow20d))
       },
     },
+    {
+      title: '大单净流入',
+      key: 'buyLgAmount',
+      descKey: 'buy_lg_amount',
+      width: 120,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => {
+        const color = getPctChangeColor(row.buyLgAmount)
+        return h('span', { style: color ? { color } : undefined }, formatMoneyFlow(row.buyLgAmount))
+      },
+    },
+    {
+      title: '中单净流入',
+      key: 'buyMdAmount',
+      descKey: 'buy_md_amount',
+      width: 120,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => {
+        const color = getPctChangeColor(row.buyMdAmount)
+        return h('span', { style: color ? { color } : undefined }, formatMoneyFlow(row.buyMdAmount))
+      },
+    },
+    {
+      title: '小单净流入',
+      key: 'buySmAmount',
+      descKey: 'buy_sm_amount',
+      width: 120,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => {
+        const color = getPctChangeColor(row.buySmAmount)
+        return h('span', { style: color ? { color } : undefined }, formatMoneyFlow(row.buySmAmount))
+      },
+    },
     ...(options.onViewDetail
       ? [
           {

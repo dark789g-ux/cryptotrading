@@ -115,15 +115,18 @@ describe('a-shares-query.sql 技术指标 + 个股 AMV 列', () => {
     expect(sql).not.toContain('raw.stock_amv_daily');
   });
 
-  it('SELECT 补资金流向四列（来自 LATERAL money_flow_stocks）', () => {
+  it('SELECT 补资金流向及大中小单列（来自 LATERAL money_flow_stocks）', () => {
     const { sql } = buildASharesBaseQuery(baseDto);
     expect(sql).toContain('mf.net_inflow      AS "netInflow"');
     expect(sql).toContain('mf.net_inflow_5d   AS "netInflow5d"');
     expect(sql).toContain('mf.net_inflow_10d  AS "netInflow10d"');
     expect(sql).toContain('mf.net_inflow_20d  AS "netInflow20d"');
+    expect(sql).toContain('mf.buy_lg_amount   AS "buyLgAmount"');
+    expect(sql).toContain('mf.buy_md_amount   AS "buyMdAmount"');
+    expect(sql).toContain('mf.buy_sm_amount   AS "buySmAmount"');
   });
 
-  it('LEFT JOIN LATERAL money_flow_stocks（逐票最近 20 条，纯 SQL 无参数）', () => {
+  it('LEFT JOIN LATERAL money_flow_stocks（含大中小单聚合，逐票最近 20 条，纯 SQL 无参数）', () => {
     const { sql } = buildASharesBaseQuery(baseDto);
     expect(sql).toContain('LEFT JOIN LATERAL (');
     expect(sql).toContain('FROM money_flow_stocks');
@@ -131,6 +134,9 @@ describe('a-shares-query.sql 技术指标 + 个股 AMV 列', () => {
     expect(sql).toContain('SUM(t.net_amount) FILTER (WHERE t.rn <= 5)');
     expect(sql).toContain('SUM(t.net_amount) FILTER (WHERE t.rn <= 10)');
     expect(sql).toContain('SUM(t.net_amount)                            AS net_inflow_20d');
+    expect(sql).toContain('SUM(t.buy_lg_amount) FILTER (WHERE t.trade_date = l.trade_date) AS buy_lg_amount');
+    expect(sql).toContain('SUM(t.buy_md_amount) FILTER (WHERE t.trade_date = l.trade_date) AS buy_md_amount');
+    expect(sql).toContain('SUM(t.buy_sm_amount) FILTER (WHERE t.trade_date = l.trade_date) AS buy_sm_amount');
     expect(sql).toContain(') mf ON true');
   });
 
@@ -144,29 +150,33 @@ describe('a-shares-query.sql 技术指标 + 个股 AMV 列', () => {
     expect(lateralIdx).toBeLessThan(whereIdx);
   });
 
-  it('资金流向列排序映射：netInflow / netInflow5d / netInflow10d / netInflow20d', () => {
+  it('资金流向列排序映射：netInflow / netInflow5d / netInflow10d / netInflow20d / buyLgAmount / buyMdAmount / buySmAmount', () => {
     expect(sortColFor('netInflow',    'raw')).toBe('mf.net_inflow');
     expect(sortColFor('netInflow5d',  'raw')).toBe('mf.net_inflow_5d');
     expect(sortColFor('netInflow10d', 'raw')).toBe('mf.net_inflow_10d');
     expect(sortColFor('netInflow20d', 'raw')).toBe('mf.net_inflow_20d');
+    expect(sortColFor('buyLgAmount',  'raw')).toBe('mf.buy_lg_amount');
+    expect(sortColFor('buyMdAmount',  'raw')).toBe('mf.buy_md_amount');
+    expect(sortColFor('buySmAmount',  'raw')).toBe('mf.buy_sm_amount');
   });
 
   it('QFQ 模式继承资金流向列排序映射', () => {
     expect(sortColFor('netInflow5d', 'qfq')).toBe('mf.net_inflow_5d');
+    expect(sortColFor('buyLgAmount', 'qfq')).toBe('mf.buy_lg_amount');
   });
 
-  it('资金流向列不进入 condition 映射（不能作筛选条件）', () => {
-    // netInflow5d 不在 RAW/QFQ_CONDITION_COL_MAP，作 condition 时 conditions 循环
-    // 因 column 未命中而 continue：既不拼 WHERE 过滤片段，也不推入参数。
-    // 注意：SQL 里本就含 `mf.net_inflow_5d AS "netInflow5d"`（SELECT 别名），
-    // 故不能断言整段 SQL 不含该串——要验证的是「没被拼成 AND 过滤条件」。
+  it('资金流向列可进入 condition 映射（能作高级筛选条件）', () => {
     const dto: QueryASharesDto = {
       priceMode: 'qfq',
-      conditions: [{ field: 'netInflow5d', op: 'gt', value: 100 }],
+      conditions: [
+        { field: 'netInflow5d', op: 'gt', value: 100 },
+        { field: 'buyLgAmount', op: 'gte', value: 500 },
+      ],
     };
     const base = buildASharesBaseQuery(dto);
-    expect(base.params).toEqual([]); // condition 被跳过，value=100 未推入
-    expect(base.sql).not.toContain('AND mf.net_inflow_5d'); // 未拼成 WHERE 过滤片段
+    expect(base.params).toEqual([100, 500]);
+    expect(base.sql).toContain('AND mf.net_inflow_5d > $1');
+    expect(base.sql).toContain('AND mf.buy_lg_amount >= $2');
   });
 });
 

@@ -38,6 +38,13 @@ const RAW_CONDITION_COL_MAP: Record<string, string> = {
   roc10: 'i.roc10',
   roc20: 'i.roc20',
   roc60: 'i.roc60',
+  netInflow: 'mf.net_inflow',
+  netInflow5d: 'mf.net_inflow_5d',
+  netInflow10d: 'mf.net_inflow_10d',
+  netInflow20d: 'mf.net_inflow_20d',
+  buyLgAmount: 'mf.buy_lg_amount',
+  buyMdAmount: 'mf.buy_md_amount',
+  buySmAmount: 'mf.buy_sm_amount',
 };
 
 const QFQ_CONDITION_COL_MAP: Record<string, string> = {
@@ -101,6 +108,9 @@ const RAW_SORT_COL_MAP: Record<string, string> = {
   netInflow5d: 'mf.net_inflow_5d',
   netInflow10d: 'mf.net_inflow_10d',
   netInflow20d: 'mf.net_inflow_20d',
+  buyLgAmount: 'mf.buy_lg_amount',
+  buyMdAmount: 'mf.buy_md_amount',
+  buySmAmount: 'mf.buy_sm_amount',
 };
 
 const QFQ_SORT_COL_MAP: Record<string, string> = {
@@ -183,6 +193,9 @@ export function buildASharesBaseQuery(
         mf.net_inflow_5d   AS "netInflow5d",
         mf.net_inflow_10d  AS "netInflow10d",
         mf.net_inflow_20d  AS "netInflow20d",
+        mf.buy_lg_amount   AS "buyLgAmount",
+        mf.buy_md_amount   AS "buyMdAmount",
+        mf.buy_sm_amount   AS "buySmAmount",
         COALESCE(
           (SELECT jsonb_agg(DISTINCT jsonb_build_object('id', w.id::text, 'name', w.name))
            FROM watchlist_items wi
@@ -204,9 +217,12 @@ export function buildASharesBaseQuery(
           SUM(t.net_amount) FILTER (WHERE t.trade_date = l.trade_date) AS net_inflow,
           SUM(t.net_amount) FILTER (WHERE t.rn <= 5)  AS net_inflow_5d,
           SUM(t.net_amount) FILTER (WHERE t.rn <= 10) AS net_inflow_10d,
-          SUM(t.net_amount)                            AS net_inflow_20d
+          SUM(t.net_amount)                            AS net_inflow_20d,
+          SUM(t.buy_lg_amount) FILTER (WHERE t.trade_date = l.trade_date) AS buy_lg_amount,
+          SUM(t.buy_md_amount) FILTER (WHERE t.trade_date = l.trade_date) AS buy_md_amount,
+          SUM(t.buy_sm_amount) FILTER (WHERE t.trade_date = l.trade_date) AS buy_sm_amount
         FROM (
-          SELECT net_amount, trade_date,
+          SELECT net_amount, buy_lg_amount, buy_md_amount, buy_sm_amount, trade_date,
                  ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
           FROM money_flow_stocks
           WHERE ts_code = s.ts_code AND trade_date <= l.trade_date

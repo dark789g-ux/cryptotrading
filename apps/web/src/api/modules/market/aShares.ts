@@ -56,6 +56,9 @@ export interface AShareRow {
   netInflow5d: string | null
   netInflow10d: string | null
   netInflow20d: string | null
+  buyLgAmount: string | null
+  buyMdAmount: string | null
+  buySmAmount: string | null
   tags?: { id: string; name: string }[]
 }
 

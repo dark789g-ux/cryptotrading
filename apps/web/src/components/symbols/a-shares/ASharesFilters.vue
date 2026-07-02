@@ -264,6 +264,20 @@ const advancedFieldOptions: NumericConditionFieldOption[] = [
       { label: 'PB', value: 'pb', descKey: 'pb' },
     ],
   },
+  {
+    type: 'group',
+    label: '资金流向',
+    key: 'moneyFlow',
+    children: [
+      { label: '大单净流入', value: 'buyLgAmount', descKey: 'buy_lg_amount' },
+      { label: '中单净流入', value: 'buyMdAmount', descKey: 'buy_md_amount' },
+      { label: '小单净流入', value: 'buySmAmount', descKey: 'buy_sm_amount' },
+      { label: '净流入', value: 'netInflow', descKey: 'net_inflow' },
+      { label: '5日净流入', value: 'netInflow5d', descKey: 'net_inflow_5d' },
+      { label: '10日净流入', value: 'netInflow10d', descKey: 'net_inflow_10d' },
+      { label: '20日净流入', value: 'netInflow20d', descKey: 'net_inflow_20d' },
+    ],
+  },
 ]
 </script>
 
