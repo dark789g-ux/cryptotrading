@@ -50,6 +50,10 @@ export interface OneClickSyncRun {
 export interface StartOneClickSyncDto {
   startDate: string
   endDate: string
+  /** 覆盖模式：'incremental'(默认，跳过已有日期) | 'overwrite'(重拉范围内全部日期)。 */
+  syncMode?: 'incremental' | 'overwrite'
+  /** 按需勾选的 step key 列表；缺省/空 = 全选（兼容旧请求）。 */
+  selectedSteps?: string[]
 }
 
 export const oneClickSyncApi = {

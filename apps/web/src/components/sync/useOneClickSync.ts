@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { useOneClickSyncStore } from '@/stores/oneClickSync'
 import { formatUTCDateTime } from '@/components/symbols/a-shares/aSharesFormatters'
 import {
+  STEP_KEYS,
   STEP_LABELS,
   toYYYYMMDD,
   type LogEntry,
@@ -47,6 +48,19 @@ export function useOneClickSync(message: OneClickMessageApi) {
   // 日期选择器输入（本地午夜 ms），仅 start() 时转 YYYYMMDD 提交，不进 store
   const dateRange = ref<[number, number] | null>(null)
 
+  // 覆盖模式（默认 incremental）；勾选的 step key 集合（默认全部 13 key）。
+  // 仅 start() 时进请求体，不进 store（store/run entity 不持久化两者）。
+  const syncMode = ref<'incremental' | 'overwrite'>('incremental')
+  const selectedStepKeys = ref<string[]>([...STEP_KEYS])
+  /** A 股 step 全集（不变常量派生），供面板「全选/全不选」恢复全集。 */
+  const allStepKeys = computed<readonly string[]>(() => STEP_KEYS)
+
+  function toggleStep(key: string): void {
+    const i = selectedStepKeys.value.indexOf(key)
+    if (i >= 0) selectedStepKeys.value = selectedStepKeys.value.filter(k => k !== key)
+    else selectedStepKeys.value = [...selectedStepKeys.value, key]
+  }
+
   // ---- 直接透传 store getter（形状与旧实现一致，Panel 模板不动）----
   const running = computed(() => store.running)
   const steps = computed<OneClickStepState[]>(() => store.steps.map(withLabel))
@@ -89,7 +103,12 @@ export function useOneClickSync(message: OneClickMessageApi) {
     const startDate = toYYYYMMDD(dateRange.value[0])
     const endDate = toYYYYMMDD(dateRange.value[1])
     try {
-      await store.startRun({ startDate, endDate })
+      await store.startRun({
+        startDate,
+        endDate,
+        syncMode: syncMode.value,
+        selectedSteps: selectedStepKeys.value,
+      })
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : '启动一键同步失败')
     }
@@ -114,6 +133,10 @@ export function useOneClickSync(message: OneClickMessageApi) {
     latestSyncText,
     totalPercent,
     canStart,
+    syncMode,
+    selectedStepKeys,
+    allStepKeys,
+    toggleStep,
     start,
     cancel,
   }

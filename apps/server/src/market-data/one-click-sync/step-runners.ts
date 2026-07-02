@@ -1,11 +1,11 @@
-// 「一键同步」10 步执行器 —— 忠实搬运前端 useOneClickSync.ts 的 range/mode + success/failed 判定。
+// 「一键同步」13 步执行器 —— 忠实搬运前端 useOneClickSync.ts 的 range/mode + success/failed 判定。
 //
-// 每个 runner 接收一个 StepContext（提供 8 个底层 service + 改内存步骤态的回调 + pushLog），
+// 每个 runner 接收一个 StepContext（提供 11 个底层 service + 改内存步骤态的回调 + pushLog），
 // 不直接碰 DB / 实体；DB 节流刷库由编排器在事件回调里做。
 //
 // SSE 步骤（0-4）：订阅各 service 的 startSync() Subject，用 awaitSubject 转 Promise；
 //   done 事件携带 result/summary，据此判 success/failed（照搬前端 runBaseData/runAShares/…）。
-// 普通步骤（5-9）：直接 await，rowsWritten 取返回的 synced；抛错→该步 failed。
+// 普通步骤（5-12）：直接 await，rowsWritten 取返回的 synced；抛错→该步 failed。
 //   （Step5 market-index-daily 走普通 await，大盘指数日线无 SSE 入口）
 
 import type { Subject } from 'rxjs';
@@ -20,6 +20,9 @@ import type { SwIndexDailySyncService } from '../sw-index-daily/sw-index-daily-s
 import type { MarketIndexSyncService } from '../ths-index-daily/market-index-sync.service';
 import type { ActiveMvService } from '../active-mv/active-mv.service';
 import type { OamvService } from '../oamv/oamv.service';
+import type { EtfService } from '../etf/etf.service';
+import type { EtfAmvService } from '../etf/etf-amv.service';
+import type { EtfMfService } from '../etf/etf-mf.service';
 import type { MoneyFlowSyncEvent, MoneyFlowSyncResult, MoneyFlowSyncSummary } from '@cryptotrading/shared-types';
 import type { OneClickErrorItem, OneClickStepKey, OneClickStepState, OneClickStepStatus } from './types';
 
@@ -32,6 +35,8 @@ export interface SyncRange {
 /** 编排器注入给各 runner 的依赖与回调。 */
 export interface StepContext {
   range: SyncRange;
+  /** 同步模式：'incremental'（跳过已有 trade_date）| 'overwrite'（重拉范围内日期）。 */
+  syncMode: 'incremental' | 'overwrite';
   services: {
     baseData: BaseDataSyncService;
     aShares: ASharesService;
@@ -41,6 +46,9 @@ export interface StepContext {
     marketIndexSync: MarketIndexSyncService;
     activeMv: ActiveMvService;
     oamv: OamvService;
+    etf: EtfService;
+    etfAmv: EtfAmvService;
+    etfMf: EtfMfService;
   };
   /** 改某步内存态后触发节流刷库（编排器实现）。 */
   patchStep: (index: number, patch: Partial<OneClickStepState>) => void;
@@ -208,7 +216,7 @@ export async function runAShares(ctx: StepContext, index: number): Promise<void>
     const subject = ctx.services.aShares.startSync({
       startDate: ctx.range.startDate,
       endDate: ctx.range.endDate,
-      syncMode: 'incremental',
+      syncMode: ctx.syncMode,
     });
     await awaitSubject(subject, (e) => {
       if (e.type === 'progress') {
@@ -258,7 +266,7 @@ export async function runMoneyFlow(ctx: StepContext, index: number): Promise<voi
     const subject = ctx.services.moneyFlow.startSync({
       start_date: ctx.range.startDate,
       end_date: ctx.range.endDate,
-      syncMode: 'incremental',
+      syncMode: ctx.syncMode,
     });
     await awaitSubject(subject, (e) => {
       if (e.type === 'progress') {
@@ -330,7 +338,7 @@ export async function runThsIndexDaily(ctx: StepContext, index: number): Promise
     const subject = ctx.services.thsIndexDaily.startSync({
       start_date: ctx.range.startDate,
       end_date: ctx.range.endDate,
-      syncMode: 'incremental',
+      syncMode: ctx.syncMode,
     });
     await awaitSubject(subject, (e) => {
       if (e.type === 'progress') {
@@ -412,21 +420,21 @@ async function runAmvStep(
   index: number,
   key: OneClickStepKey,
   phaseLabel: string,
-  doSync: (opts: { startDate: string; endDate: string; syncMode: 'incremental' }) => Promise<{ synced: number }>,
+  doSync: (opts: { startDate: string; endDate: string; syncMode: 'incremental' | 'overwrite' }) => Promise<{ synced: number }>,
 ): Promise<void> {
   ctx.setStatus(index, 'running');
-  ctx.pushLog(key, 'info', `开始 ${phaseLabel}（增量模式）`);
+  ctx.pushLog(key, 'info', `开始 ${phaseLabel}（${ctx.syncMode === 'overwrite' ? '覆盖' : '增量'}模式）`);
   try {
     ctx.patchStep(index, {
       phase: phaseLabel,
-      message: '当前为增量模式（全量回填请走各自同步页）',
+      message: ctx.syncMode === 'overwrite' ? '覆盖模式：重拉范围内日期' : '增量模式（全量回填请走各自同步页）',
       percent: 30,
     });
     ctx.flushThrottled();
     const result = await doSync({
       startDate: ctx.range.startDate,
       endDate: ctx.range.endDate,
-      syncMode: 'incremental',
+      syncMode: ctx.syncMode,
     });
     const synced = result?.synced ?? 0;
     ctx.patchStep(index, { rowsWritten: synced, percent: 100 });
@@ -448,7 +456,7 @@ export async function runOamv(ctx: StepContext, index: number): Promise<void> {
     const result = await ctx.services.oamv.sync0amv({
       startDate: ctx.range.startDate,
       endDate: ctx.range.endDate,
-      syncMode: 'incremental',
+      syncMode: ctx.syncMode,
     });
     ctx.patchStep(index, { rowsWritten: result?.synced ?? 0, percent: 100 });
     ctx.setStatus(index, 'success');

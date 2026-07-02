@@ -8,6 +8,7 @@ import { ThsIndexDailyModule } from '../ths-index-daily/ths-index-daily.module';
 import { SwIndexDailyModule } from '../sw-index-daily/sw-index-daily.module';
 import { ActiveMvModule } from '../active-mv/active-mv.module';
 import { OamvModule } from '../oamv/oamv.module';
+import { EtfModule } from '../etf/etf.module';
 import { OneClickSyncController } from './one-click-sync.controller';
 import { OneClickSyncOrchestratorService } from './one-click-sync-orchestrator.service';
 
@@ -27,6 +28,7 @@ import { OneClickSyncOrchestratorService } from './one-click-sync-orchestrator.s
     SwIndexDailyModule,
     ActiveMvModule,
     OamvModule,
+    EtfModule,
   ],
   controllers: [OneClickSyncController],
   providers: [OneClickSyncOrchestratorService],

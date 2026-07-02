@@ -17,9 +17,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { Subject } from 'rxjs';
 import { TradeCalEntity } from '../../entities/raw/trade-cal.entity';
+import { DailyQuoteEntity } from '../../entities/raw/daily-quote.entity';
 import { StkLimitEntity } from '../../entities/raw/stk-limit.entity';
 import { SuspendEntity } from '../../entities/raw/suspend.entity';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
+import { collectCompletenessErrors } from '../_shared/dataset-completeness';
 import {
   asString,
   deduplicateBy,
@@ -63,6 +65,8 @@ export class BaseDataSyncService {
     private readonly stkLimitRepo: Repository<StkLimitEntity>,
     @InjectRepository(SuspendEntity)
     private readonly suspendRepo: Repository<SuspendEntity>,
+    @InjectRepository(DailyQuoteEntity)
+    private readonly dailyQuoteRepo: Repository<DailyQuoteEntity>,
     private readonly tushareClient: TushareClientService,
   ) {}
 
@@ -186,6 +190,23 @@ export class BaseDataSyncService {
         }),
       );
       success += await this.upsertBatched(this.stkLimitRepo, entities, ['tsCode', 'tradeDate'], `stk_limit ${tradeDate}`);
+    }
+
+    // POST-sync 对账：actual（stk_limit 当日入库行数）vs baseline（raw.daily_quote 当日行数）。
+    // actual < baseline → push errors，避免部分缺失伪装成功（与 stk_limit_empty 互补：
+    // stk_limit_empty 只盖 0 行；此处盖「非空却残缺」）。
+    const stkLimitCompletenessErrors = await collectCompletenessErrors(
+      this.dailyQuoteRepo,
+      {
+        tableName: 'raw.stk_limit',
+        dateColumn: 'trade_date',
+        baseline: { table: 'raw.daily_quote', dateColumn: 'trade_date' },
+      },
+      openDates,
+      'stk_limit',
+    );
+    for (const message of stkLimitCompletenessErrors) {
+      errors.push({ apiName: 'stk_limit_incomplete', params: {}, message });
     }
 
     // ── Step4 suspend_d 逐开市日 ───────────────────────────────────

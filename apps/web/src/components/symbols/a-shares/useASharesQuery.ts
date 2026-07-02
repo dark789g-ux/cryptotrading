@@ -37,7 +37,7 @@ export function useASharesQuery(message: {
   const indexFilter = ref<{
     tsCode: string
     name: string
-    category?: 'custom'
+    category?: 'custom' | 'etf'
     customIndexId?: string
     memberTsCodes?: string[]
   } | null>(null)
@@ -235,7 +235,7 @@ export function useASharesQuery(message: {
   async function applyIndexFilter(
     tsCode: string,
     name: string,
-    opts?: { category?: string; customIndexId?: string },
+    opts?: { category?: string; customIndexId?: string; memberTsCodes?: string[] },
   ) {
     rows.value = []
     loading.value = true
@@ -254,6 +254,14 @@ export function useASharesQuery(message: {
         message.error(err instanceof Error ? err.message : '加载自定义指数成分失败')
         loading.value = false
         return
+      }
+    } else if (opts?.memberTsCodes?.length) {
+      // ETF / 其它已携带成分股代码列表的场景，直接使用
+      indexFilter.value = {
+        tsCode,
+        name,
+        category: opts?.category as 'etf' | undefined,
+        memberTsCodes: opts.memberTsCodes,
       }
     } else {
       indexFilter.value = { tsCode, name }

@@ -6,6 +6,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Logger } from '@nestjs/common';
 import { BaseDataSyncService } from './base-data-sync.service';
 import { TradeCalEntity } from '../../entities/raw/trade-cal.entity';
+import { DailyQuoteEntity } from '../../entities/raw/daily-quote.entity';
 import { StkLimitEntity } from '../../entities/raw/stk-limit.entity';
 import { SuspendEntity } from '../../entities/raw/suspend.entity';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
@@ -15,6 +16,7 @@ interface MockRepo {
   create: jest.Mock;
   find: jest.Mock;
   createQueryBuilder: jest.Mock;
+  query?: jest.Mock;
 }
 
 function makeRepo(): MockRepo {
@@ -33,17 +35,24 @@ function makeRepo(): MockRepo {
   };
 }
 
+/** 构造带 query 的 repo mock（用于 DailyQuoteEntity 对账查询）。 */
+function makeQueryableRepo(): MockRepo & { query: jest.Mock } {
+  return { ...makeRepo(), query: jest.fn().mockResolvedValue([]) };
+}
+
 async function buildModule(): Promise<{
   service: BaseDataSyncService;
   client: { query: jest.Mock };
   tradeCalRepo: MockRepo;
   stkLimitRepo: MockRepo;
   suspendRepo: MockRepo;
+  dailyQuoteRepo: MockRepo & { query: jest.Mock };
 }> {
   const client = { query: jest.fn() };
   const tradeCalRepo = makeRepo();
   const stkLimitRepo = makeRepo();
   const suspendRepo = makeRepo();
+  const dailyQuoteRepo = makeQueryableRepo();
 
   const module: TestingModule = await Test.createTestingModule({
     providers: [
@@ -51,6 +60,7 @@ async function buildModule(): Promise<{
       { provide: getRepositoryToken(TradeCalEntity), useValue: tradeCalRepo },
       { provide: getRepositoryToken(StkLimitEntity), useValue: stkLimitRepo },
       { provide: getRepositoryToken(SuspendEntity), useValue: suspendRepo },
+      { provide: getRepositoryToken(DailyQuoteEntity), useValue: dailyQuoteRepo },
       { provide: TushareClientService, useValue: client },
     ],
   }).compile();
@@ -62,6 +72,7 @@ async function buildModule(): Promise<{
     tradeCalRepo,
     stkLimitRepo,
     suspendRepo,
+    dailyQuoteRepo,
   };
 }
 
@@ -299,5 +310,78 @@ describe('BaseDataSyncService', () => {
     expect(events).toEqual([
       expect.objectContaining({ type: 'error' }),
     ]);
+  });
+
+  // ── POST-sync 完整性对账（stk_limit） ─────────────────────────────────────
+
+  /**
+   * 预置 dailyQuoteRepo.query 的 SQL 感知 mock：
+   *   - target SQL（FROM raw.stk_limit）→ targetRows
+   *   - baseline SQL（FROM raw.daily_quote）→ baselineRows
+   */
+  function seedStkLimitCompleteness(
+    repo: MockRepo & { query: jest.Mock },
+    targetRows: Array<{ trade_date: string; total: string }>,
+    baselineRows: Array<{ trade_date: string; total: string }>,
+  ) {
+    repo.query.mockImplementation((sql: string) => {
+      if (sql.includes('FROM raw.stk_limit')) return Promise.resolve(targetRows);
+      if (sql.includes('FROM raw.daily_quote')) return Promise.resolve(baselineRows);
+      return Promise.resolve([]);
+    });
+  }
+
+  it('stk_limit 入库 < daily_quote 基准 → errors 含 stk_limit_incomplete（携带 apiName + 日期 + 行数）', async () => {
+    const { service, client, tradeCalRepo, dailyQuoteRepo } = await buildModule();
+    client.query.mockResolvedValueOnce([calRow('20260512', '1')]);
+    tradeCalRepo.find.mockResolvedValueOnce([{ calDate: '20260512' }]);
+    client.query.mockResolvedValueOnce([stkRow('000001.SZ', '20260512')]);
+    client.query.mockResolvedValueOnce([suspendRow('000002.SZ', '20260512', 'S')]);
+    seedStkLimitCompleteness(
+      dailyQuoteRepo,
+      [{ trade_date: '20260512', total: '4000' }], // stk_limit 入库
+      [{ trade_date: '20260512', total: '5000' }], // daily_quote 基准
+    );
+
+    const result = await service.sync(DTO);
+
+    const incomplete = result.errors.find((e) => e.apiName === 'stk_limit_incomplete');
+    expect(incomplete).toBeDefined();
+    expect(incomplete?.message).toContain('20260512');
+    expect(incomplete?.message).toContain('4000 < 5000');
+  });
+
+  it('stk_limit 对账：daily_quote 基准当日未落库 → 不告警', async () => {
+    const { service, client, tradeCalRepo, dailyQuoteRepo } = await buildModule();
+    client.query.mockResolvedValueOnce([calRow('20260512', '1')]);
+    tradeCalRepo.find.mockResolvedValueOnce([{ calDate: '20260512' }]);
+    client.query.mockResolvedValueOnce([stkRow('000001.SZ', '20260512')]);
+    client.query.mockResolvedValueOnce([suspendRow('000002.SZ', '20260512', 'S')]);
+    seedStkLimitCompleteness(
+      dailyQuoteRepo,
+      [{ trade_date: '20260512', total: '100' }],
+      [], // baseline 当日未落库 → 跳过
+    );
+
+    const result = await service.sync(DTO);
+
+    expect(result.errors.filter((e) => e.apiName === 'stk_limit_incomplete')).toEqual([]);
+  });
+
+  it('stk_limit 入库 == daily_quote 基准（完整）→ 不告警', async () => {
+    const { service, client, tradeCalRepo, dailyQuoteRepo } = await buildModule();
+    client.query.mockResolvedValueOnce([calRow('20260512', '1')]);
+    tradeCalRepo.find.mockResolvedValueOnce([{ calDate: '20260512' }]);
+    client.query.mockResolvedValueOnce([stkRow('000001.SZ', '20260512')]);
+    client.query.mockResolvedValueOnce([suspendRow('000002.SZ', '20260512', 'S')]);
+    seedStkLimitCompleteness(
+      dailyQuoteRepo,
+      [{ trade_date: '20260512', total: '5000' }],
+      [{ trade_date: '20260512', total: '5000' }],
+    );
+
+    const result = await service.sync(DTO);
+
+    expect(result.errors.filter((e) => e.apiName === 'stk_limit_incomplete')).toEqual([]);
   });
 });

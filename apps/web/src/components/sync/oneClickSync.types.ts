@@ -9,7 +9,9 @@ export type OneClickStepKey =
   | 'ths-index-daily'
   | 'sw-index-daily'
   | 'market-index-daily'
-  | 'stock-amv'
+  | 'etf'
+  | 'etf-amv'
+  | 'etf-mf'
   | 'industry-amv'
   | 'concept-amv'
   | 'sw-amv'
@@ -68,6 +70,14 @@ export interface OneClickPanelController {
   summary: ComputedRef<OneClickSummary | null>
   latestSyncText: ComputedRef<string>
   canStart: ComputedRef<boolean>
+  /** 覆盖模式开关：'incremental'(默认) 跳过已有日期；'overwrite' 重拉范围内全部日期。 */
+  syncMode: Ref<'incremental' | 'overwrite'>
+  /** 本次启动要跑的 step key 集合（默认全部 step key）。 */
+  selectedStepKeys: Ref<string[]>
+  /** 当前 controller 的 step key 全集（A 股 13 / 美股 3），用于「全选/全不选」恢复全集。 */
+  allStepKeys: ComputedRef<readonly string[]>
+  /** 在 selectedStepKeys 中加入/移除某个 step key。 */
+  toggleStep: (key: string) => void
   start: () => Promise<void>
   cancel: () => Promise<void>
 }
@@ -79,6 +89,26 @@ export interface OneClickMessageApi {
 
 export const LOG_LIMIT = 500
 
+/**
+ * A 股一键同步 13 个 step 的固定顺序（与后端 OneClickStepKey 镜像，与 buildInitialSteps 同序）。
+ * 用于 selectedStepKeys 默认值与「全选/全不选」快捷。
+ */
+export const STEP_KEYS: readonly OneClickStepKey[] = [
+  'base-data',
+  'a-shares',
+  'money-flow',
+  'ths-index-daily',
+  'sw-index-daily',
+  'market-index-daily',
+  'etf',
+  'etf-amv',
+  'etf-mf',
+  'industry-amv',
+  'concept-amv',
+  'sw-amv',
+  'oamv',
+]
+
 export const STEP_LABELS: Record<OneClickStepKey, string> = {
   'base-data': '基础数据 (日历/涨跌停/停牌)',
   'a-shares': 'A 股数据',
@@ -86,7 +116,9 @@ export const STEP_LABELS: Record<OneClickStepKey, string> = {
   'ths-index-daily': '指数日线 (ths_daily)',
   'sw-index-daily': '申万指数日线 (sw_daily)',
   'market-index-daily': '大盘指数日线 (index_daily)',
-  'stock-amv': '个股 AMV',
+  etf: 'ETF 数据',
+  'etf-amv': 'ETF AMV',
+  'etf-mf': 'ETF 资金流',
   'industry-amv': '行业指数 AMV',
   'concept-amv': '板块（概念）AMV',
   'sw-amv': '申万指数 AMV',
@@ -150,7 +182,9 @@ export function buildInitialSteps(): OneClickStepState[] {
     emptyStep('ths-index-daily'),
     emptyStep('sw-index-daily'),
     emptyStep('market-index-daily'),
-    emptyStep('stock-amv'),
+    emptyStep('etf'),
+    emptyStep('etf-amv'),
+    emptyStep('etf-mf'),
     emptyStep('industry-amv'),
     emptyStep('concept-amv'),
     emptyStep('sw-amv'),

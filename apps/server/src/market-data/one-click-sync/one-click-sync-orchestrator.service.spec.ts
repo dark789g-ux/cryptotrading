@@ -20,6 +20,9 @@ import { SwIndexDailySyncService } from '../sw-index-daily/sw-index-daily-sync.s
 import { MarketIndexSyncService } from '../ths-index-daily/market-index-sync.service';
 import { ActiveMvService } from '../active-mv/active-mv.service';
 import { OamvService } from '../oamv/oamv.service';
+import { EtfService } from '../etf/etf.service';
+import { EtfAmvService } from '../etf/etf-amv.service';
+import { EtfMfService } from '../etf/etf-mf.service';
 import { STEP_ORDER, type OneClickStepStatus } from './types';
 
 // ── 内存 repo：维护若干 run 行，支持 create/save/findOne/update/createQueryBuilder.update ──
@@ -161,6 +164,9 @@ interface Mocks {
   marketIndexSync: { sync: jest.Mock };
   activeMv: { syncStock: jest.Mock; syncIndustry: jest.Mock; syncConcept: jest.Mock; syncSw: jest.Mock };
   oamv: { sync0amv: jest.Mock };
+  etf: { sync: jest.Mock };
+  etfAmv: { sync: jest.Mock };
+  etfMf: { sync: jest.Mock };
 }
 
 function happyMocks(): Mocks {
@@ -214,6 +220,9 @@ function happyMocks(): Mocks {
       syncSw: jest.fn().mockResolvedValue({ synced: 35 }),
     },
     oamv: { sync0amv: jest.fn().mockResolvedValue({ synced: 30 }) },
+    etf: { sync: jest.fn().mockResolvedValue({ success: 50, errors: [] }) },
+    etfAmv: { sync: jest.fn().mockResolvedValue({ success: 20, errors: [] }) },
+    etfMf: { sync: jest.fn().mockResolvedValue({ success: 15, errors: [] }) },
   };
 }
 
@@ -230,6 +239,9 @@ async function buildModule(mocks: Mocks, repo: ReturnType<typeof makeInMemoryRep
       { provide: MarketIndexSyncService, useValue: mocks.marketIndexSync },
       { provide: ActiveMvService, useValue: mocks.activeMv },
       { provide: OamvService, useValue: mocks.oamv },
+      { provide: EtfService, useValue: mocks.etf },
+      { provide: EtfAmvService, useValue: mocks.etfAmv },
+      { provide: EtfMfService, useValue: mocks.etfMf },
     ],
   }).compile();
   module.useLogger(false);
@@ -242,31 +254,32 @@ function statusesOf(repo: ReturnType<typeof makeInMemoryRepo>, id: string): OneC
 }
 
 describe('OneClickSyncOrchestratorService', () => {
-  it('全 10 步成功 → run success，各步 success + rowsWritten 落库', async () => {
+  it('全 13 步成功 → run success，各步 success + rowsWritten 落库', async () => {
     const repo = makeInMemoryRepo();
     const mocks = happyMocks();
     const svc = await buildModule(mocks, repo);
 
-    const run = await svc.startRun('20260601', '20260610', 'user-1');
+    const run = await svc.startRun('20260601', '20260610', {}, 'user-1');
     expect(run.status).toBe('running');
-    expect(run.steps).toHaveLength(10);
+    expect(run.steps).toHaveLength(13);
 
     await flushUntil(() => repo.rows[0]?.status !== 'running');
     const row = repo.rows[0];
     expect(row.status).toBe('success');
     expect(row.currentStep).toBeNull();
     expect(row.finishedAt).not.toBeNull();
-    expect(statusesOf(repo, run.id)).toEqual(Array(10).fill('success'));
+    expect(statusesOf(repo, run.id)).toEqual(Array(13).fill('success'));
     const rows = (row.steps ?? []).map((s) => s.rowsWritten);
-    // 顺序：base-data=10, a-shares=0(不取), money-flow Σ=11, ths=7, sw=9, market=6, AMV 50/40/35, oamv=30
-    expect(rows).toEqual([10, 0, 11, 7, 9, 6, 50, 40, 35, 30]);
+    // 顺序：base-data=10, a-shares=0(不取), money-flow Σ=11, ths=7, sw=9, market=6,
+    //   etf=50, etfAmv=20, etfMf=15, AMV 50/40/35, oamv=30
+    expect(rows).toEqual([10, 0, 11, 7, 9, 6, 50, 20, 15, 50, 40, 35, 30]);
   });
 
   it('base-data 用增量默认范围（stkLimit.max+1天），不用一键 dateRange', async () => {
     const repo = makeInMemoryRepo();
     const mocks = happyMocks();
     const svc = await buildModule(mocks, repo);
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     await flushUntil(() => repo.rows[0]?.status !== 'running');
     // stkLimit.max=20260601 → start=20260602；a-shares 用一键 dateRange
     expect(mocks.baseData.startSync).toHaveBeenCalledWith(
@@ -285,14 +298,14 @@ describe('OneClickSyncOrchestratorService', () => {
     mocks.moneyFlow.startSync = jest.fn(() => errorSubject({ type: 'error', message: '资金流挂了' }));
     const svc = await buildModule(mocks, repo);
 
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     await flushUntil(() => repo.rows[0]?.status !== 'running');
 
     const statuses = statusesOf(repo, run.id);
     expect(statuses[2]).toBe('failed'); // money-flow 失败
     // 后续步骤照常执行成功（不中断）
     expect(statuses[3]).toBe('success');
-    expect(statuses[9]).toBe('success'); // oamv（末步）仍跑
+    expect(statuses[12]).toBe('success'); // oamv（末步）仍跑
     expect(repo.rows[0].status).toBe('failed');
     // 普通步骤 5-9 仍被调用
     expect(mocks.oamv.sync0amv).toHaveBeenCalledTimes(1);
@@ -304,15 +317,15 @@ describe('OneClickSyncOrchestratorService', () => {
     mocks.activeMv.syncIndustry = jest.fn().mockRejectedValue(new Error('AMV 行业炸了'));
     const svc = await buildModule(mocks, repo);
 
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     await flushUntil(() => repo.rows[0]?.status !== 'running');
 
     const statuses = statusesOf(repo, run.id);
-    expect(statuses[6]).toBe('failed'); // industry-amv（新 Step6）
-    expect(statuses[7]).toBe('success'); // concept-amv 仍跑
+    expect(statuses[9]).toBe('failed'); // industry-amv（Step9）
+    expect(statuses[10]).toBe('success'); // concept-amv 仍跑
     expect(repo.rows[0].status).toBe('failed');
-    const step6 = repo.rows[0].steps?.[6];
-    expect(step6?.errors?.[0]?.message).toContain('AMV 行业炸了');
+    const step9 = repo.rows[0].steps?.[9];
+    expect(step9?.errors?.[0]?.message).toContain('AMV 行业炸了');
   });
 
   it('money-flow done 事件携带非空 summary[k].errors → 该步 failed 且记录 errors，后续步骤继续', async () => {
@@ -336,7 +349,7 @@ describe('OneClickSyncOrchestratorService', () => {
     );
     const svc = await buildModule(mocks, repo);
 
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     await flushUntil(() => repo.rows[0]?.status !== 'running');
 
     const statuses = statusesOf(repo, run.id);
@@ -352,9 +365,9 @@ describe('OneClickSyncOrchestratorService', () => {
     expect(step2?.rowsWritten).toBe(11);
     // 后续步骤仍继续执行（done-with-errors 不中断，只有 cancel 才中断）
     expect(statuses[3]).toBe('success'); // ths-index-daily
-    expect(statuses[9]).toBe('success'); // oamv（末步）
+    expect(statuses[12]).toBe('success'); // oamv（末步）
     expect(mocks.oamv.sync0amv).toHaveBeenCalledTimes(1);
-    // 整体终态：有 failed 步 → failed（computeFinalStatus），但 10 步全部跑完
+    // 整体终态：有 failed 步 → failed（computeFinalStatus），但 13 步全部跑完
     expect(repo.rows[0].status).toBe('failed');
     expect(statuses.filter((s) => s === 'pending')).toHaveLength(0);
     expect(repo.rows[0].finishedAt).not.toBeNull();
@@ -378,7 +391,7 @@ describe('OneClickSyncOrchestratorService', () => {
     );
     const svc = await buildModule(mocks, repo);
 
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     await flushUntil(() => repo.rows[0]?.status !== 'running');
 
     const statuses = statusesOf(repo, run.id);
@@ -388,8 +401,8 @@ describe('OneClickSyncOrchestratorService', () => {
     expect(step0?.errors?.[0]?.level).toBe('warn');
     expect(step0?.errors?.[0]?.apiName).toBe('stk_limit_empty');
     expect(step0?.rowsWritten).toBe(8); // 走 done 分支，rowsWritten = result.success
-    // 后续 9 步全部继续并成功
-    expect(statuses.slice(1)).toEqual(Array(9).fill('success'));
+    // 后续 12 步全部继续并成功
+    expect(statuses.slice(1)).toEqual(Array(12).fill('success'));
     expect(repo.rows[0].status).toBe('failed');
   });
 
@@ -405,15 +418,15 @@ describe('OneClickSyncOrchestratorService', () => {
     });
     const svc = await buildModule(mocks, repo);
 
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     await flushUntil(() => repo.rows[0]?.status !== 'running');
 
     const statuses = statusesOf(repo, run.id);
     expect(statuses[0]).toBe('success'); // 无新交易日 → success（非 failed）
     expect(mocks.baseData.startSync).not.toHaveBeenCalled(); // 未发起空拉取
     expect(repo.rows[0].steps?.[0]?.rowsWritten).toBe(0);
-    // 后续 9 步照常成功，run 终态 success
-    expect(statuses.slice(1)).toEqual(Array(9).fill('success'));
+    // 后续 12 步照常成功，run 终态 success
+    expect(statuses.slice(1)).toEqual(Array(12).fill('success'));
     expect(repo.rows[0].status).toBe('success');
   });
 
@@ -435,7 +448,7 @@ describe('OneClickSyncOrchestratorService', () => {
     );
     const svc = await buildModule(mocks, repo);
 
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     await flushUntil(() => repo.rows[0]?.status !== 'running');
 
     const statuses = statusesOf(repo, run.id);
@@ -466,7 +479,7 @@ describe('OneClickSyncOrchestratorService', () => {
     );
     const svc = await buildModule(mocks, repo);
 
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     await flushUntil(() => repo.rows[0]?.status !== 'running');
 
     expect(statusesOf(repo, run.id)[0]).toBe('failed'); // 混入异常空 → 不豁免
@@ -490,13 +503,13 @@ describe('OneClickSyncOrchestratorService', () => {
     });
     const svc = await buildModule(mocks, repo);
 
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     await flushUntil(() => repo.rows[0]?.status !== 'running');
 
     const statuses = statusesOf(repo, run.id);
     expect(statuses[0]).toBe('success'); // base-data 已完成（当前步跑完，无法硬中断）
     // 后续全部 skipped
-    expect(statuses.slice(1)).toEqual(Array(9).fill('skipped'));
+    expect(statuses.slice(1)).toEqual(Array(12).fill('skipped'));
     expect(repo.rows[0].status).toBe('cancelled');
     expect(repo.rows[0].finishedAt).not.toBeNull();
     // a-shares 等后续 service 未被调用
@@ -509,7 +522,7 @@ describe('OneClickSyncOrchestratorService', () => {
     // 让 base-data 永不完成（挂起 Subject），run 维持 running 以便测 cancel 写入
     mocks.baseData.startSync = jest.fn(() => new Subject());
     const svc = await buildModule(mocks, repo);
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     await flushUntil(() => repo.rows[0]?.steps?.[0]?.status === 'running');
 
     const after = await svc.cancelRun(run.id);
@@ -524,9 +537,9 @@ describe('OneClickSyncOrchestratorService', () => {
     mocks.baseData.startSync = jest.fn(() => new Subject());
     const svc = await buildModule(mocks, repo);
 
-    const run1 = await svc.startRun('20260601', '20260610', 'u1');
+    const run1 = await svc.startRun('20260601', '20260610', {}, 'u1');
     await flushUntil(() => repo.rows[0]?.steps?.[0]?.status === 'running');
-    const run2 = await svc.startRun('20260701', '20260710', 'u2');
+    const run2 = await svc.startRun('20260701', '20260710', {}, 'u2');
 
     expect(run2.id).toBe(run1.id); // 复用
     expect(repo.rows).toHaveLength(1); // 未新建第二行
@@ -537,7 +550,7 @@ describe('OneClickSyncOrchestratorService', () => {
     const repo = makeInMemoryRepo();
     const mocks = happyMocks();
     const svc = await buildModule(mocks, repo);
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     await flushUntil(() => repo.rows[0]?.status !== 'running');
 
     const active = await svc.getActiveOrLatest();
@@ -549,7 +562,7 @@ describe('OneClickSyncOrchestratorService', () => {
     const repo = makeInMemoryRepo();
     const mocks = happyMocks();
     const svc = await buildModule(mocks, repo);
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     await flushUntil(() => repo.rows[0]?.status !== 'running');
 
     const result = await svc.getLatestSuccess();
@@ -609,11 +622,152 @@ describe('OneClickSyncOrchestratorService', () => {
     const mocks = happyMocks();
     mocks.baseData.startSync = jest.fn(() => new Subject());
     const svc = await buildModule(mocks, repo);
-    const run = await svc.startRun('20260601', '20260610', null);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
     expect(run.startedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z$/);
     expect(run.finishedAt).toBeNull();
     expect(run.logs[0]?.step).toBe('system');
     expect(run.logs[0]?.text).toContain('20260601 ~ 20260610');
-    expect(STEP_ORDER).toHaveLength(10);
+    expect(STEP_ORDER).toHaveLength(13);
+  });
+
+  // ── selectedSteps 按需勾选（方案四）──────────────────────────────────────
+  it('selectedSteps 空/缺省 = 全选：所有 step 都执行（兼容旧请求）', async () => {
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    const svc = await buildModule(mocks, repo);
+    await svc.startRun('20260601', '20260610', {}, null);
+    await flushUntil(() => repo.rows[0]?.status !== 'running');
+
+    expect(statusesOf(repo, repo.rows[0].id)).toEqual(Array(13).fill('success'));
+    // 13 个 runner 全部被调用（用 oamv 末步验证）
+    expect(mocks.oamv.sync0amv).toHaveBeenCalledTimes(1);
+  });
+
+  it('selectedSteps 非空：未勾选的 step 标 skipped，不调 runner；勾选的正常执行', async () => {
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    const svc = await buildModule(mocks, repo);
+    // 只勾选 a-shares（idx 1）+ oamv（idx 12）
+    await svc.startRun('20260601', '20260610', {
+      selectedSteps: ['a-shares', 'oamv'],
+    }, null);
+    await flushUntil(() => repo.rows[0]?.status !== 'running');
+
+    const statuses = statusesOf(repo, repo.rows[0].id);
+    // idx 1 (a-shares) + idx 12 (oamv) = success，其余 11 个 = skipped
+    expect(statuses[1]).toBe('success');
+    expect(statuses[12]).toBe('success');
+    const skippedIdx = [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+    for (const i of skippedIdx) expect(statuses[i]).toBe('skipped');
+    // 未勾选的 runner 不应被调用
+    expect(mocks.baseData.startSync).not.toHaveBeenCalled();
+    expect(mocks.moneyFlow.startSync).not.toHaveBeenCalled();
+    expect(mocks.etf.sync).not.toHaveBeenCalled();
+    expect(mocks.etfAmv.sync).not.toHaveBeenCalled();
+    // 勾选的被调用
+    expect(mocks.aShares.startSync).toHaveBeenCalledTimes(1);
+    expect(mocks.oamv.sync0amv).toHaveBeenCalledTimes(1);
+    // 终态 success（无 failed 步）
+    expect(repo.rows[0].status).toBe('success');
+    // 「已跳过（未勾选）」日志存在
+    const skipLogs = (repo.rows[0].logs ?? []).filter((l) => l.text.includes('已跳过（未勾选）'));
+    expect(skipLogs.length).toBe(11);
+  });
+
+  it('selectedSteps 全不勾选：所有 step skipped，run 终态 success（无 failed）', async () => {
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    const svc = await buildModule(mocks, repo);
+    await svc.startRun('20260601', '20260610', { selectedSteps: [] }, null);
+    await flushUntil(() => repo.rows[0]?.status !== 'running');
+
+    // selectedSteps 空 = 全选（兼容旧请求），与缺省一致 —— 所有 step 应执行而非跳过
+    expect(statusesOf(repo, repo.rows[0].id)).toEqual(Array(13).fill('success'));
+    expect(mocks.oamv.sync0amv).toHaveBeenCalledTimes(1);
+  });
+
+  // ── syncMode 透传（方案二）──────────────────────────────────────────────
+  it('syncMode=overwrite 透传到各 step runner 的 service.startSync 调用', async () => {
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    const svc = await buildModule(mocks, repo);
+    await svc.startRun('20260601', '20260610', { syncMode: 'overwrite' }, null);
+    await flushUntil(() => repo.rows[0]?.status !== 'running');
+
+    // a-shares / money-flow / ths-index-daily / sw-index-daily / oamv 都收到 syncMode='overwrite'
+    expect(mocks.aShares.startSync).toHaveBeenCalledWith(
+      expect.objectContaining({ syncMode: 'overwrite' }),
+    );
+    expect(mocks.moneyFlow.startSync).toHaveBeenCalledWith(
+      expect.objectContaining({ syncMode: 'overwrite' }),
+    );
+    expect(mocks.thsIndexDaily.startSync).toHaveBeenCalledWith(
+      expect.objectContaining({ syncMode: 'overwrite' }),
+    );
+    expect(mocks.swIndexDaily.startSync).toHaveBeenCalledWith(
+      expect.objectContaining({ syncMode: 'overwrite' }),
+    );
+    expect(mocks.oamv.sync0amv).toHaveBeenCalledWith(
+      expect.objectContaining({ syncMode: 'overwrite' }),
+    );
+    // AMV 三步也透传
+    expect(mocks.activeMv.syncIndustry).toHaveBeenCalledWith(
+      expect.objectContaining({ syncMode: 'overwrite' }),
+    );
+    expect(mocks.activeMv.syncConcept).toHaveBeenCalledWith(
+      expect.objectContaining({ syncMode: 'overwrite' }),
+    );
+    expect(mocks.activeMv.syncSw).toHaveBeenCalledWith(
+      expect.objectContaining({ syncMode: 'overwrite' }),
+    );
+    // ETF 三步透传（etf/etfAmv/etfMf）
+    expect(mocks.etf.sync).toHaveBeenCalledWith(
+      expect.objectContaining({ syncMode: 'overwrite' }),
+    );
+    // etfAmv.sync / etfMf.sync 签名是 (etfCodes: string[], startDate, endDate, syncMode)
+    expect(mocks.etfAmv.sync).toHaveBeenCalledWith(
+      expect.any(Array), '20260601', '20260610', 'overwrite',
+    );
+    expect(mocks.etfMf.sync).toHaveBeenCalledWith(
+      expect.any(Array), '20260601', '20260610', 'overwrite',
+    );
+    // market-index-daily 也透传（runner 加了 syncMode 字段，service 实际不读，但调用应包含）
+    expect(mocks.marketIndexSync.sync).toHaveBeenCalledWith(
+      expect.objectContaining({ syncMode: 'overwrite' }),
+    );
+  });
+
+  it('syncMode 缺省 = incremental（默认），各 runner 收到 incremental', async () => {
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    const svc = await buildModule(mocks, repo);
+    await svc.startRun('20260601', '20260610', {}, null);
+    await flushUntil(() => repo.rows[0]?.status !== 'running');
+
+    expect(mocks.aShares.startSync).toHaveBeenCalledWith(
+      expect.objectContaining({ syncMode: 'incremental' }),
+    );
+    expect(mocks.moneyFlow.startSync).toHaveBeenCalledWith(
+      expect.objectContaining({ syncMode: 'incremental' }),
+    );
+  });
+
+  it('单飞语义：已有 running 时 startRun 忽略新 syncMode / selectedSteps 直接返回既有', async () => {
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    mocks.baseData.startSync = jest.fn(() => new Subject());
+    const svc = await buildModule(mocks, repo);
+    // 第一个 run（incremental + 全选）挂起 running
+    const run1 = await svc.startRun('20260601', '20260610', { syncMode: 'incremental' }, 'u1');
+    await flushUntil(() => repo.rows[0]?.steps?.[0]?.status === 'running');
+    // 第二次请求（overwrite + 只勾 a-shares）应被单飞忽略
+    const run2 = await svc.startRun('20260701', '20260710', {
+      syncMode: 'overwrite',
+      selectedSteps: ['a-shares'],
+    }, 'u2');
+
+    expect(run2.id).toBe(run1.id);
+    expect(repo.rows).toHaveLength(1);
+    expect(run2.startDate).toBe('20260601'); // 既有 running 的范围
   });
 });

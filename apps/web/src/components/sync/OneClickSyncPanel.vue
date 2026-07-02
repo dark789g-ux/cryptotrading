@@ -21,6 +21,15 @@
           format="yyyy-MM-dd"
           class="ocs-date-picker"
         />
+        <div class="ocs-mode-switch">
+          <n-switch
+            v-model:value="ctrl.syncMode.value"
+            :checked-value="'overwrite'"
+            :unchecked-value="'incremental'"
+            :disabled="ctrl.running.value"
+          />
+          <span class="ocs-switch-label">覆盖模式（重拉已有日期）</span>
+        </div>
         <n-button
           v-if="!ctrl.running.value"
           type="primary"
@@ -51,6 +60,15 @@
     </div>
 
     <!-- 步骤列表 -->
+    <div class="ocs-steps-toolbar">
+      <n-button
+        size="tiny"
+        quaternary
+        :disabled="ctrl.running.value"
+        @click="toggleAllSteps"
+      >{{ allSelectedLabel }}</n-button>
+      <span class="ocs-steps-hint">⚠️ 步骤间存在数据依赖，取消上游步骤可能影响下游结果</span>
+    </div>
     <ul class="ocs-steps">
       <li
         v-for="(step, idx) in ctrl.steps.value"
@@ -58,6 +76,12 @@
         class="ocs-step-row"
         :class="`ocs-step-row--${step.status}`"
       >
+        <n-checkbox
+          class="ocs-step-checkbox"
+          :checked="ctrl.selectedStepKeys.value.includes(step.step)"
+          :disabled="ctrl.running.value"
+          @update:checked="ctrl.toggleStep(step.step)"
+        />
         <div class="ocs-step-icon" :title="step.status">
           <n-spin v-if="step.status === 'running'" :size="14" />
           <span v-else>{{ statusIcon(step.status) }}</span>
@@ -159,7 +183,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { NButton, NCheckbox, NDatePicker, NProgress, NSpin, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NDatePicker, NProgress, NSpin, NSwitch, useMessage } from 'naive-ui'
 import { useOneClickSync, type OneClickStepStatus } from './useOneClickSync'
 import type { OneClickPanelController } from './oneClickSync.types'
 
@@ -198,6 +222,18 @@ const totalStatus = computed<'success' | 'error' | 'default' | 'info'>(() => {
 const hasFailedSteps = computed(
   () => ctrl.summary.value?.steps.some(s => s.status === 'failed') ?? false,
 )
+
+// 「全选/全不选」基于 controller 暴露的全集（A 股 13 / 美股 3），与 currentRun 是否就绪无关。
+const allSelected = computed(
+  () =>
+    ctrl.allStepKeys.value.length > 0 &&
+    ctrl.selectedStepKeys.value.length === ctrl.allStepKeys.value.length,
+)
+const allSelectedLabel = computed(() => (allSelected.value ? '全不选' : '全选'))
+
+function toggleAllSteps() {
+  ctrl.selectedStepKeys.value = allSelected.value ? [] : [...ctrl.allStepKeys.value]
+}
 
 function statusIcon(status: OneClickStepStatus): string {
   switch (status) {

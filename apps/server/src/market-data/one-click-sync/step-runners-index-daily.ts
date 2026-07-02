@@ -19,7 +19,7 @@ export async function runSwIndexDaily(ctx: StepContext, index: number): Promise<
     const subject = ctx.services.swIndexDaily.startSync({
       start_date: ctx.range.startDate,
       end_date: ctx.range.endDate,
-      syncMode: 'incremental',
+      syncMode: ctx.syncMode,
     });
     await awaitSubject(subject, (e) => {
       if (e.type === 'progress') {
@@ -76,17 +76,25 @@ function applySwIndexDone(
 
 // ── Step5 大盘指数日线（market-index-daily，普通 await）────────────────
 // 镜像 runOamv：await service.sync({start_date, end_date})，结果 errors[] → 步骤 errors。
+//
+// 注意：market-index-sync.service.ts 的 DTO 当前未声明 syncMode 字段，service 内部也无
+// overwrite 分支（无 syncMode/overwrite/filterExisting 关键字）—— 即此处透传 ctx.syncMode
+// 实际是 no-op（service JS 运行时忽略该字段）。用对象变量传入避免 TS excess property check；
+// 待 service 后续支持 syncMode 时此调用立即生效，无需再改 runner。
 export async function runMarketIndexDaily(ctx: StepContext, index: number): Promise<void> {
   const key: OneClickStepKey = 'market-index-daily';
   ctx.setStatus(index, 'running');
-  ctx.pushLog(key, 'info', '开始大盘指数日线同步');
+  ctx.pushLog(key, 'info', `开始大盘指数日线同步（${ctx.syncMode === 'overwrite' ? '覆盖' : '增量'}模式）`);
   try {
     ctx.patchStep(index, { phase: '同步大盘指数日线', percent: 30 });
     ctx.flushThrottled();
-    const result = await ctx.services.marketIndexSync.sync({
+    // 用对象变量传 dto：避开 TS excess property check；service 实际不读 syncMode（见上文注释）。
+    const dto = {
       start_date: ctx.range.startDate,
       end_date: ctx.range.endDate,
-    });
+      syncMode: ctx.syncMode,
+    };
+    const result = await ctx.services.marketIndexSync.sync(dto);
     ctx.patchStep(index, { rowsWritten: result?.success ?? 0, percent: 100 });
     const errs = result?.errors ?? [];
     if (errs.length > 0) {

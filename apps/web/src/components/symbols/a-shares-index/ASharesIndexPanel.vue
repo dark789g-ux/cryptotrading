@@ -19,6 +19,9 @@
           @edit="openEditModal"
         />
       </n-tab-pane>
+      <n-tab-pane name="etf" tab="ETF" display-directive="show:lazy">
+        <a-shares-index-etf-panel @jump-to-members="handleJumpToMembers" />
+      </n-tab-pane>
 
       <template #suffix>
         <n-button type="primary" size="small" @click="openCreateModal">
@@ -44,6 +47,7 @@ import { NButton, NTabPane, NTabs } from 'naive-ui'
 import ASharesIndexThsPanel from './ASharesIndexThsPanel.vue'
 import ASharesIndexSwPanel from './ASharesIndexSwPanel.vue'
 import ASharesIndexCustomPanel from './ASharesIndexCustomPanel.vue'
+import ASharesIndexEtfPanel from './ASharesIndexEtfPanel.vue'
 import CreateCustomIndexModal from './CreateCustomIndexModal.vue'
 import type { CustomIndexLatestRow } from '@/api/modules/market/customIndex'
 
@@ -55,11 +59,12 @@ const emit = defineEmits<{
       name: string
       category?: string
       customIndexId?: string
+      memberTsCodes?: string[]
     },
   ): void
 }>()
 
-type SubTab = 'ths' | 'sw' | 'custom'
+type SubTab = 'ths' | 'sw' | 'etf' | 'custom'
 
 const subTab = ref<SubTab>('ths')
 const showCreateModal = ref(false)
@@ -86,12 +91,14 @@ function handleJumpToMembers(payload: {
   name: string
   category: string
   customIndexId?: string
+  memberTsCodes?: string[]
 }) {
   emit('switch-to-stocks', {
     tsCode: payload.tsCode,
     name: payload.name,
     category: payload.category,
     customIndexId: payload.customIndexId,
+    memberTsCodes: payload.memberTsCodes,
   })
 }
 

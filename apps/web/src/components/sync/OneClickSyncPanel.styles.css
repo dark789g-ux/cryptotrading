@@ -44,6 +44,25 @@
 .ocs-date-picker {
   min-width: 260px;
 }
+.ocs-mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ocs-switch-label {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.ocs-steps-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+.ocs-steps-hint {
+  opacity: 0.7;
+}
 
 .ocs-total-progress {
   display: flex;
@@ -72,6 +91,11 @@
   border-radius: 6px;
   background: color-mix(in srgb, var(--color-surface-elevated, #f5f5f5) 60%, transparent);
   transition: background 0.2s;
+}
+.ocs-step-checkbox {
+  flex-shrink: 0;
+  align-self: flex-start;
+  padding-top: 2px;
 }
 .ocs-step-row--running {
   background: color-mix(in srgb, var(--color-primary, #2080f0) 12%, transparent);

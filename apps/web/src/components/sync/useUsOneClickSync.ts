@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { useUsOneClickSyncStore } from '@/stores/usOneClickSync'
 import { formatUTCDateTime } from '@/components/symbols/a-shares/aSharesFormatters'
 import {
+  US_STEP_KEYS,
   toYYYYMMDD,
   type LogEntry,
   type OneClickMessageApi,
@@ -25,6 +26,18 @@ export function useUsOneClickSync(message: OneClickMessageApi): OneClickPanelCon
 
   // 日期选择器输入（本地午夜 ms），无默认 = null；仅 start() 时转 YYYYMMDD 提交，不进 store
   const dateRange = ref<[number, number] | null>(null)
+
+  // 与 A 股 controller 对称的 UI 状态（美股后端走 ml.jobs，不识别 syncMode/selectedSteps；
+  // 这两个仅维持 OneClickPanelController 接口一致，store.startRun 仍只传 startDate/endDate）。
+  const syncMode = ref<'incremental' | 'overwrite'>('incremental')
+  const selectedStepKeys = ref<string[]>([...US_STEP_KEYS])
+  const allStepKeys = computed<readonly string[]>(() => US_STEP_KEYS)
+
+  function toggleStep(key: string): void {
+    const i = selectedStepKeys.value.indexOf(key)
+    if (i >= 0) selectedStepKeys.value = selectedStepKeys.value.filter(k => k !== key)
+    else selectedStepKeys.value = [...selectedStepKeys.value, key]
+  }
 
   // ---- 直接透传 store getter（形状与 A 股 controller 一致，Panel 模板不动）----
   const running = computed(() => store.running)
@@ -80,6 +93,10 @@ export function useUsOneClickSync(message: OneClickMessageApi): OneClickPanelCon
     latestSyncText,
     totalPercent,
     canStart,
+    syncMode,
+    selectedStepKeys,
+    allStepKeys,
+    toggleStep,
     start,
     cancel,
   }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
+import { DailyQuoteEntity } from '../../entities/raw/daily-quote.entity';
 import { MoneyFlowStockEntity } from '../../entities/money-flow/money-flow-stock.entity';
 import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-industry.entity';
 import { MoneyFlowSectorEntity } from '../../entities/money-flow/money-flow-sector.entity';
@@ -20,6 +21,7 @@ import { IndexCatalogModule } from '../index-catalog/index-catalog.module';
 @Module({
   imports: [IndexCatalogModule, TypeOrmModule.forFeature([
     AShareSymbolEntity,
+    DailyQuoteEntity,
     MoneyFlowStockEntity,
     MoneyFlowIndustryEntity,
     MoneyFlowSectorEntity,

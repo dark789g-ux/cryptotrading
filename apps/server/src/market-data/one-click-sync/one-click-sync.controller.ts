@@ -41,7 +41,10 @@ export class OneClickSyncController {
     if (startDate > endDate) {
       throw new BadRequestException('startDate 不能大于 endDate');
     }
-    return this.orchestrator.startRun(startDate, endDate, user?.id ?? null);
+    return this.orchestrator.startRun(startDate, endDate, {
+      syncMode: body.syncMode,
+      selectedSteps: body.selectedSteps,
+    }, user?.id ?? null);
   }
 
   /** 取当前活跃 run；无活跃则返回最近一条（供 onMounted 恢复）。 */

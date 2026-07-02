@@ -118,7 +118,14 @@ import { CustomIndexDailyQuoteEntity } from './entities/custom-index/custom-inde
 import { CustomIndexDailyIndicatorEntity } from './entities/custom-index/custom-index-daily-indicator.entity';
 import { CustomIndexMoneyFlowEntity } from './entities/custom-index/custom-index-money-flow.entity';
 import { CustomIndexAmvEntity } from './entities/custom-index/custom-index-amv.entity';
+import { EtfSymbolEntity } from './entities/raw/etf-symbol.entity';
+import { EtfPcfEntity } from './entities/raw/etf-pcf.entity';
+import { FundDailyEntity } from './entities/raw/fund-daily.entity';
+import { FundDailyIndicatorEntity } from './entities/raw/fund-daily-indicator.entity';
+import { FundAmvDailyEntity } from './entities/raw/fund-amv-daily.entity';
+import { MoneyFlowEtfEntity } from './entities/money-flow/money-flow-etf.entity';
 import { CustomIndexModule } from './market-data/custom-index/custom-index.module';
+import { EtfModule } from './market-data/etf/etf.module';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
 
 @Module({
@@ -240,6 +247,13 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           CustomIndexDailyIndicatorEntity,
           CustomIndexMoneyFlowEntity,
           CustomIndexAmvEntity,
+          // ---- ETF 数据采集（spec pcf-nested-leaf）----
+          EtfSymbolEntity,
+          EtfPcfEntity,
+          FundDailyEntity,
+          FundDailyIndicatorEntity,
+          FundAmvDailyEntity,
+          MoneyFlowEtfEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],
@@ -277,6 +291,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     DailyReviewModule,
     QuantModule,
     CustomIndexModule,
+    EtfModule,
   ],
 })
 export class AppModule implements OnModuleInit {

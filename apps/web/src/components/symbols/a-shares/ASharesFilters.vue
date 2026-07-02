@@ -175,7 +175,7 @@ defineProps<{
   indexFilter?: {
     tsCode: string
     name: string
-    category?: 'custom'
+    category?: 'custom' | 'etf'
     customIndexId?: string
     memberTsCodes?: string[]
   } | null

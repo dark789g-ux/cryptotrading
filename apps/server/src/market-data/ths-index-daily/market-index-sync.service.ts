@@ -21,6 +21,11 @@ import {
  * 同步后触发指标重算。与 ThsIndexDailySyncService（行业/概念 ths_daily）互不干扰。
  *
  * spec: docs/superpowers/specs/2026-06-23-market-index-dynamic-scope-design/02-backend.md §2.2
+ *
+ * syncMode 说明：本 service 无「跳过已有 (ts_code, trade_date)」逻辑——每次按 ts_code 逐指数、
+ * 按 5 年段全量重拉 Tushare index_daily，再 upsert（ON CONFLICT DO UPDATE，本身即覆盖）。
+ * 因此 syncMode='overwrite' 对本 service 是 no-op：incremental 与 overwrite 行为完全一致。
+ * 字段仅作 API 对齐（与一键同步 ctx.syncMode 形态统一）+ 日志标识，不改变落库行为。
  */
 // Tushare index_daily 出参：ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol(手),amount(千元)
 const INDEX_DAILY_FIELDS =
@@ -33,6 +38,8 @@ interface RawRow {
 export interface MarketIndexSyncDto {
   start_date: string;
   end_date: string;
+  /** 同步模式（本 service 为 no-op，见类注释）；与一键同步 ctx.syncMode 形态对齐 */
+  syncMode?: 'incremental' | 'overwrite';
 }
 
 export interface MarketIndexSyncErrorItem {
@@ -74,6 +81,12 @@ export class MarketIndexSyncService {
   ) {}
 
   async sync(dto: MarketIndexSyncDto): Promise<MarketIndexSyncResult> {
+    // syncMode 对本 service 为 no-op（无跳过逻辑，逐指数全量重拉 + upsert 即覆盖）；
+    // 此处仅记录模式，便于排查与一键同步 API 形态对齐。
+    const syncMode = dto.syncMode ?? 'incremental';
+    this.logger.log(
+      `[market-index] syncMode=${syncMode}（no-op：本 service 无增量跳过，逐指数全量重拉 + upsert）`,
+    );
     const errors: MarketIndexSyncErrorItem[] = [];
     let success = 0;
     const affected = new Set<string>();

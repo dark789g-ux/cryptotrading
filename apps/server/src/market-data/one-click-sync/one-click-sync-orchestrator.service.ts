@@ -4,12 +4,12 @@
 //
 // 职责：
 //  - 单飞（status='running' 命中则复用，不新建）
-//  - detached async 跑 10 步（订阅 Subject / await POST），改内存态、节流刷 DB
+//  - detached async 跑 13 步（订阅 Subject / await POST），改内存态、节流刷 DB
 //  - 步骤间检查 cancel_requested（标剩余 skipped 后 break）
 //  - 终态写 status/finished_at/current_step=null
 //  - OnModuleInit boot-sweep：把残留 running 标 failed（服务重启中断）
 //
-// 10 步逻辑细节在 step-runners.ts（忠实搬运前端 useOneClickSync.ts）。
+// 13 步逻辑细节在 step-runners.ts（忠实搬运前端 useOneClickSync.ts）。
 
 import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -23,6 +23,9 @@ import { SwIndexDailySyncService } from '../sw-index-daily/sw-index-daily-sync.s
 import { MarketIndexSyncService } from '../ths-index-daily/market-index-sync.service';
 import { ActiveMvService } from '../active-mv/active-mv.service';
 import { OamvService } from '../oamv/oamv.service';
+import { EtfService } from '../etf/etf.service';
+import { EtfAmvService } from '../etf/etf-amv.service';
+import { EtfMfService } from '../etf/etf-mf.service';
 import {
   buildInitialSteps,
   DB_FLUSH_THROTTLE_MS,
@@ -46,6 +49,7 @@ import {
   type StepContext,
 } from './step-runners';
 import { runMarketIndexDaily, runSwIndexDaily } from './step-runners-index-daily';
+import { runEtf, runEtfAmv, runEtfMf } from './step-runners-etf';
 
 type StepRunner = (ctx: StepContext, index: number) => Promise<void>;
 
@@ -56,6 +60,9 @@ const STEP_RUNNERS: StepRunner[] = [
   runThsIndexDaily,
   runSwIndexDaily,
   runMarketIndexDaily,
+  runEtf,
+  runEtfAmv,
+  runEtfMf,
   runIndustryAmv,
   runConceptAmv,
   runSwAmv,
@@ -77,6 +84,9 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
     private readonly marketIndexSync: MarketIndexSyncService,
     private readonly activeMv: ActiveMvService,
     private readonly oamv: OamvService,
+    private readonly etf: EtfService,
+    private readonly etfAmv: EtfAmvService,
+    private readonly etfMf: EtfMfService,
   ) {}
 
   /**
@@ -103,8 +113,17 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
   /**
    * POST /runs：单飞 + 插行 + detached 编排。
    * 命中 running 直接复用（不新建）；否则插行并甩 detached async，立即返回新行。
+   *
+   * options.syncMode / options.selectedSteps 仅作参数透传给 orchestrate / ctx，
+   * **不持久化**到 run entity（避免 migration 加列）。
+   * 单飞语义：命中已有 running 时直接返回，忽略新参数（不能中途改模式/选择）。
    */
-  async startRun(startDate: string, endDate: string, createdBy: string | null): Promise<OneClickSyncRunDto> {
+  async startRun(
+    startDate: string,
+    endDate: string,
+    options: { syncMode?: 'incremental' | 'overwrite'; selectedSteps?: string[] },
+    createdBy: string | null,
+  ): Promise<OneClickSyncRunDto> {
     const active = await this.findRunning();
     if (active) {
       return this.toDto(active);
@@ -130,7 +149,7 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
     });
     const saved = await this.runRepo.save(entity);
     // detached：不 await，立即返回新行（类似现有 setTimeout 模式）。
-    void this.orchestrate(saved.id).catch((err) => {
+    void this.orchestrate(saved.id, options).catch((err) => {
       this.logger.error(
         `编排器异常 run=${saved.id}: ${err instanceof Error ? err.stack : String(err)}`,
       );
@@ -178,7 +197,10 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
   }
 
   // ── 编排主体（detached）──────────────────────────────────────────────
-  private async orchestrate(runId: string): Promise<void> {
+  private async orchestrate(
+    runId: string,
+    options: { syncMode?: 'incremental' | 'overwrite'; selectedSteps?: string[] } = {},
+  ): Promise<void> {
     const run = await this.runRepo.findOne({ where: { id: runId } });
     if (!run) {
       this.logger.error(`orchestrate：run ${runId} 不存在`);
@@ -190,6 +212,11 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
       logs: run.logs ?? [],
     };
     let lastFlush = 0;
+
+    // selectedSteps 空/缺省 = 全选（兼容旧请求 + 默认全勾）；非空时转 Set 加速 includes。
+    const selectedSet = options.selectedSteps && options.selectedSteps.length > 0
+      ? new Set(options.selectedSteps)
+      : null;
 
     const flushNow = async (extra?: Partial<OneClickSyncRunEntity>) => {
       lastFlush = Date.now();
@@ -207,6 +234,7 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
 
     const ctx: StepContext = {
       range: { startDate: run.startDate, endDate: run.endDate },
+      syncMode: options.syncMode === 'overwrite' ? 'overwrite' : 'incremental',
       services: {
         baseData: this.baseData,
         aShares: this.aShares,
@@ -216,6 +244,9 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
         marketIndexSync: this.marketIndexSync,
         activeMv: this.activeMv,
         oamv: this.oamv,
+        etf: this.etf,
+        etfAmv: this.etfAmv,
+        etfMf: this.etfMf,
       },
       patchStep: (index, patch) => {
         Object.assign(state.steps[index], patch);
@@ -246,6 +277,20 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
             text: '一键同步已取消',
           });
           break;
+        }
+        // 按需勾选：selectedSet 非空且当前 step key 未勾选 → 标 skipped，不调 runner。
+        // 空/缺省 = 全选（selectedSet 为 null），兼容旧请求 + 默认全勾。
+        const stepKey = STEP_ORDER[i];
+        if (selectedSet && !selectedSet.has(stepKey)) {
+          setStepStatus(state.steps[i], 'skipped');
+          pushLog(state.logs, {
+            ts: Date.now(),
+            step: stepKey,
+            level: 'info',
+            text: '已跳过（未勾选）',
+          });
+          await flushNow({ currentStep: i });
+          continue;
         }
         // 步骤切换必刷库 + current_step。
         await flushNow({ currentStep: i });

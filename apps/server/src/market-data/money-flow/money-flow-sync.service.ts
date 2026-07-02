@@ -3,12 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Subject } from 'rxjs';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
+import { DailyQuoteEntity } from '../../entities/raw/daily-quote.entity';
 import { MoneyFlowStockEntity } from '../../entities/money-flow/money-flow-stock.entity';
 import { MoneyFlowIndustryEntity } from '../../entities/money-flow/money-flow-industry.entity';
 import { MoneyFlowSectorEntity } from '../../entities/money-flow/money-flow-sector.entity';
 import { MoneyFlowMarketEntity } from '../../entities/money-flow/money-flow-market.entity';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
 import { resolveOpenTradeDates } from '../a-shares/sync/a-shares-sync-utils';
+import { collectCompletenessErrors } from '../_shared/dataset-completeness';
 import { SyncFlowDto } from './dto/sync-flow.dto';
 import type { MoneyFlowSyncEvent, MoneyFlowSyncResult, MoneyFlowSyncSummary } from '@cryptotrading/shared-types';
 import {
@@ -55,6 +57,8 @@ export class MoneyFlowSyncService {
     private readonly marketRepo: Repository<MoneyFlowMarketEntity>,
     @InjectRepository(AShareSymbolEntity)
     private readonly symbolRepo: Repository<AShareSymbolEntity>,
+    @InjectRepository(DailyQuoteEntity)
+    private readonly dailyQuoteRepo: Repository<DailyQuoteEntity>,
     private readonly tushareClient: TushareClientService,
     private readonly indexWeightSyncService: IndexWeightSyncService,
     private readonly moneyFlowAggregationService: MoneyFlowAggregationService,
@@ -155,6 +159,29 @@ export class MoneyFlowSyncService {
     }
 
     const success = await batchUpsert(this.stockRepo, allEntities, ['tsCode', 'tradeDate']);
+
+    // POST-sync 对账：actual（money_flow_stocks 当日入库行数）vs baseline（raw.daily_quote 当日行数）。
+    // actual < baseline → push errors（携带 apiName + 参数），避免 code=0 + 非空却残缺的伪装成功。
+    // 用 allDates（含 incremental 跳过的残缺日），确保历史残缺日也被对账。
+    // 基准必须与 moneyflow_ths 实际覆盖范围一致：该接口不覆盖北交所（.BJ）与退市股（name 含「退」），
+    // 用 daily_quote 全量对账会永误报 ~327 只缺失。filter 收窄为「沪深 + 有成交 + 非退市」。
+    const completenessErrors = await collectCompletenessErrors(
+      this.dailyQuoteRepo,
+      {
+        tableName: 'public.money_flow_stocks',
+        dateColumn: 'trade_date',
+        baseline: {
+          table: 'raw.daily_quote',
+          dateColumn: 'trade_date',
+          filter:
+            "vol > 0 AND ts_code NOT LIKE '%.BJ' AND ts_code NOT IN (SELECT ts_code FROM a_share_symbols WHERE name LIKE '%退%')",
+        },
+      },
+      resolved.allDates,
+      'moneyflow_ths',
+    );
+    errors.push(...completenessErrors);
+
     return { success, skipped: resolved.skipped, errors };
   }
 

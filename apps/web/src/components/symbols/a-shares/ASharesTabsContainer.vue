@@ -34,7 +34,7 @@ const stocksPanelRef = ref<{
   applyIndexFilter: (
     tsCode: string,
     name: string,
-    opts?: { category?: string; customIndexId?: string },
+    opts?: { category?: string; customIndexId?: string; memberTsCodes?: string[] },
   ) => Promise<void>
 } | null>(null)
 
@@ -43,6 +43,7 @@ function handleSwitchToStocks(payload: {
   name: string
   category?: string
   customIndexId?: string
+  memberTsCodes?: string[]
 }) {
   // 「股票」pane 用 display-directive="show" 常驻挂载，此处 stocksPanelRef 必已绑定。
   // 先切到「股票」tab，再下发指数过滤；不再用静默 ?.（旧实现里 ref 未挂载时会被
@@ -57,6 +58,7 @@ function handleSwitchToStocks(payload: {
     .applyIndexFilter(payload.tsCode, payload.name, {
       category: payload.category,
       customIndexId: payload.customIndexId,
+      memberTsCodes: payload.memberTsCodes,
     })
 }
 
