@@ -57,10 +57,6 @@ import { UserInvitationEntity } from './users/entities/user-invitation.entity';
 import { StrategyConditionEntity } from './entities/strategy/strategy-condition.entity';
 import { StrategyConditionRunEntity } from './entities/strategy/strategy-condition-run.entity';
 import { StrategyConditionHitEntity } from './entities/strategy/strategy-condition-hit.entity';
-import { SignalTestEntity } from './entities/strategy/signal-test.entity';
-import { SignalTestRunEntity } from './entities/strategy/signal-test-run.entity';
-import { SignalTestTradeEntity } from './entities/strategy/signal-test-trade.entity';
-import { SignalTestEquityEntity } from './entities/strategy/signal-test-equity.entity';
 import { StrategyConditionsModule } from './strategy-conditions/strategy-conditions.module';
 import { MoneyFlowStockEntity } from './entities/money-flow/money-flow-stock.entity';
 import { MoneyFlowIndustryEntity } from './entities/money-flow/money-flow-industry.entity';
@@ -106,11 +102,7 @@ import { FeatureSetEntity } from './entities/ml/feature-set.entity';
 import { KellySweepResult } from './entities/ml/kelly-sweep-result.entity';
 import { RegimeStrategyConfigEntity } from './entities/strategy/regime-strategy-config.entity';
 import { RegimeDailyPickEntity } from './entities/strategy/regime-daily-pick.entity';
-import { PortfolioSimRunEntity } from './entities/strategy/portfolio-sim-run.entity';
-import { PortfolioSimDailyEntity } from './entities/strategy/portfolio-sim-daily.entity';
-import { PortfolioSimFillEntity } from './entities/strategy/portfolio-sim-fill.entity';
 import { RegimeEngineModule } from './strategies/regime-engine/regime-engine.module';
-import { PortfolioSimModule } from './strategy-conditions/portfolio-sim/portfolio-sim.module';
 import { CustomIndexDefinitionEntity } from './entities/custom-index/custom-index-definition.entity';
 import { CustomIndexWeightVersionEntity } from './entities/custom-index/custom-index-weight-version.entity';
 import { CustomIndexMemberEntity } from './entities/custom-index/custom-index-member.entity';
@@ -190,12 +182,6 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           StrategyConditionEntity,
           StrategyConditionRunEntity,
           StrategyConditionHitEntity,
-          SignalTestEntity,
-          SignalTestRunEntity,
-          SignalTestTradeEntity,
-          // signal_test_equity（迷你回测逐日净值曲线，spec 2026-06-14-signaltest-minibacktest）
-          SignalTestEquityEntity,
-          // signal_rolling_indicator（预计算滚动指标，spec 2026-06-09-signal-rolling-indicators-design）
           SignalRollingIndicatorEntity,
           MoneyFlowStockEntity,
           MoneyFlowIndustryEntity,
@@ -233,11 +219,6 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           // regime engine（0AMV 四象限每日选股，spec 2026-06-10-0amv-regime-strategy-design）
           RegimeStrategyConfigEntity,
           RegimeDailyPickEntity,
-          // portfolio-level simulator（组合级模拟器数据层，spec portfolio-sim 03-data-model）
-          PortfolioSimRunEntity,
-          PortfolioSimDailyEntity,
-          PortfolioSimFillEntity,
-          // 一键同步后端托管编排进度行（spec 2026-06-16-one-click-sync-backend-orchestration）
           OneClickSyncRunEntity,
           // ---- A 股自定义指数（spec 2026-06-28-custom-index-create-design）----
           CustomIndexDefinitionEntity,
@@ -275,7 +256,6 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     AuthModule,
     UsersModule,
     StrategyConditionsModule,
-    PortfolioSimModule,
     MoneyFlowModule,
     IndexCatalogModule,
     ThsIndexDailyModule,
