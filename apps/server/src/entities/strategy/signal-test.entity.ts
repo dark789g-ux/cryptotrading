@@ -14,10 +14,8 @@ import type {
   RegimeRule,
 } from '../../strategy-conditions/portfolio-sim/portfolio-sim.types';
 
-export interface SignalTestUniverse {
-  type: 'all' | 'list';
-  tsCodes?: string[];
-}
+export { type SignalTestUniverse } from '../../strategy-conditions/strategy-conditions.enumerator';
+import type { SignalTestUniverse } from '../../strategy-conditions/strategy-conditions.enumerator';
 
 /**
  * 迷你回测配置（signal_test.backtest_config，null = 不跑回测，存量行零漂移）。

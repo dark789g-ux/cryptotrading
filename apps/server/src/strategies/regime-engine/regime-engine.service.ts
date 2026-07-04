@@ -31,7 +31,7 @@ import { OamvDailyEntity } from '../../entities/oamv/oamv-daily.entity';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
 import { StrategyConditionItem } from '../../entities/strategy/strategy-condition.entity';
 import { StrategyConditionsQueryBuilder } from '../../strategy-conditions/strategy-conditions.query-builder';
-import { buildEnumerateQuery } from '../../strategy-conditions/signal-stats/signal-stats.enumerator';
+import { buildEnumerateQuery } from '../../strategy-conditions/strategy-conditions.enumerator';
 import { classifyRegime, RegimeResult } from './regime.classifier';
 import { validateRegimeConfig } from './regime-engine.validation';
 import {
