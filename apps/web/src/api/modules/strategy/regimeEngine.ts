@@ -1,4 +1,4 @@
-import { API_BASE, patch, post, request } from '../../client'
+import { API_BASE, del, patch, post, request } from '../../client'
 
 // ── 共享类型 ──────────────────────────────────────────────────────────────────
 
@@ -78,6 +78,120 @@ export interface RunDailyResult {
   action: RegimePickAction
   configVersion: number | null
   pickCount: number
+}
+
+// ── /backtests ────────────────────────────────────────────────────────────────
+
+export interface RegimeBacktestCostRates {
+  commissionPerSide: number
+  transferPerSide: number
+  stampSellBefore20230828: number
+  stampSellFrom20230828: number
+  slippagePerSide: number
+}
+
+export interface CreateRegimeBacktestDto {
+  regimeConfigId: string
+  name: string
+  capital: {
+    initialCapital: number
+    cost: RegimeBacktestCostRates
+    positionRatio: number
+    maxPositions: number | null
+  }
+  dateStart: string
+  dateEnd: string
+}
+
+export interface RegimeBacktestRun {
+  id: string
+  name: string
+  regimeConfigId: string
+  configVersion: number
+  dateStart: string
+  dateEnd: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  phase: string | null
+  progressDone: number | null
+  progressTotal: number | null
+  errorMessage: string | null
+  finalNav: number | null
+  totalRet: number | null
+  annualRet: number | null
+  maxDrawdown: number | null
+  sharpe: number | null
+  calmar: number | null
+  nTaken: number | null
+  nSkipped: number | null
+  totalCosts: number | null
+  createdAt: string
+  completedAt: string | null
+}
+
+export interface RegimeBacktestProgress {
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  phase: string | null
+  progressDone: number | null
+  progressTotal: number | null
+  errorMessage: string | null
+}
+
+export interface RegimeBacktestDaily {
+  tradeDate: string
+  nav: number
+  cash: number
+  dailyRet: number
+  positionCount: number
+  exposure: number
+}
+
+export interface RegimeBacktestTrade {
+  signalDate: string
+  buyDate: string | null
+  exitDate: string | null
+  tsCode: string
+  regime: string
+  exitMode: string | null
+  status: 'taken' | 'skipped'
+  skipReason: string | null
+  ret: number | null
+  alloc: number | null
+  costsPaid: number | null
+  realizedRetNet: number | null
+}
+
+export interface RegimeBacktestListResult {
+  total: number
+  items: RegimeBacktestRun[]
+}
+
+export const regimeBacktestApi = {
+  create(dto: CreateRegimeBacktestDto): Promise<RegimeBacktestRun> {
+    return post<RegimeBacktestRun>(`${API_BASE}/regime-engine/backtests`, dto)
+  },
+  run(id: string): Promise<{ runId: string }> {
+    return post<{ runId: string }>(`${API_BASE}/regime-engine/backtests/${id}/run`)
+  },
+  getProgress(id: string): Promise<RegimeBacktestProgress> {
+    return request<RegimeBacktestProgress>(`${API_BASE}/regime-engine/backtests/${id}/progress`)
+  },
+  get(id: string): Promise<RegimeBacktestRun> {
+    return request<RegimeBacktestRun>(`${API_BASE}/regime-engine/backtests/${id}`)
+  },
+  listDaily(id: string): Promise<RegimeBacktestDaily[]> {
+    return request<RegimeBacktestDaily[]>(`${API_BASE}/regime-engine/backtests/${id}/daily`)
+  },
+  listTrades(id: string): Promise<RegimeBacktestTrade[]> {
+    return request<RegimeBacktestTrade[]>(`${API_BASE}/regime-engine/backtests/${id}/trades`)
+  },
+  remove(id: string): Promise<void> {
+    return del<void>(`${API_BASE}/regime-engine/backtests/${id}`)
+  },
+  list(page = 1, pageSize = 20): Promise<RegimeBacktestListResult> {
+    return request<RegimeBacktestListResult>(
+      `${API_BASE}/regime-engine/backtests?page=${page}&pageSize=${pageSize}`,
+    )
+  },
 }
 
 // ── API 对象 ──────────────────────────────────────────────────────────────────
