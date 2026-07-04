@@ -64,12 +64,6 @@ const routes: any[] = [
     meta: { title: '策略条件' },
   },
   {
-    path: '/signal-stats',
-    name: 'signal-stats',
-    component: () => import('../views/strategy/SignalStatsView.vue'),
-    meta: { title: '信号前向统计' },
-  },
-  {
     path: '/regime-picks',
     name: 'regime-picks',
     component: () => import('../views/strategy/RegimePicksView.vue'),
@@ -86,12 +80,6 @@ const routes: any[] = [
     name: 'regime-config',
     component: () => import('../views/strategy/RegimeConfigView.vue'),
     meta: { title: 'Regime 配置管理', adminOnly: true },
-  },
-  {
-    path: '/portfolio-sim',
-    name: 'portfolio-sim',
-    component: () => import('../views/strategy/PortfolioSimView.vue'),
-    meta: { title: '组合级模拟器', adminOnly: true },
   },
   {
     path: '/daily-review',
