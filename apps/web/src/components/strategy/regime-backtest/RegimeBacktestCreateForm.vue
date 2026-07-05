@@ -40,6 +40,9 @@
           style="width: 280px"
         />
       </n-form-item>
+      <n-form-item>
+        <n-text type="info" depth="3">提示：若 Regime 配置中象限已设置仓位参数，将覆盖此处值。</n-text>
+      </n-form-item>
       <n-form-item label="成本预设">
         <n-select
           v-model:value="costTier"
@@ -76,6 +79,7 @@ import {
   NSelect,
   NDatePicker,
   NButton,
+  NText,
   type FormRules,
   type FormInst,
 } from 'naive-ui'
