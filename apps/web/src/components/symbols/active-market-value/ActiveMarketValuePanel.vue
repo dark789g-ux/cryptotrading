@@ -34,7 +34,10 @@
         <div v-if="regimeData" class="regime-card-body">
           <div class="regime-card-left">
             <span class="regime-card-label">当前象限</span>
-            <regime-badge :regime="regimeData.regime" />
+            <regime-badge
+              :label="regimeData.activeConfig?.entry?.label ?? '未知'"
+              :color-index="regimeData.activeConfig?.entryIndex ?? 0"
+            />
             <n-text v-if="regimeData.regime === 'unknown'" type="warning" class="regime-unknown-hint">
               数据缺失，无法识别象限
             </n-text>

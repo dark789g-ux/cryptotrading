@@ -261,3 +261,7 @@ ui_test/.tmp/
 .zcode/tmp/
 .zcode/worktrees/
 
+# opencode
+.opencode/
+.temp/
+

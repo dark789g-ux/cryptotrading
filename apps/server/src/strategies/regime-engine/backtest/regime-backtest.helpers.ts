@@ -1,13 +1,8 @@
 import { WindowQuote } from '../core/exit-simulator';
+import { toNum } from '../regime-engine.utils';
 
 const MA5_WINDOW = 5;
 const MA5_PREHEAT_TRADING_DAYS = 4;
-
-function toNum(v: string | null | undefined): number | null {
-  if (v === null || v === undefined) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
 
 export function attachMa5(
   dates: string[],

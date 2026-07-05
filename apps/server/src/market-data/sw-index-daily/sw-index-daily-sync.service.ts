@@ -179,7 +179,7 @@ export class SwIndexDailySyncService {
           current: i + 1,
           total: dates.length,
           percent: pctOf(i + 1, grandTotal),
-          message: `${tradeDate} 无数据`,
+          message: `${tradeDate} 无数据（数据源尚未发布）`,
         });
         continue;
       }

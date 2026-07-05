@@ -1,30 +1,54 @@
 /**
  * regime.classifier.ts
  *
- * 0AMV 四象限纯函数分类器（无任何依赖，TDD 先行）。
+ * 参数化 regime 分类器。
  *
- * 口径与研究侧离线 SQL 完全一致（spec 03-automation-design.md），
- * 边界 `<=` 一律归负侧：
- *   dif>0  且 macd>0  → Q1（强多头）
- *   dif>0  且 macd<=0 → Q2（多头回调）
- *   dif<=0 且 macd>0  → Q3（反弹筑底）
- *   dif<=0 且 macd<=0 → Q4（空头）
- *   任一入参 null / 非有限数（NaN/±Infinity/undefined）→ unknown（fail-closed）
+ * 不再硬编码 DIF/MACD 四象限；分类规则完全来自配置中的 quadrants[].match。
+ * 对每日大盘 snapshot 按 quadrants 顺序逐一求 match，首个命中的 key 胜出；
+ * 全不命中 / 输入非法 → 'unknown'（fail-closed）。
  */
-import { RegimeKey } from '../../entities/strategy/regime-strategy-config.entity';
+import {
+  MarketSnapshot,
+  evaluateMarketConditions,
+} from './market-condition-evaluator';
+import { QuadrantEntry } from '../../entities/strategy/regime-strategy-config.entity';
 
-export type RegimeResult = RegimeKey | 'unknown';
+export type RegimeResult = string | 'unknown';
 
+function isValidSnapshot(snapshot: unknown): snapshot is MarketSnapshot {
+  if (typeof snapshot !== 'object' || snapshot === null) return false;
+  const s = snapshot as Partial<MarketSnapshot>;
+  return typeof s.oamv === 'object' && s.oamv !== null;
+}
+
+function isValidQuadrant(q: unknown): q is QuadrantEntry {
+  if (typeof q !== 'object' || q === null) return false;
+  const qe = q as Partial<QuadrantEntry>;
+  return (
+    typeof qe.key === 'string' &&
+    qe.key !== '' &&
+    Array.isArray(qe.match)
+  );
+}
+
+/**
+ * 根据大盘 snapshot 与配置的 quadrants 判定当前 regime。
+ *
+ * @param snapshot  大盘快照（必须含 oamv；idx 可选）
+ * @param quadrants 有序象限数组；顺序 = 匹配优先级
+ */
 export function classifyRegime(
-  amvDif: number | null,
-  amvMacd: number | null,
+  snapshot: MarketSnapshot,
+  quadrants: QuadrantEntry[],
 ): RegimeResult {
-  // null / undefined / NaN / ±Infinity 一律 unknown（Number.isFinite 同时覆盖非 number 类型）
-  if (!Number.isFinite(amvDif) || !Number.isFinite(amvMacd)) {
-    return 'unknown';
+  if (!isValidSnapshot(snapshot)) return 'unknown';
+  if (!Array.isArray(quadrants) || quadrants.length === 0) return 'unknown';
+
+  for (const q of quadrants) {
+    if (!isValidQuadrant(q)) continue;
+    if (evaluateMarketConditions(snapshot, q.match)) {
+      return q.key;
+    }
   }
-  if (amvDif > 0) {
-    return amvMacd > 0 ? 'Q1' : 'Q2';
-  }
-  return amvMacd > 0 ? 'Q3' : 'Q4';
+  return 'unknown';
 }

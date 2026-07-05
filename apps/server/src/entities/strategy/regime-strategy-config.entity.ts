@@ -6,28 +6,45 @@ import {
 } from 'typeorm';
 import { StrategyConditionItem } from './strategy-condition.entity';
 
-export type RegimeKey = 'Q1' | 'Q2' | 'Q3' | 'Q4';
+/**
+ * 原 'Q1'|'Q2'|'Q3'|'Q4' 字面量联合已退役。
+ * 现在 regime key 由用户自定义，保留 string 别名作为过渡兼容。
+ */
+export type RegimeKey = string;
 
 export type RegimeConfigStatus = 'draft' | 'active' | 'archived';
 
 export type RegimeExitMode = 'trailing_lock' | 'fixed_n' | 'strategy';
 
-export interface RegimeConfigEntry {
-  /** 配置中只允许 trade/flat（unknown 是运行期 regime，不可配置） */
+export interface QuadrantEntry {
+  /** 用户自定义象限标识（配置内唯一）。 */
+  key: string;
+  /** 象限显示标签（必填，无 fallback）。 */
+  label: string;
+  /** 大盘级分桶条件：命中即归此象限。 */
+  match: StrategyConditionItem[];
+  /** 配置中只允许 trade/flat（unknown 是运行期 regime，不可配置）。 */
   action: 'trade' | 'flat';
-  /** 象限标签（如「反弹筑底」），flat 行落库作空仓理由 */
-  label?: string | null;
-  /** 入场条件（条件系统 JSON 原样执行）；flat 象限为 null */
+  /** 入场条件（个股级）；flat 象限为 null。 */
   entryConditions?: StrategyConditionItem[] | null;
-  /** 出场模式；flat 象限为 null。Phase 2 仅展示，不参与每日扫描 */
+  /** 出场模式；flat 象限为 null。 */
   exitMode?: RegimeExitMode | null;
-  /** 出场参数（fixed_n: {N}；strategy: {exitConditions,maxHold}；trailing_lock: {maxHold|null}） */
+  /** 出场参数；flat 象限为 null。 */
   exitParams?: Record<string, unknown> | null;
-  /** optional condition set or any extra config */
+  /** 研究证据（可选）。 */
+  evidence?: Record<string, unknown> | null;
+  /** optional extra config */
   [key: string]: unknown;
 }
 
-export type RegimeConfigMap = Record<RegimeKey, RegimeConfigEntry>;
+export type RegimeConfigEntry = QuadrantEntry;
+
+export interface RegimeConfigMap {
+  /** 基准大盘指数 ts_code（如 '000001.SH'）。 */
+  marketIndex: string;
+  /** 有序象限数组；顺序 = 匹配优先级。 */
+  quadrants: QuadrantEntry[];
+}
 
 @Entity('regime_strategy_config')
 export class RegimeStrategyConfigEntity {

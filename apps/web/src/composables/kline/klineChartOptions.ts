@@ -43,6 +43,11 @@ interface BuildKlineChartOptionsParams {
   currentTs?: string
   sliderStart?: number
   /**
+   * 记忆的水平缩放（dataZoom start/end 百分比，全局共享）。
+   * 提供时覆盖 sliderStart/100 默认值，使切换股票后缩放保持。
+   */
+  zoom?: { start: number; end: number }
+  /**
    * 用户偏好解析后的可见副图序列（已按顺序、含 heightPct）。
    * 未传时按"默认 5 副图（带/不带 FLOW 依据 data 是否含 moneyFlow）"回退，等价旧行为，
    * 保证 KlineChart.vue 现有调用与 spec 行为不变。
@@ -141,6 +146,7 @@ export function buildKlineChartOption({
   echartsTheme,
   currentTs = '',
   sliderStart = 0,
+  zoom,
   subplots,
 }: BuildKlineChartOptionsParams): EChartsOption {
   const resolvedSubplots: SubplotConfig[] = subplots ?? defaultSubplotsForData(data)
@@ -456,7 +462,7 @@ export function buildKlineChartOption({
     grid: buildGrid(resolvedSubplots),
     xAxis: buildXAxes(times, resolvedSubplots),
     yAxis: buildYAxes(resolvedSubplots),
-    dataZoom: buildDataZoom(resolvedSubplots, sliderStart, DATA_ZOOM_THROTTLE_MS),
+    dataZoom: buildDataZoom(resolvedSubplots, sliderStart, DATA_ZOOM_THROTTLE_MS, zoom),
     graphic: buildGraphics(lastIdx, data, resolvedSubplots),
     series,
   }

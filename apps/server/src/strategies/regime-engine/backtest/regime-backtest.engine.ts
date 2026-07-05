@@ -30,7 +30,7 @@ interface OpenPosition {
 }
 
 export function runRegimeBacktest(input: RegimeBacktestInput): RegimeBacktestResult {
-  const { regimeConfig, capital, calendar, oamvDaily, signalsByDate } = input;
+  const { regimeConfig, capital, calendar, marketSnapshots, signalsByDate } = input;
   const { initialCapital, cost, positionRatio, maxPositions, sizing, circuitBreaker: cb } = capital;
   const anchorMode = capital.anchorMode ?? false;
   const buyFeeRate = buyRate(cost);
@@ -90,21 +90,21 @@ export function runRegimeBacktest(input: RegimeBacktestInput): RegimeBacktestRes
     }
 
     // 2. regime classification
-    const oamv = oamvDaily.get(d);
+    const snapshot = marketSnapshots.get(d);
     let regime: RegimeResult;
-    if (!oamv) {
+    if (!snapshot) {
       regime = 'unknown';
     } else {
-      regime = classifyRegime(oamv.amvDif, oamv.amvMacd);
+      regime = classifyRegime(snapshot, regimeConfig.quadrants);
     }
 
     let regimeNoOpen = regime === 'unknown';
     let entryAction: 'trade' | 'flat' | undefined;
     let exitMode: string | undefined;
     if (!regimeNoOpen) {
-      const entry = regimeConfig[regime];
-      entryAction = entry.action;
-      exitMode = entry.exitMode ?? 'fixed_n';
+      const entry = regimeConfig.quadrants.find((q) => q.key === regime);
+      entryAction = entry?.action;
+      exitMode = entry?.exitMode ?? 'fixed_n';
       if (entryAction === 'flat') regimeNoOpen = true;
     }
 

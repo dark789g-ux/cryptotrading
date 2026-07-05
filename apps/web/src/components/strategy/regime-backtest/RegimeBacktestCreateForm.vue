@@ -186,7 +186,7 @@ function msToTradeDate(ms: number): string {
 
 watch(costTier, () => {})
 
-export function getFormData() {
+function getFormData() {
   const tier = costTier.value
   const cost = COST_TIER_PRESETS[tier] ?? COST_TIER_PRESETS.realistic
   return {

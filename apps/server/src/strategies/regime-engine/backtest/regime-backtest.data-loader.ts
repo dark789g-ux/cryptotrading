@@ -5,8 +5,9 @@ import { RegimeConfigMap, RegimeConfigEntry } from '../../../entities/strategy/r
 import { StrategyConditionsQueryBuilder } from '../../../strategy-conditions/strategy-conditions.query-builder';
 import { buildEnumerateQuery } from '../../../strategy-conditions/strategy-conditions.enumerator';
 import { classifyRegime } from '../regime.classifier';
+import { MarketSnapshot, OamvSnapshot, IndexSnapshot } from '../market-condition-evaluator';
 import { ExitConfig, SimulationInput, WindowQuote, buildHoldingDays, findLastIndexLE } from '../core/exit-simulator';
-import { RegimeOamvBar, RegimeBacktestCapital, RegimeBacktestSignal, RegimeBacktestInput } from './regime-backtest.types';
+import { RegimeBacktestCapital, RegimeBacktestSignal, RegimeBacktestInput } from './regime-backtest.types';
 import { toNum, attachMa5, collectRecentLows, MA5_PREHEAT_TRADING_DAYS } from './regime-backtest.helpers';
 
 interface RawSignal {
@@ -38,12 +39,12 @@ export class RegimeBacktestDataLoader {
       this.loadSseCalendar(dateStart, dateEnd),
     ]);
 
-    const oamvDaily = await this.loadOamvDaily(dateStart, dateEnd);
-    const signals = await this.enumerateSignals(calendar, globalCalendar, oamvDaily, regimeConfig, dateEnd);
+    const marketSnapshots = await this.loadMarketSnapshots(dateStart, dateEnd, regimeConfig.marketIndex);
+    const signals = await this.enumerateSignals(calendar, globalCalendar, marketSnapshots, regimeConfig, dateEnd);
 
     const signalsByDate = await this.buildWindows(signals, globalCalendar, dateEnd);
 
-    return { regimeConfig, capital, calendar, oamvDaily, signalsByDate };
+    return { regimeConfig, capital, calendar, marketSnapshots, signalsByDate };
   }
 
   private async loadSseCalendar(dateStart: string | null, dateEnd: string | null): Promise<string[]> {
@@ -62,35 +63,218 @@ export class RegimeBacktestDataLoader {
     return rows.map((r) => r.cal_date);
   }
 
-  private async loadOamvDaily(dateStart: string, dateEnd: string): Promise<Map<string, RegimeOamvBar>> {
-    const rows = await this.dataSource.query<Array<{ trade_date: string; amv_dif: number | null; amv_dea: number | null; amv_macd: number | null }>>(
-      `SELECT trade_date, amv_dif, amv_dea, amv_macd
+  private async loadMarketSnapshots(
+    dateStart: string,
+    dateEnd: string,
+    marketIndex: string,
+  ): Promise<Map<string, MarketSnapshot>> {
+    const oamvRows = await this.dataSource.query<
+      Array<{
+        trade_date: string;
+        open: number | string | null;
+        high: number | string | null;
+        low: number | string | null;
+        close: number | string | null;
+        amv_dif: number | null;
+        amv_dea: number | null;
+        amv_macd: number | null;
+        ma5: number | null;
+        ma30: number | null;
+        ma60: number | null;
+        ma120: number | null;
+        ma240: number | null;
+        kdj_k: number | null;
+        kdj_d: number | null;
+        kdj_j: number | null;
+      }>
+    >(
+      `SELECT trade_date, open, high, low, close, amv_dif, amv_dea, amv_macd,
+              ma5, ma30, ma60, ma120, ma240, kdj_k, kdj_d, kdj_j
          FROM oamv_daily
         WHERE trade_date >= $1 AND trade_date <= $2
         ORDER BY trade_date ASC`,
       [dateStart, dateEnd],
     );
-    const map = new Map<string, RegimeOamvBar>();
-    for (const r of rows) {
-      map.set(r.trade_date, { amvDif: r.amv_dif, amvDea: r.amv_dea, amvMacd: r.amv_macd });
+
+    const idxQuoteRows = await this.dataSource.query<
+      Array<{
+        trade_date: string;
+        open: number | string | null;
+        high: number | string | null;
+        low: number | string | null;
+        close: number | string | null;
+        pre_close: number | string | null;
+        change: number | string | null;
+        pct_change: number | string | null;
+        vol_hand: number | string | null;
+        amount: number | string | null;
+      }>
+    >(
+      `SELECT trade_date, open, high, low, close, pre_close, change, pct_change, vol_hand, amount
+         FROM index_daily_quotes
+        WHERE trade_date >= $1 AND trade_date <= $2 AND ts_code = $3 AND category = 'market'`,
+      [dateStart, dateEnd, marketIndex],
+    );
+
+    const idxIndicatorRows = await this.dataSource.query<
+      Array<{
+        trade_date: string;
+        ma5: number | null;
+        ma30: number | null;
+        ma60: number | null;
+        ma120: number | null;
+        ma240: number | null;
+        dif: number | null;
+        dea: number | null;
+        macd: number | null;
+        kdj_k: number | null;
+        kdj_d: number | null;
+        kdj_j: number | null;
+        bbi: number | null;
+        brick: number | null;
+        brick_delta: number | null;
+        brick_xg: boolean | null;
+      }>
+    >(
+      `SELECT trade_date, ma5, ma30, ma60, ma120, ma240, dif, dea, macd,
+              kdj_k, kdj_d, kdj_j, bbi, brick, brick_delta, brick_xg
+         FROM index_daily_indicators
+        WHERE trade_date >= $1 AND trade_date <= $2 AND ts_code = $3 AND category = 'market'`,
+      [dateStart, dateEnd, marketIndex],
+    );
+
+    const snapshots = new Map<string, MarketSnapshot>();
+    for (const r of oamvRows) {
+      snapshots.set(r.trade_date, {
+        oamv: this.rowToOamv(r),
+        idx: null,
+      });
     }
-    return map;
+    for (const r of idxQuoteRows) {
+      const s = snapshots.get(r.trade_date);
+      if (!s) continue;
+      s.idx = s.idx ?? ({} as IndexSnapshot);
+      s.idx.quote = this.rowToIdxQuote(r);
+    }
+    for (const r of idxIndicatorRows) {
+      const s = snapshots.get(r.trade_date);
+      if (!s) continue;
+      s.idx = s.idx ?? ({} as IndexSnapshot);
+      s.idx.indicator = this.rowToIdxIndicator(r);
+    }
+    return snapshots;
+  }
+
+  private rowToOamv(r: {
+    open: number | string | null;
+    high: number | string | null;
+    low: number | string | null;
+    close: number | string | null;
+    amv_dif: number | null;
+    amv_dea: number | null;
+    amv_macd: number | null;
+    ma5: number | null;
+    ma30: number | null;
+    ma60: number | null;
+    ma120: number | null;
+    ma240: number | null;
+    kdj_k: number | null;
+    kdj_d: number | null;
+    kdj_j: number | null;
+  }): OamvSnapshot {
+    return {
+      open: toNum(r.open),
+      high: toNum(r.high),
+      low: toNum(r.low),
+      close: toNum(r.close),
+      amvDif: toNum(r.amv_dif),
+      amvDea: toNum(r.amv_dea),
+      amvMacd: toNum(r.amv_macd),
+      ma5: toNum(r.ma5),
+      ma30: toNum(r.ma30),
+      ma60: toNum(r.ma60),
+      ma120: toNum(r.ma120),
+      ma240: toNum(r.ma240),
+      kdjK: toNum(r.kdj_k),
+      kdjD: toNum(r.kdj_d),
+      kdjJ: toNum(r.kdj_j),
+    };
+  }
+
+  private rowToIdxQuote(r: {
+    open: number | string | null;
+    high: number | string | null;
+    low: number | string | null;
+    close: number | string | null;
+    pre_close: number | string | null;
+    change: number | string | null;
+    pct_change: number | string | null;
+    vol_hand: number | string | null;
+    amount: number | string | null;
+  }): IndexSnapshot['quote'] {
+    return {
+      open: toNum(r.open),
+      high: toNum(r.high),
+      low: toNum(r.low),
+      close: toNum(r.close),
+      preClose: toNum(r.pre_close),
+      change: toNum(r.change),
+      pctChange: toNum(r.pct_change),
+      volHand: toNum(r.vol_hand),
+      amount: toNum(r.amount),
+    };
+  }
+
+  private rowToIdxIndicator(r: {
+    ma5: number | null;
+    ma30: number | null;
+    ma60: number | null;
+    ma120: number | null;
+    ma240: number | null;
+    dif: number | null;
+    dea: number | null;
+    macd: number | null;
+    kdj_k: number | null;
+    kdj_d: number | null;
+    kdj_j: number | null;
+    bbi: number | null;
+    brick: number | null;
+    brick_delta: number | null;
+    brick_xg: boolean | null;
+  }): IndexSnapshot['indicator'] {
+    return {
+      ma5: toNum(r.ma5),
+      ma30: toNum(r.ma30),
+      ma60: toNum(r.ma60),
+      ma120: toNum(r.ma120),
+      ma240: toNum(r.ma240),
+      dif: toNum(r.dif),
+      dea: toNum(r.dea),
+      macd: toNum(r.macd),
+      kdjK: toNum(r.kdj_k),
+      kdjD: toNum(r.kdj_d),
+      kdjJ: toNum(r.kdj_j),
+      bbi: toNum(r.bbi),
+      brick: toNum(r.brick),
+      brickDelta: toNum(r.brick_delta),
+      brickXg: r.brick_xg ?? null,
+    };
   }
 
   private async enumerateSignals(
     calendar: string[],
     globalCalendar: string[],
-    oamvDaily: Map<string, RegimeOamvBar>,
+    marketSnapshots: Map<string, MarketSnapshot>,
     regimeConfig: RegimeConfigMap,
     dateEnd: string,
   ): Promise<RawSignal[]> {
     const signals: RawSignal[] = [];
     for (const d of calendar) {
-      const oamv = oamvDaily.get(d);
-      const regime = oamv ? classifyRegime(oamv.amvDif, oamv.amvMacd) : 'unknown';
+      const snapshot = marketSnapshots.get(d);
+      const regime = snapshot ? classifyRegime(snapshot, regimeConfig.quadrants) : 'unknown';
       if (regime === 'unknown') continue;
 
-      const entry = regimeConfig[regime];
+      const entry = regimeConfig.quadrants.find((q) => q.key === regime);
       if (!entry || entry.action !== 'trade') continue;
 
       const conditions = entry.entryConditions;

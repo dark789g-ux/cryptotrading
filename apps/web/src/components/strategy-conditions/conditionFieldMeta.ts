@@ -73,11 +73,47 @@ export const A_SHARE_FIELDS: FieldOption[] = [
   { label: '行业AMV-MACD-DIF', value: 'ind_amv_dif', supportsCross: false },
   { label: '行业AMV-MACD-DEA', value: 'ind_amv_dea', supportsCross: false },
   { label: '行业AMV-MACD-MACD', value: 'ind_amv_macd', supportsCross: false },
+  { label: '大盘0AMV-开盘', value: 'oamv_open', supportsCross: false },
+  { label: '大盘0AMV-最高', value: 'oamv_high', supportsCross: false },
+  { label: '大盘0AMV-最低', value: 'oamv_low', supportsCross: false },
+  { label: '大盘0AMV-收盘', value: 'oamv_close', supportsCross: false },
   { label: '大盘0AMV-MACD-DIF', value: 'oamv_dif', supportsCross: false },
   { label: '大盘0AMV-MACD-DEA', value: 'oamv_dea', supportsCross: false },
   { label: '大盘0AMV-MACD-MACD', value: 'oamv_macd', supportsCross: false },
-  { label: '大盘0AMV-收盘', value: 'oamv_close', supportsCross: false },
+  { label: '大盘0AMV-MA5', value: 'oamv_ma5', supportsCross: false },
+  { label: '大盘0AMV-MA30', value: 'oamv_ma30', supportsCross: false },
+  { label: '大盘0AMV-MA60', value: 'oamv_ma60', supportsCross: false },
+  { label: '大盘0AMV-MA120', value: 'oamv_ma120', supportsCross: false },
   { label: '大盘0AMV-MA240', value: 'oamv_ma240', supportsCross: false },
+  { label: '大盘0AMV-KDJ_K', value: 'oamv_kdj_k', supportsCross: false, isKdj: true },
+  { label: '大盘0AMV-KDJ_D', value: 'oamv_kdj_d', supportsCross: false, isKdj: true },
+  { label: '大盘0AMV-KDJ_J', value: 'oamv_kdj_j', supportsCross: false, isKdj: true },
+
+  { label: '基准指数-开盘', value: 'idx_open', supportsCross: false },
+  { label: '基准指数-最高', value: 'idx_high', supportsCross: false },
+  { label: '基准指数-最低', value: 'idx_low', supportsCross: false },
+  { label: '基准指数-收盘', value: 'idx_close', supportsCross: false },
+  { label: '基准指数-前收', value: 'idx_pre_close', supportsCross: false },
+  { label: '基准指数-涨跌额', value: 'idx_change', supportsCross: false },
+  { label: '基准指数-涨跌幅', value: 'idx_pct_change', valueUnit: '%', supportsCross: false },
+  { label: '基准指数-成交量', value: 'idx_vol_hand', valueUnit: '手', supportsCross: false },
+  { label: '基准指数-成交额', value: 'idx_amount', valueUnit: '亿', valueToStorageFactor: 100_000, supportsCross: false },
+  { label: '基准指数-MA5', value: 'idx_ma5', supportsCross: false },
+  { label: '基准指数-MA30', value: 'idx_ma30', supportsCross: false },
+  { label: '基准指数-MA60', value: 'idx_ma60', supportsCross: false },
+  { label: '基准指数-MA120', value: 'idx_ma120', supportsCross: false },
+  { label: '基准指数-MA240', value: 'idx_ma240', supportsCross: false },
+  { label: '基准指数-MACD-DIF', value: 'idx_dif', supportsCross: false },
+  { label: '基准指数-MACD-DEA', value: 'idx_dea', supportsCross: false },
+  { label: '基准指数-MACD-MACD', value: 'idx_macd', supportsCross: false },
+  { label: '基准指数-KDJ_K', value: 'idx_kdj_k', supportsCross: false, isKdj: true },
+  { label: '基准指数-KDJ_D', value: 'idx_kdj_d', supportsCross: false, isKdj: true },
+  { label: '基准指数-KDJ_J', value: 'idx_kdj_j', supportsCross: false, isKdj: true },
+  { label: '基准指数-BBI', value: 'idx_bbi', supportsCross: false },
+  { label: '基准指数-砖形图', value: 'idx_brick', supportsCross: false },
+  { label: '基准指数-砖形图变动', value: 'idx_brick_delta', supportsCross: false },
+  { label: '基准指数-砖形图信号', value: 'idx_brick_xg', supportsCross: false },
+
   { label: '120日区间位置', value: 'pos_120', supportsCross: false, valueUnit: '0~1' },
   { label: '60日区间位置', value: 'pos_60', supportsCross: false, valueUnit: '0~1' },
   { label: '收盘/MA60', value: 'close_ma60_ratio', supportsCross: false, valueUnit: '倍' },
@@ -211,3 +247,8 @@ export function formatConditionItem(
   const value = formatConditionDisplayValue(c.field, targetType, c.value);
   return `${fieldLabel} ${opLabel} ${value}`;
 }
+
+/** 大盘级字段（oamv + idx），用于 regime 分桶条件编辑器 */
+export const MARKET_FIELDS: FieldOption[] = A_SHARE_FIELDS.filter(
+  (f) => f.value.startsWith('oamv_') || f.value.startsWith('idx_'),
+);

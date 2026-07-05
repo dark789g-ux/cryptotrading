@@ -1,5 +1,13 @@
 # 03 · Phase 2 自动化设计（每日识别 + 选股清单）
 
+> **⚠️ 本 spec 为 v1 版本，已于 2026-07-05 被 regime 参数化改造覆盖。**
+> 当前实现：
+> - 象限数量、key、标签、分桶规则（match）完全由用户在 `regime_strategy_config.config` 中配置；
+> - `config` 结构从 `Record<'Q1'|'Q2'|'Q3'|'Q4', RegimeConfigEntry>` 变为 `{ marketIndex: string; quadrants: QuadrantEntry[] }`；
+> - 分桶条件作用域为大盘级字段（oamv_* + idx_*），由 `market-condition-evaluator` 统一求值；
+> - 旧 `regime_daily_pick.regime` 列已扩至 `varchar(32)`，历史数据已清空。
+> 本文件保留作为研究背景参考，具体实现以代码为准。
+
 ## 配置工件：`regime_strategy_config`（两阶段的契约）
 
 新表 + TypeORM 实体。**schema 现在定死，研究产出填值**——自动化设计因此不含

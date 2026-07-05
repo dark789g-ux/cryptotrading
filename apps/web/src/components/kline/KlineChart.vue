@@ -35,6 +35,7 @@ import {
   type SubplotPrefs,
 } from '../../composables/kline/subplotConfig'
 import { useKlineChartPrefs } from '../../composables/kline/useKlineChartPrefs'
+import { readKlineZoom, writeKlineZoom } from '../../composables/kline/klineZoomStorage'
 import type { KlineChartBar } from '@/api'
 import { useTheme } from '../../composables/hooks/useTheme'
 
@@ -93,6 +94,9 @@ let lastGraphicIdx: number | null = null
 const { prefs, update, reset } = useKlineChartPrefs(props.prefsKey, props.availableSubplots)
 
 let isReverting = false
+
+// renderChart 程序化 setOption 会触发 datazoom 事件；用此 flag 抑制一轮回写，避免污染记忆。
+let suppressZoomSave = false
 
 const subplots = computed<SubplotConfig[]>(() => resolveVisibleSubplots(prefs.value))
 
@@ -199,15 +203,32 @@ async function renderChart(retry = 0) {
   disposeChart()
   chartInstance = echarts.init(el)
   const subs = subplots.value
+  suppressZoomSave = true
   chartInstance.setOption(
     buildKlineChartOption({
       data,
       echartsTheme: echartsTheme.value,
       currentTs: props.currentTs,
       sliderStart: props.sliderStart,
+      zoom: readKlineZoom() ?? undefined,
       subplots: subs,
     }),
   )
+  // 程序化 setOption 触发的 datazoom 在当前帧/下一帧内回调，用 rAF 延后解除抑制。
+  requestAnimationFrame(() => {
+    suppressZoomSave = false
+  })
+
+  // 监听用户拖动 slider / 滚轮缩放，记忆当前 dataZoom 百分比（全局共享，切换股票后恢复）。
+  chartInstance.on('datazoom', () => {
+    if (suppressZoomSave) return
+    const opt = chartInstance?.getOption() as
+      | { dataZoom?: { start?: number; end?: number }[] }
+      | undefined
+    const dz = opt?.dataZoom?.[0]
+    if (!dz || typeof dz.start !== 'number' || typeof dz.end !== 'number') return
+    writeKlineZoom({ start: dz.start, end: dz.end })
+  })
 
   const lastIdx = data.length - 1
   lastGraphicIdx = lastIdx

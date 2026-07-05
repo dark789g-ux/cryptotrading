@@ -1,6 +1,6 @@
 <template>
   <div class="regime-config-editor">
-    <n-form label-placement="left" label-width="70" :model="form">
+    <n-form label-placement="left" label-width="80" :model="form">
       <n-form-item label="版本">
         <n-input-number
           v-model:value="form.version"
@@ -16,104 +16,137 @@
           style="max-width: 400px"
         />
       </n-form-item>
+      <n-form-item label="基准指数">
+        <n-select
+          v-model:value="form.marketIndex"
+          :options="MARKET_INDEX_OPTIONS"
+          placeholder="选择基准大盘指数"
+          style="width: 240px"
+        />
+      </n-form-item>
     </n-form>
+
+    <n-space align="center" style="margin-bottom: 12px">
+      <n-button @click="openAddModal">+ 添加象限</n-button>
+      <n-button @click="load0amvPreset">载入 0AMV 四象限预设</n-button>
+      <n-text v-if="overlapWarnings.length > 0" type="warning">
+        {{ overlapWarnings.join('；') }}
+      </n-text>
+    </n-space>
 
     <n-tabs v-model:value="activeTab" type="line" animated>
       <n-tab-pane
-        v-for="key in REGIME_KEYS"
-        :key="key"
-        :name="key"
-        :tab="quadrantTabLabel(key)"
+        v-for="(q, idx) in form.quadrants"
+        :key="idx"
+        :name="q.key"
+        :tab="quadrantTabLabel(q)"
       >
-        <n-form label-placement="left" label-width="80" :model="form.config[key]">
-          <n-form-item label="动作">
-            <n-select
-              :value="form.config[key].action"
-              :options="ACTION_OPTIONS"
-              style="width: 160px"
-              @update:value="(v: 'trade' | 'flat') => setAction(key, v)"
+        <n-form label-placement="left" label-width="80">
+          <n-form-item label="Key">
+            <n-input
+              v-model:value="q.key"
+              placeholder="英文/数字/下划线/连字符"
+              style="max-width: 200px"
             />
           </n-form-item>
-
           <n-form-item label="标签">
             <n-input
-              v-model:value="form.config[key].label"
-              placeholder="象限标签（如「强多头」）"
-              style="max-width: 300px"
+              v-model:value="q.label"
+              placeholder="象限显示标签"
+              style="max-width: 200px"
+            />
+          </n-form-item>
+          <n-form-item label="动作">
+            <n-select
+              :value="q.action"
+              :options="ACTION_OPTIONS"
+              style="width: 160px"
+              @update:value="(v: 'trade' | 'flat') => setAction(q, v)"
             />
           </n-form-item>
 
-          <template v-if="form.config[key].action === 'trade'">
-            <n-divider>入场条件</n-divider>
+          <n-divider>分桶条件（大盘级）</n-divider>
+          <condition-rows
+            :conditions="q.match"
+            target-type="a-share"
+            :field-options="MARKET_FIELDS"
+            default-operator="gt"
+            default-compare-mode="value"
+            @update:conditions="(v: StrategyConditionItem[]) => q.match = v"
+          />
 
+          <template v-if="q.action === 'trade'">
+            <n-divider>入场条件（个股级）</n-divider>
             <condition-rows
-              :conditions="(form.config[key].entryConditions as StrategyConditionItem[] ?? [])"
+              :conditions="(q.entryConditions ?? [])"
               target-type="a-share"
               default-operator="gt"
               default-compare-mode="value"
-              @update:conditions="(v: StrategyConditionItem[]) => form.config[key].entryConditions = v"
+              @update:conditions="(v: StrategyConditionItem[]) => q.entryConditions = v"
             />
 
             <n-divider>出场设置</n-divider>
-
             <n-form-item label="出场模式">
               <n-select
-                :value="form.config[key].exitMode"
+                :value="q.exitMode"
                 :options="EXIT_MODE_OPTIONS"
                 clearable
                 placeholder="选择出场模式"
                 style="width: 200px"
-                @update:value="(v: string | null) => setExitMode(key, v)"
+                @update:value="(v: string | null) => setExitMode(q, v)"
               />
             </n-form-item>
 
-            <template v-if="form.config[key].exitMode === 'trailing_lock'">
+            <template v-if="q.exitMode === 'trailing_lock'">
               <n-form-item label="maxHold">
                 <n-input-number
-                  :value="(form.config[key].exitParams?.maxHold as number | null ?? null)"
+                  :value="(q.exitParams?.maxHold as number | null ?? null)"
                   :min="1"
                   placeholder="可为空"
                   clearable
                   style="width: 160px"
-                  @update:value="(v: number | null) => setExitParam(key, 'maxHold', v)"
+                  @update:value="(v: number | null) => setExitParam(q, 'maxHold', v)"
                 />
               </n-form-item>
             </template>
 
-            <template v-else-if="form.config[key].exitMode === 'fixed_n'">
+            <template v-else-if="q.exitMode === 'fixed_n'">
               <n-form-item label="N（天数）">
                 <n-input-number
-                  :value="(form.config[key].exitParams?.N as number ?? undefined)"
+                  :value="(q.exitParams?.N as number | undefined)"
                   :min="1"
                   placeholder="正整数"
                   style="width: 160px"
-                  @update:value="(v: number | null) => setExitParam(key, 'N', v)"
+                  @update:value="(v: number | null) => setExitParam(q, 'N', v)"
                 />
               </n-form-item>
             </template>
 
-            <template v-else-if="form.config[key].exitMode === 'strategy'">
+            <template v-else-if="q.exitMode === 'strategy'">
               <n-form-item label="退出条件">
                 <condition-rows
-                  :conditions="(form.config[key].exitParams?.exitConditions as StrategyConditionItem[] ?? [])"
+                  :conditions="(q.exitParams?.exitConditions as StrategyConditionItem[] ?? [])"
                   target-type="a-share"
                   default-operator="lt"
                   default-compare-mode="value"
-                  @update:conditions="(v: StrategyConditionItem[]) => setExitParam(key, 'exitConditions', v)"
+                  @update:conditions="(v: StrategyConditionItem[]) => setExitParam(q, 'exitConditions', v)"
                 />
               </n-form-item>
               <n-form-item label="maxHold">
                 <n-input-number
-                  :value="(form.config[key].exitParams?.maxHold as number | null ?? null)"
+                  :value="(q.exitParams?.maxHold as number | null ?? null)"
                   :min="1"
-                  placeholder="可为空"
-                  clearable
+                  placeholder="必填"
                   style="width: 160px"
-                  @update:value="(v: number | null) => setExitParam(key, 'maxHold', v)"
+                  @update:value="(v: number | null) => setExitParam(q, 'maxHold', v)"
                 />
               </n-form-item>
             </template>
           </template>
+
+          <n-form-item>
+            <n-button type="error" @click="removeQuadrant(idx)">删除此象限</n-button>
+          </n-form-item>
         </n-form>
       </n-tab-pane>
     </n-tabs>
@@ -122,11 +155,28 @@
       <n-button @click="emit('cancel')">取消</n-button>
       <n-button type="primary" :loading="saving" @click="handleSave">保存</n-button>
     </div>
+
+    <n-modal v-model:show="showAddModal" title="添加象限" preset="card" style="width: 400px">
+      <n-form label-placement="left" label-width="60">
+        <n-form-item label="Key">
+          <n-input v-model:value="newQuadrant.key" placeholder="英文/数字/下划线/连字符" />
+        </n-form-item>
+        <n-form-item label="标签">
+          <n-input v-model:value="newQuadrant.label" placeholder="象限显示标签" />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showAddModal = false">取消</n-button>
+          <n-button type="primary" @click="confirmAddQuadrant">确定</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { reactive, ref, computed, watch } from 'vue'
 import {
   NForm,
   NFormItem,
@@ -137,26 +187,32 @@ import {
   NTabPane,
   NDivider,
   NButton,
+  NSpace,
+  NText,
+  NModal,
   useMessage,
+  useDialog,
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import ConditionRows from '@/components/strategy-conditions/ConditionRows.vue'
+import { MARKET_FIELDS } from '@/components/strategy-conditions/conditionFieldMeta'
 import type { StrategyConditionItem } from '@/api/modules/strategy/strategyConditions'
 import type {
-  RegimeKey,
-  RegimeConfigEntry,
+  QuadrantEntry,
   RegimeStrategyConfig,
   CreateRegimeConfigDto,
 } from '@/api/modules/strategy/regimeEngine'
 
-const REGIME_KEYS: RegimeKey[] = ['Q1', 'Q2', 'Q3', 'Q4']
-
-const QUADRANT_LABELS: Record<RegimeKey, string> = {
-  Q1: 'Q1 强多头',
-  Q2: 'Q2 多头回调',
-  Q3: 'Q3 反弹筑底',
-  Q4: 'Q4 空头',
-}
+const MARKET_INDEX_OPTIONS: SelectOption[] = [
+  { label: '000001.SH 上证指数', value: '000001.SH' },
+  { label: '000016.SH 上证50', value: '000016.SH' },
+  { label: '000300.SH 沪深300', value: '000300.SH' },
+  { label: '000688.SH 科创50', value: '000688.SH' },
+  { label: '000852.SH 中证1000', value: '000852.SH' },
+  { label: '000905.SH 中证500', value: '000905.SH' },
+  { label: '399001.SZ 深证成指', value: '399001.SZ' },
+  { label: '399006.SZ 创业板指', value: '399006.SZ' },
+]
 
 const ACTION_OPTIONS: SelectOption[] = [
   { label: 'trade（交易）', value: 'trade' },
@@ -184,78 +240,93 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
+const dialog = useDialog()
 const saving = ref(false)
-const activeTab = ref<RegimeKey>('Q1')
+const activeTab = ref('')
+const showAddModal = ref(false)
+const newQuadrant = reactive({ key: '', label: '' })
 
-function makeDefaultEntry(): RegimeConfigEntry {
+function makeDefaultQuadrant(key: string, label: string): QuadrantEntry {
   return {
+    key,
+    label,
     action: 'trade',
-    label: null,
+    match: [],
     entryConditions: [],
     exitMode: null,
     exitParams: null,
   }
 }
 
-function makeDefaultConfig(): Record<RegimeKey, RegimeConfigEntry> {
+function makeDefaultForm() {
   return {
-    Q1: makeDefaultEntry(),
-    Q2: makeDefaultEntry(),
-    Q3: makeDefaultEntry(),
-    Q4: makeDefaultEntry(),
+    version: 1,
+    note: '' as string | null,
+    marketIndex: '000001.SH',
+    quadrants: [] as QuadrantEntry[],
   }
 }
 
-function cloneEntry(entry: RegimeConfigEntry): RegimeConfigEntry {
+const DEFAULT_0AMV_PRESET: { marketIndex: string; quadrants: QuadrantEntry[] } = {
+  marketIndex: '000001.SH',
+  quadrants: [
+    {
+      key: 'Q1',
+      label: '强多头',
+      action: 'trade',
+      match: [
+        { field: 'oamv_dif', operator: 'gt', value: 0 },
+        { field: 'oamv_macd', operator: 'gt', value: 0 },
+      ],
+      entryConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
+      exitMode: 'fixed_n',
+      exitParams: { N: 5 },
+    },
+    {
+      key: 'Q2',
+      label: '多头回调',
+      action: 'flat',
+      match: [
+        { field: 'oamv_dif', operator: 'gt', value: 0 },
+        { field: 'oamv_macd', operator: 'lte', value: 0 },
+      ],
+    },
+    {
+      key: 'Q3',
+      label: '反弹筑底',
+      action: 'trade',
+      match: [
+        { field: 'oamv_dif', operator: 'lte', value: 0 },
+        { field: 'oamv_macd', operator: 'gt', value: 0 },
+      ],
+      entryConditions: [{ field: 'kdj_j', operator: 'lt', value: 0 }],
+      exitMode: 'fixed_n',
+      exitParams: { N: 5 },
+    },
+    {
+      key: 'Q4',
+      label: '空头',
+      action: 'flat',
+      match: [
+        { field: 'oamv_dif', operator: 'lte', value: 0 },
+        { field: 'oamv_macd', operator: 'lte', value: 0 },
+      ],
+    },
+  ],
+}
+
+const form = reactive(makeDefaultForm())
+
+function cloneQuadrant(q: QuadrantEntry): QuadrantEntry {
   return {
-    ...entry,
-    entryConditions: entry.entryConditions
-      ? (entry.entryConditions as StrategyConditionItem[]).map((c) => ({ ...c }))
-      : [],
-    exitParams: entry.exitParams ? { ...entry.exitParams } : null,
+    key: q.key,
+    label: q.label,
+    action: q.action,
+    match: q.match ? q.match.map((c) => ({ ...c })) : [],
+    entryConditions: q.entryConditions ? q.entryConditions.map((c) => ({ ...c })) : [],
+    exitMode: q.exitMode ?? null,
+    exitParams: q.exitParams ? { ...q.exitParams } : null,
   }
-}
-
-const form = reactive({
-  version: 1,
-  note: '' as string | null,
-  config: makeDefaultConfig(),
-})
-
-function quadrantTabLabel(key: RegimeKey): string {
-  const label = form.config[key].label?.trim()
-  return label ? `${key} ${label}` : QUADRANT_LABELS[key]
-}
-
-function setAction(key: RegimeKey, action: 'trade' | 'flat') {
-  form.config[key].action = action
-  if (action === 'flat') {
-    form.config[key].entryConditions = []
-    form.config[key].exitMode = null
-    form.config[key].exitParams = null
-  }
-}
-
-function setExitMode(key: RegimeKey, mode: string | null) {
-  form.config[key].exitMode = mode as RegimeConfigEntry['exitMode']
-  if (!mode) {
-    form.config[key].exitParams = null
-    return
-  }
-  if (mode === 'trailing_lock') {
-    form.config[key].exitParams = { maxHold: null }
-  } else if (mode === 'fixed_n') {
-    form.config[key].exitParams = { N: undefined }
-  } else if (mode === 'strategy') {
-    form.config[key].exitParams = { exitConditions: [], maxHold: null }
-  }
-}
-
-function setExitParam(key: RegimeKey, param: string, value: unknown) {
-  if (!form.config[key].exitParams) {
-    form.config[key].exitParams = {}
-  }
-  form.config[key].exitParams![param] = value
 }
 
 watch(
@@ -264,40 +335,161 @@ watch(
     if (!data) return
     form.version = props.mode === 'duplicate' ? data.version + 1 : data.version
     form.note = data.note ?? ''
-    form.config = makeDefaultConfig()
-    for (const key of REGIME_KEYS) {
-      const entry = data.config[key]
-      if (entry) {
-        form.config[key] = cloneEntry(entry)
-      }
+    const cfg = (data.config as unknown as Record<string, unknown>)
+    if ('marketIndex' in cfg && 'quadrants' in cfg) {
+      form.marketIndex = String(cfg.marketIndex)
+      form.quadrants = Array.isArray(cfg.quadrants)
+        ? cfg.quadrants.map((q) => cloneQuadrant(q as QuadrantEntry))
+        : []
+    } else {
+      form.marketIndex = '000001.SH'
+      form.quadrants = []
     }
+    activeTab.value = form.quadrants[0]?.key ?? ''
   },
   { immediate: true },
 )
 
-function buildDto(): CreateRegimeConfigDto {
-  const config = {} as Record<RegimeKey, RegimeConfigEntry>
-  for (const key of REGIME_KEYS) {
-    const e = form.config[key]
-    const entry: RegimeConfigEntry = { action: e.action }
-    if (e.label?.trim()) entry.label = e.label.trim()
-    if (e.action === 'trade') {
-      const conds = (e.entryConditions ?? []) as StrategyConditionItem[]
-      if (conds.length > 0) entry.entryConditions = conds
-      if (e.exitMode) {
-        entry.exitMode = e.exitMode
-        if (e.exitParams) {
-          const p = { ...e.exitParams }
-          if (e.exitMode === 'trailing_lock' && p.maxHold == null) {
-            delete p.maxHold
-          }
-          if (Object.keys(p).length > 0) entry.exitParams = p
-        }
+function quadrantTabLabel(q: QuadrantEntry): string {
+  return `${q.key} ${q.label}`
+}
+
+function setAction(q: QuadrantEntry, action: 'trade' | 'flat') {
+  q.action = action
+  if (action === 'flat') {
+    q.entryConditions = []
+    q.exitMode = null
+    q.exitParams = null
+  }
+}
+
+function setExitMode(q: QuadrantEntry, mode: string | null) {
+  q.exitMode = mode as QuadrantEntry['exitMode']
+  if (!mode) {
+    q.exitParams = null
+    return
+  }
+  if (mode === 'trailing_lock') {
+    q.exitParams = { maxHold: null }
+  } else if (mode === 'fixed_n') {
+    q.exitParams = { N: undefined }
+  } else if (mode === 'strategy') {
+    q.exitParams = { exitConditions: [], maxHold: null }
+  }
+}
+
+function setExitParam(q: QuadrantEntry, param: string, value: unknown) {
+  if (!q.exitParams) {
+    q.exitParams = {}
+  }
+  q.exitParams[param] = value
+}
+
+function openAddModal() {
+  newQuadrant.key = `q${form.quadrants.length + 1}`
+  newQuadrant.label = ''
+  showAddModal.value = true
+}
+
+function confirmAddQuadrant() {
+  const key = newQuadrant.key.trim()
+  const label = newQuadrant.label.trim()
+  if (!key || !label) {
+    message.warning('Key 和标签不能为空')
+    return
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(key)) {
+    message.warning('Key 只能包含英文、数字、下划线、连字符')
+    return
+  }
+  if (form.quadrants.some((q) => q.key === key)) {
+    message.warning('Key 已存在')
+    return
+  }
+  form.quadrants.push(makeDefaultQuadrant(key, label))
+  activeTab.value = key
+  showAddModal.value = false
+}
+
+function apply0amvPreset() {
+  form.marketIndex = DEFAULT_0AMV_PRESET.marketIndex
+  form.quadrants = DEFAULT_0AMV_PRESET.quadrants.map((q) => cloneQuadrant(q))
+  activeTab.value = form.quadrants[0]?.key ?? ''
+}
+
+function load0amvPreset() {
+  if (form.quadrants.length > 0) {
+    dialog.warning({
+      title: '确认覆盖',
+      content: '当前象限配置将被 0AMV 四象限预设覆盖，是否继续？',
+      positiveText: '覆盖',
+      negativeText: '取消',
+      onPositiveClick: apply0amvPreset,
+    })
+  } else {
+    apply0amvPreset()
+  }
+}
+
+function removeQuadrant(idx: number) {
+  form.quadrants.splice(idx, 1)
+  if (!form.quadrants.some((q) => q.key === activeTab.value)) {
+    activeTab.value = form.quadrants[0]?.key ?? ''
+  }
+}
+
+function conditionEqual(a: StrategyConditionItem, b: StrategyConditionItem): boolean {
+  return (
+    a.field === b.field &&
+    a.operator === b.operator &&
+    a.value === b.value &&
+    a.compareField === b.compareField
+  )
+}
+
+const overlapWarnings = computed(() => {
+  const warnings: string[] = []
+  for (let i = 0; i < form.quadrants.length; i++) {
+    for (let j = i + 1; j < form.quadrants.length; j++) {
+      const a = form.quadrants[i]
+      const b = form.quadrants[j]
+      if (a.match.some((ca) => b.match.some((cb) => conditionEqual(ca, cb)))) {
+        warnings.push(`"${a.key}" 与 "${b.key}" 的分桶条件可能重叠`)
       }
     }
-    config[key] = entry
   }
-  return JSON.parse(JSON.stringify({ version: form.version, note: form.note || null, config }))
+  return warnings
+})
+
+function buildDto(): CreateRegimeConfigDto {
+  const quadrants = form.quadrants.map((q) => {
+    const entry: QuadrantEntry = {
+      key: q.key.trim(),
+      label: q.label.trim(),
+      match: q.match,
+      action: q.action,
+    }
+    if (q.action === 'trade') {
+      entry.entryConditions = q.entryConditions ?? []
+      if (q.exitMode) {
+        entry.exitMode = q.exitMode
+        const p = q.exitParams ? { ...q.exitParams } : {}
+        if (q.exitMode === 'trailing_lock' && p.maxHold == null) {
+          delete p.maxHold
+        }
+        if (Object.keys(p).length > 0) entry.exitParams = p
+      }
+    }
+    return entry
+  })
+  return {
+    version: form.version,
+    note: form.note || null,
+    config: {
+      marketIndex: form.marketIndex,
+      quadrants,
+    },
+  }
 }
 
 function handleSave() {
@@ -305,14 +497,59 @@ function handleSave() {
     message.warning('版本号必须为正整数')
     return
   }
-  for (const key of REGIME_KEYS) {
-    const e = form.config[key]
-    if (e.action === 'trade' && e.exitMode === 'fixed_n') {
-      const n = e.exitParams?.N as number | undefined
-      if (!n || n < 1) {
-        message.warning(`${key} 的 fixed_n 天数必须为正整数`)
-        activeTab.value = key
+  if (!form.marketIndex) {
+    message.warning('请选择基准大盘指数')
+    return
+  }
+  if (form.quadrants.length === 0) {
+    message.warning('至少配置一个象限')
+    return
+  }
+  const keys = new Set<string>()
+  for (const q of form.quadrants) {
+    const key = q.key.trim()
+    if (!key || !/^[a-zA-Z0-9_-]+$/.test(key)) {
+      message.warning(`象限 Key 非法: ${q.key}`)
+      activeTab.value = q.key
+      return
+    }
+    if (keys.has(key)) {
+      message.warning(`Key 重复: ${q.key}`)
+      activeTab.value = q.key
+      return
+    }
+    keys.add(key)
+    if (!q.label.trim()) {
+      message.warning(`象限 ${q.key} 标签不能为空`)
+      activeTab.value = q.key
+      return
+    }
+    if (!Array.isArray(q.match) || q.match.length === 0) {
+      message.warning(`象限 ${q.key} 分桶条件不能为空`)
+      activeTab.value = q.key
+      return
+    }
+    if (q.action === 'trade') {
+      if (!Array.isArray(q.entryConditions) || q.entryConditions.length === 0) {
+        message.warning(`象限 ${q.key} 入场条件不能为空`)
+        activeTab.value = q.key
         return
+      }
+      if (q.exitMode === 'fixed_n') {
+        const n = q.exitParams?.N as number | undefined
+        if (!n || n < 1) {
+          message.warning(`象限 ${q.key} 的 fixed_n 天数必须为正整数`)
+          activeTab.value = q.key
+          return
+        }
+      }
+      if (q.exitMode === 'strategy') {
+        const maxHold = q.exitParams?.maxHold as number | null | undefined
+        if (!maxHold || maxHold < 1) {
+          message.warning(`象限 ${q.key} 的 strategy maxHold 必须为正整数`)
+          activeTab.value = q.key
+          return
+        }
       }
     }
   }

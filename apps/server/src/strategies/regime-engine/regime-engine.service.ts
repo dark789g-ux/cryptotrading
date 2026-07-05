@@ -40,6 +40,12 @@ import {
   RunDailyResult,
   UpdateRegimeConfigDto,
 } from './regime-engine.types';
+import {
+  MarketSnapshot,
+  OamvSnapshot,
+  IndexSnapshot,
+} from './market-condition-evaluator';
+import { toNum } from './regime-engine.utils';
 
 const TRADE_DATE_RE = /^\d{8}$/;
 
@@ -70,31 +76,34 @@ export class RegimeEngineService {
   async runDaily(tradeDateInput?: string): Promise<RunDailyResult> {
     const tradeDate = await this.resolveTradeDate(tradeDateInput);
 
-    const oamvRow = await this.oamvRepo.findOne({ where: { tradeDate } });
-    const regime: RegimeResult = oamvRow
-      ? classifyRegime(oamvRow.amvDif, oamvRow.amvMacd)
-      : 'unknown';
     const active = await this.findActiveConfig();
-
-    // fail-closed：缺行或指标列 NULL → unknown，不扫描，落一条 unknown 记录
-    if (regime === 'unknown') {
-      this.logger.warn(
-        `[regime-engine] tradeDate=${tradeDate} oamv_daily ${
-          oamvRow ? 'MACD 指标列为 NULL' : '缺行'
-        }，regime=unknown，fail-closed 不扫描`,
-      );
-      const configVersion = active ? active.version : null;
-      await this.replaceDayPicks(tradeDate, [
-        this.buildMarkerRecord(tradeDate, 'unknown', 'unknown', configVersion, null),
-      ]);
-      return { tradeDate, regime, action: 'unknown', configVersion, pickCount: 0 };
-    }
-
     if (!active) {
       throw new ConflictException('无生效配置，请先激活');
     }
 
-    const entry = active.config ? active.config[regime] : undefined;
+    const snapshot = await this.buildMarketSnapshot(tradeDate, active.config.marketIndex);
+    const regime: RegimeResult = snapshot
+      ? classifyRegime(snapshot, active.config.quadrants)
+      : 'unknown';
+
+    // fail-closed：snapshot 不完整 → unknown，不扫描，落一条 unknown 记录
+    if (regime === 'unknown') {
+      this.logger.warn(
+        `[regime-engine] tradeDate=${tradeDate} 大盘 snapshot 不完整（oamv 或 index_daily 缺行/字段 NULL），regime=unknown，fail-closed 不扫描`,
+      );
+      await this.replaceDayPicks(tradeDate, [
+        this.buildMarkerRecord(tradeDate, 'unknown', 'unknown', active.version, null),
+      ]);
+      return {
+        tradeDate,
+        regime,
+        action: 'unknown',
+        configVersion: active.version,
+        pickCount: 0,
+      };
+    }
+
+    const entry = active.config.quadrants.find((q) => q.key === regime);
     if (!entry || (entry.action !== 'trade' && entry.action !== 'flat')) {
       // createConfig 已做 fail-fast 校验，此处兜底拦截绕过校验落库的脏数据
       throw new ConflictException(`配置 v${active.version} 缺少象限 ${regime} 的合法条目`);
@@ -156,10 +165,20 @@ export class RegimeEngineService {
       return { tradeDate: null, regime: 'unknown', oamv: null, activeConfig: null, picks: [] };
     }
 
-    const regime = classifyRegime(latest.amvDif, latest.amvMacd);
     const active = await this.findActiveConfig();
+    const snapshot = active
+      ? await this.buildMarketSnapshot(latest.tradeDate, active.config.marketIndex)
+      : null;
+    const regime: RegimeResult =
+      snapshot && active ? classifyRegime(snapshot, active.config.quadrants) : 'unknown';
+    const entryIndex =
+      active && regime !== 'unknown'
+        ? active.config.quadrants.findIndex((q) => q.key === regime)
+        : null;
     const entry: RegimeConfigEntry | null =
-      active && regime !== 'unknown' ? active.config?.[regime] ?? null : null;
+      active && regime !== 'unknown'
+        ? active.config.quadrants.find((q) => q.key === regime) ?? null
+        : null;
     const picks = await this.pickRepo.find({
       where: { tradeDate: latest.tradeDate },
       order: { tsCode: 'ASC' },
@@ -175,7 +194,7 @@ export class RegimeEngineService {
         amvMacd: latest.amvMacd,
       },
       activeConfig: active
-        ? { id: active.id, version: active.version, note: active.note, entry }
+        ? { id: active.id, version: active.version, note: active.note, entryIndex, entry }
         : null,
       picks,
     };
@@ -308,6 +327,120 @@ export class RegimeEngineService {
   }
 
   /**
+   * 构造每日大盘 snapshot：oamv_daily 必含；index_daily_quotes/indicators
+   * 按配置 marketIndex 取。
+   * oamv 缺行 → null（整体 fail-closed）。
+   */
+  private async buildMarketSnapshot(
+    tradeDate: string,
+    marketIndex: string,
+  ): Promise<MarketSnapshot | null> {
+    const oamvRow = await this.oamvRepo.findOne({ where: { tradeDate } });
+    if (!oamvRow) return null;
+
+    const oamv: OamvSnapshot = {
+      open: toNum(oamvRow.open),
+      high: toNum(oamvRow.high),
+      low: toNum(oamvRow.low),
+      close: toNum(oamvRow.close),
+      amvDif: toNum(oamvRow.amvDif),
+      amvDea: toNum(oamvRow.amvDea),
+      amvMacd: toNum(oamvRow.amvMacd),
+      ma5: toNum(oamvRow.ma5),
+      ma30: toNum(oamvRow.ma30),
+      ma60: toNum(oamvRow.ma60),
+      ma120: toNum(oamvRow.ma120),
+      ma240: toNum(oamvRow.ma240),
+      kdjK: toNum(oamvRow.kdjK),
+      kdjD: toNum(oamvRow.kdjD),
+      kdjJ: toNum(oamvRow.kdjJ),
+    };
+
+    const idx = await this.loadIndexSnapshot(tradeDate, marketIndex);
+    return { oamv, idx };
+  }
+
+  private async loadIndexSnapshot(
+    tradeDate: string,
+    marketIndex: string,
+  ): Promise<IndexSnapshot | null> {
+    const [quoteRow] = await this.dataSource.query<
+      Array<Partial<IndexSnapshot['quote']> & { tsCode?: string }>
+    >(
+      `SELECT
+        open AS "open",
+        high AS "high",
+        low AS "low",
+        close AS "close",
+        pre_close AS "preClose",
+        change AS "change",
+        pct_change AS "pctChange",
+        vol_hand AS "volHand",
+        amount AS "amount"
+       FROM index_daily_quotes
+       WHERE trade_date = $1 AND ts_code = $2 AND category = 'market'`,
+      [tradeDate, marketIndex],
+    );
+
+    const [indicatorRow] = await this.dataSource.query<
+      Array<Partial<IndexSnapshot['indicator']> & { tsCode?: string }>
+    >(
+      `SELECT
+        ma5 AS "ma5",
+        ma30 AS "ma30",
+        ma60 AS "ma60",
+        ma120 AS "ma120",
+        ma240 AS "ma240",
+        dif AS "dif",
+        dea AS "dea",
+        macd AS "macd",
+        kdj_k AS "kdjK",
+        kdj_d AS "kdjD",
+        kdj_j AS "kdjJ",
+        bbi AS "bbi",
+        brick AS "brick",
+        brick_delta AS "brickDelta",
+        brick_xg AS "brickXg"
+       FROM index_daily_indicators
+       WHERE trade_date = $1 AND ts_code = $2 AND category = 'market'`,
+      [tradeDate, marketIndex],
+    );
+
+    if (!quoteRow && !indicatorRow) return null;
+
+    return {
+      quote: {
+        open: toNum(quoteRow?.open ?? null),
+        high: toNum(quoteRow?.high ?? null),
+        low: toNum(quoteRow?.low ?? null),
+        close: toNum(quoteRow?.close ?? null),
+        preClose: toNum(quoteRow?.preClose ?? null),
+        change: toNum(quoteRow?.change ?? null),
+        pctChange: toNum(quoteRow?.pctChange ?? null),
+        volHand: toNum(quoteRow?.volHand ?? null),
+        amount: toNum(quoteRow?.amount ?? null),
+      },
+      indicator: {
+        ma5: toNum(indicatorRow?.ma5 ?? null),
+        ma30: toNum(indicatorRow?.ma30 ?? null),
+        ma60: toNum(indicatorRow?.ma60 ?? null),
+        ma120: toNum(indicatorRow?.ma120 ?? null),
+        ma240: toNum(indicatorRow?.ma240 ?? null),
+        dif: toNum(indicatorRow?.dif ?? null),
+        dea: toNum(indicatorRow?.dea ?? null),
+        macd: toNum(indicatorRow?.macd ?? null),
+        kdjK: toNum(indicatorRow?.kdjK ?? null),
+        kdjD: toNum(indicatorRow?.kdjD ?? null),
+        kdjJ: toNum(indicatorRow?.kdjJ ?? null),
+        bbi: toNum(indicatorRow?.bbi ?? null),
+        brick: toNum(indicatorRow?.brick ?? null),
+        brickDelta: toNum(indicatorRow?.brickDelta ?? null),
+        brickXg: asBoolean(indicatorRow?.brickXg ?? null),
+      },
+    };
+  }
+
+  /**
    * 单日条件扫描：复用 buildAShareQuery（WHERE 翻译）+ buildEnumerateQuery
    * （signal-stats 单日枚举 SQL：主锚 raw.daily_indicator i + LEFT JOIN
    * daily_quote/daily_basic/stock_amv_daily/signal_rolling_indicator，
@@ -383,4 +516,9 @@ export class RegimeEngineService {
 
 function entryLabel(entry: RegimeConfigEntry): string | null {
   return typeof entry.label === 'string' && entry.label !== '' ? entry.label : null;
+}
+
+function asBoolean(v: unknown): boolean | null {
+  if (v === null || v === undefined) return null;
+  return Boolean(v);
 }

@@ -1,13 +1,8 @@
 import { RegimeConfigMap } from '../../../entities/strategy/regime-strategy-config.entity';
+import { MarketSnapshot } from '../market-condition-evaluator';
 import { PortfolioSimCostRates, SizingConfig, CircuitBreaker, SkipReason } from '../core/types';
 import { SimulationInput, SimulatedTrade } from '../core/exit-simulator';
 import { EngineDailyRow, EngineSummary } from '../core/summary';
-
-export interface RegimeOamvBar {
-  amvDif: number | null;
-  amvDea: number | null;
-  amvMacd: number | null;
-}
 
 export interface RegimeBacktestCapital {
   initialCapital: number;
@@ -30,7 +25,7 @@ export interface RegimeBacktestInput {
   regimeConfig: RegimeConfigMap;
   capital: RegimeBacktestCapital;
   calendar: string[];
-  oamvDaily: Map<string, RegimeOamvBar>;
+  marketSnapshots: Map<string, MarketSnapshot>;
   signalsByDate: Map<string, RegimeBacktestSignal[]>;
 }
 

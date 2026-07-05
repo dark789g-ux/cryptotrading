@@ -174,15 +174,19 @@ export function buildDataZoom(
   subplots: SubplotConfig[],
   sliderStart: number,
   throttleMs: number,
+  zoom?: { start: number; end: number },
 ): EChartsOption['dataZoom'] {
   const xAxisIndex: number[] = [0]
   for (let i = 0; i < subplots.length; i++) xAxisIndex.push(i + 1)
+  // 优先用记忆的水平缩放（用户拖动/滚轮后的 dataZoom 百分比），否则回退默认 sliderStart/100。
+  const start = zoom?.start ?? sliderStart
+  const end = zoom?.end ?? 100
   return [
     {
       type: 'inside',
       xAxisIndex,
-      start: sliderStart,
-      end: 100,
+      start,
+      end,
       realtime: true,
       throttle: throttleMs,
       zoomOnMouseWheel: true,
@@ -192,8 +196,8 @@ export function buildDataZoom(
     {
       type: 'slider',
       xAxisIndex,
-      start: sliderStart,
-      end: 100,
+      start,
+      end,
       realtime: true,
       throttle: throttleMs,
       bottom: 20,

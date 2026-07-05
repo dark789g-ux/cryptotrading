@@ -54,6 +54,8 @@ export interface RegimeTodaySummary {
     id: string;
     version: number;
     note: string | null;
+    /** 当前象限在 quadrants 中的索引；regime=unknown 时 null */
+    entryIndex: number | null;
     /** 当前象限的配置条目；regime=unknown 时 null */
     entry: RegimeConfigEntry | null;
   } | null;

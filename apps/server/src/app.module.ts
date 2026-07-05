@@ -102,6 +102,9 @@ import { FeatureSetEntity } from './entities/ml/feature-set.entity';
 import { KellySweepResult } from './entities/ml/kelly-sweep-result.entity';
 import { RegimeStrategyConfigEntity } from './entities/strategy/regime-strategy-config.entity';
 import { RegimeDailyPickEntity } from './entities/strategy/regime-daily-pick.entity';
+import { RegimeBacktestRunEntity } from './entities/strategy/regime-backtest-run.entity';
+import { RegimeBacktestDailyEntity } from './entities/strategy/regime-backtest-daily.entity';
+import { RegimeBacktestTradeEntity } from './entities/strategy/regime-backtest-trade.entity';
 import { RegimeEngineModule } from './strategies/regime-engine/regime-engine.module';
 import { CustomIndexDefinitionEntity } from './entities/custom-index/custom-index-definition.entity';
 import { CustomIndexWeightVersionEntity } from './entities/custom-index/custom-index-weight-version.entity';
@@ -219,6 +222,9 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           // regime engine（0AMV 四象限每日选股，spec 2026-06-10-0amv-regime-strategy-design）
           RegimeStrategyConfigEntity,
           RegimeDailyPickEntity,
+          RegimeBacktestRunEntity,
+          RegimeBacktestDailyEntity,
+          RegimeBacktestTradeEntity,
           OneClickSyncRunEntity,
           // ---- A 股自定义指数（spec 2026-06-28-custom-index-create-design）----
           CustomIndexDefinitionEntity,

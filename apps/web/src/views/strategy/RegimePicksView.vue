@@ -30,7 +30,10 @@
     <div v-if="picks !== null" class="regime-summary-row">
       <div class="regime-summary-left">
         <span class="regime-summary-label">象限</span>
-        <regime-badge :regime="currentRegime" />
+        <regime-badge
+          :label="(markerRow?.snapshot?.label as string) || currentRegime"
+          :color-index="0"
+        />
         <span v-if="configVersion !== null" class="regime-summary-version">
           v{{ configVersion }}
         </span>
@@ -146,7 +149,6 @@ import {
   regimeEngineApi,
   type RegimeDailyPick,
   type RegimeConfigEntry,
-  type RegimeKey,
   type RegimeResult,
   type RegimeStrategyConfig,
 } from '@/api/modules/strategy/regimeEngine'
@@ -246,7 +248,8 @@ function resolveConfigEntry() {
     return
   }
   const found = configsCache.value.find((c) => c.version === row.configVersion)
-  configEntry.value = found ? (found.config[regime as RegimeKey] ?? null) : null
+  configEntry.value =
+    found?.config?.quadrants?.find((q) => q.key === regime) ?? null
 }
 
 async function loadPicks(tradeDate: string) {

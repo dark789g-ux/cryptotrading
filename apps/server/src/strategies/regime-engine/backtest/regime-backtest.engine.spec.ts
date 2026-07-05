@@ -3,11 +3,35 @@ import {
   RegimeBacktestInput,
 } from './regime-backtest.types';
 import { RegimeConfigMap } from '../../../entities/strategy/regime-strategy-config.entity';
+import { MarketSnapshot } from '../market-condition-evaluator';
 import { COST_PRESET_ZERO } from '../core/cost';
 import {
   HoldingDaySnapshot,
   SimulationInput,
 } from '../core/exit-simulator';
+
+function makeMarketSnapshot(amvDif: number, amvMacd: number): MarketSnapshot {
+  return {
+    oamv: {
+      open: 100,
+      high: 105,
+      low: 99,
+      close: 102,
+      amvDif,
+      amvDea: 0,
+      amvMacd,
+      ma5: 101,
+      ma30: 98,
+      ma60: 95,
+      ma120: 90,
+      ma240: 85,
+      kdjK: 60,
+      kdjD: 50,
+      kdjJ: 80,
+    },
+    idx: null,
+  };
+}
 
 function holdingDay(overrides: Partial<HoldingDaySnapshot> = {}): HoldingDaySnapshot {
   return {
@@ -66,10 +90,54 @@ function makeSignal(
 }
 
 const defaultRegimeConfig: RegimeConfigMap = {
-  Q1: { action: 'trade', exitMode: 'fixed_n', exitParams: { N: 1 } },
-  Q2: { action: 'flat' },
-  Q3: { action: 'trade', exitMode: 'fixed_n', exitParams: { N: 1 } },
-  Q4: { action: 'trade', exitMode: 'fixed_n', exitParams: { N: 1 } },
+  marketIndex: '000001.SH',
+  quadrants: [
+    {
+      key: 'Q1',
+      label: 'Q1',
+      action: 'trade',
+      match: [
+        { field: 'oamv_dif', operator: 'gt', value: 0 },
+        { field: 'oamv_macd', operator: 'gt', value: 0 },
+      ],
+      entryConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
+      exitMode: 'fixed_n',
+      exitParams: { N: 1 },
+    },
+    {
+      key: 'Q2',
+      label: 'Q2',
+      action: 'flat',
+      match: [
+        { field: 'oamv_dif', operator: 'gt', value: 0 },
+        { field: 'oamv_macd', operator: 'lte', value: 0 },
+      ],
+    },
+    {
+      key: 'Q3',
+      label: 'Q3',
+      action: 'trade',
+      match: [
+        { field: 'oamv_dif', operator: 'lte', value: 0 },
+        { field: 'oamv_macd', operator: 'gt', value: 0 },
+      ],
+      entryConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
+      exitMode: 'fixed_n',
+      exitParams: { N: 1 },
+    },
+    {
+      key: 'Q4',
+      label: 'Q4',
+      action: 'trade',
+      match: [
+        { field: 'oamv_dif', operator: 'lte', value: 0 },
+        { field: 'oamv_macd', operator: 'lte', value: 0 },
+      ],
+      entryConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
+      exitMode: 'fixed_n',
+      exitParams: { N: 1 },
+    },
+  ],
 };
 
 function baseInput(overrides: Partial<RegimeBacktestInput> = {}): RegimeBacktestInput {
@@ -82,7 +150,7 @@ function baseInput(overrides: Partial<RegimeBacktestInput> = {}): RegimeBacktest
       maxPositions: null,
     },
     calendar: ['20260101', '20260102', '20260103', '20260104', '20260105'],
-    oamvDaily: new Map<string, { amvDif: number | null; amvDea: number | null; amvMacd: number | null }>(),
+    marketSnapshots: new Map<string, MarketSnapshot>(),
     signalsByDate: new Map(),
     ...overrides,
   };
@@ -92,7 +160,7 @@ describe('regime-backtest.engine', () => {
   it('Q1 trade: signal taken, exit, nav correct', () => {
     const signal = makeSignal('000001.SZ', '20260101', '20260102', '20260103', 10, 11);
     const input = baseInput({
-      oamvDaily: new Map([['20260101', { amvDif: 1, amvDea: 0, amvMacd: 1 }]]),
+      marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
       signalsByDate: new Map([['20260101', [signal]]]),
     });
 
@@ -114,7 +182,7 @@ describe('regime-backtest.engine', () => {
   it('Q2 flat: signal skipped as regime_flat', () => {
     const signal = makeSignal('000001.SZ', '20260101', '20260102', '20260103', 10, 11);
     const input = baseInput({
-      oamvDaily: new Map([['20260101', { amvDif: 1, amvDea: 0, amvMacd: -1 }]]),
+      marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, -1)]]),
       signalsByDate: new Map([['20260101', [signal]]]),
     });
 
@@ -129,7 +197,7 @@ describe('regime-backtest.engine', () => {
   it('unknown regime (no oamv): signal skipped as regime_flat', () => {
     const signal = makeSignal('000001.SZ', '20260101', '20260102', '20260103', 10, 11);
     const input = baseInput({
-      oamvDaily: new Map(),
+      marketSnapshots: new Map(),
       signalsByDate: new Map([['20260101', [signal]]]),
     });
 
@@ -162,9 +230,9 @@ describe('regime-backtest.engine', () => {
           drawdownResumePct: 0.1,
         },
       },
-      oamvDaily: new Map([
-        ['20260101', { amvDif: 1, amvDea: 0, amvMacd: 1 }],
-        ['20260103', { amvDif: 1, amvDea: 0, amvMacd: 1 }],
+      marketSnapshots: new Map([
+        ['20260101', makeMarketSnapshot(1, 1)],
+        ['20260103', makeMarketSnapshot(1, 1)],
       ]),
       signalsByDate: new Map([
         ['20260101', [signal1, signal2, signal3]],
@@ -197,7 +265,7 @@ describe('regime-backtest.engine', () => {
         positionRatio: 0.1,
         maxPositions: null,
       },
-      oamvDaily: new Map([['20260101', { amvDif: 1, amvDea: 0, amvMacd: 1 }]]),
+      marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
       signalsByDate: new Map([['20260101', [signal]]]),
     });
 
@@ -212,7 +280,7 @@ describe('regime-backtest.engine', () => {
   it('same-day round-trip (exitDate == buyDate)', () => {
     const signal = makeSignal('000001.SZ', '20260101', '20260102', '20260102', 10, 11);
     const input = baseInput({
-      oamvDaily: new Map([['20260101', { amvDif: 1, amvDea: 0, amvMacd: 1 }]]),
+      marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
       signalsByDate: new Map([['20260101', [signal]]]),
     });
 
@@ -239,8 +307,8 @@ describe('regime-backtest.engine', () => {
     signal.simulationInput.exit = { mode: 'fixed_n', horizonN: 2 };
     const input = baseInput({
       calendar: ['20260101', '20260102', '20260103', '20260104', '20260105'],
-      oamvDaily: new Map([
-        ['20260101', { amvDif: 1, amvDea: 0, amvMacd: 1 }],
+      marketSnapshots: new Map([
+        ['20260101', makeMarketSnapshot(1, 1)],
       ]),
       signalsByDate: new Map([['20260101', [signal]]]),
     });
@@ -288,9 +356,9 @@ describe('regime-backtest.engine', () => {
           drawdownResumePct: 0.05,
         },
       },
-      oamvDaily: new Map([
-        ['20260101', { amvDif: 1, amvDea: 0, amvMacd: 1 }],
-        ['20260104', { amvDif: 1, amvDea: 0, amvMacd: 1 }],
+      marketSnapshots: new Map([
+        ['20260101', makeMarketSnapshot(1, 1)],
+        ['20260104', makeMarketSnapshot(1, 1)],
       ]),
       signalsByDate: new Map([
         ['20260101', [signalA]],
@@ -329,7 +397,7 @@ describe('regime-backtest.engine', () => {
         positionRatio: 0.1,
         maxPositions: 1,
       },
-      oamvDaily: new Map([['20260101', { amvDif: 1, amvDea: 0, amvMacd: 1 }]]),
+      marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
       signalsByDate: new Map([['20260101', [signalA, signalB]]]),
     });
 

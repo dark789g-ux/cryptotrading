@@ -1,19 +1,28 @@
 import { API_BASE, del, patch, post, request } from '../../client'
+import type { StrategyConditionItem } from './strategyConditions'
 
 // ── 共享类型 ──────────────────────────────────────────────────────────────────
 
-export type RegimeKey = 'Q1' | 'Q2' | 'Q3' | 'Q4'
+export type RegimeKey = string
 export type RegimeResult = RegimeKey | 'unknown'
 export type RegimePickAction = 'trade' | 'flat' | 'unknown'
 
-export interface RegimeConfigEntry {
+export interface QuadrantEntry {
+  key: string
+  label: string
+  match: StrategyConditionItem[]
   action: 'trade' | 'flat'
-  label?: string | null
-  entryConditions?: unknown[] | null
+  entryConditions?: StrategyConditionItem[] | null
   exitMode?: string | null
   exitParams?: Record<string, unknown> | null
-  [key: string]: unknown
 }
+
+export interface RegimeConfigMap {
+  marketIndex: string
+  quadrants: QuadrantEntry[]
+}
+
+export type RegimeConfigEntry = QuadrantEntry
 
 // ── /today ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +51,7 @@ export interface RegimeTodaySummary {
     id: string
     version: number
     note: string | null
+    entryIndex: number | null
     entry: RegimeConfigEntry | null
   } | null
   picks: RegimeDailyPick[]
@@ -55,19 +65,19 @@ export interface RegimeStrategyConfig {
   status: 'draft' | 'active' | 'archived'
   note: string | null
   createdAt: string
-  config: Record<RegimeKey, RegimeConfigEntry>
+  config: RegimeConfigMap
 }
 
 export interface CreateRegimeConfigDto {
   version?: number
   note?: string | null
-  config: Record<RegimeKey, RegimeConfigEntry>
+  config: RegimeConfigMap
 }
 
 export interface UpdateRegimeConfigDto {
   version?: number
   note?: string | null
-  config?: Record<RegimeKey, RegimeConfigEntry>
+  config?: RegimeConfigMap
 }
 
 // ── /run-daily ────────────────────────────────────────────────────────────────

@@ -116,6 +116,7 @@ import {
   CRYPTO_FIELDS,
   BASE_OPERATOR_OPTIONS,
   DEFAULT_KDJ_PARAMS,
+  MARKET_FIELDS,
   formatFieldSelectLabel,
   fieldValueToDisplay,
   fieldValueToStorage,
@@ -139,6 +140,8 @@ interface Props {
    * 其余消费方后端不重算，启用会让自定义参数被静默按 9/3/3 算 —— 故默认隐藏参数框、不收窄 compareField。
    */
   enableKdjParams?: boolean;
+  /** 自定义字段选项列表；传入后覆盖 targetType 默认字段集 */
+  fieldOptions?: FieldOption[];
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -156,8 +159,8 @@ const emit = defineEmits<{
 /** 行业 AMV 字段：只能与行业 AMV 字段或常量比较（后端约束） */
 const INDUSTRY_FIELD_VALUES = new Set(['ind_amv_dif', 'ind_amv_dea', 'ind_amv_macd']);
 
-/** 大盘 0AMV 字段：只能与大盘 0AMV 字段或常量比较（后端约束） */
-const MARKET_FIELD_VALUES = new Set(['oamv_dif', 'oamv_dea', 'oamv_macd', 'oamv_close', 'oamv_ma240']);
+/** 大盘级字段（oamv + idx）：只能与大盘级字段或常量比较（后端约束） */
+const MARKET_FIELD_VALUES = new Set(MARKET_FIELDS.map((f) => f.value));
 
 /** 上市元信息字段（天数量纲）：与价格/指标跨量纲比较无意义，仅常量比较 */
 const LIST_META_FIELD_VALUES = new Set(['list_days']);
@@ -172,9 +175,12 @@ function fieldCompareGroup(v: string): 'industry' | 'market' | 'listmeta' | 'nor
 
 // ── Computed field options ────────────────────────────────────────────────────
 
-const fieldOptions = computed<FieldOption[]>(() =>
-  props.targetType === 'a-share' ? A_SHARE_FIELDS : CRYPTO_FIELDS,
-);
+const fieldOptions = computed<FieldOption[]>(() => {
+  if (props.fieldOptions && props.fieldOptions.length > 0) {
+    return props.fieldOptions;
+  }
+  return props.targetType === 'a-share' ? A_SHARE_FIELDS : CRYPTO_FIELDS;
+});
 
 const fieldSelectOptions = computed(() =>
   fieldOptions.value.map((f) => ({
@@ -224,7 +230,7 @@ function isDefaultKdjParams(p: { n: number; m1: number; m2: number }): boolean {
  * crypto 无行业/大盘字段，组恒为 normal，过滤后等于全部 crypto 字段（行为不变）。
  */
 function getCompareFieldOptions(condition: StrategyConditionItem) {
-  const all = props.targetType === 'a-share' ? A_SHARE_FIELDS : CRYPTO_FIELDS;
+  const all = fieldOptions.value;
   const leftGroup = fieldCompareGroup(condition.field);
   const sameGroup = all.filter((f) => fieldCompareGroup(f.value as string) === leftGroup);
   if (isCustomKdj(condition)) {
@@ -234,7 +240,7 @@ function getCompareFieldOptions(condition: StrategyConditionItem) {
 }
 
 function getOperatorOptions(fieldValue: string) {
-  const fields = props.targetType === 'a-share' ? A_SHARE_FIELDS : CRYPTO_FIELDS;
+  const fields = fieldOptions.value;
   const fieldDef = fields.find((f) => f.value === fieldValue);
   const supportsCross = fieldDef?.supportsCross ?? false;
   return BASE_OPERATOR_OPTIONS.map((opt) => ({
