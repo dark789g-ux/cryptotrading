@@ -20,6 +20,7 @@
 
     <n-space align="center" style="margin-bottom: 12px">
       <n-button @click="openAddModal">+ 添加象限</n-button>
+      <n-button @click="showImportModal = true">从现有导入</n-button>
       <n-text v-if="overlapWarnings.length > 0" type="warning">
         {{ overlapWarnings.join('；') }}
       </n-text>
@@ -33,13 +34,6 @@
         :tab="quadrantTabLabel(q)"
       >
         <n-form label-placement="left" label-width="80">
-          <n-form-item label="Key">
-            <n-input
-              v-model:value="q.key"
-              placeholder="英文/数字/下划线/连字符"
-              style="max-width: 200px"
-            />
-          </n-form-item>
           <n-form-item label="标签">
             <n-input
               v-model:value="q.label"
@@ -55,6 +49,15 @@
               @update:value="(v: 'trade' | 'flat') => setAction(q, v)"
             />
           </n-form-item>
+
+          <template v-if="q.action === 'trade'">
+            <n-form-item label="仓位比例">
+              <n-input-number :value="q.positionRatio ?? null" :min="0" :max="1" :step="0.01" placeholder="0~1，可选" clearable style="width: 160px" @update:value="(v: number | null) => setPositionParam(q, 'positionRatio', v)" />
+            </n-form-item>
+            <n-form-item label="最大持仓">
+              <n-input-number :value="q.maxPositions ?? null" :min="1" placeholder="正整数，可选" clearable style="width: 160px" @update:value="(v: number | null) => setPositionParam(q, 'maxPositions', v)" />
+            </n-form-item>
+          </template>
 
           <n-divider>分桶条件（大盘级）</n-divider>
           <regime-bucket-condition-rows
@@ -145,9 +148,6 @@
 
     <n-modal v-model:show="showAddModal" title="添加象限" preset="card" style="width: 400px">
       <n-form label-placement="left" label-width="60">
-        <n-form-item label="Key">
-          <n-input v-model:value="newQuadrant.key" placeholder="英文/数字/下划线/连字符" />
-        </n-form-item>
         <n-form-item label="标签">
           <n-input v-model:value="newQuadrant.label" placeholder="象限显示标签" />
         </n-form-item>
@@ -159,6 +159,11 @@
         </n-space>
       </template>
     </n-modal>
+
+    <regime-import-quadrants-modal
+      v-model:show="showImportModal"
+      @import="handleImportQuadrants"
+    />
   </div>
 </template>
 
@@ -182,6 +187,8 @@ import {
 import type { SelectOption } from 'naive-ui'
 import ConditionRows from '@/components/strategy-conditions/ConditionRows.vue'
 import RegimeBucketConditionRows from '@/components/regime/RegimeBucketConditionRows.vue'
+import RegimeImportQuadrantsModal from '@/components/regime/RegimeImportQuadrantsModal.vue'
+import { generateUniqueKey } from '@/utils/pinyin'
 import type { StrategyConditionItem } from '@/api/modules/strategy/strategyConditions'
 import type {
   QuadrantEntry,
@@ -219,7 +226,8 @@ const message = useMessage()
 const saving = ref(false)
 const activeTab = ref('')
 const showAddModal = ref(false)
-const newQuadrant = reactive({ key: '', label: '' })
+const showImportModal = ref(false)
+const newQuadrant = reactive({ label: '' })
 
 function makeDefaultQuadrant(key: string, label: string): QuadrantEntry {
   return {
@@ -230,6 +238,8 @@ function makeDefaultQuadrant(key: string, label: string): QuadrantEntry {
     entryConditions: [],
     exitMode: null,
     exitParams: null,
+    positionRatio: null,
+    maxPositions: null,
   }
 }
 
@@ -243,7 +253,6 @@ function makeDefaultForm() {
 
 
 const form = reactive(makeDefaultForm())
-
 function cloneQuadrant(q: QuadrantEntry): QuadrantEntry {
   return {
     key: q.key,
@@ -253,9 +262,10 @@ function cloneQuadrant(q: QuadrantEntry): QuadrantEntry {
     entryConditions: q.entryConditions ? q.entryConditions.map((c) => ({ ...c })) : [],
     exitMode: q.exitMode ?? null,
     exitParams: q.exitParams ? { ...q.exitParams } : null,
+    positionRatio: q.positionRatio ?? null,
+    maxPositions: q.maxPositions ?? null,
   }
 }
-
 watch(
   () => props.initialData,
   (data) => {
@@ -297,7 +307,7 @@ function setExitMode(q: QuadrantEntry, mode: string | null) {
   if (mode === 'trailing_lock') {
     q.exitParams = { maxHold: null }
   } else if (mode === 'fixed_n') {
-    q.exitParams = { N: undefined }
+    q.exitParams = { N: null }
   } else if (mode === 'strategy') {
     q.exitParams = { exitConditions: [], maxHold: null }
   }
@@ -310,30 +320,37 @@ function setExitParam(q: QuadrantEntry, param: string, value: unknown) {
   q.exitParams[param] = value
 }
 
+function setPositionParam(q: QuadrantEntry, param: 'positionRatio' | 'maxPositions', value: number | null) {
+  q[param] = value
+}
+
 function openAddModal() {
-  newQuadrant.key = `q${form.quadrants.length + 1}`
   newQuadrant.label = ''
   showAddModal.value = true
 }
 
 function confirmAddQuadrant() {
-  const key = newQuadrant.key.trim()
   const label = newQuadrant.label.trim()
-  if (!key || !label) {
-    message.warning('Key 和标签不能为空')
-    return
-  }
-  if (!/^[a-zA-Z0-9_-]+$/.test(key)) {
-    message.warning('Key 只能包含英文、数字、下划线、连字符')
-    return
-  }
-  if (form.quadrants.some((q) => q.key === key)) {
-    message.warning('Key 已存在')
-    return
-  }
+  if (!label) return message.warning('标签不能为空')
+  const key = generateUniqueKey(label, form.quadrants.map((q) => q.key))
   form.quadrants.push(makeDefaultQuadrant(key, label))
   activeTab.value = key
   showAddModal.value = false
+  newQuadrant.label = ''
+}
+
+function handleImportQuadrants(imported: QuadrantEntry[]) {
+  const existingKeys = form.quadrants.map((q) => q.key)
+  const newKeys: string[] = []
+  for (const q of imported) {
+    const cloned = cloneQuadrant(q)
+    cloned.key = generateUniqueKey(q.label, existingKeys)
+    existingKeys.push(cloned.key)
+    newKeys.push(cloned.key)
+    form.quadrants.push(cloned)
+  }
+  activeTab.value = newKeys[0] ?? form.quadrants[form.quadrants.length - 1]?.key ?? ''
+  showImportModal.value = false
 }
 
 function removeQuadrant(idx: number) {
@@ -368,7 +385,6 @@ const overlapWarnings = computed(() => {
   }
   return warnings
 })
-
 function buildDto(): CreateRegimeConfigDto {
   const quadrants = form.quadrants.map((q) => {
     const entry: QuadrantEntry = {
@@ -379,6 +395,8 @@ function buildDto(): CreateRegimeConfigDto {
     }
     if (q.action === 'trade') {
       entry.entryConditions = q.entryConditions ?? []
+      entry.positionRatio = q.positionRatio ?? null
+      entry.maxPositions = q.maxPositions ?? null
       if (q.exitMode) {
         entry.exitMode = q.exitMode
         const p = q.exitParams ? { ...q.exitParams } : {}
@@ -398,7 +416,6 @@ function buildDto(): CreateRegimeConfigDto {
     },
   }
 }
-
 function handleSave() {
   if (!form.version || form.version < 1) {
     message.warning('版本号必须为正整数')
@@ -410,18 +427,12 @@ function handleSave() {
   }
   const keys = new Set<string>()
   for (const q of form.quadrants) {
-    const key = q.key.trim()
-    if (!key || !/^[a-zA-Z0-9_-]+$/.test(key)) {
-      message.warning(`象限 Key 非法: ${q.key}`)
-      activeTab.value = q.key
-      return
-    }
-    if (keys.has(key)) {
+    if (keys.has(q.key.trim())) {
       message.warning(`Key 重复: ${q.key}`)
       activeTab.value = q.key
       return
     }
-    keys.add(key)
+    keys.add(q.key.trim())
     if (!q.label.trim()) {
       message.warning(`象限 ${q.key} 标签不能为空`)
       activeTab.value = q.key
@@ -435,6 +446,18 @@ function handleSave() {
     if (q.action === 'trade') {
       if (!Array.isArray(q.entryConditions) || q.entryConditions.length === 0) {
         message.warning(`象限 ${q.key} 入场条件不能为空`)
+        activeTab.value = q.key
+        return
+      }
+      const ratio = q.positionRatio
+      if (ratio != null && (ratio < 0 || ratio > 1)) {
+        message.warning(`象限 ${q.key} 仓位比例必须在 0~1 之间`)
+        activeTab.value = q.key
+        return
+      }
+      const maxPos = q.maxPositions
+      if (maxPos != null && (!Number.isInteger(maxPos) || maxPos < 1)) {
+        message.warning(`象限 ${q.key} 最大持仓必须为正整数或留空`)
         activeTab.value = q.key
         return
       }
