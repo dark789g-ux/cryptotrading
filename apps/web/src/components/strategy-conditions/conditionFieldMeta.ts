@@ -121,6 +121,33 @@ export const A_SHARE_FIELDS: FieldOption[] = [
   { label: '量比(120日均量)', value: 'vol_ratio_120', supportsCross: false, valueUnit: '倍' },
 ];
 
+export const INDEX_FIELDS: FieldOption[] = [
+  { label: '开盘', value: 'open' },
+  { label: '最高', value: 'high' },
+  { label: '最低', value: 'low' },
+  { label: '收盘', value: 'close' },
+  { label: '前收', value: 'pre_close' },
+  { label: '涨跌额', value: 'change' },
+  { label: '涨跌幅', value: 'pct_change', valueUnit: '%' },
+  { label: '成交量', value: 'vol_hand', valueUnit: '手' },
+  { label: '成交额', value: 'amount', valueUnit: '千元' },
+  { label: 'MA5', value: 'ma5', supportsCross: true },
+  { label: 'MA30', value: 'ma30', supportsCross: true },
+  { label: 'MA60', value: 'ma60', supportsCross: true },
+  { label: 'MA120', value: 'ma120', supportsCross: true },
+  { label: 'MA240', value: 'ma240', supportsCross: true },
+  { label: 'MACD_DIF', value: 'dif', supportsCross: true },
+  { label: 'MACD_DEA', value: 'dea', supportsCross: true },
+  { label: 'MACD_HIST', value: 'macd', supportsCross: true },
+  { label: 'KDJ_K', value: 'kdj_k', supportsCross: true, isKdj: true },
+  { label: 'KDJ_D', value: 'kdj_d', supportsCross: true, isKdj: true },
+  { label: 'KDJ_J', value: 'kdj_j', supportsCross: true, isKdj: true },
+  { label: 'BBI', value: 'bbi', supportsCross: true },
+  { label: '砖形图', value: 'brick', supportsCross: true },
+  { label: '砖形图变动', value: 'brick_delta', supportsCross: true },
+  { label: '砖形图信号', value: 'brick_xg' },
+];
+
 export const CRYPTO_FIELDS: FieldOption[] = [
   { label: 'KDJ_J', value: 'kdj_j', supportsCross: true, isKdj: true },
   { label: 'KDJ_K', value: 'kdj_k', supportsCross: true, isKdj: true },
@@ -164,6 +191,10 @@ export function getFieldDef(
 ): FieldOption | undefined {
   const fields = targetType === 'a-share' ? A_SHARE_FIELDS : CRYPTO_FIELDS;
   return fields.find((f) => f.value === field);
+}
+
+export function getRegimeBucketFields(type: 'index' | 'stock'): FieldOption[] {
+  return type === 'index' ? INDEX_FIELDS : A_SHARE_FIELDS;
 }
 
 /** KDJ 字段集合（kdj_j/kdj_k/kdj_d），按 key 判定，与 FieldOption.isKdj 等价 */
