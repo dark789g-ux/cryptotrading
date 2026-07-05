@@ -1,35 +1,49 @@
 import { runRegimeBacktest } from './regime-backtest.engine';
-import {
-  RegimeBacktestInput,
-} from './regime-backtest.types';
+import { RegimeBacktestInput } from './regime-backtest.types';
 import { RegimeConfigMap } from '../../../entities/strategy/regime-strategy-config.entity';
-import { MarketSnapshot } from '../market-condition-evaluator';
+import { MarketSnapshot, IndexTargetSnapshot } from '../market-condition-evaluator';
 import { COST_PRESET_ZERO } from '../core/cost';
-import {
-  HoldingDaySnapshot,
-  SimulationInput,
-} from '../core/exit-simulator';
+import { HoldingDaySnapshot, SimulationInput } from '../core/exit-simulator';
 
-function makeMarketSnapshot(amvDif: number, amvMacd: number): MarketSnapshot {
+const INDEX_TARGET = '000001.SH';
+
+function makeIndexTarget(dif: number, macd: number): IndexTargetSnapshot {
   return {
-    oamv: {
-      open: 100,
-      high: 105,
-      low: 99,
-      close: 102,
-      amvDif,
-      amvDea: 0,
-      amvMacd,
-      ma5: 101,
-      ma30: 98,
-      ma60: 95,
-      ma120: 90,
-      ma240: 85,
-      kdjK: 60,
-      kdjD: 50,
-      kdjJ: 80,
+    quote: {
+      open: 3000,
+      high: 3050,
+      low: 2990,
+      close: 3040,
+      pre_close: 3020,
+      change: 20,
+      pct_change: 0.66,
+      vol_hand: 1_000_000,
+      amount: 500_000,
     },
-    idx: null,
+    indicator: {
+      ma5: 3020,
+      ma30: 3000,
+      ma60: 2980,
+      ma120: 2950,
+      ma240: 2900,
+      dif,
+      dea: 5,
+      macd,
+      kdj_k: 55,
+      kdj_d: 45,
+      kdj_j: 75,
+      bbi: 3005,
+      brick: 1,
+      brick_delta: 0.5,
+      brick_xg: true,
+    },
+  };
+}
+
+function makeMarketSnapshot(dif: number, macd: number): MarketSnapshot {
+  return {
+    date: '20260101',
+    targets: new Map([[INDEX_TARGET, makeIndexTarget(dif, macd)]]),
   };
 }
 
@@ -90,15 +104,15 @@ function makeSignal(
 }
 
 const defaultRegimeConfig: RegimeConfigMap = {
-  marketIndex: '000001.SH',
+  marketIndex: INDEX_TARGET,
   quadrants: [
     {
       key: 'Q1',
       label: 'Q1',
       action: 'trade',
       match: [
-        { field: 'oamv_dif', operator: 'gt', value: 0 },
-        { field: 'oamv_macd', operator: 'gt', value: 0 },
+        { type: 'index', target: INDEX_TARGET, field: 'dif', operator: 'gt', value: 0 },
+        { type: 'index', target: INDEX_TARGET, field: 'macd', operator: 'gt', value: 0 },
       ],
       entryConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
       exitMode: 'fixed_n',
@@ -109,8 +123,8 @@ const defaultRegimeConfig: RegimeConfigMap = {
       label: 'Q2',
       action: 'flat',
       match: [
-        { field: 'oamv_dif', operator: 'gt', value: 0 },
-        { field: 'oamv_macd', operator: 'lte', value: 0 },
+        { type: 'index', target: INDEX_TARGET, field: 'dif', operator: 'gt', value: 0 },
+        { type: 'index', target: INDEX_TARGET, field: 'macd', operator: 'lte', value: 0 },
       ],
     },
     {
@@ -118,8 +132,8 @@ const defaultRegimeConfig: RegimeConfigMap = {
       label: 'Q3',
       action: 'trade',
       match: [
-        { field: 'oamv_dif', operator: 'lte', value: 0 },
-        { field: 'oamv_macd', operator: 'gt', value: 0 },
+        { type: 'index', target: INDEX_TARGET, field: 'dif', operator: 'lte', value: 0 },
+        { type: 'index', target: INDEX_TARGET, field: 'macd', operator: 'gt', value: 0 },
       ],
       entryConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
       exitMode: 'fixed_n',
@@ -130,8 +144,8 @@ const defaultRegimeConfig: RegimeConfigMap = {
       label: 'Q4',
       action: 'trade',
       match: [
-        { field: 'oamv_dif', operator: 'lte', value: 0 },
-        { field: 'oamv_macd', operator: 'lte', value: 0 },
+        { type: 'index', target: INDEX_TARGET, field: 'dif', operator: 'lte', value: 0 },
+        { type: 'index', target: INDEX_TARGET, field: 'macd', operator: 'lte', value: 0 },
       ],
       entryConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
       exitMode: 'fixed_n',
@@ -194,7 +208,7 @@ describe('regime-backtest.engine', () => {
     expect(result.summary.nSkipped).toBe(1);
   });
 
-  it('unknown regime (no oamv): signal skipped as regime_flat', () => {
+  it('unknown regime (no snapshot): signal skipped as regime_flat', () => {
     const signal = makeSignal('000001.SZ', '20260101', '20260102', '20260103', 10, 11);
     const input = baseInput({
       marketSnapshots: new Map(),

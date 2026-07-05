@@ -150,6 +150,15 @@ describe('validateRegimeConfig', () => {
 
     cfg.quadrants[0].match = [matchCond('index', '', 'macd', 'gt', 0)];
     expectFail(cfg, 'target 必须为非空字符串');
+
+    cfg.quadrants[0].match = [{ target: '000001.SH', field: 'macd', operator: 'gt', value: 0 } as any];
+    expectFail(cfg, 'type 非法');
+
+    cfg.quadrants[0].match = [{ type: 'index', field: 'macd', operator: 'gt', value: 0 } as any];
+    expectFail(cfg, 'target 必须为非空字符串');
+
+    cfg.quadrants[0].match = [{ type: 'index', target: '000001.SH', operator: 'gt', value: 0 } as any];
+    expectFail(cfg, '不在允许字段白名单');
   });
 
   it('quadrant match compareMode 严格二选一', () => {
