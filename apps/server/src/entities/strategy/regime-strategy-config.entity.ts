@@ -16,13 +16,23 @@ export type RegimeConfigStatus = 'draft' | 'active' | 'archived';
 
 export type RegimeExitMode = 'trailing_lock' | 'fixed_n' | 'strategy';
 
+export interface RegimeBucketCondition {
+  type: 'index' | 'stock';
+  target: string;
+  field: string;
+  operator: string;
+  value?: number;
+  compareField?: string;
+  compareMode?: 'value' | 'field';
+}
+
 export interface QuadrantEntry {
   /** 用户自定义象限标识（配置内唯一）。 */
   key: string;
   /** 象限显示标签（必填，无 fallback）。 */
   label: string;
   /** 大盘级分桶条件：命中即归此象限。 */
-  match: StrategyConditionItem[];
+  match: RegimeBucketCondition[];
   /** 配置中只允许 trade/flat（unknown 是运行期 regime，不可配置）。 */
   action: 'trade' | 'flat';
   /** 入场条件（个股级）；flat 象限为 null。 */
@@ -31,6 +41,10 @@ export interface QuadrantEntry {
   exitMode?: RegimeExitMode | null;
   /** 出场参数；flat 象限为 null。 */
   exitParams?: Record<string, unknown> | null;
+  /** 该象限允许使用的仓位比例（0-1）。 */
+  positionRatio?: number | null;
+  /** 该象限允许同时持有的最大标的数。 */
+  maxPositions?: number | null;
   /** 研究证据（可选）。 */
   evidence?: Record<string, unknown> | null;
   /** optional extra config */
