@@ -5,7 +5,6 @@ import { RegimeDailyPickEntity } from '../../entities/strategy/regime-daily-pick
 import { RegimeBacktestRunEntity } from '../../entities/strategy/regime-backtest-run.entity';
 import { RegimeBacktestDailyEntity } from '../../entities/strategy/regime-backtest-daily.entity';
 import { RegimeBacktestTradeEntity } from '../../entities/strategy/regime-backtest-trade.entity';
-import { OamvDailyEntity } from '../../entities/oamv/oamv-daily.entity';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
 import { StrategyConditionsModule } from '../../strategy-conditions/strategy-conditions.module';
 import { RegimeEngineController } from './regime-engine.controller';
@@ -30,7 +29,6 @@ import { WindowBuilder } from './backtest/window/window.builder';
       RegimeBacktestRunEntity,
       RegimeBacktestDailyEntity,
       RegimeBacktestTradeEntity,
-      OamvDailyEntity,
       AShareSymbolEntity,
     ]),
     StrategyConditionsModule,

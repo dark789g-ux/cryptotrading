@@ -1,13 +1,13 @@
 /**
  * regime-engine.service.ts
  *
- * 每日 0AMV 象限识别 + 按 active 配置生成选股清单。
+ * 每日指数分桶象限识别 + 按 active 配置生成选股清单。
  *
  * 设计基准：docs/superpowers/specs/2026-06-10-0amv-regime-strategy-design/03-automation-design.md
  *
  * 要点：
  *   - 象限口径走 classifyRegime 纯函数（与研究侧离线 SQL 一致）。
- *   - oamv 缺行 / 指标列 NULL → fail-closed：落 unknown 记录、不扫描（黄牌）。
+ *   - 仅支持 type='index' 分桶条件；含 type='stock' 或数据缺行 → fail-closed。
  *   - 扫描复用 strategy-conditions 查询构建器 + signal-stats 单日枚举 SQL，
  *     不复制查询构建逻辑。
  *   - 幂等：同 trade_date 重跑按日全删重建（含 NULL 版本行），删插同一事务。
@@ -27,8 +27,9 @@ import {
   RegimeStrategyConfigEntity,
 } from '../../entities/strategy/regime-strategy-config.entity';
 import { RegimeDailyPickEntity } from '../../entities/strategy/regime-daily-pick.entity';
-import { OamvDailyEntity } from '../../entities/oamv/oamv-daily.entity';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
+import { IndexDailyQuoteEntity } from '../../entities/index-daily/index-daily-quote.entity';
+import { IndexDailyIndicatorEntity } from '../../entities/index-daily/index-daily-indicator.entity';
 import { StrategyConditionItem } from '../../entities/strategy/strategy-condition.entity';
 import { StrategyConditionsQueryBuilder } from '../../strategy-conditions/strategy-conditions.query-builder';
 import { buildEnumerateQuery } from '../../strategy-conditions/strategy-conditions.enumerator';
@@ -42,10 +43,8 @@ import {
 } from './regime-engine.types';
 import {
   MarketSnapshot,
-  OamvSnapshot,
-  IndexSnapshot,
+  TargetSnapshot,
 } from './market-condition-evaluator';
-import { toNum } from './regime-engine.utils';
 
 const TRADE_DATE_RE = /^\d{8}$/;
 
@@ -58,8 +57,6 @@ export class RegimeEngineService {
     private readonly configRepo: Repository<RegimeStrategyConfigEntity>,
     @InjectRepository(RegimeDailyPickEntity)
     private readonly pickRepo: Repository<RegimeDailyPickEntity>,
-    @InjectRepository(OamvDailyEntity)
-    private readonly oamvRepo: Repository<OamvDailyEntity>,
     @InjectRepository(AShareSymbolEntity)
     private readonly symbolRepo: Repository<AShareSymbolEntity>,
     @InjectDataSource()
@@ -70,7 +67,7 @@ export class RegimeEngineService {
   // ── 每日流水线 ────────────────────────────────────────────────────────────
 
   /**
-   * 跑指定交易日（缺省=最新 oamv 日）的象限识别 + 选股，结果按日全删重建落
+   * 跑指定交易日（缺省=最新指数交易日）的象限识别 + 选股，结果按日全删重建落
    * regime_daily_pick。
    */
   async runDaily(tradeDateInput?: string): Promise<RunDailyResult> {
@@ -81,7 +78,7 @@ export class RegimeEngineService {
       throw new ConflictException('无生效配置，请先激活');
     }
 
-    const snapshot = await this.buildMarketSnapshot(tradeDate, active.config.marketIndex);
+    const snapshot = await this.buildMarketSnapshot(tradeDate, active.config);
     const regime: RegimeResult = snapshot
       ? classifyRegime(snapshot, active.config.quadrants)
       : 'unknown';
@@ -89,7 +86,7 @@ export class RegimeEngineService {
     // fail-closed：snapshot 不完整 → unknown，不扫描，落一条 unknown 记录
     if (regime === 'unknown') {
       this.logger.warn(
-        `[regime-engine] tradeDate=${tradeDate} 大盘 snapshot 不完整（oamv 或 index_daily 缺行/字段 NULL），regime=unknown，fail-closed 不扫描`,
+        `[regime-engine] tradeDate=${tradeDate} 大盘 snapshot 不完整或分桶条件不满足，regime=unknown，fail-closed 不扫描`,
       );
       await this.replaceDayPicks(tradeDate, [
         this.buildMarkerRecord(tradeDate, 'unknown', 'unknown', active.version, null),
@@ -155,19 +152,18 @@ export class RegimeEngineService {
 
   // ── 查询 ──────────────────────────────────────────────────────────────────
 
-  /** 最新 oamv 日的象限 + active 配置摘要 + 该日清单（只读视图，无 active 不抛 409）。 */
+  /** 最新指数交易日的象限 + active 配置摘要 + 该日清单（只读视图，无 active 不抛 409）。 */
   async getToday(): Promise<RegimeTodaySummary> {
-    const [latest] = await this.oamvRepo.find({
-      order: { tradeDate: 'DESC' },
-      take: 1,
-    });
-    if (!latest) {
-      return { tradeDate: null, regime: 'unknown', oamv: null, activeConfig: null, picks: [] };
+    let tradeDate: string | null = null;
+    try {
+      tradeDate = await this.resolveTradeDate();
+    } catch {
+      return { tradeDate: null, regime: 'unknown', activeConfig: null, picks: [] };
     }
 
     const active = await this.findActiveConfig();
     const snapshot = active
-      ? await this.buildMarketSnapshot(latest.tradeDate, active.config.marketIndex)
+      ? await this.buildMarketSnapshot(tradeDate, active.config)
       : null;
     const regime: RegimeResult =
       snapshot && active ? classifyRegime(snapshot, active.config.quadrants) : 'unknown';
@@ -180,19 +176,13 @@ export class RegimeEngineService {
         ? active.config.quadrants.find((q) => q.key === regime) ?? null
         : null;
     const picks = await this.pickRepo.find({
-      where: { tradeDate: latest.tradeDate },
+      where: { tradeDate },
       order: { tsCode: 'ASC' },
     });
 
     return {
-      tradeDate: latest.tradeDate,
+      tradeDate,
       regime,
-      oamv: {
-        close: Number(latest.close),
-        amvDif: latest.amvDif,
-        amvDea: latest.amvDea,
-        amvMacd: latest.amvMacd,
-      },
       activeConfig: active
         ? { id: active.id, version: active.version, note: active.note, entryIndex, entry }
         : null,
@@ -312,14 +302,15 @@ export class RegimeEngineService {
       }
       return input;
     }
-    const [latest] = await this.oamvRepo.find({
-      order: { tradeDate: 'DESC' },
-      take: 1,
-    });
-    if (!latest) {
-      throw new ConflictException('oamv_daily 无数据，无法确定最新交易日，请先同步 0AMV');
+    const row = await this.dataSource
+      .createQueryBuilder()
+      .select('MAX(q.trade_date)', 'latestDate')
+      .from(IndexDailyQuoteEntity, 'q')
+      .getRawOne<{ latestDate: string | null }>();
+    if (!row?.latestDate) {
+      throw new ConflictException('index_daily_quotes 无数据，无法确定最新交易日，请先同步指数日线');
     }
-    return latest.tradeDate;
+    return row.latestDate;
   }
 
   private async findActiveConfig(): Promise<RegimeStrategyConfigEntity | null> {
@@ -327,115 +318,124 @@ export class RegimeEngineService {
   }
 
   /**
-   * 构造每日大盘 snapshot：oamv_daily 必含；index_daily_quotes/indicators
-   * 按配置 marketIndex 取。
-   * oamv 缺行 → null（整体 fail-closed）。
+   * 构造每日大盘 snapshot：按配置 quadrants[].match 动态加载目标指数。
+   * - 仅支持 type='index' 分桶条件；含 type='stock' 直接返回 null。
+   * - 缺目标 / 缺行 → 仍返回 snapshot，由 evaluator fail-closed。
    */
   private async buildMarketSnapshot(
     tradeDate: string,
-    marketIndex: string,
+    config: RegimeConfigMap,
   ): Promise<MarketSnapshot | null> {
-    const oamvRow = await this.oamvRepo.findOne({ where: { tradeDate } });
-    if (!oamvRow) return null;
+    const indexTargets = new Set<string>();
+    let hasStockBucket = false;
+    for (const q of config.quadrants ?? []) {
+      for (const cond of q.match ?? []) {
+        if (cond.type === 'stock') {
+          hasStockBucket = true;
+        } else if (cond.type === 'index' && cond.target) {
+          indexTargets.add(cond.target);
+        }
+      }
+    }
 
-    const oamv: OamvSnapshot = {
-      open: toNum(oamvRow.open),
-      high: toNum(oamvRow.high),
-      low: toNum(oamvRow.low),
-      close: toNum(oamvRow.close),
-      amvDif: toNum(oamvRow.amvDif),
-      amvDea: toNum(oamvRow.amvDea),
-      amvMacd: toNum(oamvRow.amvMacd),
-      ma5: toNum(oamvRow.ma5),
-      ma30: toNum(oamvRow.ma30),
-      ma60: toNum(oamvRow.ma60),
-      ma120: toNum(oamvRow.ma120),
-      ma240: toNum(oamvRow.ma240),
-      kdjK: toNum(oamvRow.kdjK),
-      kdjD: toNum(oamvRow.kdjD),
-      kdjJ: toNum(oamvRow.kdjJ),
-    };
+    if (hasStockBucket) {
+      this.logger.warn(
+        `[regime-engine] tradeDate=${tradeDate} 配置含 type='stock' 分桶条件，当前每日流水线仅支持指数分桶，fail-closed`,
+      );
+      return null;
+    }
 
-    const idx = await this.loadIndexSnapshot(tradeDate, marketIndex);
-    return { oamv, idx };
+    const targets = [...indexTargets];
+    if (targets.length === 0) {
+      this.logger.warn(
+        `[regime-engine] tradeDate=${tradeDate} 未配置 type='index' 分桶目标，无法构造 snapshot`,
+      );
+      return null;
+    }
+
+    const indexQuoteRepo = this.dataSource.getRepository(IndexDailyQuoteEntity);
+    const indexIndicatorRepo = this.dataSource.getRepository(IndexDailyIndicatorEntity);
+
+    const [quoteRows, indicatorRows, prevDateRow] = await Promise.all([
+      indexQuoteRepo
+        .createQueryBuilder('q')
+        .where('q.tradeDate = :tradeDate AND q.tsCode IN (:...targets)', { tradeDate, targets })
+        .getMany(),
+      indexIndicatorRepo
+        .createQueryBuilder('i')
+        .where('i.tradeDate = :tradeDate AND i.tsCode IN (:...targets)', { tradeDate, targets })
+        .getMany(),
+      this.dataSource
+        .createQueryBuilder()
+        .select('MAX(q.trade_date)', 'prevDate')
+        .from(IndexDailyQuoteEntity, 'q')
+        .where('q.trade_date < :tradeDate', { tradeDate })
+        .getRawOne<{ prevDate: string | null }>(),
+    ]);
+
+    const quoteMap = new Map(quoteRows.map((r) => [r.tsCode, r]));
+    const indicatorMap = new Map(indicatorRows.map((r) => [r.tsCode, r]));
+    const targetSnapshots = new Map<string, TargetSnapshot>();
+    for (const tsCode of targets) {
+      targetSnapshots.set(tsCode, this.buildTargetSnapshot(quoteMap.get(tsCode), indicatorMap.get(tsCode)));
+    }
+
+    const prevDate = prevDateRow?.prevDate ?? undefined;
+    let prevTargets: Map<string, TargetSnapshot> | undefined;
+    if (prevDate) {
+      const [prevQuoteRows, prevIndicatorRows] = await Promise.all([
+        indexQuoteRepo
+          .createQueryBuilder('q')
+          .where('q.tradeDate = :prevDate AND q.tsCode IN (:...targets)', { prevDate, targets })
+          .getMany(),
+        indexIndicatorRepo
+          .createQueryBuilder('i')
+          .where('i.tradeDate = :prevDate AND i.tsCode IN (:...targets)', { prevDate, targets })
+          .getMany(),
+      ]);
+      const prevQuoteMap = new Map(prevQuoteRows.map((r) => [r.tsCode, r]));
+      const prevIndicatorMap = new Map(prevIndicatorRows.map((r) => [r.tsCode, r]));
+      prevTargets = new Map<string, TargetSnapshot>();
+      for (const tsCode of targets) {
+        prevTargets.set(tsCode, this.buildTargetSnapshot(prevQuoteMap.get(tsCode), prevIndicatorMap.get(tsCode)));
+      }
+    }
+
+    return { date: tradeDate, targets: targetSnapshots, prevDate, prevTargets };
   }
 
-  private async loadIndexSnapshot(
-    tradeDate: string,
-    marketIndex: string,
-  ): Promise<IndexSnapshot | null> {
-    const [quoteRow] = await this.dataSource.query<
-      Array<Partial<IndexSnapshot['quote']> & { tsCode?: string }>
-    >(
-      `SELECT
-        open AS "open",
-        high AS "high",
-        low AS "low",
-        close AS "close",
-        pre_close AS "preClose",
-        change AS "change",
-        pct_change AS "pctChange",
-        vol_hand AS "volHand",
-        amount AS "amount"
-       FROM index_daily_quotes
-       WHERE trade_date = $1 AND ts_code = $2 AND category = 'market'`,
-      [tradeDate, marketIndex],
-    );
-
-    const [indicatorRow] = await this.dataSource.query<
-      Array<Partial<IndexSnapshot['indicator']> & { tsCode?: string }>
-    >(
-      `SELECT
-        ma5 AS "ma5",
-        ma30 AS "ma30",
-        ma60 AS "ma60",
-        ma120 AS "ma120",
-        ma240 AS "ma240",
-        dif AS "dif",
-        dea AS "dea",
-        macd AS "macd",
-        kdj_k AS "kdjK",
-        kdj_d AS "kdjD",
-        kdj_j AS "kdjJ",
-        bbi AS "bbi",
-        brick AS "brick",
-        brick_delta AS "brickDelta",
-        brick_xg AS "brickXg"
-       FROM index_daily_indicators
-       WHERE trade_date = $1 AND ts_code = $2 AND category = 'market'`,
-      [tradeDate, marketIndex],
-    );
-
-    if (!quoteRow && !indicatorRow) return null;
-
+  private buildTargetSnapshot(
+    q: IndexDailyQuoteEntity | undefined,
+    i: IndexDailyIndicatorEntity | undefined,
+  ): TargetSnapshot {
     return {
       quote: {
-        open: toNum(quoteRow?.open ?? null),
-        high: toNum(quoteRow?.high ?? null),
-        low: toNum(quoteRow?.low ?? null),
-        close: toNum(quoteRow?.close ?? null),
-        preClose: toNum(quoteRow?.preClose ?? null),
-        change: toNum(quoteRow?.change ?? null),
-        pctChange: toNum(quoteRow?.pctChange ?? null),
-        volHand: toNum(quoteRow?.volHand ?? null),
-        amount: toNum(quoteRow?.amount ?? null),
+        open: q?.open ?? null,
+        high: q?.high ?? null,
+        low: q?.low ?? null,
+        close: q?.close ?? null,
+        pre_close: q?.preClose ?? null,
+        change: q?.change ?? null,
+        pct_change: q?.pctChange ?? null,
+        vol_hand: q?.volHand ?? null,
+        amount: q?.amount ?? null,
       },
       indicator: {
-        ma5: toNum(indicatorRow?.ma5 ?? null),
-        ma30: toNum(indicatorRow?.ma30 ?? null),
-        ma60: toNum(indicatorRow?.ma60 ?? null),
-        ma120: toNum(indicatorRow?.ma120 ?? null),
-        ma240: toNum(indicatorRow?.ma240 ?? null),
-        dif: toNum(indicatorRow?.dif ?? null),
-        dea: toNum(indicatorRow?.dea ?? null),
-        macd: toNum(indicatorRow?.macd ?? null),
-        kdjK: toNum(indicatorRow?.kdjK ?? null),
-        kdjD: toNum(indicatorRow?.kdjD ?? null),
-        kdjJ: toNum(indicatorRow?.kdjJ ?? null),
-        bbi: toNum(indicatorRow?.bbi ?? null),
-        brick: toNum(indicatorRow?.brick ?? null),
-        brickDelta: toNum(indicatorRow?.brickDelta ?? null),
-        brickXg: asBoolean(indicatorRow?.brickXg ?? null),
+        ma5: i?.ma5 ?? null,
+        ma30: i?.ma30 ?? null,
+        ma60: i?.ma60 ?? null,
+        ma120: i?.ma120 ?? null,
+        ma240: i?.ma240 ?? null,
+        dif: i?.dif ?? null,
+        dea: i?.dea ?? null,
+        macd: i?.macd ?? null,
+        kdj_k: i?.kdjK ?? null,
+        kdj_d: i?.kdjD ?? null,
+        kdj_j: i?.kdjJ ?? null,
+        bbi: i?.bbi ?? null,
+        brick: i?.brick ?? null,
+        brick_delta: i?.brickDelta ?? null,
+        brick_xg: i?.brickXg ?? null,
       },
     };
   }
@@ -516,9 +516,4 @@ export class RegimeEngineService {
 
 function entryLabel(entry: RegimeConfigEntry): string | null {
   return typeof entry.label === 'string' && entry.label !== '' ? entry.label : null;
-}
-
-function asBoolean(v: unknown): boolean | null {
-  if (v === null || v === undefined) return null;
-  return Boolean(v);
 }

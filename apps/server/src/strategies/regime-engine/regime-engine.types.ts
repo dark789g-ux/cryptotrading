@@ -40,15 +40,9 @@ export interface RunDailyResult {
 
 /** GET /regime-engine/today 响应 */
 export interface RegimeTodaySummary {
-  /** oamv_daily 最新交易日；表空时 null */
+  /** 最新指数交易日；无数据时 null */
   tradeDate: string | null;
   regime: RegimeResult;
-  oamv: {
-    close: number;
-    amvDif: number | null;
-    amvDea: number | null;
-    amvMacd: number | null;
-  } | null;
   /** active 配置摘要；无 active 配置时 null（today 是只读视图，不抛 409） */
   activeConfig: {
     id: string;
