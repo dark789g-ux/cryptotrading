@@ -29,9 +29,9 @@ export class RegimeBacktestDataLoader {
     ]);
 
     const marketSnapshots = await this.marketSnapshotLoader.load(
-      dateStart,
-      dateEnd,
-      regimeConfig.marketIndex,
+      regimeConfig,
+      calendar,
+      globalCalendar,
     );
 
     const signals = await this.signalEnumerator.enumerate(
