@@ -31,8 +31,10 @@ interface OpenPosition {
 
 export function runRegimeBacktest(input: RegimeBacktestInput): RegimeBacktestResult {
   const { regimeConfig, capital, calendar, marketSnapshots, signalsByDate } = input;
-  const { initialCapital, cost, positionRatio, maxPositions, sizing, circuitBreaker: cb } = capital;
+  const { initialCapital, cost, sizing, circuitBreaker: cb } = capital;
   const anchorMode = capital.anchorMode ?? false;
+  let positionRatio = capital.positionRatio;
+  let maxPositions = capital.maxPositions;
   const buyFeeRate = buyRate(cost);
 
   const positions: OpenPosition[] = [];
@@ -106,6 +108,9 @@ export function runRegimeBacktest(input: RegimeBacktestInput): RegimeBacktestRes
       entryAction = entry?.action;
       exitMode = entry?.exitMode ?? 'fixed_n';
       if (entryAction === 'flat') regimeNoOpen = true;
+
+      positionRatio = entry?.positionRatio ?? capital.positionRatio;
+      maxPositions = entry?.maxPositions ?? capital.maxPositions;
     }
 
     // 3. circuit breaker gates
