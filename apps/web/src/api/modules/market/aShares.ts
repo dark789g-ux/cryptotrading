@@ -156,6 +156,12 @@ export interface AShareQueryResult {
   pageSize: number
 }
 
+export interface AShareSearchResult {
+  tsCode: string
+  symbol: string
+  name: string
+}
+
 export interface AShareSyncBody {
   tradeDate?: string
   startDate?: string
@@ -175,6 +181,11 @@ export const aSharesApi = {
   deleteFilterPreset: (id: string) => del<{ ok: true }>(`${API_BASE}/a-shares/filter-presets/${id}`),
   query: (body: AShareQueryBody) =>
     post<AShareQueryResult>(`${API_BASE}/a-shares/query`, body),
+  search: (q: string, limit?: number) => {
+    const params = new URLSearchParams({ q })
+    if (limit != null) params.set('limit', String(limit))
+    return request<AShareSearchResult[]>(`${API_BASE}/a-shares/search?${params.toString()}`)
+  },
   getKlines: (
     tsCode: string, limit = 300, priceMode: ASharePriceMode = 'qfq',
     range?: { startDate?: string; endDate?: string },   // 新增，YYYYMMDD
