@@ -54,8 +54,8 @@ export interface QuadrantEntry {
 export type RegimeConfigEntry = QuadrantEntry;
 
 export interface RegimeConfigMap {
-  /** 基准大盘指数 ts_code（如 '000001.SH'）。 */
-  marketIndex: string;
+  /** @deprecated 旧版顶层基准大盘指数，已下放到各 quadrant match 的 target 中；保留可选字段以兼容历史数据。 */
+  marketIndex?: string;
   /** 有序象限数组；顺序 = 匹配优先级。 */
   quadrants: QuadrantEntry[];
 }

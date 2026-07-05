@@ -3,17 +3,23 @@
  *
  * regime 配置 fail-fast 校验（创建/更新配置时执行；失败抛 400 并指明字段）。
  *
- * 规则（v2 参数化象限）：
- *   ① 顶层只允许 marketIndex / quadrants 两键；
- *   ② marketIndex 为非空字符串（用户选定的基准大盘指数 ts_code）；
- *   ③ quadrants 为非空数组，每项：
+ * 规则（v3 分桶条件）:
+ *   ① 顶层仅允许 quadrants；
+ *   ② quadrants 为非空数组，每项:
  *      - key: 非空字符串，英文/数字/下划线/连字符，配置内唯一；
  *      - label: 非空字符串；
- *      - match: 非空数组，每项 field 命中大盘条件白名单；
- *      - action ∈ {trade, flat}；
- *      - trade: entryConditions 非空数组（field 命中条件系统全白名单），exitMode/exitParams 合法；
- *      - flat: entryConditions / exitMode / exitParams 必须为 null；
- *   ④ 互斥性检查（checkQuadrantOverlapWarnings）仅作警告，不阻断保存。
+ *      - match: 非空数组，每项:
+ *        · type ∈ {index, stock};
+ *        · target 非空字符串;
+ *        · field 在对应类型白名单内;
+ *        · operator 为字符串;
+ *        · value / compareField 二选一，compareField 也须命中同白名单;
+ *      - action ∈ {trade, flat};
+ *      - positionRatio 为 null 或 0~1 数字;
+ *      - maxPositions 为 null 或正整数;
+ *      - trade: entryConditions 非空数组（field 命中 A 股条件白名单），exitMode/exitParams 合法;
+ *      - flat: entryConditions / exitMode / exitParams 必须为 null;
+ *   ③ 互斥性检查（checkQuadrantOverlapWarnings）仅作警告，不阻断保存。
  */
 import { BadRequestException } from '@nestjs/common';
 import {
@@ -21,9 +27,9 @@ import {
   ASHARE_INDUSTRY_AMV_COL_MAP,
   ASHARE_MARKET_AMV_COL_MAP,
 } from '../../strategy-conditions/strategy-conditions.types';
-import { MARKET_CONDITION_FIELD_WHITELIST } from './market-condition-evaluator';
 import {
   QuadrantEntry,
+  RegimeBucketCondition,
   RegimeConfigMap,
   RegimeExitMode,
 } from '../../entities/strategy/regime-strategy-config.entity';
@@ -36,9 +42,53 @@ export const ASHARE_CONDITION_FIELD_WHITELIST: ReadonlySet<string> = new Set([
   ...Object.keys(ASHARE_MARKET_AMV_COL_MAP),
 ]);
 
-const ALLOWED_TOP_KEYS = new Set(['marketIndex', 'quadrants']);
+/** 指数/大盘级分桶条件字段白名单（v3 去前缀） */
+const INDEX_FIELD_WHITELIST = new Set([
+  'open',
+  'high',
+  'low',
+  'close',
+  'pre_close',
+  'change',
+  'pct_change',
+  'vol_hand',
+  'amount',
+  'ma5',
+  'ma30',
+  'ma60',
+  'ma120',
+  'ma240',
+  'dif',
+  'dea',
+  'macd',
+  'kdj_k',
+  'kdj_d',
+  'kdj_j',
+  'bbi',
+  'brick',
+  'brick_delta',
+  'brick_xg',
+]);
+
+/** 个股级分桶条件字段白名单：仅含 market-condition-evaluator 实际支持的字段（ASHARE_FIELD_COL_MAP） */
+const REGIME_BUCKET_STOCK_FIELD_WHITELIST: ReadonlySet<string> = new Set(
+  Object.keys(ASHARE_FIELD_COL_MAP),
+);
+
+const ALLOWED_TOP_KEYS = new Set(['quadrants']);
 const VALID_QUADRANT_KEY_RE = /^[a-zA-Z0-9_-]+$/;
 const EXIT_MODES = new Set(['trailing_lock', 'fixed_n', 'strategy']);
+const VALID_COMPARE_MODES = new Set(['value', 'field']);
+const VALID_OPERATORS = new Set([
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'eq',
+  'neq',
+  'cross_above',
+  'cross_below',
+]);
 
 export interface ValidationWarning {
   path: string;
@@ -57,6 +107,73 @@ function validatePositiveNumber(v: unknown, path: string, extra: string): void {
   if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) {
     fail(`${path} 必须为 >0 的数字（${extra}）`);
   }
+}
+
+function fieldWhitelistForMatch(type: 'index' | 'stock'): ReadonlySet<string> {
+  return type === 'index' ? INDEX_FIELD_WHITELIST : REGIME_BUCKET_STOCK_FIELD_WHITELIST;
+}
+
+function validateMatchCondition(c: unknown, path: string): void {
+  if (!isPlainObject(c)) {
+    fail(`${path} 必须为对象`);
+  }
+
+  const type = c.type;
+  if (type !== 'index' && type !== 'stock') {
+    fail(`${path}.type 非法（须为 index|stock，收到 "${String(type)}"）`);
+  }
+
+  const target = c.target;
+  if (typeof target !== 'string' || target.trim() === '') {
+    fail(`${path}.target 必须为非空字符串`);
+  }
+
+  const whitelist = fieldWhitelistForMatch(type);
+
+  const field = c.field;
+  if (typeof field !== 'string' || !whitelist.has(field)) {
+    fail(`${path}.field "${String(field)}" 不在允许字段白名单`);
+  }
+
+  const operator = c.operator;
+  if (typeof operator !== 'string' || !VALID_OPERATORS.has(operator)) {
+    fail(
+      `${path}.operator 非法（须为 gt|gte|lt|lte|eq|neq|cross_above|cross_below，收到 "${String(operator)}"）`,
+    );
+  }
+
+  const compareMode = c.compareMode;
+  if (compareMode !== undefined && compareMode !== null) {
+    if (!VALID_COMPARE_MODES.has(compareMode as string)) {
+      fail(`${path}.compareMode 非法（须为 value|field，收到 "${String(compareMode)}"）`);
+    }
+  }
+
+  if (compareMode === 'field') {
+    if (c.value !== undefined && c.value !== null) {
+      fail(`${path}.value 在 compareMode=field 时必须为 null/undefined`);
+    }
+    const compareField = c.compareField;
+    if (typeof compareField !== 'string' || compareField.trim() === '' || !whitelist.has(compareField)) {
+      fail(`${path}.compareField 在 compareMode=field 时必须为非空且命中白名单字段`);
+    }
+  } else {
+    if (c.compareField !== undefined && c.compareField !== null) {
+      fail(`${path}.compareField 在 compareMode=value/未指定时必须为 null/undefined`);
+    }
+    const value = c.value;
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      fail(`${path}.value 在 compareMode=value/未指定时必须为有效数字`);
+    }
+  }
+}
+
+/** match 数组校验：非空数组 + 每项符合 v3 分桶条件结构。 */
+function validateMatchArray(match: unknown, path: string): void {
+  if (!Array.isArray(match) || match.length === 0) {
+    fail(`${path} 必须为非空数组`);
+  }
+  match.forEach((c, i) => validateMatchCondition(c, `${path}[${i}]`));
 }
 
 /** 条件数组校验：非空数组 + 每项 field 命中给定白名单。 */
@@ -90,6 +207,24 @@ function validateConditionArray(
       fail(`${path}[${i}] 未设置 compareField 时 value 必须为数字`);
     }
   });
+}
+
+function validatePositionRatio(v: unknown, path: string): void {
+  if (v === null || v === undefined) {
+    return;
+  }
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1) {
+    fail(`${path} 必须为 null 或 0~1 之间的数字`);
+  }
+}
+
+function validateMaxPositions(v: unknown, path: string): void {
+  if (v === null || v === undefined) {
+    return;
+  }
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) {
+    fail(`${path} 必须为 null 或正整数`);
+  }
 }
 
 function validateTradeQuadrant(entry: Record<string, unknown>, path: string): void {
@@ -171,12 +306,15 @@ function validateQuadrant(
     fail(`${path}.label 必须为非空字符串`);
   }
 
-  validateConditionArray(q.match, `${path}.match`, MARKET_CONDITION_FIELD_WHITELIST);
+  validateMatchArray(q.match, `${path}.match`);
 
   const action = q.action;
   if (action !== 'trade' && action !== 'flat') {
     fail(`${path}.action 非法（须为 trade|flat，收到 "${String(action)}"）`);
   }
+
+  validatePositionRatio(q.positionRatio, `${path}.positionRatio`);
+  validateMaxPositions(q.maxPositions, `${path}.maxPositions`);
 
   if (action === 'trade') {
     validateTradeQuadrant(q, path);
@@ -191,18 +329,13 @@ function validateQuadrant(
  */
 export function validateRegimeConfig(config: unknown): asserts config is RegimeConfigMap {
   if (!isPlainObject(config)) {
-    fail('config 必须为对象（含 marketIndex 与 quadrants）');
+    fail('config 必须为对象（含 quadrants）');
   }
 
   for (const k of Object.keys(config)) {
     if (!ALLOWED_TOP_KEYS.has(k)) {
-      fail(`config 含未知键 "${k}"（仅允许 marketIndex / quadrants）`);
+      fail(`config 含未知键 "${k}"（仅允许 quadrants）`);
     }
-  }
-
-  const marketIndex = config.marketIndex;
-  if (typeof marketIndex !== 'string' || marketIndex.trim() === '') {
-    fail('config.marketIndex 必须为非空字符串（基准大盘指数 ts_code）');
   }
 
   const quadrants = config.quadrants;
@@ -214,12 +347,15 @@ export function validateRegimeConfig(config: unknown): asserts config is RegimeC
   quadrants.forEach((q, i) => validateQuadrant(q, i, seenKeys));
 }
 
-function conditionEqual(a: StrategyConditionItem, b: StrategyConditionItem): boolean {
+function conditionEqual(a: RegimeBucketCondition, b: RegimeBucketCondition): boolean {
   return (
+    a.type === b.type &&
+    a.target === b.target &&
     a.field === b.field &&
     a.operator === b.operator &&
     a.value === b.value &&
-    a.compareField === b.compareField
+    a.compareField === b.compareField &&
+    a.compareMode === b.compareMode
   );
 }
 

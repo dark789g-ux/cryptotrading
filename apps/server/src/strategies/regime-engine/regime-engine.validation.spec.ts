@@ -1,7 +1,7 @@
 /**
  * regime-engine.validation.spec.ts
  *
- * regime 配置校验单测（v2 参数化象限）。
+ * regime 配置校验单测（v3 分桶条件）。
  */
 import {
   validateRegimeConfig,
@@ -9,6 +9,7 @@ import {
 } from './regime-engine.validation';
 import {
   QuadrantEntry,
+  RegimeBucketCondition,
   RegimeConfigMap,
 } from '../../entities/strategy/regime-strategy-config.entity';
 import { StrategyConditionItem } from '../../entities/strategy/strategy-condition.entity';
@@ -20,24 +21,39 @@ function cond(field: string, operator: string, value?: number, compareField?: st
   return c;
 }
 
+function matchCond(
+  type: 'index' | 'stock',
+  target: string,
+  field: string,
+  operator: string,
+  value?: number,
+  compareField?: string,
+): RegimeBucketCondition {
+  const c: RegimeBucketCondition = { type, target, field, operator } as RegimeBucketCondition;
+  if (value !== undefined) c.value = value;
+  if (compareField !== undefined) c.compareField = compareField;
+  return c;
+}
+
 function validConfig(overrides?: Partial<RegimeConfigMap>): RegimeConfigMap {
   const base: RegimeConfigMap = {
-    marketIndex: '000001.SH',
     quadrants: [
       {
         key: 'bull',
         label: '强多头',
         action: 'trade',
-        match: [cond('oamv_dif', 'gt', 0), cond('oamv_macd', 'gt', 0)],
+        match: [matchCond('index', '000001.SH', 'macd', 'gt', 0)],
         entryConditions: [cond('brick', 'gt', 0)],
         exitMode: 'fixed_n',
         exitParams: { N: 5 },
+        positionRatio: 0.5,
+        maxPositions: 10,
       },
       {
         key: 'bear',
         label: '空头',
         action: 'flat',
-        match: [cond('oamv_dif', 'lte', 0)],
+        match: [matchCond('index', '000001.SH', 'dif', 'lte', 0)],
       },
     ],
   };
@@ -55,23 +71,21 @@ describe('validateRegimeConfig', () => {
 
   it('config 非对象 / 含未知键', () => {
     expectFail(null, 'config 必须为对象');
-    expectFail({}, 'marketIndex 必须为非空字符串');
+    expectFail({}, 'config.quadrants 必须为非空数组');
     expectFail(
-      { marketIndex: '000001.SH', quadrants: validConfig().quadrants, extra: 1 },
+      { quadrants: validConfig().quadrants, extra: 1 },
+      '未知键',
+    );
+    expectFail(
+      { quadrants: validConfig().quadrants, marketIndex: '000001.SH' },
       '未知键',
     );
   });
 
-  it('marketIndex 非法', () => {
-    expectFail({ quadrants: validConfig().quadrants }, 'marketIndex 必须为非空字符串');
-    expectFail({ marketIndex: '', quadrants: validConfig().quadrants }, 'marketIndex 必须为非空字符串');
-    expectFail({ marketIndex: 123, quadrants: validConfig().quadrants }, 'marketIndex 必须为非空字符串');
-  });
-
   it('quadrants 非法', () => {
-    expectFail({ marketIndex: '000001.SH' }, 'quadrants 必须为非空数组');
-    expectFail({ marketIndex: '000001.SH', quadrants: [] }, 'quadrants 必须为非空数组');
-    expectFail({ marketIndex: '000001.SH', quadrants: 'x' }, 'quadrants 必须为非空数组');
+    expectFail({}, 'config.quadrants 必须为非空数组');
+    expectFail({ quadrants: [] }, 'config.quadrants 必须为非空数组');
+    expectFail({ quadrants: 'x' }, 'config.quadrants 必须为非空数组');
   });
 
   it('quadrant key 非法', () => {
@@ -102,11 +116,84 @@ describe('validateRegimeConfig', () => {
     cfg.quadrants[0].match = [];
     expectFail(cfg, 'match 必须为非空数组');
 
-    cfg.quadrants[0].match = [cond('unknown_field', 'gt', 0)];
+    cfg.quadrants[0].match = [matchCond('index', '000001.SH', 'unknown_field', 'gt', 0)];
     expectFail(cfg, '不在允许字段白名单');
 
-    cfg.quadrants[0].match = [{ field: 'oamv_dif', operator: 'gt' }];
-    expectFail(cfg, '未设置 compareField 时 value 必须为数字');
+    cfg.quadrants[0].match = [matchCond('stock', '000001.SZ', 'oamv_dif', 'gt', 0)];
+    expectFail(cfg, '不在允许字段白名单');
+
+    cfg.quadrants[0].match = [{ type: 'index', target: '000001.SH', field: 'macd', operator: 'gt' }];
+    expectFail(cfg, 'value 在 compareMode=value/未指定时必须为有效数字');
+
+    cfg.quadrants[0].match = [
+      { type: 'index', target: '000001.SH', field: 'macd', operator: 'invalid', value: 0 } as any,
+    ];
+    expectFail(cfg, 'operator 非法');
+
+    cfg.quadrants[0].match = [
+      { type: 'index', target: '000001.SH', field: 'macd', operator: 'gt', compareMode: 'field', compareField: 'unknown_field' } as any,
+    ];
+    expectFail(cfg, 'compareField 在 compareMode=field 时必须为非空且命中白名单字段');
+
+    cfg.quadrants[0].match = [
+      { type: 'index', target: '000001.SH', field: 'macd', operator: 'gt', compareMode: 'field' } as any,
+    ];
+    expectFail(cfg, 'compareField 在 compareMode=field 时必须为非空且命中白名单字段');
+
+    cfg.quadrants[0].match = [
+      { type: 'index', target: '000001.SH', field: 'macd', operator: 'gt', compareMode: 'field', compareField: 'unknown_field' } as any,
+    ];
+    expectFail(cfg, 'compareField 在 compareMode=field 时必须为非空且命中白名单字段');
+
+    cfg.quadrants[0].match = [matchCond('crypto' as any, '000001.SH', 'macd', 'gt', 0)];
+    expectFail(cfg, 'type 非法');
+
+    cfg.quadrants[0].match = [matchCond('index', '', 'macd', 'gt', 0)];
+    expectFail(cfg, 'target 必须为非空字符串');
+  });
+
+  it('quadrant match compareMode 严格二选一', () => {
+    const cfg = validConfig();
+
+    cfg.quadrants[0].match = [matchCond('index', '000001.SH', 'macd', 'gt', 0)];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+
+    cfg.quadrants[0].match = [
+      { type: 'index', target: '000001.SH', field: 'macd', operator: 'gt', compareMode: 'field', compareField: 'close' } as any,
+    ];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+
+    cfg.quadrants[0].match = [
+      { type: 'index', target: '000001.SH', field: 'macd', operator: 'gt', compareMode: 'value', value: 0 } as any,
+    ];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+
+    cfg.quadrants[0].match = [
+      { type: 'index', target: '000001.SH', field: 'macd', operator: 'gt', compareMode: 'field', compareField: 'close', value: 123 } as any,
+    ];
+    expectFail(cfg, 'value 在 compareMode=field 时必须为 null/undefined');
+
+    cfg.quadrants[0].match = [
+      { type: 'index', target: '000001.SH', field: 'macd', operator: 'gt', compareMode: 'value', value: 0, compareField: 'close' } as any,
+    ];
+    expectFail(cfg, 'compareField 在 compareMode=value/未指定时必须为 null/undefined');
+
+    cfg.quadrants[0].match = [matchCond('index', '000001.SH', 'macd', 'gt', 0, 'close')];
+    expectFail(cfg, 'compareField 在 compareMode=value/未指定时必须为 null/undefined');
+
+    cfg.quadrants[0].match = [
+      { type: 'index', target: '000001.SH', field: 'macd', operator: 'gt', compareMode: 'field', compareField: '' } as any,
+    ];
+    expectFail(cfg, 'compareField 在 compareMode=field 时必须为非空且命中白名单字段');
+  });
+
+  it('quadrant match 支持个股实际可求值字段', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].match = [matchCond('stock', '000001.SZ', 'close', 'gt', 0)];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+
+    cfg.quadrants[0].match = [matchCond('stock', '000001.SZ', 'macd_dif', 'cross_above', 0)];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
   });
 
   it('action 非法', () => {
@@ -166,6 +253,37 @@ describe('validateRegimeConfig', () => {
     cfg.quadrants[0].exitParams = { maxHold: null };
     expect(() => validateRegimeConfig(cfg)).not.toThrow();
   });
+
+  it('positionRatio 非法', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].positionRatio = 1.5;
+    expectFail(cfg, 'positionRatio 必须为 null 或 0~1 之间的数字');
+
+    cfg.quadrants[0].positionRatio = -0.1;
+    expectFail(cfg, 'positionRatio 必须为 null 或 0~1 之间的数字');
+
+    cfg.quadrants[0].positionRatio = '0.5' as any;
+    expectFail(cfg, 'positionRatio 必须为 null 或 0~1 之间的数字');
+  });
+
+  it('maxPositions 非法', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].maxPositions = 0;
+    expectFail(cfg, 'maxPositions 必须为 null 或正整数');
+
+    cfg.quadrants[0].maxPositions = 1.5;
+    expectFail(cfg, 'maxPositions 必须为 null 或正整数');
+
+    cfg.quadrants[0].maxPositions = -1;
+    expectFail(cfg, 'maxPositions 必须为 null 或正整数');
+  });
+
+  it('positionRatio / maxPositions 为 null 通过', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].positionRatio = null;
+    cfg.quadrants[0].maxPositions = null;
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
 });
 
 describe('checkQuadrantOverlapWarnings', () => {
@@ -180,18 +298,36 @@ describe('checkQuadrantOverlapWarnings', () => {
         key: 'A',
         label: 'A',
         action: 'flat',
-        match: [cond('oamv_dif', 'gt', 0)],
+        match: [matchCond('index', '000001.SH', 'macd', 'gt', 0)],
       },
       {
         key: 'B',
         label: 'B',
         action: 'flat',
-        match: [cond('oamv_dif', 'gt', 0), cond('oamv_macd', 'lt', 0)],
+        match: [matchCond('index', '000001.SH', 'macd', 'gt', 0), matchCond('index', '000001.SH', 'dif', 'lt', 0)],
       },
     ];
     const warnings = checkQuadrantOverlapWarnings(qs);
     expect(warnings.length).toBe(1);
     expect(warnings[0].message).toContain('A');
     expect(warnings[0].message).toContain('B');
+  });
+
+  it('不同 target 不视为重叠', () => {
+    const qs: QuadrantEntry[] = [
+      {
+        key: 'A',
+        label: 'A',
+        action: 'flat',
+        match: [matchCond('index', '000001.SH', 'macd', 'gt', 0)],
+      },
+      {
+        key: 'B',
+        label: 'B',
+        action: 'flat',
+        match: [matchCond('index', '399001.SZ', 'macd', 'gt', 0)],
+      },
+    ];
+    expect(checkQuadrantOverlapWarnings(qs)).toEqual([]);
   });
 });
