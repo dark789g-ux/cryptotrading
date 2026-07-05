@@ -14,6 +14,13 @@ import { RegimeBacktestDataLoader } from './backtest/regime-backtest.data-loader
 import { RegimeBacktestRunner } from './backtest/regime-backtest.runner';
 import { RegimeBacktestService } from './backtest/regime-backtest.service';
 import { RegimeBacktestController } from './backtest/regime-backtest.controller';
+import { CalendarLoader } from './backtest/loaders/calendar.loader';
+import { MarketSnapshotLoader } from './backtest/loaders/market-snapshot.loader';
+import { SignalEnumerator } from './backtest/loaders/signal-enumerator';
+import { SymbolMetaLoader } from './backtest/loaders/symbol-meta.loader';
+import { QuoteLoader } from './backtest/loaders/quote.loader';
+import { ExitSignalLoader } from './backtest/loaders/exit-signal.loader';
+import { WindowBuilder } from './backtest/window/window.builder';
 
 @Module({
   imports: [
@@ -29,6 +36,18 @@ import { RegimeBacktestController } from './backtest/regime-backtest.controller'
     StrategyConditionsModule,
   ],
   controllers: [RegimeEngineController, RegimeBacktestController],
-  providers: [RegimeEngineService, RegimeBacktestDataLoader, RegimeBacktestRunner, RegimeBacktestService],
+  providers: [
+    RegimeEngineService,
+    RegimeBacktestDataLoader,
+    RegimeBacktestRunner,
+    RegimeBacktestService,
+    CalendarLoader,
+    MarketSnapshotLoader,
+    SignalEnumerator,
+    SymbolMetaLoader,
+    QuoteLoader,
+    ExitSignalLoader,
+    WindowBuilder,
+  ],
 })
 export class RegimeEngineModule {}

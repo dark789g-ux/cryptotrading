@@ -63,7 +63,7 @@ export interface SimulationInput {
 
 export type ExitConfig =
   | { mode: 'fixed_n'; horizonN: number }
-  | { mode: 'strategy'; maxHold: number }
+  | { mode: 'strategy'; maxHold: number; exitConditions?: unknown[] }
   | {
       mode: 'trailing_lock';
       maxHold?: number;
