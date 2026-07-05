@@ -5,6 +5,7 @@ import { CurrentUserParam as CurrentUser } from '../../auth/decorators/current-u
 import { ASharesFilterPresetsService } from './services/a-shares-filter-presets.service';
 import { KdjParamsDto, validateKdjParams } from '../klines/dto/kdj-params.dto';
 import { ASharesService, QueryASharesDto, SyncASharesDto } from './a-shares.service';
+import { AShareSearchResult } from './a-shares.types';
 
 type CurrentUserPayload = { id: string };
 
@@ -52,6 +53,12 @@ export class ASharesController {
   @Delete('filter-presets/:id')
   removeFilterPreset(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.filterPresetsService.remove(user.id, id);
+  }
+
+  @Get('search')
+  search(@Query('q') q: string, @Query('limit') limit?: string): Promise<AShareSearchResult[]> {
+    const parsedLimit = limit ? Number(limit) : undefined;
+    return this.aSharesService.searchSymbols(q, parsedLimit);
   }
 
   @Get(':tsCode/klines')

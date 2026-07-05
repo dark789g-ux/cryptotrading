@@ -20,6 +20,17 @@ export interface QueryFieldCondition {
 
 export type QueryCondition = QueryNumberCondition | QueryFieldCondition;
 
+export interface SearchASharesQueryDto {
+  q: string;
+  limit?: number;
+}
+
+export interface AShareSearchResult {
+  tsCode: string;
+  symbol: string;
+  name: string;
+}
+
 export interface QueryASharesDto {
   page?: number;
   pageSize?: number;

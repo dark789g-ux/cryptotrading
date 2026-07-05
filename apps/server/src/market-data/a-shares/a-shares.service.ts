@@ -13,17 +13,21 @@ import { buildASharesBaseQuery, appendASharesSort } from './data-access/a-shares
 import { ASharesSyncService } from './sync/a-shares-sync.service';
 import {
   AShareKlineRow,
+  AShareSearchResult,
   ASharesSyncEvent,
   ASharesSyncResult,
   QueryASharesDto,
+  SearchASharesQueryDto,
   SyncASharesDto,
 } from './a-shares.types';
 
 export type {
   AShareKlineRow,
+  AShareSearchResult,
   ASharesSyncEvent,
   ASharesSyncResult,
   QueryASharesDto,
+  SearchASharesQueryDto,
   SyncASharesDto,
 } from './a-shares.types';
 
@@ -199,6 +203,19 @@ export class ASharesService {
       FROM raw.daily_quote
     `);
     return rows[0] ?? { min: null, max: null };
+  }
+
+  async searchSymbols(q: string, limit = 20): Promise<AShareSearchResult[]> {
+    const trimmed = (q ?? '').trim();
+    if (!trimmed) return [];
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 20;
+    const rows = await this.symbolRepo
+      .createQueryBuilder('s')
+      .select(['s.tsCode', 's.symbol', 's.name'])
+      .where('s.ts_code ILIKE :q OR s.name ILIKE :q', { q: `%${trimmed}%` })
+      .limit(Math.min(50, Math.max(1, safeLimit)))
+      .getMany();
+    return rows.map((r) => ({ tsCode: r.tsCode, symbol: r.symbol, name: r.name }));
   }
 
   async getKlines(
