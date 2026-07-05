@@ -403,7 +403,7 @@ function buildDto(): CreateRegimeConfigDto {
         if (q.exitMode === 'trailing_lock' && p.maxHold == null) {
           delete p.maxHold
         }
-        if (Object.keys(p).length > 0) entry.exitParams = p
+        entry.exitParams = p
       }
     }
     return entry
@@ -458,6 +458,11 @@ function handleSave() {
       const maxPos = q.maxPositions
       if (maxPos != null && (!Number.isInteger(maxPos) || maxPos < 1)) {
         message.warning(`象限 ${q.key} 最大持仓必须为正整数或留空`)
+        activeTab.value = q.key
+        return
+      }
+      if (!q.exitMode) {
+        message.warning(`象限 ${q.key} 为 trade 象限，必须选择出场模式`)
         activeTab.value = q.key
         return
       }

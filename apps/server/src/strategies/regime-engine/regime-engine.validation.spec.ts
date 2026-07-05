@@ -205,6 +205,24 @@ describe('validateRegimeConfig', () => {
     expect(() => validateRegimeConfig(cfg)).not.toThrow();
   });
 
+  it('quadrant match 个股字段 list_days 不被 evaluator 支持', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].match = [matchCond('stock', '000001.SZ', 'list_days', 'gt', 0)];
+    expectFail(cfg, '不在允许字段白名单');
+
+    cfg.quadrants[0].match = [
+      {
+        type: 'stock',
+        target: '000001.SZ',
+        field: 'macd_dif',
+        operator: 'gt',
+        compareMode: 'field',
+        compareField: 'list_days',
+      } as any,
+    ];
+    expectFail(cfg, 'compareField 在 compareMode=field 时必须为非空且命中白名单字段');
+  });
+
   it('action 非法', () => {
     const cfg = validConfig();
     (cfg.quadrants[0] as any).action = 'hold';

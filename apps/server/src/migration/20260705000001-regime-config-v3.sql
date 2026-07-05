@@ -50,21 +50,11 @@ UPDATE regime_strategy_config
 SET config = jsonb_set(
   config,
   '{quadrants}',
-  (
-    SELECT jsonb_agg(
-      CASE
-        WHEN jsonb_array_length(q.value->'match') = 0 THEN
-          jsonb_build_object(
-            'key', q.value->>'key',
-            'label', q.value->>'label',
-            'action', 'flat',
-            'match', '[]'::jsonb
-          )
-        ELSE q.value
-      END
-    )
+  COALESCE((
+    SELECT jsonb_agg(q.value)
     FROM jsonb_array_elements(config->'quadrants') AS q
-  )
+    WHERE jsonb_array_length(COALESCE(q.value->'match', '[]'::jsonb)) > 0
+  ), '[]'::jsonb)
 )
 WHERE config ? 'quadrants';
 

@@ -70,9 +70,19 @@ const INDEX_FIELD_WHITELIST = new Set([
   'brick_xg',
 ]);
 
-/** 个股级分桶条件字段白名单：仅含 market-condition-evaluator 实际支持的字段（ASHARE_FIELD_COL_MAP） */
+/** 个股级分桶条件字段白名单：仅含 market-condition-evaluator 实际支持的字段。
+ *  规则与 evaluator 的 STOCK_FIELD_SOURCE 保持一致：字段表达式须含表别名前缀，
+ *  且前缀 ∈ {q, i, m, sa, d}；无别名前缀的字段（如 list_days）无法求值，须排除。
+ */
+const SUPPORTED_STOCK_FIELD_PREFIXES = new Set(['q', 'i', 'm', 'sa', 'd']);
 const REGIME_BUCKET_STOCK_FIELD_WHITELIST: ReadonlySet<string> = new Set(
-  Object.keys(ASHARE_FIELD_COL_MAP),
+  Object.entries(ASHARE_FIELD_COL_MAP)
+    .filter(([_, expr]) => {
+      const dot = expr.indexOf('.');
+      if (dot < 0) return false;
+      return SUPPORTED_STOCK_FIELD_PREFIXES.has(expr.slice(0, dot));
+    })
+    .map(([field]) => field),
 );
 
 const ALLOWED_TOP_KEYS = new Set(['quadrants']);

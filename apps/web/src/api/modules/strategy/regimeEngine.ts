@@ -52,12 +52,6 @@ export interface RegimeDailyPick {
 export interface RegimeTodaySummary {
   tradeDate: string | null
   regime: RegimeResult
-  oamv: {
-    close: number
-    amvDif: number | null
-    amvDea: number | null
-    amvMacd: number | null
-  } | null
   activeConfig: {
     id: string
     version: number
