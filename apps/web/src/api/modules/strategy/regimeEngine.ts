@@ -7,18 +7,29 @@ export type RegimeKey = string
 export type RegimeResult = RegimeKey | 'unknown'
 export type RegimePickAction = 'trade' | 'flat' | 'unknown'
 
+export interface RegimeBucketCondition {
+  type: 'index' | 'stock'
+  target: string
+  field: string
+  operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq' | 'cross_above' | 'cross_below'
+  value?: number
+  compareField?: string
+  compareMode?: 'value' | 'field'
+}
+
 export interface QuadrantEntry {
   key: string
   label: string
-  match: StrategyConditionItem[]
+  match: RegimeBucketCondition[]
   action: 'trade' | 'flat'
   entryConditions?: StrategyConditionItem[] | null
   exitMode?: string | null
   exitParams?: Record<string, unknown> | null
+  positionRatio?: number | null
+  maxPositions?: number | null
 }
 
 export interface RegimeConfigMap {
-  marketIndex: string
   quadrants: QuadrantEntry[]
 }
 

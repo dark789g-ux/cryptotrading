@@ -16,19 +16,10 @@
           style="max-width: 400px"
         />
       </n-form-item>
-      <n-form-item label="基准指数">
-        <n-select
-          v-model:value="form.marketIndex"
-          :options="MARKET_INDEX_OPTIONS"
-          placeholder="选择基准大盘指数"
-          style="width: 240px"
-        />
-      </n-form-item>
     </n-form>
 
     <n-space align="center" style="margin-bottom: 12px">
       <n-button @click="openAddModal">+ 添加象限</n-button>
-      <n-button @click="load0amvPreset">载入 0AMV 四象限预设</n-button>
       <n-text v-if="overlapWarnings.length > 0" type="warning">
         {{ overlapWarnings.join('；') }}
       </n-text>
@@ -66,13 +57,9 @@
           </n-form-item>
 
           <n-divider>分桶条件（大盘级）</n-divider>
-          <condition-rows
+          <regime-bucket-condition-rows
             :conditions="q.match"
-            target-type="a-share"
-            :field-options="MARKET_FIELDS"
-            default-operator="gt"
-            default-compare-mode="value"
-            @update:conditions="(v: StrategyConditionItem[]) => q.match = v"
+            @update:conditions="(v: RegimeBucketCondition[]) => q.match = v"
           />
 
           <template v-if="q.action === 'trade'">
@@ -191,28 +178,17 @@ import {
   NText,
   NModal,
   useMessage,
-  useDialog,
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import ConditionRows from '@/components/strategy-conditions/ConditionRows.vue'
-import { MARKET_FIELDS } from '@/components/strategy-conditions/conditionFieldMeta'
+import RegimeBucketConditionRows from '@/components/regime/RegimeBucketConditionRows.vue'
 import type { StrategyConditionItem } from '@/api/modules/strategy/strategyConditions'
 import type {
   QuadrantEntry,
   RegimeStrategyConfig,
   CreateRegimeConfigDto,
+  RegimeBucketCondition,
 } from '@/api/modules/strategy/regimeEngine'
-
-const MARKET_INDEX_OPTIONS: SelectOption[] = [
-  { label: '000001.SH 上证指数', value: '000001.SH' },
-  { label: '000016.SH 上证50', value: '000016.SH' },
-  { label: '000300.SH 沪深300', value: '000300.SH' },
-  { label: '000688.SH 科创50', value: '000688.SH' },
-  { label: '000852.SH 中证1000', value: '000852.SH' },
-  { label: '000905.SH 中证500', value: '000905.SH' },
-  { label: '399001.SZ 深证成指', value: '399001.SZ' },
-  { label: '399006.SZ 创业板指', value: '399006.SZ' },
-]
 
 const ACTION_OPTIONS: SelectOption[] = [
   { label: 'trade（交易）', value: 'trade' },
@@ -240,7 +216,6 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
-const dialog = useDialog()
 const saving = ref(false)
 const activeTab = ref('')
 const showAddModal = ref(false)
@@ -262,58 +237,10 @@ function makeDefaultForm() {
   return {
     version: 1,
     note: '' as string | null,
-    marketIndex: '000001.SH',
     quadrants: [] as QuadrantEntry[],
   }
 }
 
-const DEFAULT_0AMV_PRESET: { marketIndex: string; quadrants: QuadrantEntry[] } = {
-  marketIndex: '000001.SH',
-  quadrants: [
-    {
-      key: 'Q1',
-      label: '强多头',
-      action: 'trade',
-      match: [
-        { field: 'oamv_dif', operator: 'gt', value: 0 },
-        { field: 'oamv_macd', operator: 'gt', value: 0 },
-      ],
-      entryConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
-      exitMode: 'fixed_n',
-      exitParams: { N: 5 },
-    },
-    {
-      key: 'Q2',
-      label: '多头回调',
-      action: 'flat',
-      match: [
-        { field: 'oamv_dif', operator: 'gt', value: 0 },
-        { field: 'oamv_macd', operator: 'lte', value: 0 },
-      ],
-    },
-    {
-      key: 'Q3',
-      label: '反弹筑底',
-      action: 'trade',
-      match: [
-        { field: 'oamv_dif', operator: 'lte', value: 0 },
-        { field: 'oamv_macd', operator: 'gt', value: 0 },
-      ],
-      entryConditions: [{ field: 'kdj_j', operator: 'lt', value: 0 }],
-      exitMode: 'fixed_n',
-      exitParams: { N: 5 },
-    },
-    {
-      key: 'Q4',
-      label: '空头',
-      action: 'flat',
-      match: [
-        { field: 'oamv_dif', operator: 'lte', value: 0 },
-        { field: 'oamv_macd', operator: 'lte', value: 0 },
-      ],
-    },
-  ],
-}
 
 const form = reactive(makeDefaultForm())
 
@@ -336,13 +263,11 @@ watch(
     form.version = props.mode === 'duplicate' ? data.version + 1 : data.version
     form.note = data.note ?? ''
     const cfg = (data.config as unknown as Record<string, unknown>)
-    if ('marketIndex' in cfg && 'quadrants' in cfg) {
-      form.marketIndex = String(cfg.marketIndex)
+    if ('quadrants' in cfg) {
       form.quadrants = Array.isArray(cfg.quadrants)
         ? cfg.quadrants.map((q) => cloneQuadrant(q as QuadrantEntry))
         : []
     } else {
-      form.marketIndex = '000001.SH'
       form.quadrants = []
     }
     activeTab.value = form.quadrants[0]?.key ?? ''
@@ -411,26 +336,6 @@ function confirmAddQuadrant() {
   showAddModal.value = false
 }
 
-function apply0amvPreset() {
-  form.marketIndex = DEFAULT_0AMV_PRESET.marketIndex
-  form.quadrants = DEFAULT_0AMV_PRESET.quadrants.map((q) => cloneQuadrant(q))
-  activeTab.value = form.quadrants[0]?.key ?? ''
-}
-
-function load0amvPreset() {
-  if (form.quadrants.length > 0) {
-    dialog.warning({
-      title: '确认覆盖',
-      content: '当前象限配置将被 0AMV 四象限预设覆盖，是否继续？',
-      positiveText: '覆盖',
-      negativeText: '取消',
-      onPositiveClick: apply0amvPreset,
-    })
-  } else {
-    apply0amvPreset()
-  }
-}
-
 function removeQuadrant(idx: number) {
   form.quadrants.splice(idx, 1)
   if (!form.quadrants.some((q) => q.key === activeTab.value)) {
@@ -438,12 +343,15 @@ function removeQuadrant(idx: number) {
   }
 }
 
-function conditionEqual(a: StrategyConditionItem, b: StrategyConditionItem): boolean {
+function bucketConditionEqual(a: RegimeBucketCondition, b: RegimeBucketCondition): boolean {
   return (
+    a.type === b.type &&
+    a.target === b.target &&
     a.field === b.field &&
     a.operator === b.operator &&
     a.value === b.value &&
-    a.compareField === b.compareField
+    a.compareField === b.compareField &&
+    a.compareMode === b.compareMode
   )
 }
 
@@ -453,7 +361,7 @@ const overlapWarnings = computed(() => {
     for (let j = i + 1; j < form.quadrants.length; j++) {
       const a = form.quadrants[i]
       const b = form.quadrants[j]
-      if (a.match.some((ca) => b.match.some((cb) => conditionEqual(ca, cb)))) {
+      if (a.match.some((ca) => b.match.some((cb) => bucketConditionEqual(ca, cb)))) {
         warnings.push(`"${a.key}" 与 "${b.key}" 的分桶条件可能重叠`)
       }
     }
@@ -486,7 +394,6 @@ function buildDto(): CreateRegimeConfigDto {
     version: form.version,
     note: form.note || null,
     config: {
-      marketIndex: form.marketIndex,
       quadrants,
     },
   }
@@ -495,10 +402,6 @@ function buildDto(): CreateRegimeConfigDto {
 function handleSave() {
   if (!form.version || form.version < 1) {
     message.warning('版本号必须为正整数')
-    return
-  }
-  if (!form.marketIndex) {
-    message.warning('请选择基准大盘指数')
     return
   }
   if (form.quadrants.length === 0) {
