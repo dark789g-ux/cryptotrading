@@ -1,45 +1,15 @@
-/**
- * market-condition-evaluator.ts
- *
- * 大盘级条件纯函数求值器，被 regime 分类器与回测共用。
- *
- * 数据源（按配置中的 marketIndex 取当日单行）：
- *   - oamv_daily：0AMV 活跃市值指数（固定单一指数）
- *   - index_daily_quotes + index_daily_indicators：用户选定的基准大盘指数
- *
- * 字段白名单 39 个：oamv 15 个可比较数值字段 + idx 24 个字段（含 1 个 boolean）。
- * 所有比较最终都归一化为数值；boolean 字段 true=1 / false=0。
- * 任一条件 field 越界 / operator 不支持 / 任一值非法 → fail-closed 返回 false。
- */
-import { StrategyConditionItem } from '../../entities/strategy/strategy-condition.entity';
-
-export interface OamvSnapshot {
-  open: number | null;
-  high: number | null;
-  low: number | null;
-  close: number | null;
-  amvDif: number | null;
-  amvDea: number | null;
-  amvMacd: number | null;
-  ma5: number | null;
-  ma30: number | null;
-  ma60: number | null;
-  ma120: number | null;
-  ma240: number | null;
-  kdjK: number | null;
-  kdjD: number | null;
-  kdjJ: number | null;
-}
+import { RegimeBucketCondition } from '../../entities/strategy/regime-strategy-config.entity';
+import { ASHARE_FIELD_COL_MAP } from '../../strategy-conditions/strategy-conditions.types';
 
 export interface IndexQuoteSnapshot {
   open: number | null;
   high: number | null;
   low: number | null;
   close: number | null;
-  preClose: number | null;
+  pre_close: number | null;
   change: number | null;
-  pctChange: number | null;
-  volHand: number | null;
+  pct_change: number | null;
+  vol_hand: number | null;
   amount: number | null;
 }
 
@@ -52,74 +22,87 @@ export interface IndexIndicatorSnapshot {
   dif: number | null;
   dea: number | null;
   macd: number | null;
-  kdjK: number | null;
-  kdjD: number | null;
-  kdjJ: number | null;
+  kdj_k: number | null;
+  kdj_d: number | null;
+  kdj_j: number | null;
   bbi: number | null;
   brick: number | null;
-  brickDelta: number | null;
-  brickXg: boolean | null;
+  brick_delta: number | null;
+  brick_xg: boolean | null;
 }
 
-export interface IndexSnapshot {
+export interface IndexTargetSnapshot {
   quote: IndexQuoteSnapshot;
   indicator: IndexIndicatorSnapshot;
 }
 
+export interface AShareQuoteSnapshot {
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  volume: number | null;
+  amount: number | null;
+  pct_chg: number | null;
+}
+
+export interface AShareIndicatorSnapshot {
+  macd_dif: number | null;
+  macd_dea: number | null;
+  macd_hist: number | null;
+  kdj_j: number | null;
+  kdj_k: number | null;
+  kdj_d: number | null;
+  bbi: number | null;
+  ma5: number | null;
+  ma30: number | null;
+  ma60: number | null;
+  ma120: number | null;
+  ma240: number | null;
+  atr14: number | null;
+  profit_loss_ratio: number | null;
+  roc10: number | null;
+  roc20: number | null;
+  roc60: number | null;
+  brick: number | null;
+  brick_delta: number | null;
+  brick_xg: boolean | null;
+  amv_dif: number | null;
+  amv_dea: number | null;
+  amv_macd: number | null;
+  pos_120: number | null;
+  pos_60: number | null;
+  close_ma60_ratio: number | null;
+  vol_ratio_60: number | null;
+  vol_ratio_120: number | null;
+}
+
+export interface AShareBasicSnapshot {
+  turnover_rate: number | null;
+  volume_ratio: number | null;
+  pe: number | null;
+  pe_ttm: number | null;
+  pb: number | null;
+  total_mv: number | null;
+  circ_mv: number | null;
+}
+
+export interface StockTargetSnapshot {
+  quote: AShareQuoteSnapshot;
+  indicator: AShareIndicatorSnapshot;
+  basic: AShareBasicSnapshot;
+}
+
+export type TargetSnapshot = IndexTargetSnapshot | StockTargetSnapshot;
+
 export interface MarketSnapshot {
-  oamv: OamvSnapshot;
-  idx: IndexSnapshot | null;
+  date: string;
+  targets: Map<string, TargetSnapshot>;
+  prevDate?: string;
+  prevTargets?: Map<string, TargetSnapshot>;
 }
 
 type FieldValue = number | boolean | null;
-type FieldAccessor = (snapshot: MarketSnapshot) => FieldValue;
-
-const FIELD_ACCESSORS: Record<string, FieldAccessor> = {
-  oamv_open: (s) => s.oamv.open,
-  oamv_high: (s) => s.oamv.high,
-  oamv_low: (s) => s.oamv.low,
-  oamv_close: (s) => s.oamv.close,
-  oamv_dif: (s) => s.oamv.amvDif,
-  oamv_dea: (s) => s.oamv.amvDea,
-  oamv_macd: (s) => s.oamv.amvMacd,
-  oamv_ma5: (s) => s.oamv.ma5,
-  oamv_ma30: (s) => s.oamv.ma30,
-  oamv_ma60: (s) => s.oamv.ma60,
-  oamv_ma120: (s) => s.oamv.ma120,
-  oamv_ma240: (s) => s.oamv.ma240,
-  oamv_kdj_k: (s) => s.oamv.kdjK,
-  oamv_kdj_d: (s) => s.oamv.kdjD,
-  oamv_kdj_j: (s) => s.oamv.kdjJ,
-
-  idx_open: (s) => s.idx?.quote.open ?? null,
-  idx_high: (s) => s.idx?.quote.high ?? null,
-  idx_low: (s) => s.idx?.quote.low ?? null,
-  idx_close: (s) => s.idx?.quote.close ?? null,
-  idx_pre_close: (s) => s.idx?.quote.preClose ?? null,
-  idx_change: (s) => s.idx?.quote.change ?? null,
-  idx_pct_change: (s) => s.idx?.quote.pctChange ?? null,
-  idx_vol_hand: (s) => s.idx?.quote.volHand ?? null,
-  idx_amount: (s) => s.idx?.quote.amount ?? null,
-  idx_ma5: (s) => s.idx?.indicator.ma5 ?? null,
-  idx_ma30: (s) => s.idx?.indicator.ma30 ?? null,
-  idx_ma60: (s) => s.idx?.indicator.ma60 ?? null,
-  idx_ma120: (s) => s.idx?.indicator.ma120 ?? null,
-  idx_ma240: (s) => s.idx?.indicator.ma240 ?? null,
-  idx_dif: (s) => s.idx?.indicator.dif ?? null,
-  idx_dea: (s) => s.idx?.indicator.dea ?? null,
-  idx_macd: (s) => s.idx?.indicator.macd ?? null,
-  idx_kdj_k: (s) => s.idx?.indicator.kdjK ?? null,
-  idx_kdj_d: (s) => s.idx?.indicator.kdjD ?? null,
-  idx_kdj_j: (s) => s.idx?.indicator.kdjJ ?? null,
-  idx_bbi: (s) => s.idx?.indicator.bbi ?? null,
-  idx_brick: (s) => s.idx?.indicator.brick ?? null,
-  idx_brick_delta: (s) => s.idx?.indicator.brickDelta ?? null,
-  idx_brick_xg: (s) => s.idx?.indicator.brickXg ?? null,
-};
-
-export const MARKET_CONDITION_FIELD_WHITELIST: ReadonlySet<string> = new Set(
-  Object.keys(FIELD_ACCESSORS),
-);
 
 const COMPARISON_OPERATORS = new Set([
   'gt',
@@ -128,22 +111,84 @@ const COMPARISON_OPERATORS = new Set([
   'lte',
   'eq',
   'neq',
+  'cross_above',
+  'cross_below',
+]);
+
+const INDEX_FIELD_SOURCE: Record<string, 'quote' | 'indicator'> = {
+  open: 'quote',
+  high: 'quote',
+  low: 'quote',
+  close: 'quote',
+  pre_close: 'quote',
+  change: 'quote',
+  pct_change: 'quote',
+  vol_hand: 'quote',
+  amount: 'quote',
+  ma5: 'indicator',
+  ma30: 'indicator',
+  ma60: 'indicator',
+  ma120: 'indicator',
+  ma240: 'indicator',
+  dif: 'indicator',
+  dea: 'indicator',
+  macd: 'indicator',
+  kdj_k: 'indicator',
+  kdj_d: 'indicator',
+  kdj_j: 'indicator',
+  bbi: 'indicator',
+  brick: 'indicator',
+  brick_delta: 'indicator',
+  brick_xg: 'indicator',
+};
+
+const STOCK_FIELD_SOURCE: Record<string, 'quote' | 'indicator' | 'basic'> = (() => {
+  const map: Record<string, 'quote' | 'indicator' | 'basic'> = {};
+  for (const [field, expr] of Object.entries(ASHARE_FIELD_COL_MAP)) {
+    const dot = expr.indexOf('.');
+    if (dot < 0) continue;
+    const prefix = expr.slice(0, dot);
+    if (prefix === 'q') {
+      map[field] = 'quote';
+    } else if (prefix === 'm') {
+      map[field] = 'basic';
+    } else if (prefix === 'i' || prefix === 'sa' || prefix === 'd') {
+      map[field] = 'indicator';
+    }
+  }
+  return map;
+})();
+
+export const MARKET_CONDITION_FIELD_WHITELIST: ReadonlySet<string> = new Set([
+  ...Object.keys(INDEX_FIELD_SOURCE),
+  ...Object.keys(STOCK_FIELD_SOURCE),
 ]);
 
 function isValidNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
-function toNumeric(v: FieldValue): number | null {
+function toNumeric(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   if (typeof v === 'boolean') return v ? 1 : 0;
-  return isValidNumber(v) ? v : null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
-function getFieldValue(snapshot: MarketSnapshot, field: string): FieldValue {
-  const accessor = FIELD_ACCESSORS[field];
-  if (!accessor) return null;
-  return accessor(snapshot);
+function getFieldFromTarget(
+  target: TargetSnapshot,
+  type: 'index' | 'stock',
+  field: string,
+): FieldValue {
+  const source = type === 'index' ? INDEX_FIELD_SOURCE[field] : STOCK_FIELD_SOURCE[field];
+  if (!source) return null;
+  const bucket = ((target as unknown) as Record<string, Record<string, FieldValue>>)[source];
+  if (!bucket) return null;
+  return bucket[field] ?? null;
 }
 
 function compareValues(left: number, operator: string, right: number): boolean {
@@ -165,41 +210,62 @@ function compareValues(left: number, operator: string, right: number): boolean {
   }
 }
 
-/**
- * 对单个大盘条件求值。
- * fail-closed：field 越界 / operator 不支持 / 任一操作数为 null / 比较不成立 → false。
- */
 function evaluateSingleCondition(
   snapshot: MarketSnapshot,
-  condition: StrategyConditionItem,
+  condition: RegimeBucketCondition,
 ): boolean {
-  const { field, operator, value, compareField } = condition;
+  const { type, target, field, operator, value, compareField, compareMode } = condition;
 
   if (!field || !MARKET_CONDITION_FIELD_WHITELIST.has(field)) return false;
   if (!operator || !COMPARISON_OPERATORS.has(operator)) return false;
 
-  const left = toNumeric(getFieldValue(snapshot, field));
+  const targetSnapshot = snapshot.targets.get(target);
+  if (!targetSnapshot) return false;
+
+  const left = toNumeric(getFieldFromTarget(targetSnapshot, type, field));
   if (left === null) return false;
 
+  const isCross = operator === 'cross_above' || operator === 'cross_below';
+
   let right: number | null;
-  if (compareField) {
-    if (!MARKET_CONDITION_FIELD_WHITELIST.has(compareField)) return false;
-    right = toNumeric(getFieldValue(snapshot, compareField));
+  let prevRight: number | null = null;
+
+  if (compareMode === 'field') {
+    const cf = compareField;
+    if (!cf || !MARKET_CONDITION_FIELD_WHITELIST.has(cf)) return false;
+    right = toNumeric(getFieldFromTarget(targetSnapshot, type, cf));
+    if (isCross) {
+      const prevTargetSnapshot = snapshot.prevTargets?.get(target);
+      if (!prevTargetSnapshot) return false;
+      prevRight = toNumeric(getFieldFromTarget(prevTargetSnapshot, type, cf));
+    }
   } else {
     right = isValidNumber(value) ? value : null;
+    if (isCross) {
+      prevRight = right;
+    }
   }
-  if (right === null) return false;
 
-  return compareValues(left, operator, right);
+  if (right === null || (isCross && prevRight === null)) return false;
+
+  if (!isCross) {
+    return compareValues(left, operator, right);
+  }
+
+  const prevTargetSnapshot = snapshot.prevTargets?.get(target);
+  if (!prevTargetSnapshot) return false;
+  const prevLeft = toNumeric(getFieldFromTarget(prevTargetSnapshot, type, field));
+  if (prevLeft === null) return false;
+
+  if (operator === 'cross_above') {
+    return prevLeft <= prevRight && left > right;
+  }
+  return prevLeft >= prevRight && left < right;
 }
 
-/**
- * 对一组大盘条件求值，所有条件必须同时命中。
- * 空条件数组视为 false（fail-closed，避免兜底象限误命中）。
- */
 export function evaluateMarketConditions(
   snapshot: MarketSnapshot,
-  conditions: StrategyConditionItem[],
+  conditions: RegimeBucketCondition[],
 ): boolean {
   if (!Array.isArray(conditions) || conditions.length === 0) return false;
   for (const condition of conditions) {
