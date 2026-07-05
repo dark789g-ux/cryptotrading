@@ -40,6 +40,9 @@ export interface KlineRowWithIndicators extends KlineRow {
   roc10: number | null;
   roc20: number | null;
   roc60: number | null;
+  obv5d: number | null;
+  obv10d: number | null;
+  obv20d: number | null;
 }
 
 /** EMA — 首值以第一个数据为种子（Python: k = 2/(period+1)） */
@@ -72,6 +75,18 @@ function calcStrictSma(values: number[], period: number): Array<number | null> {
     }
     const window = values.slice(i - period + 1, i + 1);
     result.push(window.reduce((a, b) => a + b, 0) / window.length);
+  }
+  return result;
+}
+
+function calcStrictRollingSum(values: number[], period: number): Array<number | null> {
+  const result: Array<number | null> = [];
+  for (let i = 0; i < values.length; i++) {
+    if (i < period - 1) {
+      result.push(null);
+      continue;
+    }
+    result.push(values.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0));
   }
   return result;
 }
@@ -198,6 +213,18 @@ export function calcIndicators(rows: KlineRow[]): KlineRowWithIndicators[] {
   const roc20 = rocN(20);
   const roc60 = rocN(60);
 
+  const signedAmounts = closes.map((c, i) => {
+    if (i === 0) return 0;
+    const prev = closes[i - 1];
+    const qv = qvols[i];
+    if (c > prev) return qv;
+    if (c < prev) return -qv;
+    return 0;
+  });
+  const obv5d = calcStrictRollingSum(signedAmounts, 5);
+  const obv10d = calcStrictRollingSum(signedAmounts, 10);
+  const obv20d = calcStrictRollingSum(signedAmounts, 20);
+
   return rows.map((row, i) => ({
     ...row,
     DIF: roundSig(dif[i], 8),
@@ -222,5 +249,8 @@ export function calcIndicators(rows: KlineRow[]): KlineRowWithIndicators[] {
     roc10: roc10[i],
     roc20: roc20[i],
     roc60: roc60[i],
+    obv5d: roundNullableSig(obv5d[i], 2),
+    obv10d: roundNullableSig(obv10d[i], 2),
+    obv20d: roundNullableSig(obv20d[i], 2),
   })) as KlineRowWithIndicators[];
 }

@@ -68,6 +68,15 @@ export class IndexDailyIndicatorEntity {
   @Column({ name: 'brick_xg', type: 'boolean', nullable: true })
   brickXg: boolean | null;
 
+  @Column({ type: 'double precision', nullable: true })
+  obv5d: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  obv10d: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  obv20d: number | null;
+
   /** 指数类别：'market' | 'industry' | 'concept' | 'sw'（申万行业指数） */
   @Column({ length: 8 })
   category: 'market' | 'industry' | 'concept' | 'sw';

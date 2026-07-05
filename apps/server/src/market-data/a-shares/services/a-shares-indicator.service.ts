@@ -249,6 +249,9 @@ export class ASharesIndicatorService {
       roc10: row.roc10,
       roc20: row.roc20,
       roc60: row.roc60,
+      obv5d: row.obv5d,
+      obv10d: row.obv10d,
+      obv20d: row.obv20d,
     });
   }
 

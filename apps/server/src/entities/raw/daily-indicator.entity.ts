@@ -89,6 +89,15 @@ export class DailyIndicatorEntity {
   @Column({ type: 'double precision', nullable: true })
   roc60: number;
 
+  @Column({ type: 'double precision', nullable: true })
+  obv5d: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  obv10d: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  obv20d: number | null;
+
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

@@ -56,6 +56,9 @@ const SORT_COL_MAP: Record<string, string> = {
   kdj_k: '"kdjK"',
   kdj_d: '"kdjD"',
   kdj_j: '"kdjJ"',
+  obv5d: '"obv5d"',
+  obv10d: '"obv10d"',
+  obv20d: '"obv20d"',
   component_count: '"componentCount"',
   creation_unit: '"creationUnit"',
   max_cash_ratio: '"maxCashRatio"',
@@ -135,6 +138,9 @@ export class EtfQueryService {
         fi.kdj_k                  AS "kdjK",
         fi.kdj_d                  AS "kdjD",
         fi.kdj_j                  AS "kdjJ",
+        fi.obv5d                  AS "obv5d",
+        fi.obv10d                 AS "obv10d",
+        fi.obv20d                 AS "obv20d",
         pcf.creation_unit::text   AS "creationUnit",
         pcf.max_cash_ratio::text  AS "maxCashRatio",
         comp.cnt::int             AS "componentCount"
@@ -147,7 +153,7 @@ export class EtfQueryService {
         LIMIT 1
       ) fd ON true
       LEFT JOIN LATERAL (
-        SELECT ma5, ma30, ma60, dif, dea, macd, kdj_k, kdj_d, kdj_j
+        SELECT ma5, ma30, ma60, dif, dea, macd, kdj_k, kdj_d, kdj_j, obv5d, obv10d, obv20d
         FROM raw.fund_daily_indicator i
         WHERE i.ts_code = s.ts_code AND i.trade_date = fd.trade_date
         LIMIT 1

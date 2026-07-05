@@ -45,6 +45,9 @@ const RAW_CONDITION_COL_MAP: Record<string, string> = {
   buyLgAmount: 'mf.buy_lg_amount',
   buyMdAmount: 'mf.buy_md_amount',
   buySmAmount: 'mf.buy_sm_amount',
+  obv5d: 'i.obv5d',
+  obv10d: 'i.obv10d',
+  obv20d: 'i.obv20d',
 };
 
 const QFQ_CONDITION_COL_MAP: Record<string, string> = {
@@ -111,6 +114,9 @@ const RAW_SORT_COL_MAP: Record<string, string> = {
   buyLgAmount: 'mf.buy_lg_amount',
   buyMdAmount: 'mf.buy_md_amount',
   buySmAmount: 'mf.buy_sm_amount',
+  obv5d: 'i.obv5d',
+  obv10d: 'i.obv10d',
+  obv20d: 'i.obv20d',
 };
 
 const QFQ_SORT_COL_MAP: Record<string, string> = {
@@ -189,6 +195,7 @@ export function buildASharesBaseQuery(
         i.brick AS "brick", i.brick_delta AS "brickDelta", i.brick_xg AS "brickXg",
         sa.amv_dif AS "amvDif", sa.amv_dea AS "amvDea", sa.amv_macd AS "amvMacd",
         i.roc10, i.roc20, i.roc60,
+        i.obv5d AS "obv5d", i.obv10d AS "obv10d", i.obv20d AS "obv20d",
         mf.net_inflow      AS "netInflow",
         mf.net_inflow_5d   AS "netInflow5d",
         mf.net_inflow_10d  AS "netInflow10d",

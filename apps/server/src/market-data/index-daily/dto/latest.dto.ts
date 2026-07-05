@@ -23,7 +23,10 @@ export type IndexLatestSortField =
   | 'buy_sm_amount'
   | 'net_amount_5d'
   | 'net_amount_10d'
-  | 'net_amount_20d';
+  | 'net_amount_20d'
+  | 'obv5d'
+  | 'obv10d'
+  | 'obv20d';
 
 export class QueryLatestDto {
   type?: 'market' | 'industry' | 'concept' | 'sw';

@@ -32,6 +32,12 @@ export interface IndexLatestRow {
   netAmount10d: number | null;
   /** 净流入（万元，20日累计） */
   netAmount20d: number | null;
+  /** OBV 5日 */
+  obv5d: number | null;
+  /** OBV 10日 */
+  obv10d: number | null;
+  /** OBV 20日 */
+  obv20d: number | null;
   /** 大单净流入（万元） */
   buyLgAmount: number | null;
   /** 中单净流入（万元） */

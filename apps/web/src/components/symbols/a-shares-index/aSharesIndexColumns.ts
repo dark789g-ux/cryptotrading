@@ -54,7 +54,8 @@ function renderMoneyFlowCell(value: number | null) {
  * （apps/server/.../index-daily/dto/latest.dto.ts IndexLatestSortField：
  * pct_change / vol / amount / total_mv_wan / tradeDate / pe / pb / count /
  * net_amount / buy_lg_amount / buy_md_amount / buy_sm_amount /
- * net_amount_5d / net_amount_10d / net_amount_20d），
+ * net_amount_5d / net_amount_10d / net_amount_20d /
+ * obv5d / obv10d / obv20d)，
  * 这样 n-data-table 表头排序事件 handleSort 拿到的 columnKey 可直发后端，无需中转映射。
  * render 内再取 row 的驼峰字段。
  *
@@ -172,6 +173,30 @@ export function createASharesIndexColumnDefs({
       sorter: true,
       defaultVisible: false,
       render: (row) => renderMoneyFlowCell(row.netAmount20d),
+    },
+    {
+      title: 'OBV5D',
+      key: 'obv5d',
+      width: 110,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => formatAmount(toStr(row.obv5d)),
+    },
+    {
+      title: 'OBV10D',
+      key: 'obv10d',
+      width: 110,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => formatAmount(toStr(row.obv10d)),
+    },
+    {
+      title: 'OBV20D',
+      key: 'obv20d',
+      width: 110,
+      sorter: true,
+      defaultVisible: false,
+      render: (row) => formatAmount(toStr(row.obv20d)),
     },
     {
       title: '大单净流入',

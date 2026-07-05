@@ -2,6 +2,7 @@ import { h } from 'vue'
 import type { SymbolColumnDef } from '../columns/columnTypes'
 import type { EtfLatestRow } from './etf.types'
 import {
+  formatAmount,
   formatNumber,
   formatPercent,
   formatTradeDate,
@@ -155,6 +156,30 @@ export function createEtfColumnDefs({
       sorter: true,
       defaultVisible: false,
       render: (row) => formatNumber(toStr(row.kdjJ), 2),
+    },
+    {
+      title: 'OBV5日',
+      key: 'obv5d',
+      width: 110,
+      sorter: true,
+      defaultVisible: true,
+      render: (row) => formatAmount(toStr(row.obv5d)),
+    },
+    {
+      title: 'OBV10日',
+      key: 'obv10d',
+      width: 110,
+      sorter: true,
+      defaultVisible: true,
+      render: (row) => formatAmount(toStr(row.obv10d)),
+    },
+    {
+      title: 'OBV20日',
+      key: 'obv20d',
+      width: 110,
+      sorter: true,
+      defaultVisible: true,
+      render: (row) => formatAmount(toStr(row.obv20d)),
     },
     {
       title: '公布IOPV',

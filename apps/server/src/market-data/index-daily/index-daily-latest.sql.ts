@@ -208,6 +208,7 @@ function buildInnerDistinct(
            q.pct_change AS "pctChange", q.vol_hand AS "vol",
            q.amount, q.total_mv_wan AS "totalMvWan",
            q.pe, q.pb,
+           i.obv5d, i.obv10d, i.obv20d,
            ${cat.countExpr} AS count,
            ${cat.mfAlias}.net_amount AS "netAmount",
            ${buyExpr(cat, 'buy_lg_amount')} AS "buyLgAmount",
@@ -215,6 +216,7 @@ function buildInnerDistinct(
            ${buyExpr(cat, 'buy_sm_amount')} AS "buySmAmount"
          FROM index_daily_quotes q
          ${cat.catalogJoin}${smcJoin}
+         LEFT JOIN index_daily_indicators i ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
          LEFT JOIN ${cat.mfTable} ${cat.mfAlias} ON ${cat.mfCond}
          WHERE ${whereCore}${tsClauseRows}
          ORDER BY q.ts_code, q.trade_date DESC`;
@@ -228,6 +230,7 @@ function buildInnerMixed(whereCore: string, tsClauseRows: string): string {
            q.pct_change AS "pctChange", q.vol_hand AS "vol",
            q.amount, q.total_mv_wan AS "totalMvWan",
            q.pe, q.pb,
+           i.obv5d, i.obv10d, i.obv20d,
            COALESCE(c.count, smc.cnt) AS count,
            CASE q.category
              WHEN 'sw'       THEN mf_ind.net_amount
@@ -255,6 +258,7 @@ function buildInnerMixed(whereCore: string, tsClauseRows: string): string {
          LEFT JOIN ths_index_catalog c ON c.ts_code = q.ts_code
          LEFT JOIN sw_index_catalog s ON s.ts_code = q.ts_code
          LEFT JOIN sw_member_count smc ON smc.idx_code = q.ts_code
+         LEFT JOIN index_daily_indicators i ON i.ts_code = q.ts_code AND i.trade_date = q.trade_date
          LEFT JOIN money_flow_industries mf_ind ON mf_ind.ts_code = q.ts_code AND mf_ind.trade_date = q.trade_date
          LEFT JOIN money_flow_sectors mf_sec ON mf_sec.ts_code = q.ts_code AND mf_sec.trade_date = q.trade_date
          LEFT JOIN money_flow_ths_industries mf_ths ON mf_ths.ts_code = q.ts_code AND mf_ths.trade_date = q.trade_date

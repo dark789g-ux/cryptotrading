@@ -32,6 +32,9 @@ const SORT_COL_MAP: Record<IndexLatestSortField, string> = {
   net_amount_5d: '"netAmount5d"',
   net_amount_10d: '"netAmount10d"',
   net_amount_20d: '"netAmount20d"',
+  obv5d: '"obv5d"',
+  obv10d: '"obv10d"',
+  obv20d: '"obv20d"',
 };
 
 /** 排序依赖 LATERAL 滚动资金流时须全量算完再排序,不可先分页。 */
@@ -61,6 +64,9 @@ interface LatestRawRow {
   netAmount5d: string | number | null;
   netAmount10d: string | number | null;
   netAmount20d: string | number | null;
+  obv5d: string | number | null;
+  obv10d: string | number | null;
+  obv20d: string | number | null;
 }
 
 interface KlineRawRow {
@@ -191,6 +197,9 @@ export class IndexDailyService {
       netAmount5d: nullableNum(r.netAmount5d),
       netAmount10d: nullableNum(r.netAmount10d),
       netAmount20d: nullableNum(r.netAmount20d),
+      obv5d: nullableNum(r.obv5d),
+      obv10d: nullableNum(r.obv10d),
+      obv20d: nullableNum(r.obv20d),
       buyLgAmount: nullableNum(r.buyLgAmount),
       buyMdAmount: nullableNum(r.buyMdAmount),
       buySmAmount: nullableNum(r.buySmAmount),

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { IndexDailyQuoteEntity } from '../../entities/index-daily/index-daily-quote.entity';
 import { IndexDailyIndicatorEntity } from '../../entities/index-daily/index-daily-indicator.entity';
 import { calcIndicators, KlineRow } from '../../indicators/indicators';
@@ -23,6 +23,7 @@ export class ThsIndexDailyIndicatorService {
     private readonly quotesRepo: Repository<IndexDailyQuoteEntity>,
     @InjectRepository(IndexDailyIndicatorEntity)
     private readonly indicatorsRepo: Repository<IndexDailyIndicatorEntity>,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -46,10 +47,72 @@ export class ThsIndexDailyIndicatorService {
     return written;
   }
 
-  private async recalculateForSymbol(tsCode: string): Promise<number> {
-    const rows = await this.quotesRepo
+  private async backfillIndexAmount(tsCode: string, category: string): Promise<void> {
+    if (category === 'market') return;
+
+    const minMax = await this.quotesRepo
       .createQueryBuilder('q')
-      .select(['q.tsCode', 'q.tradeDate', 'q.open', 'q.high', 'q.low', 'q.close', 'q.category'])
+      .select('MIN(q.tradeDate)', 'minDate')
+      .addSelect('MAX(q.tradeDate)', 'maxDate')
+      .where('q.tsCode = :ts', { ts: tsCode })
+      .getRawOne();
+    const minDate = minMax?.minDate;
+    const maxDate = minMax?.maxDate;
+    if (!minDate || !maxDate) return;
+
+    if (category === 'sw') {
+      await this.dataSource.query(
+        `
+          UPDATE index_daily_quotes q
+          SET amount = agg.amount
+          FROM (
+            SELECT dq.trade_date, SUM(dq.amount) AS amount
+            FROM raw.daily_quote dq
+            JOIN raw.index_member im
+              ON (im.l1_code = $1 OR im.l2_code = $1 OR im.l3_code = $1)
+              AND im.out_date IS NULL
+            WHERE dq.ts_code = im.ts_code
+              AND dq.trade_date BETWEEN $2 AND $3
+            GROUP BY dq.trade_date
+          ) agg
+          WHERE q.ts_code = $1 AND q.trade_date = agg.trade_date
+        `,
+        [tsCode, minDate, maxDate],
+      );
+    } else {
+      await this.dataSource.query(
+        `
+          UPDATE index_daily_quotes q
+          SET amount = agg.amount
+          FROM (
+            SELECT dq.trade_date, SUM(dq.amount) AS amount
+            FROM raw.daily_quote dq
+            JOIN ths_member_stocks tms ON tms.con_code = dq.ts_code
+            WHERE tms.ts_code = $1
+              AND dq.trade_date BETWEEN $2 AND $3
+            GROUP BY dq.trade_date
+          ) agg
+          WHERE q.ts_code = $1 AND q.trade_date = agg.trade_date
+        `,
+        [tsCode, minDate, maxDate],
+      );
+    }
+  }
+
+  private async recalculateForSymbol(tsCode: string): Promise<number> {
+    let rows = await this.quotesRepo
+      .createQueryBuilder('q')
+      .select([
+        'q.tsCode',
+        'q.tradeDate',
+        'q.open',
+        'q.high',
+        'q.low',
+        'q.close',
+        'q.volHand',
+        'q.amount',
+        'q.category',
+      ])
       .where('q.tsCode = :ts', { ts: tsCode })
       .andWhere('q.open IS NOT NULL')
       .andWhere('q.high IS NOT NULL')
@@ -60,21 +123,46 @@ export class ThsIndexDailyIndicatorService {
 
     if (!rows.length) return 0;
 
+    await this.backfillIndexAmount(tsCode, rows[0].category);
+
+    rows = await this.quotesRepo
+      .createQueryBuilder('q')
+      .select([
+        'q.tsCode',
+        'q.tradeDate',
+        'q.open',
+        'q.high',
+        'q.low',
+        'q.close',
+        'q.volHand',
+        'q.amount',
+        'q.category',
+      ])
+      .where('q.tsCode = :ts', { ts: tsCode })
+      .andWhere('q.open IS NOT NULL')
+      .andWhere('q.high IS NOT NULL')
+      .andWhere('q.low IS NOT NULL')
+      .andWhere('q.close IS NOT NULL')
+      .orderBy('q.tradeDate', 'ASC')
+      .getMany();
+
     const klineRows: KlineRow[] = rows.map((r) => ({
       open_time: r.tradeDate,
       open: r.open ?? 0,
       high: r.high ?? 0,
       low: r.low ?? 0,
       close: r.close ?? 0,
-      volume: 0,
+      volume: r.volHand ?? 0,
+      quote_volume: r.amount ?? undefined,
     }));
     const withIndicators = calcIndicators(klineRows);
     const brickPoints = calcBrickChartPoints(
       rows.map((r) => ({ high: r.high ?? 0, low: r.low ?? 0, close: r.close ?? 0 })),
     );
 
-    const entities = withIndicators.map((row, i) =>
-      this.indicatorsRepo.create({
+    const entities = withIndicators.map((row, i) => {
+      const hasAmount = rows[i].amount != null;
+      return this.indicatorsRepo.create({
         tsCode,
         tradeDate: rows[i].tradeDate,
         ma5: row.MA5,
@@ -92,9 +180,12 @@ export class ThsIndexDailyIndicatorService {
         brick: brickPoints[i]?.brick ?? null,
         brickDelta: brickPoints[i]?.delta ?? null,
         brickXg: brickPoints[i]?.xg ?? null,
+        obv5d: hasAmount ? row.obv5d : null,
+        obv10d: hasAmount ? row.obv10d : null,
+        obv20d: hasAmount ? row.obv20d : null,
         category: rows[i].category,
-      }),
-    );
+      });
+    });
 
     return batchUpsert(this.indicatorsRepo, entities, ['tsCode', 'tradeDate']);
   }

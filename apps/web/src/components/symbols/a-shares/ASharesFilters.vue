@@ -266,6 +266,16 @@ const advancedFieldOptions: NumericConditionFieldOption[] = [
   },
   {
     type: 'group',
+    label: 'OBV',
+    key: 'obv',
+    children: [
+      { label: 'OBV5D', value: 'obv5d', descKey: 'obv5d' },
+      { label: 'OBV10D', value: 'obv10d', descKey: 'obv10d' },
+      { label: 'OBV20D', value: 'obv20d', descKey: 'obv20d' },
+    ],
+  },
+  {
+    type: 'group',
     label: '资金流向',
     key: 'moneyFlow',
     children: [

@@ -81,7 +81,7 @@ async function upsertIndicators(client: Client, tsCode: string, rows: QuoteRow[]
     const chunk = withIndicators.slice(start, start + chunkSize);
     const values: Array<string | number | boolean | null> = [];
     const placeholders = chunk.map((row, index) => {
-      const base = index * 24;
+      const base = index * 27;
       const source = rows[start + index];
       values.push(
         tsCode,
@@ -108,8 +108,11 @@ async function upsertIndicators(client: Client, tsCode: string, rows: QuoteRow[]
         brickChart[start + index]?.brick ?? null,
         brickChart[start + index]?.delta ?? null,
         brickChart[start + index]?.xg ?? null,
+        row.obv5d,
+        row.obv10d,
+        row.obv20d,
       );
-      return `(${Array.from({ length: 24 }, (_, offset) => `$${base + offset + 1}`).join(', ')})`;
+      return `(${Array.from({ length: 27 }, (_, offset) => `$${base + offset + 1}`).join(', ')})`;
     });
 
     await client.query(`
@@ -137,7 +140,10 @@ async function upsertIndicators(client: Client, tsCode: string, rows: QuoteRow[]
         risk_reward_ratio,
         brick,
         brick_delta,
-        brick_xg
+        brick_xg,
+        obv5d,
+        obv10d,
+        obv20d
       )
       VALUES ${placeholders.join(', ')}
       ON CONFLICT (ts_code, trade_date) DO UPDATE SET
@@ -163,6 +169,9 @@ async function upsertIndicators(client: Client, tsCode: string, rows: QuoteRow[]
         brick = EXCLUDED.brick,
         brick_delta = EXCLUDED.brick_delta,
         brick_xg = EXCLUDED.brick_xg,
+        obv5d = EXCLUDED.obv5d,
+        obv10d = EXCLUDED.obv10d,
+        obv20d = EXCLUDED.obv20d,
         updated_at = now()
     `, values);
   }

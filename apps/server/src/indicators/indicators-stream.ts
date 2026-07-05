@@ -13,6 +13,7 @@ export interface IndicatorCalcState {
   lows: number[];
   qvols: number[];
   trs: number[];
+  signedAmounts: number[];
   brickSma2a: number;
   brickSma4a: number;
   brickSma5a: number;
@@ -60,6 +61,7 @@ export function normalizeIndicatorCalcState(value: unknown): IndicatorCalcState 
     lows: arr(raw.lows, 8),
     qvols: arr(raw.qvols, 9),
     trs: arr(raw.trs, 13),
+    signedAmounts: arr(raw.signedAmounts, 20),
     brickSma2a: num(raw.brickSma2a),
     brickSma4a: num(raw.brickSma4a),
     brickSma5a: num(raw.brickSma5a),
@@ -115,6 +117,11 @@ class IndicatorStreamCalculator {
 
     const qvolsForCalc = appendWindow(prev?.qvols ?? [], qvol, 10);
     const qvol10 = avgLast(qvolsForCalc, 10);
+
+    const prevClose = prev?.closes[prev.closes.length - 1] ?? close;
+    const signed = close > prevClose ? qvol : close < prevClose ? -qvol : 0;
+    const signedAmountsForCalc = appendWindow(prev?.signedAmounts ?? [], signed, 20);
+
     const tr = index === 0
       ? high - low
       : Math.max(
@@ -161,6 +168,7 @@ class IndicatorStreamCalculator {
       lows: appendWindow(prev?.lows ?? [], low, 8),
       qvols: qvolsForCalc.slice(-9),
       trs: trsForCalc.slice(-13),
+      signedAmounts: signedAmountsForCalc.slice(-19),
       brickSma2a: brick.sma2a,
       brickSma4a: brick.sma4a,
       brickSma5a: brick.sma5a,
@@ -195,6 +203,9 @@ class IndicatorStreamCalculator {
         roc10: calcRoc(10),
         roc20: calcRoc(20),
         roc60: calcRoc(60),
+        obv5d: roundNullableSig(sumLastOrNull(signedAmountsForCalc, 5, index), 2),
+        obv10d: roundNullableSig(sumLastOrNull(signedAmountsForCalc, 10, index), 2),
+        obv20d: roundNullableSig(sumLastOrNull(signedAmountsForCalc, 20, index), 2),
       },
       state: cloneState(nextState),
       brickChart: { brick: brick.brick, delta: brickDelta, xg: brickXg },
@@ -264,6 +275,11 @@ function strictAvg(values: number[], index: number, period: number): number | nu
   return avgLast(values, period);
 }
 
+function sumLastOrNull(arr: number[], n: number, index: number): number | null {
+  if (arr.length < n) return null;
+  return arr.slice(arr.length - n).reduce((a, b) => a + b, 0);
+}
+
 function appendWindow(values: number[], value: number, limit: number): number[] {
   const next = [...values, value];
   return next.length > limit ? next.slice(next.length - limit) : next;
@@ -288,6 +304,7 @@ function cloneState(state: IndicatorCalcState): IndicatorCalcState {
     lows: [...state.lows],
     qvols: [...state.qvols],
     trs: [...state.trs],
+    signedAmounts: [...state.signedAmounts],
   };
 }
 

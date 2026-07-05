@@ -47,6 +47,7 @@ export class CustomIndexIndicatorService {
         low: q.low!,
         close: q.close!,
         volume: 0,
+        quote_volume: q.amount ?? undefined,
       }));
       const withIndicators = calcIndicators(klineRows);
       const brickPoints = calcBrickChartPoints(
@@ -57,8 +58,9 @@ export class CustomIndexIndicatorService {
         })),
       );
 
-      const entities = withIndicators.map((row, i) =>
-        this.indicatorsRepo.create({
+      const entities = withIndicators.map((row, i) => {
+        const hasAmount = rows[i].amount != null;
+        return this.indicatorsRepo.create({
           customIndexId,
           tradeDate: rows[i].tradeDate,
           ma5: row.MA5,
@@ -76,8 +78,11 @@ export class CustomIndexIndicatorService {
           brick: brickPoints[i]?.brick ?? null,
           brickDelta: brickPoints[i]?.delta ?? null,
           brickXg: brickPoints[i]?.xg ?? null,
-        }),
-      );
+          obv5d: hasAmount ? row.obv5d : null,
+          obv10d: hasAmount ? row.obv10d : null,
+          obv20d: hasAmount ? row.obv20d : null,
+        });
+      });
 
       return batchUpsert(this.indicatorsRepo, entities, [
         'customIndexId',

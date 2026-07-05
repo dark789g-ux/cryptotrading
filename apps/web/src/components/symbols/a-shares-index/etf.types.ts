@@ -38,6 +38,12 @@ export interface EtfLatestRow {
   kdjD: number | null
   /** KDJ-J */
   kdjJ: number | null
+  /** OBV 5日 */
+  obv5d: number | null
+  /** OBV 10日 */
+  obv10d: number | null
+  /** OBV 20日 */
+  obv20d: number | null
   /** 是否公布 IOPV */
   publishIopv: boolean | null
   /** 最小申赎单位 */
@@ -64,6 +70,9 @@ export type EtfLatestSortField =
   | 'kdj_k'
   | 'kdj_d'
   | 'kdj_j'
+  | 'obv5d'
+  | 'obv10d'
+  | 'obv20d'
   | 'component_count'
   | 'creation_unit'
   | 'max_cash_ratio'

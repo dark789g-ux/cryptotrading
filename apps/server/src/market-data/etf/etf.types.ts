@@ -95,6 +95,9 @@ export interface EtfLatestRow {
   kdjK: number | null;
   kdjD: number | null;
   kdjJ: number | null;
+  obv5d: number | null;
+  obv10d: number | null;
+  obv20d: number | null;
   creationUnit: string | null;
   maxCashRatio: string | null;
   componentCount: number | null;

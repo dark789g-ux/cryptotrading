@@ -64,6 +64,9 @@ export const INDICATOR_DESCRIPTORS: IndicatorDescriptor[] = [
   { key: 'amvDif', title: 'AMV.DIF', decimals: 4, descKey: 'amv_dif' },
   { key: 'amvDea', title: 'AMV.DEA', decimals: 4, descKey: 'amv_dea' },
   { key: 'amvMacd', title: 'AMV.MACD', decimals: 4, descKey: 'amv_macd' },
+  { key: 'obv5d', title: 'OBV5D', decimals: 2, descKey: 'obv5d' },
+  { key: 'obv10d', title: 'OBV10D', decimals: 2, descKey: 'obv10d' },
+  { key: 'obv20d', title: 'OBV20D', decimals: 2, descKey: 'obv20d' },
 ]
 
 export interface BuildIndicatorColumnsOptions<Row> {

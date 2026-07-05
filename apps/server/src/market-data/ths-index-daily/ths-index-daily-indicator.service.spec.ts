@@ -3,19 +3,43 @@
 // 如果未来抽取专用 indicators/moving-average.ts 等纯函数，需要更新等价性测试。
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { ThsIndexDailyIndicatorService } from './ths-index-daily-indicator.service';
 import { IndexDailyQuoteEntity } from '../../entities/index-daily/index-daily-quote.entity';
 import { IndexDailyIndicatorEntity } from '../../entities/index-daily/index-daily-indicator.entity';
 import { calcIndicators, KlineRow } from '../../indicators/indicators';
 import { calcBrickChartPoints } from '../../indicators/brick-chart';
 
-function fakeQuotesRepo(rows: Array<{ tradeDate: string; open: number; high: number; low: number; close: number }>) {
+function fakeQuotesRepo(
+  rows: Array<{
+    tradeDate: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    category?: string;
+    volHand?: number | null;
+    amount?: number | null;
+  }>,
+) {
+  const allRows = rows.map((r) => ({
+    tsCode: '881101.TI',
+    category: r.category ?? 'industry',
+    volHand: r.volHand ?? 0,
+    amount: r.amount ?? null,
+    ...r,
+  }));
   const qb: Record<string, jest.Mock> = {
     select: jest.fn().mockReturnThis(),
+    addSelect: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockReturnThis(),
-    getMany: jest.fn().mockResolvedValue(rows),
+    getMany: jest.fn().mockResolvedValue(allRows),
+    getRawOne: jest.fn().mockResolvedValue({
+      minDate: allRows[0]?.tradeDate,
+      maxDate: allRows[allRows.length - 1]?.tradeDate,
+    }),
   };
   return {
     createQueryBuilder: jest.fn().mockReturnValue(qb),
@@ -32,6 +56,12 @@ function fakeIndicatorsRepo() {
   };
 }
 
+function fakeDataSource() {
+  return {
+    query: jest.fn().mockResolvedValue([]),
+  };
+}
+
 describe('ThsIndexDailyIndicatorService', () => {
   it('MA/MACD/KDJ/BBI/BRICK 与 calcIndicators + calcBrickChartPoints 输出一致', async () => {
     const quoteRows = Array.from({ length: 30 }, (_, i) => ({
@@ -43,12 +73,14 @@ describe('ThsIndexDailyIndicatorService', () => {
     }));
     const quotesRepo = fakeQuotesRepo(quoteRows);
     const indicatorsRepo = fakeIndicatorsRepo();
+    const dataSource = fakeDataSource();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ThsIndexDailyIndicatorService,
         { provide: getRepositoryToken(IndexDailyQuoteEntity), useValue: quotesRepo },
         { provide: getRepositoryToken(IndexDailyIndicatorEntity), useValue: indicatorsRepo },
+        { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
     module.useLogger(false);
@@ -86,6 +118,9 @@ describe('ThsIndexDailyIndicatorService', () => {
       expect(p.brick).toBe(expectedBricks[i].brick);
       expect(p.brickDelta).toBe(expectedBricks[i].delta);
       expect(p.brickXg).toBe(expectedBricks[i].xg);
+      expect(p.obv5d).toBeNull();
+      expect(p.obv10d).toBeNull();
+      expect(p.obv20d).toBeNull();
     }
   });
 });

@@ -122,6 +122,9 @@ export class EtfIndicatorService {
       roc10: ind.roc10,
       roc20: ind.roc20,
       roc60: ind.roc60,
+      obv5d: ind.obv5d,
+      obv10d: ind.obv10d,
+      obv20d: ind.obv20d,
     }));
 
     // 去重
@@ -140,7 +143,7 @@ export class EtfIndicatorService {
            'ma5', 'ma30', 'ma60', 'ma120', 'ma240', 'quote_volume_10',
            'atr_14', 'loss_atr_14', 'low_9', 'high_9', 'stop_loss_pct',
            'risk_reward_ratio', 'brick', 'brick_delta', 'brick_xg',
-           'roc10', 'roc20', 'roc60'],
+           'roc10', 'roc20', 'roc60', 'obv5d', 'obv10d', 'obv20d'],
           ['ts_code', 'trade_date'],
         )
         .execute();
