@@ -42,6 +42,59 @@
             </div>
           </div>
         </n-tab-pane>
+        <n-tab-pane v-if="row?.category === 'sw'" name="hierarchy" tab="行业层级">
+          <div class="hierarchy-pane-body">
+            <n-spin v-if="hierarchyLoading" />
+            <div v-else-if="!hierarchyData" class="empty-state">
+              暂无行业层级数据
+            </div>
+            <div v-else class="hierarchy-tree-container">
+              <div class="hierarchy-tree">
+                <!-- 一级行业 -->
+                <div 
+                  class="tree-node level-1" 
+                  :class="{ active: hierarchyData.level === 1 }"
+                >
+                  <div class="node-icon">Ⅰ</div>
+                  <div class="node-content">
+                    <span class="node-name">{{ hierarchyData.l1Name }}</span>
+                    <span class="node-code">{{ hierarchyData.l1Code }}</span>
+                  </div>
+                </div>
+
+                <!-- 二级行业 -->
+                <template v-if="hierarchyData.l2Code">
+                  <div class="tree-connector level-1-to-2"></div>
+                  <div 
+                    class="tree-node level-2" 
+                    :class="{ active: hierarchyData.level === 2 }"
+                  >
+                    <div class="node-icon">Ⅱ</div>
+                    <div class="node-content">
+                      <span class="node-name">{{ hierarchyData.l2Name }}</span>
+                      <span class="node-code">{{ hierarchyData.l2Code }}</span>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- 三级行业 -->
+                <template v-if="hierarchyData.l3Code">
+                  <div class="tree-connector level-2-to-3"></div>
+                  <div 
+                    class="tree-node level-3" 
+                    :class="{ active: hierarchyData.level === 3 }"
+                  >
+                    <div class="node-icon">Ⅲ</div>
+                    <div class="node-content">
+                      <span class="node-name">{{ hierarchyData.l3Name }}</span>
+                      <span class="node-code">{{ hierarchyData.l3Code }}</span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </n-tab-pane>
       </n-tabs>
     </template>
   </AppModal>
@@ -58,6 +111,7 @@ import type { KlineChartBar } from '@/api/modules/market/symbols'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { useKlineRangePicker } from '@/composables/kline/useKlineRangePicker'
 import { fetchIndexKline } from './aSharesIndexKlineFetcher'
+import { indexDailyApi } from '@/api/modules/market/indexDaily'
 import type { IndexLatestRow } from './types'
 
 const props = defineProps<{
@@ -94,6 +148,33 @@ const title = computed(() =>
 const activeTab = ref('kline')
 const loading = ref(false)
 const bars = ref<KlineChartBar[]>([])
+
+const hierarchyData = ref<{
+  level: number;
+  l1Code: string | null;
+  l1Name: string | null;
+  l2Code: string | null;
+  l2Name: string | null;
+  l3Code: string | null;
+  l3Name: string | null;
+} | null>(null)
+const hierarchyLoading = ref(false)
+
+async function loadHierarchy() {
+  if (!props.row || props.row.category !== 'sw') {
+    hierarchyData.value = null
+    return
+  }
+  hierarchyLoading.value = true
+  try {
+    hierarchyData.value = await indexDailyApi.getSwHierarchy(props.row.tsCode)
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : String(err))
+    hierarchyData.value = null
+  } finally {
+    hierarchyLoading.value = false
+  }
+}
 const klineRef = ref<{ renderChart: () => Promise<void>; resize?: () => void } | null>(null)
 
 /** modal/LazyTeleport 下 KlineChart 内部 watch 二次 renderChart 不可靠；ref 可能晚于 loadKline 就绪。 */
@@ -180,6 +261,9 @@ watch(
       bars.value = []
       range.value = null
       initDefaultRange()
+      if (props.row.category === 'sw') {
+        void loadHierarchy()
+      }
     }
   },
 )
@@ -210,5 +294,157 @@ watch(
   color: var(--color-text-muted);
   text-align: center;
   padding: 60px 16px;
+}
+
+.hierarchy-pane-body {
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.hierarchy-tree-container {
+  width: 100%;
+  max-width: 600px;
+  background: var(--color-surface-elevated);
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  padding: 36px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.hierarchy-tree {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.tree-node {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  z-index: 2;
+}
+
+.tree-node.level-1 {
+  width: calc(100% - 120px);
+}
+
+.tree-node.level-2 {
+  margin-left: 60px;
+  width: calc(100% - 180px);
+}
+
+.tree-node.level-3 {
+  margin-left: 120px;
+  width: calc(100% - 240px);
+}
+
+.tree-node.active {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent) !important;
+  border-color: var(--color-success) !important;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--color-success) 20%, transparent);
+}
+
+.node-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-text-muted) 15%, transparent);
+  color: var(--color-text-secondary);
+  font-weight: bold;
+  font-size: 14px;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+}
+
+.active .node-icon {
+  background: var(--color-success);
+  color: var(--color-surface);
+  border-color: var(--color-success);
+}
+
+.node-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.node-name {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.active .node-name {
+  color: var(--color-success);
+  font-weight: 600;
+}
+
+.node-code {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-family: monospace;
+}
+
+.active .node-code {
+  color: color-mix(in srgb, var(--color-success) 80%, var(--color-text));
+}
+
+/* 拐角连接线 */
+.tree-connector {
+  position: relative;
+  height: 36px;
+}
+
+.tree-connector::before {
+  content: '';
+  position: absolute;
+  top: -24px;
+  width: 2px;
+  height: calc(100% + 36px);
+  border-left: 2px dashed var(--color-border);
+  z-index: 1;
+}
+
+.level-1-to-2::before {
+  left: 36px;
+}
+
+.level-1-to-2::after {
+  content: '';
+  position: absolute;
+  left: 36px;
+  top: 18px;
+  width: 44px;
+  height: 2px;
+  border-top: 2px dashed var(--color-border);
+  z-index: 1;
+}
+
+.level-2-to-3::before {
+  left: 96px;
+}
+
+.level-2-to-3::after {
+  content: '';
+  position: absolute;
+  left: 96px;
+  top: 18px;
+  width: 44px;
+  height: 2px;
+  border-top: 2px dashed var(--color-border);
+  z-index: 1;
 }
 </style>

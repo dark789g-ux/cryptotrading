@@ -86,4 +86,8 @@ export const indexDailyApi = {
     request<IndexCatalogRow[]>(
       `${API_BASE}/index-catalog${buildQuery({ category: params.category, q: params.q })}`,
     ),
+
+  /** 获取申万指数层级 */
+  getSwHierarchy: (tsCode: string) =>
+    request<any>(`${API_BASE}/index-catalog/sw/${encodeURIComponent(tsCode)}/hierarchy`),
 }

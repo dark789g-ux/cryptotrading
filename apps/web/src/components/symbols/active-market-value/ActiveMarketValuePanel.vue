@@ -102,8 +102,6 @@
           @update:range="onOamvRangeChange"
         />
         <n-empty v-else description="暂无数据，请先同步" />
-        <!-- 0AMV 副图合规标注（spec §7/§8）：信号未回测校准 -->
-        <n-text :depth="3" class="amv-caption">{{ AMV_CAPTION_BASE }}</n-text>
       </n-spin>
     </n-card>
   </div>
@@ -118,7 +116,6 @@ import { SyncOutline } from '@vicons/ionicons5'
 import KlineChart from '@/components/kline/KlineChart.vue'
 import RegimeBadge from '@/components/regime/RegimeBadge.vue'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
-import { AMV_CAPTION_BASE } from '@/composables/kline/amvCaption'
 import { oamvApi, type OamvData } from '@/api/modules/market/oamv'
 import { regimeEngineApi, type RegimeTodaySummary } from '@/api/modules/strategy/regimeEngine'
 import type { KlineChartBar } from '@/api/modules/market/symbols'
@@ -252,13 +249,6 @@ onActivated(() => {
   font-size: 12px;
   line-height: 1.6;
   color: var(--color-text-muted);
-}
-
-.amv-caption {
-  flex: 0 0 auto;
-  padding: 4px 8px 2px;
-  font-size: 12px;
-  line-height: 1.4;
 }
 
 /* 象限状态卡 */

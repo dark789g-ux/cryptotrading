@@ -24,4 +24,9 @@ export class IndexCatalogController {
   getMembers(@Param('tsCode') tsCode: string) {
     return this.queryService.getMembers(tsCode);
   }
+
+  @Get('sw/:tsCode/hierarchy')
+  getSwHierarchy(@Param('tsCode') tsCode: string) {
+    return this.queryService.getSwHierarchy(tsCode);
+  }
 }

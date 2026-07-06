@@ -39,12 +39,6 @@
                 :symbol-name="entityName"
                 @update:range="onKlineRangeChange"
               />
-              <!-- 0AMV 副图合规标注（spec §8/§11）：信号未回测校准 + 成分股当前快照。
-                   仅当本入口确实开了 0AMV 副图（行业 type='I' / 概念 type='N'）才展示，
-                   大盘等不含 0AMV 的入口不出现；文案由调用方经 amvCaption prop 区分行业/板块措辞 -->
-              <n-text v-if="klineBars.length && showAmvCaption" :depth="3" class="amv-caption">
-                {{ amvCaption }}
-              </n-text>
             </template>
           </div>
         </n-tab-pane>
@@ -81,7 +75,7 @@
 defineOptions({ name: 'FlowTrendModal' })
 
 import { computed, h, ref, watch } from 'vue'
-import { NButton, NDataTable, NSpin, NTabPane, NTabs, NText, useMessage } from 'naive-ui'
+import { NButton, NDataTable, NSpin, NTabPane, NTabs, useMessage } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import AppModal from '@/components/common/AppModal.vue'
 import FlowDateControl from './FlowDateControl.vue'
@@ -91,7 +85,6 @@ import { moneyFlowApi, type MoneyFlowMemberRow, type MoneyFlowQueryParams } from
 import { thsIndexDailyApi } from '@/api/modules/market/thsIndexDaily'
 import { watchlistApi } from '@/api'
 import type { KlineChartBar } from '@/api'
-import { AMV_CAPTION_INDUSTRY } from '@/composables/kline/amvCaption'
 import type { IndicatorSubplotParams, SubplotKey } from '@/composables/kline/subplotConfig'
 import { msToYyyymmdd } from '@/composables/kline/klineDateRange'
 import { useKlineRangePicker } from '@/composables/kline/useKlineRangePicker'
@@ -116,8 +109,6 @@ const props = withDefaults(defineProps<{
   membersTradeDate?: string | null
   /** kline 模式副图白名单；默认不含 AMV，行业指数入口可显式传入含 0AMV 的列表 */
   availableSubplots?: SubplotKey[]
-  /** 0AMV 副图合规标注文案；默认行业版（含「行业量」），概念板块入口可传板块版 */
-  amvCaption?: string
 }>(), {
   chartMode: 'bar',
   showMembersTab: false,
@@ -127,7 +118,6 @@ const props = withDefaults(defineProps<{
   // 注意：defineProps/withDefaults 会被编译器提升到 setup() 外，default 工厂内
   // 不能引用 <script setup> 里的局部 const，故此处直接内联字面量 / 模块顶层 import 常量。
   availableSubplots: () => ['VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW'],
-  amvCaption: AMV_CAPTION_INDUSTRY,
 })
 
 defineEmits<{
@@ -138,12 +128,6 @@ const message = useMessage()
 
 const modalWidth = computed(() =>
   props.chartMode === 'kline' ? 'min(1080px, 96vw)' : 'min(720px, 92vw)',
-)
-
-// 仅当本入口确实展示了 0AMV 副图（行业指数 type='I' 入口显式传入含 0AMV 的白名单）
-// 才显示活跃市值标注；sector / 大盘 等不含 0AMV 的入口不出现该行小字。
-const showAmvCaption = computed(
-  () => props.chartMode === 'kline' && props.availableSubplots.includes('0AMV'),
 )
 
 // 最大化下 K 线高度 = 92vh 减去固定 chrome（modal header ~70 + card padding ~32 + tabs nav ~46 + tab pane padding ~12 + FlowDateControl ~40 + body gap ~16 = ~216px，留 24px 余量）
@@ -441,12 +425,6 @@ watch(activeTab, (tab) => {
   color: var(--color-text-muted);
   text-align: center;
   padding: 40px;
-}
-.amv-caption {
-  display: block;
-  margin-top: -8px;
-  font-size: 12px;
-  line-height: 1.4;
 }
 :deep(.positive) {
   color: #f04747;

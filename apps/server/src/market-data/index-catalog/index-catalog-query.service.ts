@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { ThsIndexCatalogEntity } from '../../entities/index-catalog/ths-index-catalog.entity';
+import { SwIndexCatalogEntity } from '../../entities/sw-index/sw-index-catalog.entity';
 import type { IndexCatalogCategory } from './dto/query-catalog.dto';
 
 /**
@@ -151,6 +152,15 @@ export class IndexCatalogQueryService {
         weight: null,
       })),
     };
+  }
+
+  async getSwHierarchy(tsCode: string): Promise<SwIndexCatalogEntity> {
+    const swCatalogRepo = this.dataSource.getRepository(SwIndexCatalogEntity);
+    const row = await swCatalogRepo.findOne({ where: { tsCode } });
+    if (!row) {
+      throw new NotFoundException(`未找到申万指数 ${tsCode} 目录`);
+    }
+    return row;
   }
 
   private async loadStockNames(codes: string[]): Promise<Map<string, string | null>> {

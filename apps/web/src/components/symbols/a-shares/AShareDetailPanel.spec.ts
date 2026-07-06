@@ -2,7 +2,6 @@
  * AShareDetailPanel：A 股详情内容面板。
  *  - 切换 row → 重拉详情（limit=360，无 range）。
  *  - priceMode 切换 → 仅重拉 K 线（fetchKlineOnly），复用缓存资金流 / AMV。
- *  - 渲染 0AMV 合规标注。
  *  - visible=false → 清空数据与选区；visible=true → 重新加载。
  * fetcher 模块整体 mock；KlineChart stub 记录 :data 并 emit update:range / recalcIndicators 驱动 handler。
  */
@@ -108,19 +107,6 @@ describe('AShareDetailPanel priceMode 变化', () => {
     expect(fetchKlineOnlyMock).toHaveBeenCalledTimes(1)
     expect(fetchKlineOnlyMock).toHaveBeenLastCalledWith('000001.SZ', 360, 'raw', undefined)
     expect(fetchDetailMock).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe('AShareDetailPanel AMV 标注', () => {
-  it('渲染 0AMV 合规标注', async () => {
-    const { wrapper } = mountPanel({ row: ROW_A })
-
-    await flushPromises()
-    await nextTick()
-
-    const caption = wrapper.find('.amv-caption')
-    expect(caption.exists()).toBe(true)
-    expect(caption.text()).toContain('信号未回测校准')
   })
 })
 

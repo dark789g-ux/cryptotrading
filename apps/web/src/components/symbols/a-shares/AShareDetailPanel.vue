@@ -29,8 +29,6 @@
                 <AStockInfoFields :row="row" />
               </template>
             </KlineWithInfoPanel>
-            <!-- 0AMV 副图合规标注（spec §8/§11）：信号未回测校准 -->
-            <n-text :depth="3" class="amv-caption">{{ AMV_CAPTION_BASE }}</n-text>
           </div>
         </div>
       </div>
@@ -43,14 +41,13 @@
 defineOptions({ name: 'AShareDetailPanel' })
 
 import { ref, watch } from 'vue'
-import { NEmpty, NSpin, NText, useMessage } from 'naive-ui'
+import { NEmpty, NSpin, useMessage } from 'naive-ui'
 import KlineChart from '../../kline/KlineChart.vue'
 import KlineWithInfoPanel from '../shared/KlineWithInfoPanel.vue'
 import AStockInfoFields from './AStockInfoFields.vue'
 import { aSharesApi, type AShareKlineBar, type AShareRow } from '@/api'
 import type { AmvSeriesRow } from '@/api/modules/market/active-mv'
 import type { IndicatorSubplotParams } from '@/composables/kline/subplotConfig'
-import { AMV_CAPTION_BASE } from '@/composables/kline/amvCaption'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
 import { mergeKlineWithMoneyFlow, type MoneyFlowRowLike } from '@/composables/kline/mergeMoneyFlow'
 import { mergeKlineWithAmv } from '@/composables/kline/mergeAmv'
@@ -218,7 +215,7 @@ watch(
   justify-content: center;
 }
 
-/* 图 + 标注：竖排，图占满剩余高度，标注占一行小字 */
+/* 图：竖排，图占满剩余高度 */
 .chart-with-caption {
   display: flex;
   flex: 1;
@@ -227,17 +224,10 @@ watch(
   min-width: 0;
 }
 
-/* KlineChart 根元素（.kline-chart-wrapper）占满除标注外的剩余高度 */
+/* KlineChart 根元素（.kline-chart-wrapper）占满剩余高度 */
 .chart-with-caption > :first-child {
   flex: 1 1 auto;
   min-height: 0;
-}
-
-.amv-caption {
-  flex: 0 0 auto;
-  padding: 4px 8px 2px;
-  font-size: 12px;
-  line-height: 1.4;
 }
 
 @media (max-width: 960px) {
