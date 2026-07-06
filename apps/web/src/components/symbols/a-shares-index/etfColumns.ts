@@ -4,6 +4,7 @@ import type { EtfLatestRow } from './etf.types'
 import {
   formatAmount,
   formatNumber,
+  formatObv,
   formatPercent,
   formatTradeDate,
   trendClass,
@@ -19,6 +20,15 @@ function pctColor(value: number | null): string | undefined {
   if (value > 0) return colors.success.DEFAULT
   if (value < 0) return colors.error.DEFAULT
   return undefined
+}
+
+/**
+ * OBV 单元格：按正负着色（正绿负红，0/null 无色）+ 千元→亿格式化。
+ * obv 字段单位为千元，用 formatObv 统一显示亿（不用 formatAmount 的万分支）。
+ */
+function renderObvCell(value: number | null) {
+  const color = pctColor(value)
+  return h('span', { style: color ? { color } : undefined }, formatObv(toStr(value)))
 }
 
 /**
@@ -163,7 +173,7 @@ export function createEtfColumnDefs({
       width: 110,
       sorter: true,
       defaultVisible: true,
-      render: (row) => formatAmount(toStr(row.obv5d)),
+      render: (row) => renderObvCell(row.obv5d),
     },
     {
       title: 'OBV10日',
@@ -171,7 +181,7 @@ export function createEtfColumnDefs({
       width: 110,
       sorter: true,
       defaultVisible: true,
-      render: (row) => formatAmount(toStr(row.obv10d)),
+      render: (row) => renderObvCell(row.obv10d),
     },
     {
       title: 'OBV20日',
@@ -179,7 +189,7 @@ export function createEtfColumnDefs({
       width: 110,
       sorter: true,
       defaultVisible: true,
-      render: (row) => formatAmount(toStr(row.obv20d)),
+      render: (row) => renderObvCell(row.obv20d),
     },
     {
       title: '公布IOPV',

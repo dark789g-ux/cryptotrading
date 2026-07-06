@@ -1,5 +1,6 @@
 import { h } from 'vue'
 import { NTag } from 'naive-ui'
+import { colors } from '../../../styles/tokens'
 import type { SymbolColumnDef } from './columnTypes'
 
 /**
@@ -25,14 +26,18 @@ export interface IndicatorDescriptor {
   decimals: number
   /** 后缀，如 '%'（stopLossPct） */
   suffix?: string
+  /** 渲染前缩放因子（如 obv 千元→亿 ÷100000）。不设则原值直出 */
+  divisor?: number
+  /** 按原始值正负着色（正绿负红，0/null 无色），如 obv */
+  colorBySign?: boolean
   /** FieldHelpTip conceptId（见 components/common/fieldDescriptions.ts），缺则无 ? 说明 */
   descKey?: string
 }
 
 /**
- * 28 条指标 descriptor（spec 散文写「24/前 18」是 off-by-one，逐键枚举表实为 28，以表为准）。
+ * 31 条指标 descriptor（spec 散文写「24/前 18」是 off-by-one，逐键枚举表实为 31，以表为准）。
  * 前 22 条逐列对齐 A股/自选股/回测表共享字段（去重零漂移）；
- * 后 6 条 brick/amv 为本期新增。
+ * 6 条 brick/amv + 3 条 obv 为后续新增。
  */
 export const INDICATOR_DESCRIPTORS: IndicatorDescriptor[] = [
   { key: 'ma5', title: 'MA5', decimals: 4 },
@@ -64,9 +69,9 @@ export const INDICATOR_DESCRIPTORS: IndicatorDescriptor[] = [
   { key: 'amvDif', title: 'AMV.DIF', decimals: 4, descKey: 'amv_dif' },
   { key: 'amvDea', title: 'AMV.DEA', decimals: 4, descKey: 'amv_dea' },
   { key: 'amvMacd', title: 'AMV.MACD', decimals: 4, descKey: 'amv_macd' },
-  { key: 'obv5d', title: 'OBV5D', decimals: 2, descKey: 'obv5d' },
-  { key: 'obv10d', title: 'OBV10D', decimals: 2, descKey: 'obv10d' },
-  { key: 'obv20d', title: 'OBV20D', decimals: 2, descKey: 'obv20d' },
+  { key: 'obv5d', title: 'OBV5D', decimals: 2, divisor: 100000, suffix: ' 亿', colorBySign: true, descKey: 'obv5d' },
+  { key: 'obv10d', title: 'OBV10D', decimals: 2, divisor: 100000, suffix: ' 亿', colorBySign: true, descKey: 'obv10d' },
+  { key: 'obv20d', title: 'OBV20D', decimals: 2, divisor: 100000, suffix: ' 亿', colorBySign: true, descKey: 'obv20d' },
 ]
 
 export interface BuildIndicatorColumnsOptions<Row> {
@@ -114,7 +119,13 @@ export function buildIndicatorColumns<Row>(
       if (v == null) return '-'
       const n = Number(v)
       if (!Number.isFinite(n)) return '-'
-      return n.toFixed(d.decimals) + (d.suffix ?? '')
+      const scaled = d.divisor ? n / d.divisor : n
+      const text = scaled.toFixed(d.decimals) + (d.suffix ?? '')
+      if (d.colorBySign) {
+        const color = n > 0 ? colors.success.DEFAULT : n < 0 ? colors.error.DEFAULT : undefined
+        return color ? h('span', { style: { color } }, text) : text
+      }
+      return text
     }
 
     return {

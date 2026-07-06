@@ -29,10 +29,10 @@ function makeOptions() {
 const INDICATOR_KEYS = INDICATOR_DESCRIPTORS.map((d) => d.key)
 
 describe('createASharesColumnDefs · 技术指标列接入', () => {
-  it('含全部 28 个指标列 key', () => {
+  it('含全部 31 个指标列 key', () => {
     const cols = createASharesColumnDefs(makeOptions())
     const keys = cols.map((c) => c.key)
-    expect(INDICATOR_KEYS).toHaveLength(28)
+    expect(INDICATOR_KEYS).toHaveLength(31)
     for (const k of INDICATOR_KEYS) {
       expect(keys).toContain(k)
     }

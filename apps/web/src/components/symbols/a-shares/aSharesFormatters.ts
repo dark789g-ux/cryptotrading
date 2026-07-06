@@ -23,6 +23,18 @@ export function formatAmount(value: string | null) {
  * Tushare daily_basic 的 total_mv / circ_mv 单位为万元，与 amount（千元）不同，
  * 不能复用 formatAmount（会差 10 倍）。
  */
+/**
+ * OBV（千元口径 → 亿，固定 2 位小数）。
+ * OBV = signedAmounts 累加，单位与 amount 同为千元。统一显示亿，不切"万"分支
+ * （<1亿也显示"0.50 亿"，避免 formatAmount 的万分支把千元值当万显示导致 10 倍歧义）。
+ */
+export function formatObv(value: string | null): string {
+  if (value == null) return '-'
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '-'
+  return `${(num / 100000).toFixed(2)} 亿`
+}
+
 export function formatMarketCap(value: string | null) {
   if (value == null) return '-'
   const num = Number(value)

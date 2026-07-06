@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { isVNode } from 'vue'
+import { isVNode, h } from 'vue'
+import { colors } from '../../../styles/tokens'
 import {
   INDICATOR_DESCRIPTORS,
   buildIndicatorColumns,
@@ -26,8 +27,8 @@ describe('INDICATOR_DESCRIPTORS', () => {
   // （ma5..ma240/bbi/kdjJ..kdjD/dif/dea/macd/quoteVolume10/atr14/lossAtr14/low9/high9/
   //  riskRewardRatio/stopLossPct/roc10/roc20/roc60，与 A股/自选股/回测表共享字段逐列一致）
   // + 6 条 brick/amv 新增 = 28。表是 load-bearing 单一事实源，散文计数是 off-by-one，以表为准。
-  it('恰好 28 条（22 共享指标 + 6 brick/amv 新增）', () => {
-    expect(INDICATOR_DESCRIPTORS).toHaveLength(28)
+  it('恰好 31 条（22 共享指标 + 6 brick/amv + 3 obv）', () => {
+    expect(INDICATOR_DESCRIPTORS).toHaveLength(31)
   })
 
   it('key 唯一', () => {
@@ -69,9 +70,9 @@ describe('INDICATOR_DESCRIPTORS', () => {
 })
 
 describe('buildIndicatorColumns', () => {
-  it('产物列数 = 28，且 key 顺序与 descriptor 一致', () => {
+  it('产物列数 = 31，且 key 顺序与 descriptor 一致', () => {
     const cols = buildIndicatorColumns<AnyRow>(INDICATOR_DESCRIPTORS, {})
-    expect(cols).toHaveLength(28)
+    expect(cols).toHaveLength(31)
     expect(cols.map((c) => c.key)).toEqual(INDICATOR_DESCRIPTORS.map((d) => d.key))
   })
 
@@ -180,5 +181,72 @@ describe('buildIndicatorColumns', () => {
       accessor: (row) => row.nested,
     })
     expect(renderText(cols[0].render({ nested: 9.999 }))).toBe('10.00')
+  })
+
+  describe('obv 千元→亿换算', () => {
+    it('divisor + suffix 将千元缩放为亿', () => {
+      const descriptors: IndicatorDescriptor[] = [
+        { key: 'obv5d', title: 'OBV5D', decimals: 2, divisor: 100000, suffix: ' 亿' },
+      ]
+      const cols = buildIndicatorColumns<AnyRow>(descriptors)
+      const rendered = cols[0].render({ obv5d: 18007267 })
+      expect(renderText(rendered)).toBe('180.07 亿')
+    })
+
+    it('无 divisor 时原值直出（不缩放）', () => {
+      const descriptors: IndicatorDescriptor[] = [
+        { key: 'ma5', title: 'MA5', decimals: 2 },
+      ]
+      const cols = buildIndicatorColumns<AnyRow>(descriptors)
+      expect(renderText(cols[0].render({ ma5: 123.45 }))).toBe('123.45')
+    })
+
+    it('null / NaN 仍返回 "-"', () => {
+      const descriptors: IndicatorDescriptor[] = [
+        { key: 'obv5d', title: 'OBV5D', decimals: 2, divisor: 100000, suffix: ' 亿' },
+      ]
+      const cols = buildIndicatorColumns<AnyRow>(descriptors)
+      expect(renderText(cols[0].render({ obv5d: null }))).toBe('-')
+      expect(renderText(cols[0].render({ obv5d: 'abc' }))).toBe('-')
+    })
+  })
+
+  describe('colorBySign 着色', () => {
+    const descriptors: IndicatorDescriptor[] = [
+      { key: 'obv5d', title: 'OBV5D', decimals: 2, divisor: 100000, suffix: ' 亿', colorBySign: true },
+    ]
+
+    function obvCol() {
+      return buildIndicatorColumns<AnyRow>(descriptors)[0]
+    }
+
+    it('正值返回 VNode（span）且 color 为 success', () => {
+      const rendered = obvCol().render({ obv5d: 18007267 })
+      expect(isVNode(rendered)).toBe(true)
+      expect(typeof renderText(rendered)).toBe('string')
+      expect(renderText(rendered)).toBe('180.07 亿')
+      const props = (rendered as ReturnType<typeof h>).props as { style?: { color?: string } }
+      expect(props?.style?.color).toBe(colors.success.DEFAULT)
+    })
+
+    it('负值返回 VNode（span）且 color 为 error', () => {
+      const rendered = obvCol().render({ obv5d: -50000000 })
+      expect(isVNode(rendered)).toBe(true)
+      expect(renderText(rendered)).toBe('-500.00 亿')
+      const props = (rendered as ReturnType<typeof h>).props as { style?: { color?: string } }
+      expect(props?.style?.color).toBe(colors.error.DEFAULT)
+    })
+
+    it('零值返回纯字符串（无 span 包裹）', () => {
+      const rendered = obvCol().render({ obv5d: 0 })
+      expect(typeof rendered).toBe('string')
+      expect(rendered).toBe('0.00 亿')
+    })
+
+    it('null 返回 "-"（纯字符串）', () => {
+      const rendered = obvCol().render({ obv5d: null })
+      expect(typeof rendered).toBe('string')
+      expect(rendered).toBe('-')
+    })
   })
 })

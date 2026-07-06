@@ -118,6 +118,41 @@ describe('createASharesIndexColumnDefs', () => {
   })
 })
 
+describe('OBV 列：正负着色 + 千元→亿', () => {
+  function renderColor(node: unknown): string | undefined {
+    if (!isVNode(node)) return undefined
+    const style = (node as { props?: { style?: { color?: string } } }).props?.style
+    return style?.color
+  }
+
+  const cols = createASharesIndexColumnDefs()
+  const obv5dCol = cols.find((c) => c.key === 'obv5d')!
+
+  it('正值（千元口径）渲染为绿色且按亿换算', () => {
+    const node = obv5dCol.render({ ...baseRow, obv5d: 500000000 })
+    expect(renderText(node)).toBe('5000.00 亿')
+    expect(renderColor(node)).toBe(colors.success.DEFAULT)
+  })
+
+  it('负值渲染为红色', () => {
+    const node = obv5dCol.render({ ...baseRow, obv5d: -300000000 })
+    expect(renderText(node)).toBe('-3000.00 亿')
+    expect(renderColor(node)).toBe(colors.error.DEFAULT)
+  })
+
+  it('0 值不着色', () => {
+    const node = obv5dCol.render({ ...baseRow, obv5d: 0 })
+    expect(renderText(node)).toBe('0.00 亿')
+    expect(renderColor(node)).toBeUndefined()
+  })
+
+  it('null 渲染为 em dash 且不着色', () => {
+    const node = obv5dCol.render({ ...baseRow, obv5d: null })
+    expect(renderText(node)).toBe('-')
+    expect(renderColor(node)).toBeUndefined()
+  })
+})
+
 describe('净流入列：正负着色 + 万元口径', () => {
   /** 取 render 产物 VNode 的内联 color（无则 undefined） */
   function renderColor(node: unknown): string | undefined {
