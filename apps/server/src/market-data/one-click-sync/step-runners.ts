@@ -19,6 +19,7 @@ import type { ThsIndexDailySyncEvent } from '../ths-index-daily/ths-index-daily.
 import type { SwIndexDailySyncService } from '../sw-index-daily/sw-index-daily-sync.service';
 import type { MarketIndexSyncService } from '../ths-index-daily/market-index-sync.service';
 import type { ActiveMvService } from '../active-mv/active-mv.service';
+import type { AmvSyncOnProgress } from '../active-mv/active-mv.types';
 import type { OamvService } from '../oamv/oamv.service';
 import type { EtfService } from '../etf/etf.service';
 import type { EtfAmvService } from '../etf/etf-amv.service';
@@ -420,21 +421,26 @@ async function runAmvStep(
   index: number,
   key: OneClickStepKey,
   phaseLabel: string,
-  doSync: (opts: { startDate: string; endDate: string; syncMode: 'incremental' | 'overwrite' }) => Promise<{ synced: number }>,
+  doSync: (opts: { startDate: string; endDate: string; syncMode: 'incremental' | 'overwrite'; onProgress?: AmvSyncOnProgress }) => Promise<{ synced: number }>,
 ): Promise<void> {
   ctx.setStatus(index, 'running');
   ctx.pushLog(key, 'info', `开始 ${phaseLabel}（${ctx.syncMode === 'overwrite' ? '覆盖' : '增量'}模式）`);
   try {
+    const onProgress: AmvSyncOnProgress = (p) => {
+      ctx.patchStep(index, { phase: p.phase, percent: clampPct(p.percent), message: p.message });
+      ctx.flushThrottled();
+    };
     ctx.patchStep(index, {
       phase: phaseLabel,
       message: ctx.syncMode === 'overwrite' ? '覆盖模式：重拉范围内日期' : '增量模式（全量回填请走各自同步页）',
-      percent: 30,
+      percent: 0,
     });
     ctx.flushThrottled();
     const result = await doSync({
       startDate: ctx.range.startDate,
       endDate: ctx.range.endDate,
       syncMode: ctx.syncMode,
+      onProgress,
     });
     const synced = result?.synced ?? 0;
     ctx.patchStep(index, { rowsWritten: synced, percent: 100 });

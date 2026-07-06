@@ -7,7 +7,8 @@
  */
 import type { OneClickStepKey } from './types';
 import type { StepContext } from './step-runners';
-import { failStep } from './step-runners';
+import { failStep, clampPct } from './step-runners';
+import type { EtfSyncProgress } from '../etf/etf.types';
 
 // ── Step6 ETF 数据同步 ───────────────────────────────────────────────────
 export async function runEtf(ctx: StepContext, index: number): Promise<void> {
@@ -15,13 +16,18 @@ export async function runEtf(ctx: StepContext, index: number): Promise<void> {
   ctx.setStatus(index, 'running');
   ctx.pushLog(key, 'info', '开始 ETF 数据同步（目录+日线+PCF+指标）');
   try {
-    ctx.patchStep(index, { phase: '同步 ETF 目录', percent: 10 });
-    ctx.flushThrottled();
+    let reportedMax = 0;
+    const onProgress = (p: EtfSyncProgress) => {
+      reportedMax = Math.max(reportedMax, p.percent);
+      ctx.patchStep(index, { phase: p.phase, percent: clampPct(reportedMax), message: p.message });
+      ctx.flushThrottled();
+    };
 
     const result = await ctx.services.etf.sync({
       startDate: ctx.range.startDate,
       endDate: ctx.range.endDate,
       syncMode: ctx.syncMode,
+      onProgress,
     });
 
     ctx.patchStep(index, { rowsWritten: result.success, percent: 100 });
@@ -53,14 +59,19 @@ export async function runEtfAmv(ctx: StepContext, index: number): Promise<void> 
   ctx.setStatus(index, 'running');
   ctx.pushLog(key, 'info', '开始 ETF AMV 同步');
   try {
-    ctx.patchStep(index, { phase: '同步 ETF AMV', percent: 30 });
-    ctx.flushThrottled();
+    let reportedMax = 0;
+    const onProgress = (p: EtfSyncProgress) => {
+      reportedMax = Math.max(reportedMax, p.percent);
+      ctx.patchStep(index, { phase: p.phase, percent: clampPct(reportedMax), message: p.message });
+      ctx.flushThrottled();
+    };
 
     const result = await ctx.services.etfAmv.sync(
       [], // etfAmvService.sync 内部自行获取 ETF 列表
       ctx.range.startDate,
       ctx.range.endDate,
       ctx.syncMode,
+      onProgress,
     );
 
     ctx.patchStep(index, { rowsWritten: result.success, percent: 100 });
@@ -92,14 +103,19 @@ export async function runEtfMf(ctx: StepContext, index: number): Promise<void> {
   ctx.setStatus(index, 'running');
   ctx.pushLog(key, 'info', '开始 ETF 资金净流入同步');
   try {
-    ctx.patchStep(index, { phase: '同步 ETF 资金净流入', percent: 30 });
-    ctx.flushThrottled();
+    let reportedMax = 0;
+    const onProgress = (p: EtfSyncProgress) => {
+      reportedMax = Math.max(reportedMax, p.percent);
+      ctx.patchStep(index, { phase: p.phase, percent: clampPct(reportedMax), message: p.message });
+      ctx.flushThrottled();
+    };
 
     const result = await ctx.services.etfMf.sync(
       [], // etfMfService.sync 内部自行获取 ETF 列表
       ctx.range.startDate,
       ctx.range.endDate,
       ctx.syncMode,
+      onProgress,
     );
 
     ctx.patchStep(index, { rowsWritten: result.success, percent: 100 });

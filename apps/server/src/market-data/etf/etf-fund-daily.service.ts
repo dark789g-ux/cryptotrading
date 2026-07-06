@@ -16,7 +16,7 @@ import { TushareClientService } from '../a-shares/services/tushare-client.servic
 import { resolveOpenTradeDates } from '../a-shares/sync/a-shares-sync-utils';
 import { collectCompletenessErrors } from '../_shared/dataset-completeness';
 import { batchUpsert, runWithRetry } from '../_shared/sync-helpers';
-import type { EtfSyncErrorItem, EtfSyncResult, FundDailyRow, FundAdjRow } from './etf.types';
+import type { EtfSyncErrorItem, EtfSyncResult, FundDailyRow, FundAdjRow, EtfSyncOnProgress } from './etf.types';
 
 const FUND_DAILY_FIELDS = 'ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount';
 const FUND_ADJ_FIELDS = 'ts_code,trade_date,adj_factor';
@@ -120,6 +120,7 @@ export class EtfFundDailyService {
     etfCodes: string[],
     startDate: string,
     endDate: string,
+    onProgress?: EtfSyncOnProgress,
   ): Promise<EtfSyncResult> {
     const dailyRepo = this.dataSource.getRepository(FundDailyEntity);
     const trackedSet = new Set(etfCodes);
@@ -138,6 +139,7 @@ export class EtfFundDailyService {
 
     // ── Phase 1：并发拉全量 fund_adj，攒 adjByCodeDate，预算 latestAdjByCode ──
     const adjByCodeDate = new Map<string, Map<string, number>>(); // ts_code → (trade_date → adj_factor)
+    let phase1Done = 0;
 
     await Promise.all(
       tradeDates.map(async (td) => {
@@ -162,6 +164,12 @@ export class EtfFundDailyService {
           }
           inner.set(r.trade_date, r.adj_factor);
         }
+
+        phase1Done++;
+        onProgress?.({
+          phase: '同步 ETF 日线（复权因子）',
+          percent: (phase1Done / tradeDates.length) * 50,
+        });
       }),
     );
 
@@ -182,6 +190,7 @@ export class EtfFundDailyService {
     // ── Phase 2：并发拉 fund_daily + 算 qfq + upsert ──
     const errors: EtfSyncErrorItem[] = [];
     let totalWritten = 0;
+    let phase2Done = 0;
 
     await Promise.all(
       tradeDates.map(async (td) => {
@@ -194,6 +203,12 @@ export class EtfFundDailyService {
         if (!rows || rows.length === 0) {
           this.logger.warn(`[etf-fund-daily] ${td} 无数据`);
           errors.push({ apiName: 'fund_daily_empty', message: `${td} 全市场无 ETF 日线` });
+          phase2Done++;
+          onProgress?.({
+            phase: '同步 ETF 日线（行情）',
+            percent: 50 + (phase2Done / tradeDates.length) * 50,
+            message: `${td} (${phase2Done}/${tradeDates.length})`,
+          });
           return;
         }
 
@@ -208,10 +223,25 @@ export class EtfFundDailyService {
           .filter((r) => trackedSet.has(r.ts_code))
           .map((r) => buildFundDailyEntity(r, adjByCodeDate, latestAdjByCode));
 
-        if (entities.length === 0) return;
+        if (entities.length === 0) {
+          phase2Done++;
+          onProgress?.({
+            phase: '同步 ETF 日线（行情）',
+            percent: 50 + (phase2Done / tradeDates.length) * 50,
+            message: `${td} (${phase2Done}/${tradeDates.length})`,
+          });
+          return;
+        }
 
         // batchUpsert 内部已按 ['tsCode','tradeDate'] 去重，无需外层 deduplicateBy
         totalWritten += await batchUpsert(dailyRepo, entities, ['tsCode', 'tradeDate']);
+
+        phase2Done++;
+        onProgress?.({
+          phase: '同步 ETF 日线（行情）',
+          percent: 50 + (phase2Done / tradeDates.length) * 50,
+          message: `${td} (${phase2Done}/${tradeDates.length})`,
+        });
       }),
     );
 

@@ -59,11 +59,15 @@ export class SwAmvService {
 
     await this.assertSuffixes(indexCodes)
 
+    const total = indexCodes.length
+    const onProgress = opts.onProgress
+
     const errors: string[] = []
     const failedItems: NonNullable<AmvSyncResult['failedItems']> = []
     let synced = 0
 
-    for (const idx of indexCodes) {
+    for (let i = 0; i < indexCodes.length; i++) {
+      const idx = indexCodes[i]
       try {
         const n = await this.syncOneSwIndex(
           idx,
@@ -80,6 +84,11 @@ export class SwAmvService {
         errors.push(`sw_amv_error:${idx}:${reason}`)
         failedItems.push({ tsCode: idx, apiName: 'sw_amv_error', reason })
       }
+      onProgress?.({
+        phase: '同步申万指数 AMV',
+        percent: ((i + 1) / total) * 100,
+        message: `${idx} (${i + 1}/${total})`,
+      })
     }
 
     const result: AmvSyncResult = { synced }

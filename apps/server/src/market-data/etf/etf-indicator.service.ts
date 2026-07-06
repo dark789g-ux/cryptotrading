@@ -16,7 +16,7 @@ import {
   type KlineRow,
   type KlineRowWithIndicators,
 } from '../../indicators/indicators';
-import type { EtfSyncErrorItem, EtfSyncResult } from './etf.types';
+import type { EtfSyncErrorItem, EtfSyncResult, EtfSyncOnProgress } from './etf.types';
 
 const UPSERT_CHUNK = 1000;
 
@@ -33,10 +33,12 @@ export class EtfIndicatorService {
    * 重算指定 ETF 列表的技术指标。
    * 全量重算每个 ts_code 的所有已有日线对应的指标。
    */
-  async recalculateIndicators(etfCodes: string[]): Promise<EtfSyncResult> {
+  async recalculateIndicators(etfCodes: string[], onProgress?: EtfSyncOnProgress): Promise<EtfSyncResult> {
     const indicatorRepo = this.dataSource.getRepository(FundDailyIndicatorEntity);
     const errors: EtfSyncErrorItem[] = [];
     let totalWritten = 0;
+
+    const total = etfCodes.length;
 
     for (let i = 0; i < etfCodes.length; i++) {
       const tsCode = etfCodes[i];
@@ -48,6 +50,11 @@ export class EtfIndicatorService {
         this.logger.error(`[etf-indicator] ${tsCode} 异常: ${msg}`);
         errors.push({ apiName: 'etf_indicator', message: `${tsCode}: ${msg}` });
       }
+      onProgress?.({
+        phase: '计算技术指标',
+        percent: ((i + 1) / total) * 100,
+        message: `${tsCode} (${i + 1}/${total})`,
+      });
     }
 
     this.logger.log(`[etf-indicator] 完成：${etfCodes.length} 只 ETF，落库 ${totalWritten} 行`);

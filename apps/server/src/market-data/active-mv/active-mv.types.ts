@@ -8,6 +8,15 @@ export type AmvSignal = -1 | 0 | 1
 /** 同步模式 */
 export type AmvSyncMode = 'incremental' | 'overwrite'
 
+/** AMV 同步进度事件（逐指数循环埋点用） */
+export interface AmvSyncProgress {
+  phase: string
+  percent: number
+  message?: string
+}
+
+export type AmvSyncOnProgress = (p: AmvSyncProgress) => void
+
 /** calcAmvSeries 入参：量序列（已 ×1000 到元）+ 价序列（个股 qfq / 行业指数点位） */
 export interface AmvSeriesInput {
   /** 量：成交额（已换算到元，调用方负责 ×1000） */
@@ -47,6 +56,8 @@ export interface ThsIndexAmvSyncOptions {
   syncMode?: AmvSyncMode
   /** 可选：仅同步指定指数代码（.TI；不传则按 type 取全部 I 或全部 N） */
   tsCodes?: string[]
+  /** 一键同步注入的逐指数进度回调（可选） */
+  onProgress?: AmvSyncOnProgress
 }
 
 /** 兼容别名（行业语境）：与 ThsIndexAmvSyncOptions 完全同形。 */
@@ -62,6 +73,8 @@ export interface SwIndexAmvSyncOptions {
   syncMode?: AmvSyncMode
   /** 可选：仅同步指定申万指数代码（.SI；不传则 sw_index_catalog 全部） */
   tsCodes?: string[]
+  /** 一键同步注入的逐指数进度回调（可选） */
+  onProgress?: AmvSyncOnProgress
 }
 
 /** 同步结果 */

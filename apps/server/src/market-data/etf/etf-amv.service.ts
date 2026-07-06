@@ -19,7 +19,7 @@ import {
   persistAmvDaily,
 } from '../active-mv/amv-sync-helpers';
 import type { AmvDailyRow, AmvSyncMode } from '../active-mv/active-mv.types';
-import type { EtfSyncErrorItem, EtfSyncResult } from './etf.types';
+import type { EtfSyncErrorItem, EtfSyncResult, EtfSyncOnProgress } from './etf.types';
 
 @Injectable()
 export class EtfAmvService {
@@ -43,6 +43,7 @@ export class EtfAmvService {
     startDate: string,
     endDate: string,
     syncMode?: 'incremental' | 'overwrite',
+    onProgress?: EtfSyncOnProgress,
   ): Promise<EtfSyncResult> {
     const amvRepo = this.dataSource.getRepository(FundAmvDailyEntity);
     const errors: EtfSyncErrorItem[] = [];
@@ -60,6 +61,7 @@ export class EtfAmvService {
     }
     if (etfCodes.length === 0) return { success: 0, errors };
 
+    const total = etfCodes.length;
     for (let i = 0; i < etfCodes.length; i++) {
       const tsCode = etfCodes[i];
       try {
@@ -76,6 +78,11 @@ export class EtfAmvService {
         this.logger.error(`[etf-amv] ${tsCode} 异常: ${msg}`);
         errors.push({ apiName: 'etf_amv', message: `${tsCode}: ${msg}` });
       }
+      onProgress?.({
+        phase: '同步 ETF AMV',
+        percent: ((i + 1) / total) * 100,
+        message: `${tsCode} (${i + 1}/${total})`,
+      });
     }
 
     this.logger.log(`[etf-amv] 完成：${etfCodes.length} 只 ETF，落库 ${totalWritten} 行`);

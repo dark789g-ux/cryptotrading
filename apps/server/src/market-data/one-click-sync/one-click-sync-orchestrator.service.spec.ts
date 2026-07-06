@@ -724,12 +724,12 @@ describe('OneClickSyncOrchestratorService', () => {
     expect(mocks.etf.sync).toHaveBeenCalledWith(
       expect.objectContaining({ syncMode: 'overwrite' }),
     );
-    // etfAmv.sync / etfMf.sync 签名是 (etfCodes: string[], startDate, endDate, syncMode)
+    // etfAmv.sync / etfMf.sync 签名是 (etfCodes, startDate, endDate, syncMode, onProgress?)
     expect(mocks.etfAmv.sync).toHaveBeenCalledWith(
-      expect.any(Array), '20260601', '20260610', 'overwrite',
+      expect.any(Array), '20260601', '20260610', 'overwrite', expect.any(Function),
     );
     expect(mocks.etfMf.sync).toHaveBeenCalledWith(
-      expect.any(Array), '20260601', '20260610', 'overwrite',
+      expect.any(Array), '20260601', '20260610', 'overwrite', expect.any(Function),
     );
     // market-index-daily 也透传（runner 加了 syncMode 字段，service 实际不读，但调用应包含）
     expect(mocks.marketIndexSync.sync).toHaveBeenCalledWith(

@@ -5,6 +5,15 @@ export interface EtfSyncErrorItem {
   message: string;
 }
 
+/** ETF 同步进度事件（逐项循环埋点用） */
+export interface EtfSyncProgress {
+  phase: string;
+  percent: number;
+  message?: string;
+}
+
+export type EtfSyncOnProgress = (p: EtfSyncProgress) => void;
+
 export interface EtfSyncResult {
   success: number;
   errors: EtfSyncErrorItem[];

@@ -9,7 +9,7 @@ import { DataSource, Repository } from 'typeorm';
 import { EtfPcfEntity } from '../../entities/raw/etf-pcf.entity';
 import { batchUpsert, runWithRetry } from '../_shared/sync-helpers';
 import { ETF_FETCH_INTERVAL_MS, fetchSsePcf, fetchSzsePcf } from './etf-pcf.client';
-import type { PcfNormalizedRow, EtfSyncErrorItem, EtfSyncResult } from './etf.types';
+import type { PcfNormalizedRow, EtfSyncErrorItem, EtfSyncResult, EtfSyncOnProgress } from './etf.types';
 
 interface FetchAndPersistResult {
   rows: number;
@@ -37,6 +37,7 @@ export class EtfPcfService {
     etfCodes: string[],
     tradeDate: string,
     syncMode?: 'incremental' | 'overwrite',
+    onProgress?: EtfSyncOnProgress,
   ): Promise<EtfSyncResult> {
     const pcfRepo = this.dataSource.getRepository(EtfPcfEntity);
     let totalRows = 0;
@@ -61,6 +62,9 @@ export class EtfPcfService {
       return { success: 0, errors: [] };
     }
 
+    const total = etfCodes.length;
+    let done = existing.size;
+
     // ── 首轮 ──
     const failedCodes: string[] = [];
     for (let i = 0; i < todo.length; i++) {
@@ -70,6 +74,12 @@ export class EtfPcfService {
       if (r.failed) {
         failedCodes.push(todo[i]);
       }
+      done++;
+      onProgress?.({
+        phase: '同步 ETF PCF',
+        percent: (done / total) * 100,
+        message: `${todo[i]} (${done}/${total})`,
+      });
     }
 
     // ── 二轮重试（首轮失败的尚未落库，不经过增量跳过） ──
@@ -85,6 +95,11 @@ export class EtfPcfService {
             message: `${failedCodes[i]} ${tradeDate}: ${r.errorMsg}`,
           });
         }
+        onProgress?.({
+          phase: '同步 ETF PCF（重试）',
+          percent: (done / total) * 100,
+          message: `重试 ${failedCodes[i]} (${i + 1}/${failedCodes.length})`,
+        });
       }
       this.logger.log('[etf-pcf] 二轮重试完成');
     }

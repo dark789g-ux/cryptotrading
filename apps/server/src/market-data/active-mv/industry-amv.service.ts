@@ -142,11 +142,16 @@ export class ThsIndexAmvService {
     // 类别隔离断言（防回归）：解析出的指数 type 必须全为本路径的 indexType
     await this.assertTypeIsolation(indexType, indexCodes)
 
+    const total = indexCodes.length
+    const onProgress = opts.onProgress
+    const phaseLabel = label === 'industry' ? '同步行业指数 AMV' : '同步概念板块 AMV'
+
     const errors: string[] = []
     const failedItems: NonNullable<AmvSyncResult['failedItems']> = []
     let synced = 0
 
-    for (const idx of indexCodes) {
+    for (let i = 0; i < indexCodes.length; i++) {
+      const idx = indexCodes[i]
       try {
         const n = await this.syncOneIndex(
           indexType,
@@ -165,6 +170,11 @@ export class ThsIndexAmvService {
         errors.push(`${label}_amv_error:${idx}:${reason}`)
         failedItems.push({ tsCode: idx, apiName: `${label}_amv_error`, reason })
       }
+      onProgress?.({
+        phase: phaseLabel,
+        percent: ((i + 1) / total) * 100,
+        message: `${idx} (${i + 1}/${total})`,
+      })
     }
 
     const result: AmvSyncResult = { synced }
