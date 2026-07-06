@@ -6,7 +6,7 @@ import { IndicatorCalcStateEntity } from '../../../entities/raw/indicator-calc-s
 import { calcBrickChartPoints } from '../../../indicators/brick-chart';
 import { calcIndicators, KlineRow, KlineRowWithIndicators } from '../../../indicators/indicators';
 import { IndicatorWorkerPool } from '../../../indicators/indicator-worker-pool';
-import { calcIndicatorsStreaming, normalizeIndicatorCalcState } from '../../../indicators/indicators-stream';
+import { calcIndicatorsStreaming, IndicatorCalcState, normalizeIndicatorCalcState } from '../../../indicators/indicators-stream';
 import { ASharesSyncRange, AShareQuoteForIndicator } from '../a-shares.types';
 
 type ASharesSymbolProgressCallback = (current: number, total: number, tsCode: string) => void;
@@ -95,7 +95,12 @@ export class ASharesIndicatorService {
     const seedState = normalizeIndicatorCalcState(seedRows[0]?.state);
     const seedTradeDate = seedState ? seedRows[0]?.tradeDate : null;
 
-    const rows = seedState && seedTradeDate
+    let effectiveSeedState = seedState;
+    if (seedState && seedState.signedAmounts.length < 19) {
+      effectiveSeedState = await this.repairSeedSignedAmounts(tsCode, seedTradeDate!, seedState);
+    }
+
+    const rows = effectiveSeedState && seedTradeDate
       ? await this.loadQuoteRowsAfter(tsCode, seedTradeDate)
       : await this.loadQuoteRows(tsCode, null);
     if (!rows.length) return 0;
@@ -110,8 +115,8 @@ export class ASharesIndicatorService {
       quote_volume: row.amount ?? 0,
     }));
     const calculated = workerPool
-      ? await workerPool.run(klineRows, seedState)
-      : calcIndicatorsStreaming(klineRows, seedState);
+      ? await workerPool.run(klineRows, effectiveSeedState)
+      : calcIndicatorsStreaming(klineRows, effectiveSeedState);
 
     const entities = calculated.map(({ row, brickChart }, index) =>
       this.createIndicatorEntity(tsCode, rows[index].tradeDate, row, brickChart),
@@ -213,6 +218,58 @@ export class ASharesIndicatorService {
         AND qfq_close IS NOT NULL
       ORDER BY trade_date ASC
     `, [tsCode, afterDate]);
+  }
+
+  private async repairSeedSignedAmounts(
+    tsCode: string,
+    seedTradeDate: string,
+    seed: IndicatorCalcState,
+  ): Promise<IndicatorCalcState> {
+    const historyRows = await this.loadQuoteRowsBefore(tsCode, seedTradeDate, 21);
+    if (historyRows.length < 5) return seed;
+    const klineRows = historyRows.map((row): KlineRow => ({
+      open_time: row.tradeDate,
+      open: row.qfqOpen ?? 0,
+      high: row.qfqHigh ?? 0,
+      low: row.qfqLow ?? 0,
+      close: row.qfqClose ?? 0,
+      volume: row.vol ?? 0,
+      quote_volume: row.amount ?? 0,
+    }));
+    const historyCalc = calcIndicatorsStreaming(klineRows);
+    const lastState = historyCalc[historyCalc.length - 1].state;
+    if (lastState && lastState.signedAmounts.length > 0) {
+      seed.signedAmounts = lastState.signedAmounts;
+    }
+    return seed;
+  }
+
+  private async loadQuoteRowsBefore(
+    tsCode: string,
+    beforeDate: string,
+    limit: number,
+  ): Promise<AShareQuoteForIndicator[]> {
+    const rows = await this.dataSource.query<AShareQuoteForIndicator[]>(`
+      SELECT
+        ts_code AS "tsCode",
+        trade_date AS "tradeDate",
+        qfq_open AS "qfqOpen",
+        qfq_high AS "qfqHigh",
+        qfq_low AS "qfqLow",
+        qfq_close AS "qfqClose",
+        vol,
+        amount
+      FROM raw.daily_quote
+      WHERE ts_code = $1
+        AND trade_date <= $2
+        AND qfq_open IS NOT NULL
+        AND qfq_high IS NOT NULL
+        AND qfq_low IS NOT NULL
+        AND qfq_close IS NOT NULL
+      ORDER BY trade_date DESC
+      LIMIT $3
+    `, [tsCode, beforeDate, limit]);
+    return rows.reverse();
   }
 
   private createIndicatorEntity(
