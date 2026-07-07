@@ -13,6 +13,7 @@ import {
   type OneClickStepState,
   type OneClickSummary,
 } from './oneClickSync.types'
+import { useSyncStepPreferences } from './useSyncStepPreferences'
 
 export type {
   LogEntry,
@@ -48,18 +49,19 @@ export function useOneClickSync(message: OneClickMessageApi) {
   // 日期选择器输入（本地午夜 ms），仅 start() 时转 YYYYMMDD 提交，不进 store
   const dateRange = ref<[number, number] | null>(null)
 
-  // 覆盖模式（默认 incremental）；勾选的 step key 集合（默认全部 13 key）。
+  // 覆盖模式（默认 incremental）。
   // 仅 start() 时进请求体，不进 store（store/run entity 不持久化两者）。
   const syncMode = ref<'incremental' | 'overwrite'>('incremental')
-  const selectedStepKeys = ref<string[]>([...STEP_KEYS])
-  /** A 股 step 全集（不变常量派生），供面板「全选/全不选」恢复全集。 */
-  const allStepKeys = computed<readonly string[]>(() => STEP_KEYS)
 
-  function toggleStep(key: string): void {
-    const i = selectedStepKeys.value.indexOf(key)
-    if (i >= 0) selectedStepKeys.value = selectedStepKeys.value.filter(k => k !== key)
-    else selectedStepKeys.value = [...selectedStepKeys.value, key]
-  }
+  const {
+    selectedStepKeys,
+    allStepKeys,
+    loadPreference,
+    savePreference,
+    toggleStep,
+  } = useSyncStepPreferences({ scope: 'ashare', allKeys: STEP_KEYS })
+
+  void loadPreference()
 
   // ---- 直接透传 store getter（形状与旧实现一致，Panel 模板不动）----
   const running = computed(() => store.running)
@@ -109,6 +111,7 @@ export function useOneClickSync(message: OneClickMessageApi) {
         syncMode: syncMode.value,
         selectedSteps: selectedStepKeys.value,
       })
+      savePreference()
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : '启动一键同步失败')
     }

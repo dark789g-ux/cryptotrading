@@ -54,6 +54,23 @@ export function sanitizeScopeView(input: unknown): ScopeViewPreferences {
   return { table: [], split: [] };
 }
 
+export const SYNC_STEPS_KEY_PREFIX = 'sync-steps:';
+
+export const SYNC_STEPS_SCOPES = ['ashare', 'us'] as const;
+
+export type SyncStepsScope = (typeof SYNC_STEPS_SCOPES)[number];
+
+export function isValidSyncScope(x: string): x is SyncStepsScope {
+  return (SYNC_STEPS_SCOPES as readonly string[]).includes(x);
+}
+
+export function sanitizeSyncSteps(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  return input.filter(
+    (item): item is string => typeof item === 'string' && item !== '',
+  );
+}
+
 /** 只校验基本结构合法性，不校验 key 是否在已知列表中。 */
 export function sanitizeItems(input: unknown): ColumnPreferenceItem[] {
   if (!Array.isArray(input)) return [];
@@ -106,6 +123,47 @@ export class PreferencesService {
         userId,
         key,
         value: sanitized,
+      }),
+    );
+
+    return { ok: true };
+  }
+
+  async getSyncSteps(
+    userId: string,
+    scope: SyncStepsScope,
+  ): Promise<{ steps: string[] }> {
+    const row = await this.repo.findOneBy({
+      userId,
+      key: SYNC_STEPS_KEY_PREFIX + scope,
+    });
+    if (!row) return { steps: [] };
+    const raw = typeof row.value === 'object' && row.value !== null && 'steps' in row.value
+      ? (row.value as { steps: unknown }).steps
+      : row.value;
+    return { steps: sanitizeSyncSteps(raw) };
+  }
+
+  async saveSyncSteps(
+    userId: string,
+    scope: SyncStepsScope,
+    steps: unknown,
+  ): Promise<{ ok: true }> {
+    const sanitized = sanitizeSyncSteps(steps);
+    const key = SYNC_STEPS_KEY_PREFIX + scope;
+    const existing = await this.repo.findOneBy({ userId, key });
+    if (existing) {
+      existing.value = { steps: sanitized };
+      await this.repo.save(existing);
+      return { ok: true };
+    }
+
+    await this.repo.save(
+      this.repo.create({
+        id: newId(),
+        userId,
+        key,
+        value: { steps: sanitized },
       }),
     );
 

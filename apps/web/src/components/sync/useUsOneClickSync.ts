@@ -10,6 +10,7 @@ import {
   type OneClickStepState,
   type OneClickSummary,
 } from './oneClickSync.types'
+import { useSyncStepPreferences } from './useSyncStepPreferences'
 
 /**
  * useUsOneClickSync —— 「美股一键同步」面板控制器（与 A 股 useOneClickSync 实现同一接口
@@ -30,14 +31,16 @@ export function useUsOneClickSync(message: OneClickMessageApi): OneClickPanelCon
   // 与 A 股 controller 对称的 UI 状态（美股后端走 ml.jobs，不识别 syncMode/selectedSteps；
   // 这两个仅维持 OneClickPanelController 接口一致，store.startRun 仍只传 startDate/endDate）。
   const syncMode = ref<'incremental' | 'overwrite'>('incremental')
-  const selectedStepKeys = ref<string[]>([...US_STEP_KEYS])
-  const allStepKeys = computed<readonly string[]>(() => US_STEP_KEYS)
 
-  function toggleStep(key: string): void {
-    const i = selectedStepKeys.value.indexOf(key)
-    if (i >= 0) selectedStepKeys.value = selectedStepKeys.value.filter(k => k !== key)
-    else selectedStepKeys.value = [...selectedStepKeys.value, key]
-  }
+  const {
+    selectedStepKeys,
+    allStepKeys,
+    loadPreference,
+    savePreference,
+    toggleStep,
+  } = useSyncStepPreferences({ scope: 'us', allKeys: US_STEP_KEYS })
+
+  void loadPreference()
 
   // ---- 直接透传 store getter（形状与 A 股 controller 一致，Panel 模板不动）----
   const running = computed(() => store.running)
@@ -69,6 +72,7 @@ export function useUsOneClickSync(message: OneClickMessageApi): OneClickPanelCon
     const endDate = toYYYYMMDD(dateRange.value[1])
     try {
       await store.startRun({ startDate, endDate })
+      savePreference()
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : '启动美股一键同步失败')
     }

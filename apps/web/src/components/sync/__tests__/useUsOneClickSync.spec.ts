@@ -14,6 +14,15 @@ import { useUsOneClickSyncStore } from '../../../stores/usOneClickSync'
 import { formatUTCDateTime } from '../../symbols/a-shares/aSharesFormatters'
 import type { JobRow } from '../../../api/modules/quant'
 
+vi.mock('@/api/modules/user-config/preferences', () => ({
+  preferencesApi: {
+    getSyncSteps: vi.fn().mockResolvedValue({ steps: [] }),
+    saveSyncSteps: vi.fn().mockResolvedValue({ ok: true }),
+  },
+}))
+
+import { preferencesApi } from '@/api/modules/user-config/preferences'
+
 function makeMessage() {
   return { error: vi.fn(), success: vi.fn() }
 }
@@ -46,6 +55,7 @@ function makeJob(over: Partial<JobRow> = {}): JobRow {
 describe('useUsOneClickSync 控制器', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    vi.clearAllMocks()
   })
 
   it('canStart：dateRange 两端齐全（且非 running）时为 true', () => {
@@ -141,5 +151,36 @@ describe('useUsOneClickSync 控制器', () => {
     store.latestSuccessJob = null
     const ctrl = useUsOneClickSync(makeMessage())
     expect(ctrl.latestSyncText.value).toBe('')
+  })
+
+  it('创建时触发 loadPreference(us)', async () => {
+    useUsOneClickSync(makeMessage())
+    await vi.waitFor(() => {
+      expect(preferencesApi.getSyncSteps).toHaveBeenCalledWith('us')
+    })
+  })
+
+  it('start() 成功后触发 savePreference(us)', async () => {
+    const store = useUsOneClickSyncStore()
+    vi.spyOn(store, 'startRun').mockResolvedValue(makeJob())
+    const ctrl = useUsOneClickSync(makeMessage())
+    ctrl.dateRange.value = [new Date(2026, 5, 1).getTime(), new Date(2026, 5, 5).getTime()]
+
+    await ctrl.start()
+
+    await vi.waitFor(() => {
+      expect(preferencesApi.saveSyncSteps).toHaveBeenCalledWith('us', expect.any(Object))
+    })
+  })
+
+  it('start() 失败时不触发 savePreference', async () => {
+    const store = useUsOneClickSyncStore()
+    vi.spyOn(store, 'startRun').mockRejectedValue(new Error('fail'))
+    const ctrl = useUsOneClickSync(makeMessage())
+    ctrl.dateRange.value = [new Date(2026, 5, 1).getTime(), new Date(2026, 5, 5).getTime()]
+
+    await ctrl.start()
+
+    expect(preferencesApi.saveSyncSteps).not.toHaveBeenCalled()
   })
 })

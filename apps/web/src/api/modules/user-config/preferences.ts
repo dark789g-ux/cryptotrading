@@ -11,9 +11,17 @@ export interface ScopeViewPreferences {
   split: ColumnPreferenceItem[]
 }
 
+export interface SyncStepsPreference {
+  steps: string[]
+}
+
 export const preferencesApi = {
   getTableColumns: (tableId: string) =>
     request<ScopeViewPreferences>(`${API_BASE}/preferences/columns/${tableId}`),
   saveTableColumns: (tableId: string, body: ScopeViewPreferences) =>
     put<{ ok: true }>(`${API_BASE}/preferences/columns/${tableId}`, body),
+  getSyncSteps: (scope: string) =>
+    request<SyncStepsPreference>(`${API_BASE}/preferences/sync-steps/${scope}`),
+  saveSyncSteps: (scope: string, body: SyncStepsPreference) =>
+    put<{ ok: true }>(`${API_BASE}/preferences/sync-steps/${scope}`, body),
 }

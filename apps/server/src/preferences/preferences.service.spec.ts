@@ -8,6 +8,10 @@ import {
   COLUMN_PREFERENCE_TABLE_IDS,
   isValidTableId,
   EMPTY_SCOPE_VIEW,
+  SYNC_STEPS_KEY_PREFIX,
+  SYNC_STEPS_SCOPES,
+  isValidSyncScope,
+  sanitizeSyncSteps,
 } from './preferences.service';
 
 describe('PreferencesService', () => {
@@ -225,6 +229,154 @@ describe('PreferencesService', () => {
 
       repo.findOneBy.mockResolvedValueOnce(captured);
       await expect(service.getTableColumns('user-1', 'aShares')).resolves.toEqual(input);
+    });
+  });
+
+  describe('isValidSyncScope', () => {
+    it('合法 scope → true', () => {
+      for (const s of SYNC_STEPS_SCOPES) {
+        expect(isValidSyncScope(s)).toBe(true);
+      }
+    });
+
+    it('非法 scope → false', () => {
+      expect(isValidSyncScope('unknown')).toBe(false);
+      expect(isValidSyncScope('')).toBe(false);
+      expect(isValidSyncScope('ASHARE')).toBe(false);
+    });
+  });
+
+  describe('sanitizeSyncSteps', () => {
+    it('合法字符串数组原样保留', () => {
+      expect(sanitizeSyncSteps(['step-a', 'step-b'])).toEqual(['step-a', 'step-b']);
+    });
+
+    it('过滤非字符串和空串', () => {
+      expect(sanitizeSyncSteps(['a', 123, null, '', undefined, 'b'])).toEqual(['a', 'b']);
+    });
+
+    it('非数组输入 → 空数组', () => {
+      expect(sanitizeSyncSteps(null)).toEqual([]);
+      expect(sanitizeSyncSteps('string')).toEqual([]);
+      expect(sanitizeSyncSteps(42)).toEqual([]);
+      expect(sanitizeSyncSteps({ steps: ['a'] })).toEqual([]);
+    });
+  });
+
+  describe('getSyncSteps', () => {
+    it('无记录 → { steps: [] }', async () => {
+      repo.findOneBy.mockResolvedValueOnce(null);
+
+      await expect(service.getSyncSteps('user-1', 'ashare')).resolves.toEqual({ steps: [] });
+      expect(repo.findOneBy).toHaveBeenCalledWith({
+        userId: 'user-1',
+        key: SYNC_STEPS_KEY_PREFIX + 'ashare',
+      });
+    });
+
+    it('有记录 → 返回存储的步骤', async () => {
+      repo.findOneBy.mockResolvedValueOnce({
+        id: 'pref-1',
+        userId: 'user-1',
+        key: SYNC_STEPS_KEY_PREFIX + 'us',
+        value: { steps: ['step-x', 'step-y'] },
+      } as UserPreferenceEntity);
+
+      await expect(service.getSyncSteps('user-1', 'us')).resolves.toEqual({
+        steps: ['step-x', 'step-y'],
+      });
+    });
+
+    it('脏数据（非数组）→ sanitize 后 { steps: [] }', async () => {
+      repo.findOneBy.mockResolvedValueOnce({
+        id: 'pref-1',
+        userId: 'user-1',
+        key: SYNC_STEPS_KEY_PREFIX + 'ashare',
+        value: 'not-an-array',
+      } as UserPreferenceEntity);
+
+      await expect(service.getSyncSteps('user-1', 'ashare')).resolves.toEqual({ steps: [] });
+    });
+
+    it('脏数据（含非字符串、空串）→ sanitize 后干净', async () => {
+      repo.findOneBy.mockResolvedValueOnce({
+        id: 'pref-1',
+        userId: 'user-1',
+        key: SYNC_STEPS_KEY_PREFIX + 'ashare',
+        value: ['step-a', 123, '', null, 'step-b'],
+      } as UserPreferenceEntity);
+
+      await expect(service.getSyncSteps('user-1', 'ashare')).resolves.toEqual({
+        steps: ['step-a', 'step-b'],
+      });
+    });
+  });
+
+  describe('saveSyncSteps', () => {
+    it('首次写入 → INSERT，用 newId', async () => {
+      repo.findOneBy.mockResolvedValueOnce(null);
+      repo.create.mockImplementation((entity) => entity as UserPreferenceEntity);
+      repo.save.mockImplementation(async (entity) => entity as UserPreferenceEntity);
+
+      await service.saveSyncSteps('user-1', 'ashare', ['step-a', 'step-b']);
+
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          key: SYNC_STEPS_KEY_PREFIX + 'ashare',
+          value: { steps: ['step-a', 'step-b'] },
+        }),
+      );
+      expect(repo.save).toHaveBeenCalled();
+    });
+
+    it('已存在记录 → UPDATE 同一行', async () => {
+      const existing = {
+        id: 'pref-1',
+        userId: 'user-1',
+        key: SYNC_STEPS_KEY_PREFIX + 'us',
+        value: { steps: ['old-step'] },
+      } as UserPreferenceEntity;
+      repo.findOneBy.mockResolvedValueOnce(existing);
+      repo.save.mockImplementation(async (entity) => entity as UserPreferenceEntity);
+
+      await service.saveSyncSteps('user-1', 'us', ['new-step']);
+
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ value: { steps: ['new-step'] } }),
+      );
+      expect(repo.create).not.toHaveBeenCalled();
+    });
+
+    it('sanitize 入参（过滤非字符串/空串）', async () => {
+      repo.findOneBy.mockResolvedValueOnce(null);
+      repo.create.mockImplementation((entity) => entity as UserPreferenceEntity);
+      repo.save.mockImplementation(async (entity) => entity as UserPreferenceEntity);
+
+      await service.saveSyncSteps('user-1', 'ashare', ['step-a', 42, '', null, 'step-b']);
+
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          value: { steps: ['step-a', 'step-b'] },
+        }),
+      );
+    });
+
+    it('save 后 getSyncSteps 读回一致（round-trip）', async () => {
+      repo.findOneBy.mockResolvedValueOnce(null);
+      repo.create.mockImplementation((entity) => entity as UserPreferenceEntity);
+
+      let captured!: UserPreferenceEntity;
+      repo.save.mockImplementation(async (entity) => {
+        captured = entity as UserPreferenceEntity;
+        return captured;
+      });
+
+      const steps = ['step-a', 'step-b'];
+      await service.saveSyncSteps('user-1', 'us', steps);
+
+      repo.findOneBy.mockResolvedValueOnce(captured);
+      await expect(service.getSyncSteps('user-1', 'us')).resolves.toEqual({ steps });
     });
   });
 });

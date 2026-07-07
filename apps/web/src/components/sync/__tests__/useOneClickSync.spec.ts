@@ -7,13 +7,22 @@
  * 静态 STEP_LABELS 补全。本测用「无 label」的 step 复现后端真实 payload，锁住补全行为，
  * 防有人把 steps 适配回 `() => store.steps` 让 bug 复活。
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useOneClickSync } from '../useOneClickSync'
 import { STEP_LABELS, type OneClickStepKey, type OneClickStepState } from '../oneClickSync.types'
 import { useOneClickSyncStore } from '../../../stores/oneClickSync'
 import { formatUTCDateTime } from '../../symbols/a-shares/aSharesFormatters'
 import type { OneClickSyncRun } from '../../../api/modules/market/one-click-sync'
+
+vi.mock('@/api/modules/user-config/preferences', () => ({
+  preferencesApi: {
+    getSyncSteps: vi.fn().mockResolvedValue({ steps: [] }),
+    saveSyncSteps: vi.fn().mockResolvedValue({ ok: true }),
+  },
+}))
+
+import { preferencesApi } from '@/api/modules/user-config/preferences'
 
 const messageStub = { error: () => {}, success: () => {} }
 
@@ -56,6 +65,7 @@ function makeRun(steps: OneClickStepState[], over: Partial<OneClickSyncRun> = {}
 describe('useOneClickSync 适配层 label 合并', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    vi.clearAllMocks()
   })
 
   it('steps：后端无 label 的 step 被 STEP_LABELS 按 key 补全步骤名', () => {
@@ -90,5 +100,36 @@ describe('useOneClickSync 适配层 label 合并', () => {
     store.latestSuccessRun = null
     const ctrl = useOneClickSync(messageStub)
     expect(ctrl.latestSyncText.value).toBe('')
+  })
+
+  it('创建时触发 loadPreference(ashare)', async () => {
+    useOneClickSync(messageStub)
+    await vi.waitFor(() => {
+      expect(preferencesApi.getSyncSteps).toHaveBeenCalledWith('ashare')
+    })
+  })
+
+  it('start() 成功后触发 savePreference(ashare)', async () => {
+    const store = useOneClickSyncStore()
+    vi.spyOn(store, 'startRun').mockResolvedValue(undefined)
+    const ctrl = useOneClickSync(messageStub)
+    ctrl.dateRange.value = [new Date(2026, 5, 1).getTime(), new Date(2026, 5, 5).getTime()]
+
+    await ctrl.start()
+
+    await vi.waitFor(() => {
+      expect(preferencesApi.saveSyncSteps).toHaveBeenCalledWith('ashare', expect.any(Object))
+    })
+  })
+
+  it('start() 失败时不触发 savePreference', async () => {
+    const store = useOneClickSyncStore()
+    vi.spyOn(store, 'startRun').mockRejectedValue(new Error('fail'))
+    const ctrl = useOneClickSync(messageStub)
+    ctrl.dateRange.value = [new Date(2026, 5, 1).getTime(), new Date(2026, 5, 5).getTime()]
+
+    await ctrl.start()
+
+    expect(preferencesApi.saveSyncSteps).not.toHaveBeenCalled()
   })
 })
