@@ -63,7 +63,7 @@ export class ASharesSyncService {
     const syncMode = normalizeSyncMode(dto.syncMode);
     emit({ type: 'start' });
     emit({ type: 'progress', phase: '同步股票列表', current: 0, total: 1, percent: 0 });
-    const symbols = await syncSymbols(this.fetcherDeps);
+    const { count: symbols, tsCodes: lTsCodes } = await syncSymbols(this.fetcherDeps);
 
     const range = await resolveSyncRange(this.tushareClient, dto);
     emit({
@@ -103,12 +103,14 @@ export class ASharesSyncService {
     await Promise.all(tradeDates.map(async (tradeDate) => {
       let syncedDatasetsForDate = 0;
       let skippedDatasetsForDate = 0;
+      let dailyTsCodes: string[] = [];
 
       try {
         if (await shouldSyncDataset(this.quoteRepo, syncMode, 'daily', tradeDate)) {
-          const result = await syncDailyQuotesByTradeDate(this.fetcherDeps, tradeDate);
+          const result = await syncDailyQuotesByTradeDate(this.fetcherDeps, tradeDate, lTsCodes);
           quotes += result.count;
           syncedDatasetsForDate++;
+          dailyTsCodes = result.tsCodes;
           mergeChangedDates(changedRanges, result.tsCodes, tradeDate);
           if (result.count === 0) {
             failedItems.push({
@@ -116,6 +118,12 @@ export class ASharesSyncService {
               apiName: 'daily_empty',
               message: 'TuShare daily 返回 0 行，可能日期参数错误或当日数据未发布',
             });
+          }
+          if (result.partial) {
+            const stillMissing = lTsCodes.filter((c) => !new Set(result.tsCodes).has(c));
+            this.logger.warn(`daily ${tradeDate} 部分返回：缺口触发补拉，补拉 ${result.backfilled} 行，仍缺 ${stillMissing.length} 行`);
+            failedItems.push({ tradeDate, apiName: 'daily_partial', message: `daily 部分返回（预期 ${lTsCodes.length}），已补拉 ${result.backfilled} 行，仍缺 ${stillMissing.length} 行` });
+            mergeChangedDates(changedRanges, stillMissing, tradeDate);
           }
         } else {
           skippedDatasets++;
@@ -127,15 +135,20 @@ export class ASharesSyncService {
 
       try {
         if (await shouldSyncDataset(this.quoteRepo, syncMode, 'daily_basic', tradeDate)) {
-          const count = await syncDailyMetricsByTradeDate(this.fetcherDeps, tradeDate);
-          metrics += count;
+          const expected = dailyTsCodes.length ? dailyTsCodes : lTsCodes;
+          const result = await syncDailyMetricsByTradeDate(this.fetcherDeps, tradeDate, expected);
+          metrics += result.count;
           syncedDatasetsForDate++;
-          if (count === 0) {
+          if (result.count === 0) {
             failedItems.push({
               tradeDate,
               apiName: 'daily_basic_empty',
               message: 'TuShare daily_basic 返回 0 行，可能日期参数错误或当日数据未发布',
             });
+          }
+          if (result.partial) {
+            this.logger.warn(`daily_basic ${tradeDate} 部分返回：重试补拉 ${result.backfilled} 行`);
+            failedItems.push({ tradeDate, apiName: 'daily_basic_partial', message: `daily_basic 部分返回，重试补拉 ${result.backfilled} 行` });
           }
         } else {
           skippedDatasets++;
@@ -147,7 +160,8 @@ export class ASharesSyncService {
 
       try {
         if (await shouldSyncDataset(this.quoteRepo, syncMode, 'adj_factor', tradeDate)) {
-          const result = await syncAdjFactorsByTradeDate(this.fetcherDeps, tradeDate);
+          const expected = dailyTsCodes.length ? dailyTsCodes : lTsCodes;
+          const result = await syncAdjFactorsByTradeDate(this.fetcherDeps, tradeDate, expected);
           adjFactors += result.count;
           syncedDatasetsForDate++;
           mergeChangedDates(changedRanges, result.tsCodes, tradeDate);
@@ -158,6 +172,12 @@ export class ASharesSyncService {
               apiName: 'adj_factor_empty',
               message: 'TuShare adj_factor 返回 0 行，可能日期参数错误或当日数据未发布',
             });
+          }
+          if (result.partial) {
+            const stillMissing = expected.filter((c) => !new Set(result.tsCodes).has(c));
+            this.logger.warn(`adj_factor ${tradeDate} 部分返回：补拉 ${result.backfilled} 行，仍缺 ${stillMissing.length} 行`);
+            failedItems.push({ tradeDate, apiName: 'adj_factor_partial', message: `adj_factor 部分返回，补拉 ${result.backfilled} 行，仍缺 ${stillMissing.length} 行` });
+            mergeChangedDates(changedRanges, stillMissing, tradeDate);
           }
         } else {
           skippedDatasets++;
@@ -258,7 +278,6 @@ export class ASharesSyncService {
         failedItems.push(createStageFailedItem('signal_rolling_recalculate', err));
       }
 
-      // PR-7③-b：个股 AMV dirty 续算（满足⑥判据「嵌入」，并入 a-shares 收尾，替代独立 Step6）。
       try {
         await this.activeMvService.recalculateDirtyStockAmv([...changedRanges.keys()]);
       } catch (err: unknown) {

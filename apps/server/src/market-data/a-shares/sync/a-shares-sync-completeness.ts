@@ -13,21 +13,22 @@ const DATASET_COMPLETENESS: Record<ASharesDatasetKey, DatasetCompletenessConfig>
     tableName: DAILY_QUOTES_TABLE,
     dateColumn: 'trade_date',
     strictNonNullColumns: ['open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount'],
-    baseline: 'self',
+    baseline: { table: 'a_share_symbols', filter: "list_status = 'L'" },
+    toleranceRatio: 0.05,
   },
   daily_basic: {
     tableName: 'raw.daily_basic',
     dateColumn: 'trade_date',
-    // turnover_rate / total_mv / circ_mv 在实测数据中 100% 非空；
-    // pe / pe_ttm / pb / volume_ratio 对亏损股或停牌股合法为 NULL，不能作硬约束。
     strictNonNullColumns: ['turnover_rate', 'total_mv', 'circ_mv'],
     baseline: { table: DAILY_QUOTES_TABLE, dateColumn: 'trade_date' },
+    toleranceRatio: 0.02,
   },
   adj_factor: {
     tableName: 'raw.adj_factor',
     dateColumn: 'trade_date',
     strictNonNullColumns: ['adj_factor'],
     baseline: { table: DAILY_QUOTES_TABLE, dateColumn: 'trade_date' },
+    toleranceRatio: 0.02,
   },
 };
 

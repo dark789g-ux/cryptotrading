@@ -398,3 +398,63 @@ describe('isDatasetComplete - PRE 门控', () => {
     );
   });
 });
+
+describe('isDatasetComplete - toleranceRatio 容差', () => {
+  const baselineConfigWithTolerance: DatasetCompletenessConfig = {
+    tableName: 'raw.daily_quote',
+    dateColumn: 'trade_date',
+    baseline: { table: 'a_share_symbols', filter: "list_status = 'L'" },
+    toleranceRatio: 0.05,
+  };
+
+  it('toleranceRatio=0.05, total 在容差内（96 >= 95）→ 完整(true)', async () => {
+    const { repo } = makeRepoMock(() => [
+      { __total: '96', __baseline: '100' },
+    ]);
+
+    const ok = await isDatasetComplete(repo, baselineConfigWithTolerance, '20260702');
+
+    expect(ok).toBe(true);
+  });
+
+  it('toleranceRatio=0.05, total 低于容差线（94 < 95）→ 不完整(false)', async () => {
+    const { repo } = makeRepoMock(() => [
+      { __total: '94', __baseline: '100' },
+    ]);
+
+    const ok = await isDatasetComplete(repo, baselineConfigWithTolerance, '20260702');
+
+    expect(ok).toBe(false);
+  });
+
+  it('不设 toleranceRatio（默认0），total 略低于 baseline → 不完整(false)', async () => {
+    const config: DatasetCompletenessConfig = {
+      tableName: 'raw.daily_basic',
+      dateColumn: 'trade_date',
+      baseline: { table: 'raw.daily_quote', dateColumn: 'trade_date' },
+    };
+    const { repo } = makeRepoMock(() => [
+      { __total: '99', __baseline: '100' },
+    ]);
+
+    const ok = await isDatasetComplete(repo, config, '20260702');
+
+    expect(ok).toBe(false);
+  });
+
+  it("baseline='self' + toleranceRatio 无效，total>0 即完整(true)", async () => {
+    const config: DatasetCompletenessConfig = {
+      tableName: 'raw.daily_quote',
+      dateColumn: 'trade_date',
+      baseline: 'self',
+      toleranceRatio: 0.05,
+    };
+    const { repo } = makeRepoMock(() => [
+      { __total: '1' },
+    ]);
+
+    const ok = await isDatasetComplete(repo, config, '20260702');
+
+    expect(ok).toBe(true);
+  });
+});

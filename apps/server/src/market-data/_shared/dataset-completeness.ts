@@ -23,6 +23,7 @@ export type DatasetCompletenessConfig = {
   dateColumn: string;
   strictNonNullColumns?: string[];
   baseline: 'self' | { table: string; dateColumn?: string; filter?: string };
+  toleranceRatio?: number;
 };
 
 type BaselineObject = { table: string; dateColumn?: string; filter?: string };
@@ -114,9 +115,11 @@ export async function isDatasetComplete(
       // 基准当日尚未落库，子数据集无从对齐——视为不完整，等本轮上游同步后再判
       return false;
     }
-    if (total < baseline) {
+    const tolerance = config.toleranceRatio ?? 0;
+    const threshold = baseline * (1 - tolerance);
+    if (total < threshold) {
       logger.warn(
-        `${config.tableName} ${tradeDate} 行数 ${total} < 基准 ${config.baseline.table} 行数 ${baseline}，判定不完整以触发补齐`,
+        `${config.tableName} ${tradeDate} 行数 ${total} < 基准 ${config.baseline.table} 行数 ${baseline}（容差 ${tolerance}，判定线 ${threshold}），判定不完整以触发补齐`,
       );
       return false;
     }

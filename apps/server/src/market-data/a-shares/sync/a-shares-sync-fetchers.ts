@@ -5,8 +5,9 @@ import { DailyQuoteEntity } from '../../../entities/raw/daily-quote.entity';
 import { AShareSymbolEntity } from '../../../entities/a-share/a-share-symbol.entity';
 import { asNullableString, asString } from '../utils/a-shares-format.util';
 import { ADJ_FACTOR_FIELDS, DAILY_BASIC_FIELDS, DAILY_FIELDS, STOCK_BASIC_FIELDS } from './a-shares-sync.constants';
-import type { AdjFactorsSyncResult, DailyQuotesSyncResult, LatestAdjFactor } from './a-shares-sync-types';
+import type { AdjFactorsSyncResult, DailyMetricsSyncResult, DailyQuotesSyncResult, LatestAdjFactor, SyncSymbolsResult } from './a-shares-sync-types';
 import { upsertInChunks } from './a-shares-sync-utils';
+import { queryWithBackfill } from './a-shares-sync-backfill';
 import type { TushareClientService } from '../services/tushare-client.service';
 
 export interface ASharesSyncFetcherDeps {
@@ -17,7 +18,7 @@ export interface ASharesSyncFetcherDeps {
   tushareClient: TushareClientService;
 }
 
-export async function syncSymbols(deps: ASharesSyncFetcherDeps): Promise<number> {
+export async function syncSymbols(deps: ASharesSyncFetcherDeps): Promise<SyncSymbolsResult> {
   const rows = await deps.tushareClient.query('stock_basic', { exchange: '', list_status: 'L' }, STOCK_BASIC_FIELDS);
   const entities = rows.map((row) =>
     deps.symbolRepo.create({
@@ -51,17 +52,17 @@ export async function syncSymbols(deps: ASharesSyncFetcherDeps): Promise<number>
     WHERE s.ts_code = im.ts_code
   `);
 
-  return entities.length;
+  const tsCodes = rows.map((row) => asString(row.ts_code)).filter(Boolean);
+  return { count: entities.length, tsCodes };
 }
 
 export async function syncDailyQuotesByTradeDate(
   deps: ASharesSyncFetcherDeps,
   tradeDate: string,
+  expectedTsCodes: string[],
 ): Promise<DailyQuotesSyncResult> {
-  const rows = await deps.tushareClient.query(
-    'daily',
-    { trade_date: tradeDate },
-    DAILY_FIELDS,
+  const { rows, partial, backfilled } = await queryWithBackfill(
+    deps.tushareClient, 'daily', tradeDate, DAILY_FIELDS, expectedTsCodes, 0.05,
   );
   const entities = rows.map((row) =>
     deps.quoteRepo.create({
@@ -79,18 +80,29 @@ export async function syncDailyQuotesByTradeDate(
     }),
   );
   await upsertInChunks(deps.quoteRepo, entities, ['tsCode', 'tradeDate']);
-  return { count: entities.length, tsCodes: rows.map((row) => asString(row.ts_code)).filter(Boolean) };
+  const tsCodes = [...new Set(rows.map((row) => asString(row.ts_code)).filter(Boolean))];
+  return { count: entities.length, tsCodes, partial, backfilled };
 }
 
 export async function syncDailyMetricsByTradeDate(
   deps: ASharesSyncFetcherDeps,
   tradeDate: string,
-): Promise<number> {
-  const rows = await deps.tushareClient.query(
-    'daily_basic',
-    { trade_date: tradeDate },
-    DAILY_BASIC_FIELDS,
-  );
+  expectedTsCodes: string[],
+): Promise<DailyMetricsSyncResult> {
+  let rows = await deps.tushareClient.query('daily_basic', { trade_date: tradeDate }, DAILY_BASIC_FIELDS);
+  const returnedSet = new Set(rows.map((r) => asString(r.ts_code)).filter(Boolean));
+  const missing = expectedTsCodes.filter((code) => !returnedSet.has(code));
+  const ratio = expectedTsCodes.length > 0 ? missing.length / expectedTsCodes.length : 0;
+  let partial = false;
+  let backfilled = 0;
+  if (ratio > 0.05) {
+    partial = true;
+    const retryRows = await deps.tushareClient.query('daily_basic', { trade_date: tradeDate }, DAILY_BASIC_FIELDS);
+    const existingSet = new Set(rows.map((r) => asString(r.ts_code)).filter(Boolean));
+    const recovered = retryRows.filter((r) => !existingSet.has(asString(r.ts_code)));
+    rows = [...rows, ...recovered];
+    backfilled = recovered.length;
+  }
   const entities = rows.map((row) =>
     deps.metricRepo.create({
       tsCode: asString(row.ts_code),
@@ -105,17 +117,17 @@ export async function syncDailyMetricsByTradeDate(
     }),
   );
   await upsertInChunks(deps.metricRepo, entities, ['tsCode', 'tradeDate']);
-  return entities.length;
+  const tsCodes = [...new Set(rows.map((row) => asString(row.ts_code)).filter(Boolean))];
+  return { count: entities.length, tsCodes, partial, backfilled };
 }
 
 export async function syncAdjFactorsByTradeDate(
   deps: ASharesSyncFetcherDeps,
   tradeDate: string,
+  expectedTsCodes: string[],
 ): Promise<AdjFactorsSyncResult> {
-  const rows = await deps.tushareClient.query(
-    'adj_factor',
-    { trade_date: tradeDate },
-    ADJ_FACTOR_FIELDS,
+  const { rows, partial, backfilled } = await queryWithBackfill(
+    deps.tushareClient, 'adj_factor', tradeDate, ADJ_FACTOR_FIELDS, expectedTsCodes, 0.05,
   );
   const tsCodes = rows.map((row) => asString(row.ts_code)).filter(Boolean);
   const latestBefore = await loadLatestAdjFactors(deps.adjFactorRepo, tsCodes);
@@ -131,7 +143,7 @@ export async function syncAdjFactorsByTradeDate(
     .filter((row) => isLatestAdjFactorChange(latestBefore.get(asString(row.ts_code)), tradeDate, row.adj_factor))
     .map((row) => asString(row.ts_code))
     .filter(Boolean);
-  return { count: entities.length, tsCodes, latestChangedTsCodes };
+  return { count: entities.length, tsCodes, latestChangedTsCodes, partial, backfilled };
 }
 
 async function loadLatestAdjFactors(
