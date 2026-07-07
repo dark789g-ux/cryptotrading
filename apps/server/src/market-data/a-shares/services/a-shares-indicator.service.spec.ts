@@ -89,6 +89,7 @@ describe('ASharesIndicatorService', () => {
 
     dataSource.query
       .mockResolvedValueOnce([{ dirtyFrom: '20260706' }])
+      .mockResolvedValueOnce([{ minDate: '20200101' }])
       .mockResolvedValueOnce([{ tradeDate: '20260630', state: seedState }])
       .mockResolvedValueOnce([...historyQuotes].reverse())
       .mockResolvedValueOnce(dirtyQuotes)
@@ -123,6 +124,7 @@ describe('ASharesIndicatorService', () => {
 
     dataSource.query
       .mockResolvedValueOnce([{ dirtyFrom: '20260706' }])
+      .mockResolvedValueOnce([{ minDate: '20200101' }])
       .mockResolvedValueOnce([{ tradeDate: '20260630', state: seedState }])
       .mockResolvedValueOnce(dirtyQuotes)
       .mockResolvedValueOnce([])

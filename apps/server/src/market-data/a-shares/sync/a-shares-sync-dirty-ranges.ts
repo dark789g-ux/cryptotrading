@@ -21,10 +21,59 @@ export async function markDirtyRanges(
   changedRanges: Map<string, string>,
   latestAdjFactorChanged: Set<string>,
 ): Promise<void> {
+  const tsCodes = [...changedRanges.keys()];
+
+  // 除权对账：批量查出所有涉及股票的 adj_factor 最后变化日期
+  const exDateRows = tsCodes.length > 0
+    ? await deps.quoteRepo.query<Array<{ tsCode: string; lastExDate: string }>>(`
+        WITH changes AS (
+          SELECT ts_code, trade_date, adj_factor,
+                 LAG(adj_factor) OVER (PARTITION BY ts_code ORDER BY trade_date) AS prev_f
+          FROM raw.adj_factor
+          WHERE ts_code = ANY($1)
+        )
+        SELECT ts_code AS "tsCode", MAX(trade_date) AS "lastExDate"
+        FROM changes
+        WHERE adj_factor IS DISTINCT FROM prev_f
+        GROUP BY ts_code
+      `, [tsCodes])
+    : [];
+
+  const lastExDateMap = new Map<string, string>();
+  for (const row of exDateRows) {
+    lastExDateMap.set(row.tsCode, row.lastExDate);
+  }
+
+  // 批量查出每只股票 daily_indicator 最早一行的 updated_at（YYYYMMDD）
+  // 全量重算会刷新所有行的 updated_at（含最早行）；若最早行 updated_at 早于最近除权日，
+  // 说明除权后该股票 indicator 未被全量重算覆盖，需要从 IPO 日重算
+  const indicatorEarliestUpdatedRows = tsCodes.length > 0
+    ? await deps.quoteRepo.query<Array<{ tsCode: string; earliestUpdated: string }>>(`
+        SELECT ts_code AS "tsCode", TO_CHAR(MIN(updated_at), 'YYYYMMDD') AS "earliestUpdated"
+        FROM raw.daily_indicator
+        WHERE ts_code = ANY($1)
+        GROUP BY ts_code
+      `, [tsCodes])
+    : [];
+
+  const indicatorEarliestUpdatedMap = new Map<string, string>();
+  for (const row of indicatorEarliestUpdatedRows) {
+    indicatorEarliestUpdatedMap.set(row.tsCode, row.earliestUpdated);
+  }
+
   for (const [tsCode, tradeDate] of changedRanges) {
-    const dirtyFrom = latestAdjFactorChanged.has(tsCode)
+    let dirtyFrom = latestAdjFactorChanged.has(tsCode)
       ? await resolveEarliestQuoteDate(deps.quoteRepo, tsCode, tradeDate)
       : tradeDate;
+
+    // 除权对账兜底：若最近除权日严格晚于 indicator 表最早行的 updated_at，
+    // 说明除权事件后该股票的 indicator 历史行从未被全量刷新过，强制从 IPO 日重算
+    const lastExDate = lastExDateMap.get(tsCode);
+    const earliestUpdated = indicatorEarliestUpdatedMap.get(tsCode);
+    if (lastExDate && earliestUpdated && lastExDate > earliestUpdated) {
+      dirtyFrom = await resolveEarliestQuoteDate(deps.quoteRepo, tsCode, dirtyFrom);
+    }
+
     await deps.syncStateRepo.query(`
       INSERT INTO a_share_sync_states (
         ts_code,

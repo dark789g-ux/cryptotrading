@@ -11,7 +11,8 @@
     "migration:daily-basic-pe-ttm": "ts-node -r tsconfig-paths/register src/migration/daily-basic-pe-ttm-backfill.ts",
     "migration:backfill-a-share-sw-industry": "ts-node -r tsconfig-paths/register src/migration/backfill-a-share-sw-industry.ts",
     "migration:backfill-money-flow-aggregation": "ts-node -r tsconfig-paths/register src/migration/backfill-money-flow-aggregation.ts",
-    "migration:backfill-index-weight": "ts-node -r tsconfig-paths/register src/migration/backfill-index-weight.ts"
+    "migration:backfill-index-weight": "ts-node -r tsconfig-paths/register src/migration/backfill-index-weight.ts",
+    "migration:indicator-realign": "ts-node -r tsconfig-paths/register src/migration/a-share-indicators-realign.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

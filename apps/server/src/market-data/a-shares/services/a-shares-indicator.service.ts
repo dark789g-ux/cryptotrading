@@ -84,6 +84,17 @@ export class ASharesIndicatorService {
     const dirtyFrom = syncRows[0]?.dirtyFrom;
     if (!dirtyFrom) return 0;
 
+    // 检测是否需要 IPO 全量重算
+    const earliestRows = await this.dataSource.query<Array<{ minDate: string }>>(`
+      SELECT MIN(trade_date) AS "minDate" FROM raw.daily_quote WHERE ts_code = $1
+    `, [tsCode]);
+    const earliestQuoteDate = earliestRows[0]?.minDate;
+    const needsFullRecalc = !!earliestQuoteDate && earliestQuoteDate === dirtyFrom;
+
+    if (needsFullRecalc) {
+      return await this.recalculateIndicatorsForSymbol(tsCode);
+    }
+
     const seedRows = await this.dataSource.query<Array<{ tradeDate: string; state: unknown }>>(`
       SELECT trade_date AS "tradeDate", state
       FROM raw.indicator_calc_state
@@ -172,6 +183,17 @@ export class ASharesIndicatorService {
       this.createIndicatorEntity(tsCode, rows[index].tradeDate, row, brickChart[index] ?? null),
     );
     await this.upsertInChunks(this.indicatorRepo, entities, ['tsCode', 'tradeDate']);
+
+    // 全量重算后必须清空 dirty 标记并更新 calculated_to_date，否则下次同步会重复触发全量重算
+    const latestTradeDate = rows[rows.length - 1].tradeDate;
+    await this.dataSource.query(`
+      INSERT INTO a_share_sync_states (ts_code, indicator_dirty_from_date, indicator_calculated_to_date, updated_at)
+      VALUES ($1, NULL, $2, now())
+      ON CONFLICT (ts_code) DO UPDATE SET
+        indicator_dirty_from_date = NULL,
+        indicator_calculated_to_date = EXCLUDED.indicator_calculated_to_date,
+        updated_at = now()
+    `, [tsCode, latestTradeDate]);
     return entities.length;
   }
 
