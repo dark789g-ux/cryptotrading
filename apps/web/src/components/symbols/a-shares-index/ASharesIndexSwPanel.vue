@@ -25,6 +25,7 @@
       <n-data-table
         data-testid="a-shares-index-sw-table"
         :columns="tableColumns"
+        :scroll-x="tableScrollX"
         :data="rows"
         :loading="loading"
         :pagination="paginationState"
@@ -71,6 +72,7 @@ import ASharesIndexKlineModal from './ASharesIndexKlineModal.vue'
 import { createASharesIndexColumnDefs } from './aSharesIndexColumns'
 import { useASharesIndexQuery } from './useASharesIndexQuery'
 import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
+import { useTableScrollX } from '@/composables/symbols/useTableScrollX'
 import type { IndexLatestRow } from './types'
 import type { SwLevel } from './useASharesIndexQuery'
 
@@ -123,6 +125,8 @@ const {
   load: loadColumnPreferences,
   save: saveColumnPreferences,
 } = useTableColumnPreferences('aSharesIndexSw', columnDefs, 'table')
+
+const tableScrollX = useTableScrollX(tableColumns)
 
 async function handleSaveColumnPreferences() {
   try {

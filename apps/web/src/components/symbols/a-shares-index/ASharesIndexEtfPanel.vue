@@ -46,6 +46,7 @@
       <n-data-table
         data-testid="a-shares-index-etf-table"
         :columns="tableColumns"
+        :scroll-x="tableScrollX"
         :data="rows"
         :loading="loading"
         :pagination="paginationState"
@@ -96,6 +97,7 @@ import { createEtfColumnDefs } from './etfColumns'
 import { useEtfQuery } from './useEtfQuery'
 import { etfApi } from '@/api/modules/market/etf'
 import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
+import { useTableScrollX } from '@/composables/symbols/useTableScrollX'
 import type { EtfLatestRow } from './etf.types'
 
 const emit = defineEmits<{
@@ -164,6 +166,8 @@ const {
   load: loadColumnPreferences,
   save: saveColumnPreferences,
 } = useTableColumnPreferences('aSharesIndexEtf', columnDefs, 'table')
+
+const tableScrollX = useTableScrollX(tableColumns)
 
 async function handleSaveColumnPreferences() {
   try {

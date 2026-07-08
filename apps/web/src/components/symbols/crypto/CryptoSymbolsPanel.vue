@@ -37,6 +37,7 @@
         <n-data-table
           data-testid="full-table"
           :columns="tableColumns"
+          :scroll-x="tableScrollX"
           :data="symbols"
           :loading="loading"
           :pagination="paginationState"
@@ -53,6 +54,7 @@
         <n-data-table
           data-testid="split-table"
           :columns="splitColumns"
+          :scroll-x="splitScrollX"
           :data="symbols"
           :loading="loading"
           :pagination="paginationState"
@@ -108,6 +110,7 @@ import { symbolApi, type SymbolRow } from '@/api'
 import ColumnSettingsDrawer from '../columns/ColumnSettingsDrawer.vue'
 import { createCryptoColumnDefs } from './cryptoColumns'
 import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
+import { useTableScrollX } from '@/composables/symbols/useTableScrollX'
 import { usePanelViewMode } from '@/composables/symbols/usePanelViewMode'
 import { useWatchlistTagFilter } from '@/composables/symbols/useWatchlistTagFilter'
 import { useStrategyConditionsStore } from '@/stores/strategyConditions'
@@ -194,6 +197,9 @@ const {
   load: loadColumnPreferences,
   save: saveColumnPreferences,
 } = useTableColumnPreferences('crypto', columnDefs, viewMode)
+
+const tableScrollX = useTableScrollX(tableColumns)
+const splitScrollX = useTableScrollX(splitColumns)
 
 const columnSettingsTitle = computed(() =>
   `Crypto Columns（${viewMode.value === 'split' ? '分栏视图' : '表格视图'}）`,
