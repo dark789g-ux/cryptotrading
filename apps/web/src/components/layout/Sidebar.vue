@@ -67,7 +67,7 @@ import {
   ChevronBack, ChevronForward,
   TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline, CalculatorOutline,
   LogOutOutline, PersonCircleOutline, AnalyticsOutline, NewspaperOutline,
-  StatsChartOutline, GridOutline, FlashOutline,
+  StatsChartOutline, FlashOutline,
 } from '@vicons/ionicons5'
 import { useSidebarCollapsed } from '../../composables/hooks/useSidebarCollapsed'
 import { useAuth } from '../../composables/hooks/useAuth'
@@ -102,7 +102,6 @@ const menuOptions = computed(() => [
   ...(auth.isAdmin.value ? [{ label: '数据同步', key: 'sync', icon: renderIcon(SyncOutline) }] : []),
   { label: '自选列表', key: 'watchlists', icon: renderIcon(BookmarkOutline) },
   { label: '策略条件', key: 'strategy-conditions', icon: renderIcon(AnalyticsOutline) },
-  { label: 'Regime 选股', key: 'regime-picks', icon: renderIcon(GridOutline) },
   { label: 'Regime 回测', key: 'regime-backtest', icon: renderIcon(FlashOutline) },
   { label: 'Regime 配置', key: 'regime-config', icon: renderIcon(SettingsOutline) },
   { label: '每日复盘', key: 'daily-review', icon: renderIcon(NewspaperOutline) },

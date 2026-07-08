@@ -64,12 +64,6 @@ const routes: any[] = [
     meta: { title: '策略条件' },
   },
   {
-    path: '/regime-picks',
-    name: 'regime-picks',
-    component: () => import('../views/strategy/RegimePicksView.vue'),
-    meta: { title: 'Regime 选股清单' },
-  },
-  {
     path: '/regime-backtest',
     name: 'regime-backtest',
     component: () => import('../views/strategy/RegimeBacktestView.vue'),

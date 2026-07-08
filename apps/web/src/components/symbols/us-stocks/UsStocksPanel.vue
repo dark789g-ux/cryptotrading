@@ -42,6 +42,7 @@
         <n-data-table
           data-testid="full-table"
           :columns="tableColumns"
+          :scroll-x="tableScrollX"
           :data="rows"
           :loading="loading"
           :pagination="paginationState"
@@ -58,6 +59,7 @@
         <n-data-table
           data-testid="split-table"
           :columns="splitColumns"
+          :scroll-x="splitScrollX"
           :data="rows"
           :loading="loading"
           :pagination="paginationState"
@@ -125,6 +127,7 @@ import { createUsStocksColumnDefs } from './usStocksColumns'
 import { useUsStocksQuery } from './useUsStocksQuery'
 import ColumnSettingsDrawer from '../columns/ColumnSettingsDrawer.vue'
 import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
+import { useTableScrollX } from '@/composables/symbols/useTableScrollX'
 import { usePanelViewMode } from '@/composables/symbols/usePanelViewMode'
 
 const message = useMessage()
@@ -173,6 +176,9 @@ const {
   load: loadColumnPreferences,
   save: saveColumnPreferences,
 } = useTableColumnPreferences('usStocks', columnDefs, viewMode)
+
+const tableScrollX = useTableScrollX(tableColumns)
+const splitScrollX = useTableScrollX(splitColumns)
 
 const columnSettingsTitle = computed(() =>
   `美股 Columns（${viewMode.value === 'split' ? '分栏视图' : '表格视图'}）`,

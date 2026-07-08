@@ -16,6 +16,7 @@
       <n-data-table
         data-testid="a-shares-custom-index-table"
         :columns="tableColumns"
+        :scroll-x="tableScrollX"
         :data="rows"
         :loading="loading"
         :pagination="paginationState"
@@ -55,6 +56,7 @@ import { createCustomIndexColumnDefs } from './customIndexColumns'
 import { useCustomIndexQuery } from './useCustomIndexQuery'
 import { useCustomIndexSse } from './useCustomIndexSse'
 import { useTableColumnPreferences } from '@/composables/symbols/useTableColumnPreferences'
+import { useTableScrollX } from '@/composables/symbols/useTableScrollX'
 import { customIndexApi, type CustomIndexLatestRow } from '@/api/modules/market/customIndex'
 import type { IndexLatestRow } from './types'
 
@@ -130,6 +132,8 @@ const {
   load: loadColumnPreferences,
   save: saveColumnPreferences,
 } = useTableColumnPreferences('aSharesIndexCustom', columnDefs, 'table')
+
+const tableScrollX = useTableScrollX(tableColumns)
 
 async function handleSaveColumnPreferences() {
   try {
