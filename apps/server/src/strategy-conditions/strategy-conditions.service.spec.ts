@@ -32,20 +32,26 @@ function makeRunner() {
   return { executeRun: jest.fn(async () => undefined) };
 }
 
+function makeQueue() {
+  return { acquire: jest.fn(async () => true) };
+}
+
 function makeService(opts: { updateTargetEntity?: Record<string, unknown> } = {}) {
   const repo = makeRepo(opts.updateTargetEntity);
   const runRepo = makeRepo();
   const hitRepo = makeRepo();
   const dataSource = { query: jest.fn(async () => []) };
   const runner = makeRunner();
+  const queue = makeQueue();
   const svc = new StrategyConditionsService(
     repo as any,
     runRepo as any,
     hitRepo as any,
     dataSource as any,
     runner as any,
+    queue as any,
   );
-  return { svc, repo, runRepo, hitRepo, dataSource, runner };
+  return { svc, repo, runRepo, hitRepo, dataSource, runner, queue };
 }
 
 const CUSTOM_KDJ = { n: 6, m1: 2, m2: 2 };

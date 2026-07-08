@@ -20,7 +20,7 @@ export class StrategyConditionRunEntity {
   userId: string;
 
   @Column({ type: 'varchar', length: 20, default: 'running' })
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'queued' | 'completed' | 'failed';
 
   @Column({ type: 'int', default: 0, name: 'progress_scanned' })
   progressScanned: number;

@@ -9,6 +9,7 @@ import { StrategyConditionHitEntity } from '../entities/strategy/strategy-condit
 import { CreateStrategyConditionDto } from './dto/create-strategy-condition.dto';
 import { UpdateStrategyConditionDto } from './dto/update-strategy-condition.dto';
 import { StrategyConditionsRunner } from './strategy-conditions.runner';
+import { RunQueue } from './strategy-conditions.queue';
 import {
   RunProgress,
   LastRunStatus,
@@ -32,6 +33,7 @@ export class StrategyConditionsService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly runner: StrategyConditionsRunner,
+    private readonly queue: RunQueue,
   ) {}
 
   async create(userId: string, dto: CreateStrategyConditionDto): Promise<StrategyConditionEntity> {
@@ -163,33 +165,36 @@ export class StrategyConditionsService {
     await this.repo.remove(entity);
   }
 
-  async run(id: string, userId: string): Promise<{ runId: string }> {
+  async run(id: string, userId: string): Promise<{ runId: string; status: 'running' | 'queued' }> {
     const entity = await this.findEntity(id, userId);
 
     const existing = await this.runRepo.findOne({
-      where: { conditionId: entity.id, status: 'running' },
+      where: [
+        { conditionId: entity.id, status: 'running' as const },
+        { conditionId: entity.id, status: 'queued' as const },
+      ],
     });
     if (existing) {
-      throw new ConflictException('该策略条件已有运行中的任务');
+      throw new ConflictException('该策略条件已有运行中或排队中的任务');
     }
 
-    await this.runRepo.delete({ conditionId: entity.id });
+    // 只删终态历史记录（保留可能正在跑的，理论上已被上面 409 挡住，这里是防御）
+    await this.runRepo.delete({ conditionId: entity.id, status: In(['completed', 'failed']) });
 
     const run = this.runRepo.create({
       conditionId: entity.id,
       userId,
-      status: 'running',
+      status: 'queued',
       progressScanned: 0,
       progressTotal: 0,
     });
     await this.runRepo.save(run);
     await this.repo.update(entity.id, { lastRunId: run.id });
 
-    this.runner.executeRun(entity, run.id).catch(err => {
-      this.logger.error('Strategy run failed', err instanceof Error ? err.stack : String(err));
-    });
+    // 交给队列：拿到许可则立即转 running 并执行，否则保持 queued
+    const started = await this.queue.acquire(entity, run.id, userId);
 
-    return { runId: run.id };
+    return { runId: run.id, status: started ? ('running' as const) : ('queued' as const) };
   }
 
   async getRunProgress(conditionId: string, userId: string): Promise<RunProgress> {
@@ -264,7 +269,13 @@ export class StrategyConditionsService {
       const run = c.lastRunId ? runMap.get(c.lastRunId) : undefined;
       if (!run) return { conditionId: c.id, freshness: 'never' as const, lastRunAt: null, totalHits: 0 };
       if (run.status === 'running') return { conditionId: c.id, freshness: 'running' as const, lastRunAt: run.createdAt.toISOString(), totalHits: 0 };
-      if (run.status === 'failed') return { conditionId: c.id, freshness: 'failed' as const, lastRunAt: run.createdAt.toISOString(), totalHits: 0 };
+      if (run.status === 'failed') return {
+        conditionId: c.id,
+        freshness: 'failed' as const,
+        lastRunAt: run.createdAt.toISOString(),
+        totalHits: 0,
+        errorMessage: run.errorMessage,
+      };
 
       const dataUpdateTime = c.targetType === 'crypto'
         ? (cryptoMax?.max ?? new Date(0))

@@ -119,6 +119,8 @@ export interface LastRunStatus {
   freshness: 'fresh' | 'stale' | 'never' | 'running' | 'failed';
   lastRunAt: string | null;
   totalHits: number;
+  /** 问题 8：失败原因，刷新页面后仍可展示 */
+  errorMessage?: string | null;
 }
 
 /** 列表/详情响应中附带的最新运行信息 */

@@ -43,7 +43,7 @@ export interface RunResult {
 
 export interface RunProgress {
   runId: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'queued' | 'completed' | 'failed';
   progressScanned: number;
   progressTotal: number;
   totalHits: number;
@@ -64,6 +64,8 @@ export interface LastRunStatus {
   freshness: 'fresh' | 'stale' | 'never' | 'running' | 'failed';
   lastRunAt: string | null;
   totalHits: number;
+  /** 问题 8：失败原因，刷新页面后仍可展示 */
+  errorMessage?: string | null;
 }
 
 export interface CreateStrategyConditionDto {
@@ -106,7 +108,7 @@ export const strategyConditionsApi = {
   },
 
   startRun(id: string) {
-    return post<{ runId: string }>(`${API_BASE}/strategy-conditions/${id}/run`);
+    return post<{ runId: string; status: 'running' | 'queued' }>(`${API_BASE}/strategy-conditions/${id}/run`);
   },
 
   getRunProgress(id: string) {

@@ -34,8 +34,14 @@ export class StrategyConditionsRunner {
     private readonly kdjRecompute: KdjRecomputeService,
   ) {}
 
-  async executeRun(condition: StrategyConditionEntity, runId: string): Promise<void> {
+  async executeRun(
+    condition: StrategyConditionEntity,
+    runId: string,
+    userId: string,
+    onDone: (finalStatus: 'completed' | 'failed') => Promise<void>,
+  ): Promise<void> {
     try {
+      await this.runRepo.update(runId, { status: 'running' });
       const total = await this.countTotalSymbols(condition.targetType);
       await this.runRepo.update(runId, { progressTotal: total });
 
@@ -58,6 +64,7 @@ export class StrategyConditionsRunner {
         allHits.push(...batch);
         await this.runRepo.update(runId, {
           progressScanned: Math.min(offset + batchSize, total),
+          totalHits: allHits.length, // 问题 6：实时命中数，每批累加后写入
         });
       }
 
@@ -78,11 +85,13 @@ export class StrategyConditionsRunner {
         totalHits: allHits.length,
         completedAt: new Date(),
       });
+      await onDone('completed');
     } catch (error: unknown) {
       await this.runRepo.update(runId, {
         status: 'failed',
         errorMessage: error instanceof Error ? error.message : String(error),
       });
+      await onDone('failed');
     }
   }
 

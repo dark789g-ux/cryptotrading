@@ -41,7 +41,7 @@
 
 <script setup lang="ts">
 import { ref, computed, h, onMounted } from 'vue';
-import { NCard, NButton, NIcon, NDataTable, NTag, NSpace, NPopconfirm, useMessage } from 'naive-ui';
+import { NCard, NButton, NIcon, NDataTable, NTag, NSpace, NPopconfirm, NProgress, NTooltip, useMessage } from 'naive-ui';
 import { Add as AddIcon, Construct as ConstructOutline, Create as EditIcon, Trash as TrashIcon } from '@vicons/ionicons5';
 import { useRouter } from 'vue-router';
 import { useStrategyConditionsStore } from '../../stores/strategyConditions';
@@ -100,17 +100,44 @@ const columns = [
   {
     title: '状态',
     key: 'status',
-    width: 100,
+    minWidth: 160,
     render(row: StrategyCondition) {
       const status = store.runStatuses.get(row.id);
       if (!status || status.freshness === 'never') {
         return h(NTag, { type: 'default', size: 'small' }, { default: () => '未运行' });
       }
       if (status.freshness === 'running') {
-        return h(NTag, { type: 'info', size: 'small' }, { default: () => '运行中' });
+        const progress = store.runProgress.get(row.id);
+        const isQueued = progress?.status === 'queued';
+        const pct = progress && progress.progressTotal > 0
+          ? Math.round((progress.progressScanned / progress.progressTotal) * 100)
+          : 0;
+        return h(NSpace, { vertical: true, size: 4 }, {
+          default: () => [
+            h(NTag, { type: 'info', size: 'small' }, { default: () => isQueued ? '排队中' : '运行中' }),
+            // 进度条：queued 无 progress 时显示 0% processing；running 显示实际进度
+            h(NProgress, {
+              type: 'line',
+              percentage: pct,
+              showIndicator: false,
+              height: 6,
+              processing: true,
+            }),
+            // 文字：扫描 X/Y · 命中 N（命中数来自 progress.totalHits，问题 6）
+            progress
+              ? h('div', { style: { fontSize: '12px', color: '#666' } },
+                  `扫描 ${progress.progressScanned}/${progress.progressTotal} · 命中 ${progress.totalHits}`)
+              : null,
+          ],
+        });
       }
       if (status.freshness === 'failed') {
-        return h(NTag, { type: 'error', size: 'small' }, { default: () => '失败' });
+        // 双数据源：轮询期 lastPollErrors 优先，刷新后 status.errorMessage 兜底
+        const errMsg = store.getLastError(row.id) ?? status.errorMessage ?? '未知错误';
+        return h(NTooltip, { trigger: 'hover' }, {
+          trigger: () => h(NTag, { type: 'error', size: 'small' }, { default: () => '失败' }),
+          default: () => errMsg,
+        });
       }
       if (status.freshness === 'fresh') {
         return h(NTag, { type: 'success', size: 'small' }, { default: () => '最新' });
@@ -168,8 +195,7 @@ const columns = [
     title: '操作',
     key: 'actions',
     render(row: StrategyCondition) {
-      const isRunning = store.runningId === row.id;
-      const progress = store.runProgress.get(row.id);
+      const isRunning = store.isRunning(row.id);
       const status = store.runStatuses.get(row.id);
 
       return h(NSpace, { vertical: true, size: 2 }, {
@@ -209,10 +235,6 @@ const columns = [
               }),
             ],
           }),
-          isRunning && progress
-            ? h('div', { style: { fontSize: '12px', color: '#666' } },
-                `扫描 ${progress.progressScanned}/${progress.progressTotal}`)
-            : null,
           !isRunning && status && (status.freshness === 'fresh' || status.freshness === 'stale') && status.totalHits > 0
             ? h(NButton, {
                 size: 'tiny',
@@ -248,9 +270,11 @@ function handleBuilderSave() {
   builderRef.value?.submit();
 }
 
-onMounted(() => {
+onMounted(async () => {
   store.fetchConditions();
-  store.fetchLastRunStatus();
+  await store.fetchLastRunStatus();
+  // 恢复后端仍在运行的任务的进度轮询（刷新 / 切回页面后状态列虽显示「运行中」，但需重建轮询）
+  store.resumeRunningPolls();
 });
 </script>
 

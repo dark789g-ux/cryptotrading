@@ -139,7 +139,7 @@ describe('StrategyConditionsRunner - A 股两阶段', () => {
       { field: 'close_ma60_ratio', operator: 'gt', value: 1 },
     ]);
 
-    await runner.executeRun(cond, RUN_ID);
+    await runner.executeRun(cond, RUN_ID, 'test-user', jest.fn());
 
     expect(kdjRecompute.recomputeLatest).not.toHaveBeenCalled();
     // 两条都进 sqlConds
@@ -169,7 +169,7 @@ describe('StrategyConditionsRunner - A 股两阶段', () => {
       { field: 'kdj_j', operator: 'lt', value: 0, kdjParams: VALID_CUSTOM },
     ]);
 
-    await runner.executeRun(cond, RUN_ID);
+    await runner.executeRun(cond, RUN_ID, 'test-user', jest.fn());
 
     expect(kdjRecompute.recomputeLatest).toHaveBeenCalledTimes(1);
     // 重算以 asOf 与自定义参数被调用，tsCodes 为 Phase1 候选
@@ -201,7 +201,7 @@ describe('StrategyConditionsRunner - A 股两阶段', () => {
       { field: 'kdj_j', operator: 'lt', value: 0, kdjParams: VALID_CUSTOM },
     ]);
 
-    await runner.executeRun(cond, RUN_ID);
+    await runner.executeRun(cond, RUN_ID, 'test-user', jest.fn());
 
     expect(savedTsCodes(hitRepo)).toEqual(['A.SZ']);
     expect(expectCompleted(runRepo)).toBe(1);
@@ -222,7 +222,7 @@ describe('StrategyConditionsRunner - A 股两阶段', () => {
       { field: 'kdj_k', operator: 'gt', value: 50, kdjParams: { n: 6, m1: 2, m2: 2 } },
     ]);
 
-    await runner.executeRun(cond, RUN_ID);
+    await runner.executeRun(cond, RUN_ID, 'test-user', jest.fn());
 
     expect(kdjRecompute.recomputeLatest).toHaveBeenCalledTimes(1);
     expectCompleted(runRepo);
@@ -241,7 +241,7 @@ describe('StrategyConditionsRunner - A 股两阶段', () => {
       { field: 'kdj_k', operator: 'gt', value: 50, kdjParams: { n: 9, m1: 3, m2: 2 } },
     ]);
 
-    await runner.executeRun(cond, RUN_ID);
+    await runner.executeRun(cond, RUN_ID, 'test-user', jest.fn());
 
     expect(kdjRecompute.recomputeLatest).toHaveBeenCalledTimes(2);
     expectCompleted(runRepo);
@@ -260,7 +260,7 @@ describe('StrategyConditionsRunner - A 股两阶段', () => {
       { field: 'kdj_j', operator: 'lt', value: 0, kdjParams: VALID_CUSTOM },
     ]);
 
-    await runner.executeRun(cond, RUN_ID);
+    await runner.executeRun(cond, RUN_ID, 'test-user', jest.fn());
 
     // asOf 为 '' 传给 recomputeLatest（runner 用 asOf ?? ''）
     expect(kdjRecompute.recomputeLatest.mock.calls[0][1]).toBe('');
@@ -286,7 +286,7 @@ describe('StrategyConditionsRunner - A 股两阶段', () => {
     };
     const cond = makeCondition([illegal]);
 
-    await runner.executeRun(cond, RUN_ID);
+    await runner.executeRun(cond, RUN_ID, 'test-user', jest.fn());
 
     // 非法参数条件未触发重算
     expect(kdjRecompute.recomputeLatest).not.toHaveBeenCalled();
@@ -318,7 +318,7 @@ describe('StrategyConditionsRunner - A 股两阶段', () => {
     };
     const cond = makeCondition([illegal]);
 
-    await runner.executeRun(cond, RUN_ID);
+    await runner.executeRun(cond, RUN_ID, 'test-user', jest.fn());
 
     expect(kdjRecompute.recomputeLatest).not.toHaveBeenCalled();
     const sqlConds = queryBuilder.buildAShareQuery.mock.calls[0][0] as StrategyConditionItem[];
