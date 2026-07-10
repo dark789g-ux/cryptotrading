@@ -70,4 +70,6 @@ export type SkipReason =
   | 'cooldown' // 连亏熔断冷却期内冻结开仓
   | 'drawdown_halt' // 回撤熔断停开仓
   | 'sized_out' // 仓位算出来 ≈0
-  | 'regime_flat'; // regime 当日不开仓
+  | 'regime_flat' // regime 当日不开仓
+  | 'budget_full' // 1 - positionRatio * n <= 0，开仓停开（非强平）
+  | 'not_top1'; // 同日排序未入选（审计行；未进引擎）

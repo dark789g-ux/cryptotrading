@@ -8,16 +8,19 @@
  *   ② quadrants 为非空数组，每项:
  *      - key: 非空字符串，英文/数字/下划线/连字符，配置内唯一；
  *      - label: 非空字符串；
- *      - match: 非空数组，每项:
+ *      - match: 非空数组（单象限 quadrants.length===1 时允许空数组，通配语义，任何环境都命中），每项:
  *        · type ∈ {index, stock};
  *        · target 非空字符串;
  *        · field 在对应类型白名单内;
  *        · operator 为字符串;
  *        · value / compareField 二选一，compareField 也须命中同白名单;
  *      - action ∈ {trade, flat};
- *      - positionRatio 为 null 或 0~1 数字;
- *      - maxPositions 为 null 或正整数;
+ *      - trade: positionRatio ∈ (0, 1]；maxPositions 正整数；positionRatio * maxPositions ≤ 1;
+ *      - trade: rankField 必填且 ∈ 短名单；≠ none 时 rankDir ∈ {asc,desc}；
+ *      - flat: positionRatio / maxPositions 可选（null/缺省）；若提供则按同范围校验;
+ *      - flat: rankField / rankDir 不校验（原样保留）；
  *      - trade: entryConditions 非空数组（field 命中 A 股条件白名单），exitMode/exitParams 合法;
+ *        · trailing_lock: stopRatio/floorRatio 若提供须 ∈ (0, 1]；floorEnabled/ma5RequireDown 若提供须为 boolean；maxHold 可为 null;
  *      - flat: entryConditions / exitMode / exitParams 必须为 null;
  *   ③ 互斥性检查（checkQuadrantOverlapWarnings）仅作警告，不阻断保存。
  */
@@ -34,6 +37,7 @@ import {
   RegimeExitMode,
 } from '../../entities/strategy/regime-strategy-config.entity';
 import { StrategyConditionItem } from '../../entities/strategy/strategy-condition.entity';
+import { RANK_FIELD_WHITELIST } from './backtest/rank-select';
 
 /** A 股条件系统字段白名单 = 个股 + 行业 AMV + 大盘 0AMV（入场/出场条件用） */
 export const ASHARE_CONDITION_FIELD_WHITELIST: ReadonlySet<string> = new Set([
@@ -178,10 +182,17 @@ function validateMatchCondition(c: unknown, path: string): void {
   }
 }
 
-/** match 数组校验：非空数组 + 每项符合 v3 分桶条件结构。 */
-function validateMatchArray(match: unknown, path: string): void {
-  if (!Array.isArray(match) || match.length === 0) {
-    fail(`${path} 必须为非空数组`);
+/** match 数组校验：非空数组 + 每项符合 v3 分桶条件结构。
+ *  allowEmpty=true 时允许空数组（单象限通配语义），但非空数组仍逐项校验。 */
+function validateMatchArray(match: unknown, path: string, allowEmpty = false): void {
+  if (!Array.isArray(match)) {
+    fail(`${path} 必须为数组`);
+  }
+  if (match.length === 0) {
+    if (!allowEmpty) {
+      fail(`${path} 必须为非空数组`);
+    }
+    return;
   }
   match.forEach((c, i) => validateMatchCondition(c, `${path}[${i}]`));
 }
@@ -219,25 +230,71 @@ function validateConditionArray(
   });
 }
 
-function validatePositionRatio(v: unknown, path: string): void {
+/** ratio ∈ (0, 1]；required=true 时禁止 null/undefined。 */
+function validatePositionRatio(v: unknown, path: string, required: boolean): void {
   if (v === null || v === undefined) {
+    if (required) {
+      fail(`${path} 必须为 (0, 1] 之间的数字`);
+    }
     return;
   }
-  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1) {
-    fail(`${path} 必须为 null 或 0~1 之间的数字`);
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v > 1) {
+    fail(`${path} 必须为 (0, 1] 之间的数字`);
   }
 }
 
-function validateMaxPositions(v: unknown, path: string): void {
+/** 正整数；required=true 时禁止 null/undefined。 */
+function validateMaxPositions(v: unknown, path: string, required: boolean): void {
   if (v === null || v === undefined) {
+    if (required) {
+      fail(`${path} 必须为正整数`);
+    }
     return;
   }
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) {
-    fail(`${path} 必须为 null 或正整数`);
+    fail(`${path} 必须为正整数`);
+  }
+}
+
+/** 可选比例字段：缺省/null 跳过；提供则须 ∈ (0, 1]。 */
+function validateOptionalUnitInterval(v: unknown, path: string): void {
+  if (v === null || v === undefined) {
+    return;
+  }
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v > 1) {
+    fail(`${path} 必须为 (0, 1] 之间的数字`);
+  }
+}
+
+/** 可选 boolean：缺省/null 跳过；提供则须为 boolean。 */
+function validateOptionalBoolean(v: unknown, path: string): void {
+  if (v === null || v === undefined) {
+    return;
+  }
+  if (typeof v !== 'boolean') {
+    fail(`${path} 必须为 boolean`);
   }
 }
 
 function validateTradeQuadrant(entry: Record<string, unknown>, path: string): void {
+  validatePositionRatio(entry.positionRatio, `${path}.positionRatio`, true);
+  validateMaxPositions(entry.maxPositions, `${path}.maxPositions`, true);
+  const r = entry.positionRatio as number;
+  const maxN = entry.maxPositions as number;
+  if (r * maxN > 1) {
+    fail(`${path}.positionRatio * maxPositions 不能大于 1`);
+  }
+
+  const rf = entry.rankField;
+  if (typeof rf !== 'string' || !RANK_FIELD_WHITELIST.has(rf)) {
+    fail(`${path}.rankField 必填且须为短名单字段（含 none）`);
+  }
+  if (rf !== 'none') {
+    if (entry.rankDir !== 'asc' && entry.rankDir !== 'desc') {
+      fail(`${path}.rankDir 在 rankField≠none 时必须为 asc|desc`);
+    }
+  }
+
   validateConditionArray(
     entry.entryConditions,
     `${path}.entryConditions`,
@@ -278,6 +335,11 @@ function validateTradeQuadrant(entry: Record<string, unknown>, path: string): vo
         'trailing_lock 可为 null',
       );
     }
+    // 缺省字段可用默认语义通过；若提供则校验类型/范围
+    validateOptionalUnitInterval(params.stopRatio, `${path}.exitParams.stopRatio`);
+    validateOptionalUnitInterval(params.floorRatio, `${path}.exitParams.floorRatio`);
+    validateOptionalBoolean(params.floorEnabled, `${path}.exitParams.floorEnabled`);
+    validateOptionalBoolean(params.ma5RequireDown, `${path}.exitParams.ma5RequireDown`);
   }
 }
 
@@ -293,6 +355,7 @@ function validateQuadrant(
   q: unknown,
   index: number,
   seenKeys: Set<string>,
+  allowEmptyMatch = false,
 ): void {
   if (!isPlainObject(q)) {
     fail(`quadrants[${index}] 必须为对象`);
@@ -316,19 +379,19 @@ function validateQuadrant(
     fail(`${path}.label 必须为非空字符串`);
   }
 
-  validateMatchArray(q.match, `${path}.match`);
+  validateMatchArray(q.match, `${path}.match`, allowEmptyMatch);
 
   const action = q.action;
   if (action !== 'trade' && action !== 'flat') {
     fail(`${path}.action 非法（须为 trade|flat，收到 "${String(action)}"）`);
   }
 
-  validatePositionRatio(q.positionRatio, `${path}.positionRatio`);
-  validateMaxPositions(q.maxPositions, `${path}.maxPositions`);
-
   if (action === 'trade') {
     validateTradeQuadrant(q, path);
   } else {
+    // flat：仓位字段可选；若提供则按同范围校验
+    validatePositionRatio(q.positionRatio, `${path}.positionRatio`, false);
+    validateMaxPositions(q.maxPositions, `${path}.maxPositions`, false);
     validateFlatQuadrant(q, path);
   }
 }
@@ -354,7 +417,8 @@ export function validateRegimeConfig(config: unknown): asserts config is RegimeC
   }
 
   const seenKeys = new Set<string>();
-  quadrants.forEach((q, i) => validateQuadrant(q, i, seenKeys));
+  const isWildcard = quadrants.length === 1;
+  quadrants.forEach((q, i) => validateQuadrant(q, i, seenKeys, isWildcard));
 }
 
 function conditionEqual(a: RegimeBucketCondition, b: RegimeBucketCondition): boolean {

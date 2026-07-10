@@ -46,8 +46,10 @@ function validConfig(overrides?: Partial<RegimeConfigMap>): RegimeConfigMap {
         entryConditions: [cond('brick', 'gt', 0)],
         exitMode: 'fixed_n',
         exitParams: { N: 5 },
-        positionRatio: 0.5,
-        maxPositions: 10,
+        positionRatio: 0.2,
+        maxPositions: 4,
+        rankField: 'turnover_rate',
+        rankDir: 'desc',
       },
       {
         key: 'bear',
@@ -284,31 +286,175 @@ describe('validateRegimeConfig', () => {
   it('positionRatio 非法', () => {
     const cfg = validConfig();
     cfg.quadrants[0].positionRatio = 1.5;
-    expectFail(cfg, 'positionRatio 必须为 null 或 0~1 之间的数字');
+    expectFail(cfg, 'positionRatio 必须为 (0, 1] 之间的数字');
 
     cfg.quadrants[0].positionRatio = -0.1;
-    expectFail(cfg, 'positionRatio 必须为 null 或 0~1 之间的数字');
+    expectFail(cfg, 'positionRatio 必须为 (0, 1] 之间的数字');
+
+    cfg.quadrants[0].positionRatio = 0;
+    expectFail(cfg, 'positionRatio 必须为 (0, 1] 之间的数字');
 
     cfg.quadrants[0].positionRatio = '0.5' as any;
-    expectFail(cfg, 'positionRatio 必须为 null 或 0~1 之间的数字');
+    expectFail(cfg, 'positionRatio 必须为 (0, 1] 之间的数字');
   });
 
   it('maxPositions 非法', () => {
     const cfg = validConfig();
     cfg.quadrants[0].maxPositions = 0;
-    expectFail(cfg, 'maxPositions 必须为 null 或正整数');
+    expectFail(cfg, 'maxPositions 必须为正整数');
 
     cfg.quadrants[0].maxPositions = 1.5;
-    expectFail(cfg, 'maxPositions 必须为 null 或正整数');
+    expectFail(cfg, 'maxPositions 必须为正整数');
 
     cfg.quadrants[0].maxPositions = -1;
-    expectFail(cfg, 'maxPositions 必须为 null 或正整数');
+    expectFail(cfg, 'maxPositions 必须为正整数');
   });
 
-  it('positionRatio / maxPositions 为 null 通过', () => {
+  it('trade 象限 positionRatio/maxPositions 必填', () => {
     const cfg = validConfig();
     cfg.quadrants[0].positionRatio = null;
+    expectFail(cfg, 'positionRatio 必须为 (0, 1] 之间的数字');
+
+    cfg.quadrants[0].positionRatio = 0.5;
     cfg.quadrants[0].maxPositions = null;
+    expectFail(cfg, 'maxPositions 必须为正整数');
+
+    delete (cfg.quadrants[0] as Partial<QuadrantEntry>).positionRatio;
+    delete (cfg.quadrants[0] as Partial<QuadrantEntry>).maxPositions;
+    expectFail(cfg, 'positionRatio 必须为 (0, 1] 之间的数字');
+  });
+
+  it('trade 象限 r*maxN > 1 拒绝', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].positionRatio = 0.3;
+    cfg.quadrants[0].maxPositions = 4;
+    expectFail(cfg, 'positionRatio * maxPositions 不能大于 1');
+  });
+
+  it('flat 象限可不要求仓位字段', () => {
+    const cfg = validConfig();
+    delete (cfg.quadrants[1] as Partial<QuadrantEntry>).positionRatio;
+    delete (cfg.quadrants[1] as Partial<QuadrantEntry>).maxPositions;
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+
+    cfg.quadrants[1].positionRatio = null;
+    cfg.quadrants[1].maxPositions = null;
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('trailing_lock stopRatio 非法', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].exitMode = 'trailing_lock';
+    cfg.quadrants[0].exitParams = { stopRatio: 1.5 };
+    expectFail(cfg, 'exitParams.stopRatio 必须为 (0, 1] 之间的数字');
+
+    cfg.quadrants[0].exitParams = { floorRatio: 0 };
+    expectFail(cfg, 'exitParams.floorRatio 必须为 (0, 1] 之间的数字');
+
+    cfg.quadrants[0].exitParams = { floorEnabled: 'yes' as any };
+    expectFail(cfg, 'exitParams.floorEnabled 必须为 boolean');
+
+    cfg.quadrants[0].exitParams = { ma5RequireDown: 1 as any };
+    expectFail(cfg, 'exitParams.ma5RequireDown 必须为 boolean');
+  });
+
+  it('trailing_lock 合法全参通过', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].exitMode = 'trailing_lock';
+    cfg.quadrants[0].exitParams = {
+      maxHold: null,
+      stopRatio: 0.999,
+      floorRatio: 0.999,
+      floorEnabled: true,
+      ma5RequireDown: true,
+    };
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('trailing_lock 缺省字段可用默认语义通过', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].exitMode = 'trailing_lock';
+    cfg.quadrants[0].exitParams = {};
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('单象限允许空 match（通配）', () => {
+    const cfg: RegimeConfigMap = {
+      quadrants: [
+        {
+          key: 'solo',
+          label: '唯一象限',
+          action: 'trade',
+          match: [],
+          entryConditions: [cond('brick', 'gt', 0)],
+          exitMode: 'fixed_n',
+          exitParams: { N: 5 },
+          positionRatio: 0.5,
+          maxPositions: 2,
+          rankField: 'turnover_rate',
+          rankDir: 'desc',
+        },
+      ],
+    };
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('单象限空 match 但 match 项非法仍报错', () => {
+    const cfg: RegimeConfigMap = {
+      quadrants: [
+        {
+          key: 'solo',
+          label: '唯一',
+          action: 'trade',
+          match: [matchCond('index', '000001.SH', 'unknown_field', 'gt', 0)],
+          entryConditions: [cond('brick', 'gt', 0)],
+          exitMode: 'fixed_n',
+          exitParams: { N: 5 },
+          positionRatio: 0.5,
+          maxPositions: 2,
+          rankField: 'turnover_rate',
+          rankDir: 'desc',
+        },
+      ],
+    };
+    expectFail(cfg, '不在允许字段白名单');
+  });
+
+  it('多象限下空 match 仍非法（回归）', () => {
+    const cfg = validConfig(); // 双象限
+    cfg.quadrants[0].match = [];
+    expectFail(cfg, 'match 必须为非空数组');
+  });
+
+  it('trade 象限 rankField 必填', () => {
+    const cfg = validConfig();
+    delete (cfg.quadrants[0] as Partial<QuadrantEntry>).rankField;
+    expectFail(cfg, 'rankField');
+  });
+
+  it('trade rankField 非法 → fail', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].rankField = 'oamv_macd';
+    expectFail(cfg, 'rankField');
+  });
+
+  it('trade rankField≠none 缺 rankDir → fail', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].rankField = 'turnover_rate';
+    cfg.quadrants[0].rankDir = null;
+    expectFail(cfg, 'rankDir');
+  });
+
+  it('trade rankField=none 可不要求 rankDir', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].rankField = 'none';
+    cfg.quadrants[0].rankDir = null;
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('flat 带非法 rankField 不校验（原样保留）', () => {
+    const cfg = validConfig();
+    cfg.quadrants[1].rankField = 'garbage';
     expect(() => validateRegimeConfig(cfg)).not.toThrow();
   });
 });

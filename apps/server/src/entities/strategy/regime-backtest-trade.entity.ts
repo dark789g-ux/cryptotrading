@@ -56,6 +56,15 @@ export class RegimeBacktestTradeEntity {
   @Column({ type: 'numeric', nullable: true, name: 'realized_ret_net' })
   realizedRetNet: string | null;
 
+  @Column({ type: 'int', nullable: true })
+  rank: number | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true, name: 'rank_field' })
+  rankField: string | null;
+
+  @Column({ type: 'numeric', nullable: true, name: 'rank_value' })
+  rankValue: string | null;
+
   @ManyToOne(() => RegimeBacktestRunEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'run_id' })
   run: RegimeBacktestRunEntity;

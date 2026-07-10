@@ -6,13 +6,14 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { RegimeBacktestRunEntity } from '../../../entities/strategy/regime-backtest-run.entity';
+import { Repository, Like, FindOptionsWhere } from 'typeorm';
+import { RegimeBacktestRunEntity, RegimeBacktestRunStatus } from '../../../entities/strategy/regime-backtest-run.entity';
 import { RegimeBacktestDailyEntity } from '../../../entities/strategy/regime-backtest-daily.entity';
 import { RegimeBacktestTradeEntity } from '../../../entities/strategy/regime-backtest-trade.entity';
 import { RegimeStrategyConfigEntity } from '../../../entities/strategy/regime-strategy-config.entity';
 import { CreateRegimeBacktestDto } from './dto/create-regime-backtest.dto';
 import { RegimeBacktestRunner } from './regime-backtest.runner';
+import { validateRegimeConfig } from '../regime-engine.validation';
 
 const DATE_RE = /^\d{8}$/;
 
@@ -43,18 +44,33 @@ export class RegimeBacktestService {
 
   async create(dto: CreateRegimeBacktestDto): Promise<RegimeBacktestRunEntity> {
     this.validateDto(dto);
-    const configEntity = await this.configRepo.findOne({ where: { id: dto.regimeConfigId } });
-    if (!configEntity) {
-      throw new BadRequestException(`regime config ${dto.regimeConfigId} not found`);
+    validateRegimeConfig(dto.config);
+
+    let regimeConfigId: string | null = dto.regimeConfigId ?? null;
+    let regimeConfigVersion: number | null = null;
+    if (regimeConfigId) {
+      const ent = await this.configRepo.findOne({ where: { id: regimeConfigId } });
+      if (!ent) {
+        throw new BadRequestException(`regime config ${regimeConfigId} not found`);
+      }
+      regimeConfigVersion = ent.version;
     }
+
+    const capital = { ...dto.capital };
+    if (capital.positionRatio !== undefined || capital.maxPositions !== undefined) {
+      this.logger.warn('ignoring capital.positionRatio/maxPositions (deprecated)');
+      delete capital.positionRatio;
+      delete capital.maxPositions;
+    }
+
     const entity = this.runRepo.create({
-      regimeConfigId: dto.regimeConfigId,
-      regimeConfigVersion: configEntity.version,
+      regimeConfigId,
+      regimeConfigVersion,
       name: dto.name.trim(),
       note: dto.note ?? null,
       config: {
-        config: configEntity.config,
-        capital: dto.capital,
+        config: dto.config,
+        capital,
       },
       dateStart: dto.dateStart,
       dateEnd: dto.dateEnd,
@@ -68,10 +84,22 @@ export class RegimeBacktestService {
   async findAll(
     page: number,
     pageSize: number,
+    filter?: { status?: string; keyword?: string },
   ): Promise<{ total: number; items: RegimeBacktestRunEntity[] }> {
     const safePage = Math.max(1, page);
     const safeSize = Math.min(Math.max(1, pageSize), 200);
+    const where: FindOptionsWhere<RegimeBacktestRunEntity> = {};
+    if (filter?.status) {
+      where.status = filter.status as RegimeBacktestRunStatus;
+    }
+    const trimmedKeyword = filter?.keyword?.trim();
+    if (trimmedKeyword) {
+      // 转义 LIKE 通配符，避免关键字中的 % _ \ 影响匹配
+      const escaped = trimmedKeyword.replace(/[%_\\]/g, '\\$&');
+      where.name = Like(`%${escaped}%`);
+    }
     const [items, total] = await this.runRepo.findAndCount({
+      where,
       order: { createdAt: 'DESC' },
       skip: (safePage - 1) * safeSize,
       take: safeSize,
@@ -146,21 +174,24 @@ export class RegimeBacktestService {
 
   async listTrades(id: string): Promise<RegimeBacktestTradeEntity[]> {
     await this.findOne(id);
-    return this.tradeRepo.find({
-      where: { runId: id },
-      order: { buyDate: 'ASC', id: 'ASC' },
-    });
+    return this.tradeRepo
+      .createQueryBuilder('t')
+      .where('t.run_id = :id', { id })
+      .orderBy('t.signal_date', 'ASC')
+      .addOrderBy('t.rank', 'ASC', 'NULLS LAST')
+      .addOrderBy('t.id', 'ASC')
+      .getMany();
   }
 
   private validateDto(dto: CreateRegimeBacktestDto): void {
-    if (!dto.regimeConfigId || typeof dto.regimeConfigId !== 'string') {
-      throw new BadRequestException('regimeConfigId required');
-    }
     if (!dto.name || dto.name.trim() === '') {
       throw new BadRequestException('name required');
     }
     if (dto.name.trim().length > 200) {
       throw new BadRequestException('name too long (max 200)');
+    }
+    if (dto.config === undefined || dto.config === null) {
+      throw new BadRequestException('config required');
     }
     if (!dto.dateStart || !DATE_RE.test(dto.dateStart)) {
       throw new BadRequestException('dateStart must be YYYYMMDD');
@@ -177,15 +208,6 @@ export class RegimeBacktestService {
     }
     if (typeof cap.initialCapital !== 'number' || !(cap.initialCapital > 0)) {
       throw new BadRequestException('capital.initialCapital must be > 0');
-    }
-    if (typeof cap.positionRatio !== 'number' || !(cap.positionRatio > 0) || cap.positionRatio > 1) {
-      throw new BadRequestException('capital.positionRatio must be in (0, 1]');
-    }
-    if (
-      cap.maxPositions !== null &&
-      (!Number.isInteger(cap.maxPositions) || cap.maxPositions < 1)
-    ) {
-      throw new BadRequestException('capital.maxPositions must be >=1 int or null');
     }
     if (!cap.cost || typeof cap.cost !== 'object') {
       throw new BadRequestException('capital.cost required');

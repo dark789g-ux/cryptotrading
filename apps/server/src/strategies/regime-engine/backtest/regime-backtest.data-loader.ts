@@ -5,6 +5,7 @@ import { MarketSnapshotLoader } from './loaders/market-snapshot.loader';
 import { SignalEnumerator } from './loaders/signal-enumerator';
 import { WindowBuilder } from './window/window.builder';
 import { RegimeBacktestCapital, RegimeBacktestInput } from './regime-backtest.types';
+import { RankedCandidate } from './types/backtest-data.types';
 
 @Injectable()
 export class RegimeBacktestDataLoader {
@@ -20,7 +21,7 @@ export class RegimeBacktestDataLoader {
     capital: RegimeBacktestCapital;
     dateStart: string;
     dateEnd: string;
-  }): Promise<RegimeBacktestInput> {
+  }): Promise<{ input: RegimeBacktestInput; rankedAll: RankedCandidate[] }> {
     const { regimeConfig, capital, dateStart, dateEnd } = params;
 
     const [globalCalendar, calendar] = await Promise.all([
@@ -34,7 +35,7 @@ export class RegimeBacktestDataLoader {
       globalCalendar,
     );
 
-    const signals = await this.signalEnumerator.enumerate(
+    const { top1Signals, rankedAll } = await this.signalEnumerator.enumerate(
       calendar,
       globalCalendar,
       marketSnapshots,
@@ -42,11 +43,18 @@ export class RegimeBacktestDataLoader {
       dateEnd,
     );
 
-    const signalsByDate = await this.windowBuilder.build(signals, globalCalendar, dateEnd);
+    const signalsByDate = await this.windowBuilder.build(
+      top1Signals,
+      globalCalendar,
+      dateEnd,
+    );
 
-    return { regimeConfig, capital, calendar, marketSnapshots, signalsByDate };
+    return {
+      input: { regimeConfig, capital, calendar, marketSnapshots, signalsByDate },
+      rankedAll,
+    };
   }
 }
 
 export { buildExitConfig } from './exit/exit-config.builder';
-export type { RawSignal } from './types/backtest-data.types';
+export type { RawSignal, RankedCandidate } from './types/backtest-data.types';

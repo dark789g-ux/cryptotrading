@@ -7,6 +7,7 @@ import { RegimeBacktestTradeEntity } from '../../../entities/strategy/regime-bac
 import { RegimeBacktestDataLoader } from './regime-backtest.data-loader';
 import { runRegimeBacktest } from './regime-backtest.engine';
 import { RegimeBacktestCapital } from './regime-backtest.types';
+import { mergeRankAudit } from './rank-audit-merge';
 
 const WRITE_BATCH = 500;
 
@@ -66,7 +67,7 @@ export class RegimeBacktestRunner {
       progressTotal: 0,
     });
 
-    const input = await this.dataLoader.load({
+    const { input, rankedAll } = await this.dataLoader.load({
       regimeConfig: regimeConfig.config as any,
       capital,
       dateStart,
@@ -83,6 +84,9 @@ export class RegimeBacktestRunner {
     });
 
     const result = runRegimeBacktest(input);
+    const { trades, extraSkipped } = mergeRankAudit(result.trades, rankedAll);
+    result.trades = trades;
+    result.summary.nSkipped += extraSkipped;
 
     await this.runRepo.update(runId, { progressDone: totalDays });
 
@@ -170,6 +174,9 @@ export class RegimeBacktestRunner {
           alloc: numStr(t.alloc),
           costsPaid: numStr(t.costsPaid),
           realizedRetNet: numStr(t.realizedRetNet),
+          rank: t.rank ?? null,
+          rankField: t.rankField ?? null,
+          rankValue: numStr(t.rankValue),
         }),
       );
       await this.tradeRepo.save(entities);

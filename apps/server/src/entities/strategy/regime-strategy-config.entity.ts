@@ -45,6 +45,10 @@ export interface QuadrantEntry {
   positionRatio?: number | null;
   /** 该象限允许同时持有的最大标的数。 */
   maxPositions?: number | null;
+  /** trade 必填；短名单见 RANK_FIELD_WHITELIST */
+  rankField?: string | null;
+  /** rankField≠none 时必填 */
+  rankDir?: 'asc' | 'desc' | null;
   /** 研究证据（可选）。 */
   evidence?: Record<string, unknown> | null;
   /** optional extra config */

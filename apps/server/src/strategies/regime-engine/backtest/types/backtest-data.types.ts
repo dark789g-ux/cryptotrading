@@ -8,6 +8,18 @@ export interface RawSignal {
   entry: RegimeConfigEntry;
 }
 
+/** 同日全量候选（含 Top1），供 runner 审计落库 */
+export interface RankedCandidate {
+  signalDate: string;
+  buyDate: string;
+  tsCode: string;
+  regime: string;
+  exitMode: string;
+  rank: number;
+  rankField: string;
+  rankValue: number | null;
+}
+
 export interface OamvRow {
   trade_date: string;
   open: number | string | null;

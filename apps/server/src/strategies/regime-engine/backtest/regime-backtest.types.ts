@@ -7,8 +7,10 @@ import { EngineDailyRow, EngineSummary } from '../core/summary';
 export interface RegimeBacktestCapital {
   initialCapital: number;
   cost: PortfolioSimCostRates;
-  positionRatio: number;
-  maxPositions: number | null;
+  /** @deprecated 产品层已移除；旧快照可能仍有。开仓 sizing 取当日象限。 */
+  positionRatio?: number;
+  /** @deprecated 产品层已移除；旧快照可能仍有。开仓 sizing 取当日象限。 */
+  maxPositions?: number | null;
   sizing?: SizingConfig;
   circuitBreaker?: CircuitBreaker;
   anchorMode?: boolean;
@@ -43,6 +45,9 @@ export interface RegimeBacktestTrade {
   alloc?: number;
   costsPaid?: number;
   realizedRetNet?: number;
+  rank?: number;
+  rankField?: string;
+  rankValue?: number | null;
 }
 
 export interface RegimeBacktestResult {

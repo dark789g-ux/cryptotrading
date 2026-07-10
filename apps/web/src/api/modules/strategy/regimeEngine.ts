@@ -25,8 +25,14 @@ export interface QuadrantEntry {
   entryConditions?: StrategyConditionItem[] | null
   exitMode?: string | null
   exitParams?: Record<string, unknown> | null
+  /** trade 必填 (0,1]；flat 可为 null */
   positionRatio?: number | null
+  /** trade 必填正整数；flat 可为 null */
   maxPositions?: number | null
+  /** trade 必填；短名单字段或 none */
+  rankField?: string | null
+  /** rankField≠none 时必填；none 时为 null */
+  rankDir?: 'asc' | 'desc' | null
 }
 
 export interface RegimeConfigMap {
@@ -106,23 +112,45 @@ export interface RegimeBacktestCostRates {
 }
 
 export interface CreateRegimeBacktestDto {
-  regimeConfigId: string
   name: string
+  note?: string
+  /** 必填：内联 Regime 规则 */
+  config: RegimeConfigMap
+  /** 可选，仅溯源；不用于加载规则 */
+  regimeConfigId?: string
   capital: {
     initialCapital: number
     cost: RegimeBacktestCostRates
-    positionRatio: number
-    maxPositions: number | null
+    /** @deprecated 若传入后端会忽略 */
+    positionRatio?: number
+    /** @deprecated 若传入后端会忽略 */
+    maxPositions?: number | null
   }
   dateStart: string
   dateEnd: string
 }
 
+/** 回测 run.config jsonb 快照：内层 config 为象限规则，capital 为资金/成本 */
+export interface RegimeBacktestConfigSnapshot {
+  config: RegimeConfigMap
+  capital: {
+    initialCapital: number
+    cost: RegimeBacktestCostRates
+    /** @deprecated */
+    positionRatio?: number
+    /** @deprecated */
+    maxPositions?: number | null
+  }
+}
+
 export interface RegimeBacktestRun {
   id: string
   name: string
-  regimeConfigId: string
-  configVersion: number
+  regimeConfigId: string | null
+  /** 有 FK 的历史 run 为版本号；内联创建时为 null */
+  regimeConfigVersion: number | null
+  /** findOne / list 均返回实体 jsonb；列表场景可不依赖 */
+  config?: RegimeBacktestConfigSnapshot
   dateStart: string
   dateEnd: string
   status: 'pending' | 'running' | 'completed' | 'failed'
@@ -173,6 +201,10 @@ export interface RegimeBacktestTrade {
   alloc: number | null
   costsPaid: number | null
   realizedRetNet: number | null
+  /** 同日排序名次；1=入选；审计行 ≥2 */
+  rank: number | null
+  rankField: string | null
+  rankValue: number | null
 }
 
 export interface RegimeBacktestListResult {
@@ -202,9 +234,18 @@ export const regimeBacktestApi = {
   remove(id: string): Promise<void> {
     return del<void>(`${API_BASE}/regime-engine/backtests/${id}`)
   },
-  list(page = 1, pageSize = 20): Promise<RegimeBacktestListResult> {
+  list(
+    page = 1,
+    pageSize = 20,
+    filter?: { status?: string; keyword?: string },
+  ): Promise<RegimeBacktestListResult> {
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('pageSize', String(pageSize));
+    if (filter?.status) params.set('status', filter.status);
+    if (filter?.keyword) params.set('keyword', filter.keyword);
     return request<RegimeBacktestListResult>(
-      `${API_BASE}/regime-engine/backtests?page=${page}&pageSize=${pageSize}`,
+      `${API_BASE}/regime-engine/backtests?${params.toString()}`,
     )
   },
 }

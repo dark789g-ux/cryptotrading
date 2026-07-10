@@ -14,11 +14,13 @@ export interface SignalTestUniverse {
 /**
  * 把 WHERE 片段 + 锚定日 T + 标的池 拼成枚举 SQL（参数化）。
  * 表结构：daily_indicator i 主锚 + daily_quote/daily_basic/stock_amv_daily/signal_rolling_indicator 左连。
+ * opts.rankValueExpr 有值时额外 SELECT 排序字段为 "rankValue"。
  */
 export function buildEnumerateQuery(
   where: { sql: string; params: unknown[] },
   tradeDate: string,
   universe: SignalTestUniverse,
+  opts?: { rankValueExpr?: string | null },
 ): { sql: string; params: unknown[] } {
   const params: unknown[] = [...where.params];
 
@@ -33,8 +35,13 @@ export function buildEnumerateQuery(
     universeClause = `\n         AND i.ts_code = ANY(${codesPh}::text[])`;
   }
 
+  const rankSelect =
+    opts?.rankValueExpr != null && opts.rankValueExpr !== ''
+      ? `, ${opts.rankValueExpr} AS "rankValue"`
+      : '';
+
   const sql = `
-    SELECT i.ts_code AS "tsCode"
+    SELECT i.ts_code AS "tsCode"${rankSelect}
       FROM raw.daily_indicator i
       LEFT JOIN raw.daily_quote q
         ON q.ts_code = i.ts_code AND q.trade_date = i.trade_date
