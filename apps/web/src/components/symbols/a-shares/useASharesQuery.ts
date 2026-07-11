@@ -127,7 +127,7 @@ export function useASharesQuery(message: {
     advancedConditions.value = filters.advancedConditions.map((condition) => ({ ...condition }))
   }
 
-  async function loadData() {
+  async function loadData(opts?: { skipCount?: boolean }) {
     loading.value = true
     try {
       const res = await aSharesApi.query({
@@ -149,9 +149,10 @@ export function useASharesQuery(message: {
         tsCodes: indexFilter.value?.memberTsCodes?.length
           ? indexFilter.value.memberTsCodes
           : undefined,
+        skipCount: opts?.skipCount,
       })
       rows.value = res.rows
-      total.value = res.total
+      if (res.total >= 0) total.value = res.total
     } catch (err: unknown) {
       message.error(String(err))
     } finally {
@@ -350,20 +351,20 @@ export function useASharesQuery(message: {
 
   function handlePageChange(nextPage: number) {
     page.value = nextPage
-    void loadData()
+    void loadData({ skipCount: true })
   }
 
   function handlePageSizeChange(nextPageSize: number) {
     pageSize.value = nextPageSize
     page.value = 1
-    void loadData()
+    void loadData({ skipCount: true })
   }
 
   function handleSort(sorter: DataTableSortState | DataTableSortState[] | null) {
     const state = Array.isArray(sorter) ? sorter[0] : sorter
     sortKey.value = typeof state?.columnKey === 'string' ? state.columnKey : null
     sortOrder.value = state?.order || null
-    void loadData()
+    void loadData({ skipCount: true })
   }
 
   return {

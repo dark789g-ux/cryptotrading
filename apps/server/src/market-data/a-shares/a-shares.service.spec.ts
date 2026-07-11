@@ -400,3 +400,49 @@ describe('ASharesService.query - indexTsCode 校验', () => {
     await expect(svc.query({ indexTsCode: '801010.SI' })).resolves.toBeDefined();
   });
 });
+
+describe('ASharesService.query - 两阶段 + skipCount', () => {
+  it('skipCount=true 时不发起 COUNT 查询', async () => {
+    const ds = makeDataSourceMock();
+    ds.query
+      .mockResolvedValueOnce([{ tsCode: '600519.SH' }, { tsCode: '000858.SZ' }])
+      .mockResolvedValueOnce([{ tsCode: '600519.SH' }, { tsCode: '000858.SZ' }]);
+    const svc = makeService(ds);
+
+    const res = await svc.query({
+      page: 1,
+      pageSize: 10,
+      sort: { field: 'pctChg', order: 'descend' },
+      skipCount: true,
+    });
+
+    expect(res.total).toBe(-1);
+    expect(ds.query).toHaveBeenCalledTimes(2);
+    const [firstSql] = ds.query.mock.calls[0] as [string, unknown[]];
+    expect(squash(firstSql)).not.toContain('SELECT COUNT(*)');
+  });
+
+  it('skipCount=false 时先 COUNT 再 id-sort 再 hydrate', async () => {
+    const ds = makeDataSourceMock();
+    ds.query
+      .mockResolvedValueOnce([{ count: '100' }])
+      .mockResolvedValueOnce([{ tsCode: '600519.SH' }])
+      .mockResolvedValueOnce([{ tsCode: '600519.SH', name: '茅台' }]);
+    const svc = makeService(ds);
+
+    const res = await svc.query({
+      page: 1,
+      pageSize: 10,
+      sort: { field: 'pctChg', order: 'descend' },
+    });
+
+    expect(res.total).toBe(100);
+    expect(ds.query).toHaveBeenCalledTimes(3);
+    const [countSql] = ds.query.mock.calls[0] as [string, unknown[]];
+    expect(squash(countSql)).toContain('SELECT COUNT(*)');
+    const [idSql] = ds.query.mock.calls[1] as [string, unknown[]];
+    expect(squash(idSql)).toContain('SELECT s.ts_code');
+    const [hydrateSql] = ds.query.mock.calls[2] as [string, unknown[]];
+    expect(squash(hydrateSql)).toContain('tags');
+  });
+});

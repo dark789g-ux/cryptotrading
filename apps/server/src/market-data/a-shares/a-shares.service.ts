@@ -9,7 +9,12 @@ import {
   asNumber,
   formatTradeDateLabel,
 } from './utils/a-shares-format.util';
-import { buildASharesBaseQuery, appendASharesSort } from './data-access/a-shares-query.sql';
+import {
+  appendASharesSort,
+  buildASharesCountQuery,
+  buildASharesHydrateQuery,
+  buildASharesIdSortQuery,
+} from './data-access/a-shares-query.sql';
 import { ASharesSyncService } from './sync/a-shares-sync.service';
 import {
   AShareKlineRow,
@@ -126,21 +131,40 @@ export class ASharesService {
     // 按「评分」排序需当日 prod 模型版本以 JOIN ml.scores_daily（跨域只读，仅排序时触发）
     const scoreModelVersion =
       dto.sort?.field === 'modelScore' ? await this.resolveProdModelVersion() : null;
-    const baseQuery = buildASharesBaseQuery(dto, scoreModelVersion);
 
-    const countRows = await this.dataSource.query<Array<{ count: string }>>(
-      `SELECT COUNT(*) FROM (${baseQuery.sql}) sub`,
-      baseQuery.params,
-    );
-    const total = Number(countRows[0]?.count ?? 0);
-    let sql = appendASharesSort(baseQuery.sql, dto, scoreModelVersion != null);
-    sql += ` LIMIT $${baseQuery.nextParamIndex} OFFSET $${baseQuery.nextParamIndex + 1}`;
+    let total = -1;
+    if (!dto.skipCount) {
+      const countQuery = buildASharesCountQuery(dto, scoreModelVersion);
+      const countRows = await this.dataSource.query<Array<{ count: string }>>(
+        countQuery.sql,
+        countQuery.params,
+      );
+      total = Number(countRows[0]?.count ?? 0);
+    }
 
-    // brickXg 列是 DB boolean（node-postgres 解析为 JS boolean），泛型需容纳 boolean
-    const rows = await this.dataSource.query<Array<Record<string, string | boolean | null>>>(
-      sql,
-      [...baseQuery.params, pageSize, (page - 1) * pageSize],
+    const idSortQuery = buildASharesIdSortQuery(dto, scoreModelVersion);
+    let idSql = appendASharesSort(idSortQuery.sql, dto, scoreModelVersion != null);
+    idSql += ` LIMIT $${idSortQuery.nextParamIndex} OFFSET $${idSortQuery.nextParamIndex + 1}`;
+    const idRows = await this.dataSource.query<Array<{ tsCode: string }>>(
+      idSql,
+      [...idSortQuery.params, pageSize, (page - 1) * pageSize],
     );
+    const tsCodes = idRows.map((r) => r.tsCode);
+
+    if (tsCodes.length === 0) {
+      return { rows: [], total, page, pageSize };
+    }
+
+    const hydrateQuery = buildASharesHydrateQuery(tsCodes, dto);
+    const hydrated = await this.dataSource.query<Array<Record<string, string | boolean | null>>>(
+      hydrateQuery.sql,
+      hydrateQuery.params,
+    );
+    const orderMap = new Map(tsCodes.map((code, index) => [code, index]));
+    const rows = hydrated.sort(
+      (a, b) => (orderMap.get(String(a.tsCode)) ?? 0) - (orderMap.get(String(b.tsCode)) ?? 0),
+    );
+
     return { rows, total, page, pageSize };
   }
 

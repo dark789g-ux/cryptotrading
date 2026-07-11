@@ -1,4 +1,8 @@
-import { buildASharesBaseQuery, appendASharesSort } from './a-shares-query.sql';
+import {
+  buildASharesBaseQuery,
+  buildASharesIdSortQuery,
+  appendASharesSort,
+} from './a-shares-query.sql';
 import { QueryASharesDto } from '../a-shares.types';
 
 // 共享辅助：取某字段在指定 priceMode 下解析出的排序列名。
@@ -295,5 +299,30 @@ describe('a-shares-query.sql indexTsCode 指数成分股筛选', () => {
 
     expect(base.sql).toContain('s.ts_code = ANY($1::varchar[])');
     expect(base.params).toEqual([['600519.SH', '000858.SZ']]);
+  });
+});
+
+describe('a-shares-query.sql 两阶段 Phase1 id-sort', () => {
+  it('按 pctChg 排序：Phase1 不含 LATERAL / tags', () => {
+    const dto: QueryASharesDto = { sort: { field: 'pctChg', order: 'descend' }, priceMode: 'qfq' };
+    const { sql } = buildASharesIdSortQuery(dto);
+    expect(sql).toContain('SELECT s.ts_code AS "tsCode"');
+    expect(sql).not.toContain('LEFT JOIN LATERAL');
+    expect(sql).not.toContain('tags');
+    expect(sql).not.toContain('sw_index_catalog');
+  });
+
+  it('按 obv5d 排序：Phase1 含 daily_indicator，不含 LATERAL', () => {
+    const dto: QueryASharesDto = { sort: { field: 'obv5d', order: 'descend' }, priceMode: 'qfq' };
+    const { sql } = buildASharesIdSortQuery(dto);
+    expect(sql).toContain('raw.daily_indicator');
+    expect(sql).not.toContain('LEFT JOIN LATERAL');
+  });
+
+  it('按 netInflow5d 排序：Phase1 含 LATERAL', () => {
+    const dto: QueryASharesDto = { sort: { field: 'netInflow5d', order: 'descend' }, priceMode: 'qfq' };
+    const { sql } = buildASharesIdSortQuery(dto);
+    expect(sql).toContain('LEFT JOIN LATERAL');
+    expect(sql).not.toContain('tags');
   });
 });

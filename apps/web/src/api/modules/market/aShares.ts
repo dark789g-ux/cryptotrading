@@ -113,6 +113,8 @@ export interface AShareQueryBody {
   indexTsCode?: string
   /** 自定义指数成分 ts_code 列表（与 indexTsCode 互斥） */
   tsCodes?: string[]
+  /** 排序/翻页时跳过 COUNT，后端返回 total=-1 */
+  skipCount?: boolean
 }
 
 export interface AShareFilterPresetFilters {

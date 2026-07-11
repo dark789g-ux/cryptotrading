@@ -47,6 +47,8 @@ export interface QueryASharesDto {
   indexTsCode?: string;
   /** 显式 ts_code 列表（如自定义指数成分跳转）；与 indexTsCode 互斥 */
   tsCodes?: string[];
+  /** 为 true 时跳过 COUNT，响应 total=-1（排序/翻页复用前端已有 total） */
+  skipCount?: boolean;
 }
 
 export interface ASharesFilterPresetFilters {
