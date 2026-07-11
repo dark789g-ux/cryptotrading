@@ -45,7 +45,7 @@
         :pagination="pagination"
         :bordered="false"
         size="small"
-        :scroll-x="980"
+        :scroll-x="1040"
         :row-key="(r: HubBacktestRow) => r.key"
         :row-props="rowProps"
       />
@@ -55,6 +55,12 @@
       v-model:show="showWizard"
       @ashare-success="onAshareCreated"
       @crypto-success="onCryptoCreated"
+    />
+
+    <RegimeBacktestCreateModal
+      v-model:show="ashareShowEdit"
+      :run-id="ashareEditingRunId"
+      @success="onAshareCreated"
     />
 
     <StrategyModal
@@ -145,6 +151,7 @@ import type { HubBacktestRow, HubMarketFilter } from '@/components/backtest/hubT
 import BacktestCreateWizardModal from '@/components/backtest/BacktestCreateWizardModal.vue'
 import StrategyModal from '@/components/backtest/StrategyModal.vue'
 import BacktestDetail from '@/components/backtest/BacktestDetail.vue'
+import RegimeBacktestCreateModal from '@/components/strategy/regime-backtest/RegimeBacktestCreateModal.vue'
 import RegimeBacktestDetailDrawer from '@/components/strategy/regime-backtest/RegimeBacktestDetailDrawer.vue'
 import { useHubAshareBacktest } from '@/composables/backtest/useHubAshareBacktest'
 import { useHubCryptoBacktest } from '@/composables/backtest/useHubCryptoBacktest'
@@ -167,6 +174,8 @@ const {
   dailyLoading: ashareDailyLoading,
   tradesRows: ashareTrades,
   tradesLoading: ashareTradesLoading,
+  showEditModal: ashareShowEdit,
+  editingRunId: ashareEditingRunId,
 } = ashare
 
 const crypto = useHubCryptoBacktest()
@@ -280,14 +289,27 @@ const listColumns: DataTableColumns<HubBacktestRow> = [
     render: (row) => (row.createdAt ? new Date(row.createdAt).toLocaleString('zh-CN') : '-'),
   },
   {
-    title: '操作', key: 'actions', width: 120, fixed: 'right',
+    title: '操作', key: 'actions', width: 168, fixed: 'right',
     render: (row) => {
       if (row.market === 'ashare') {
+        const running = ashare.pollingIds.value.has(row.id) || row.statusType === 'info'
+        const runDisabled = !ashare.canRun(row.id)
+        const editDisabled = !ashare.canEdit(row.id)
         return h('div', { style: 'display:flex;gap:4px', onClick: (e: Event) => e.stopPropagation() }, [
+          h(NButton, {
+            size: 'tiny', quaternary: true, type: 'primary',
+            disabled: runDisabled,
+            onClick: () => void ashare.openRun(row.id),
+          }, { icon: () => h(NIcon, null, { default: () => h(running ? TimeOutline : PlayOutline) }) }),
+          h(NButton, {
+            size: 'tiny', quaternary: true,
+            disabled: editDisabled,
+            onClick: () => void ashare.openEdit(row.id),
+          }, { default: () => '编辑' }),
           h(NButton, {
             size: 'tiny', quaternary: true, type: 'error',
             onClick: () => void ashare.remove(row.id),
-          }, { default: () => '删除' }),
+          }, { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) }),
         ])
       }
       const running = crypto.pollingIds.value.has(row.id)

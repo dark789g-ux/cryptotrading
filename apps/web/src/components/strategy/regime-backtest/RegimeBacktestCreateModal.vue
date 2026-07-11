@@ -2,18 +2,23 @@
   <n-modal
     :show="show"
     preset="dialog"
-    title="新建 Regime 回测"
+    :title="runId ? '编辑 Regime 回测方案' : '新建 Regime 回测'"
     :show-icon="false"
     :mask-closable="false"
-    style="width: min(900px, 96vw)"
+    style="width: min(920px, 96vw)"
     @update:show="$emit('update:show', $event)"
   >
-    <RegimeBacktestCreateForm ref="formRef" :active="show" @success="handleSuccess" />
+    <RegimeBacktestFormPanel
+      ref="formRef"
+      :active="show"
+      :run-id="runId"
+      @success="handleSuccess"
+    />
 
     <template #action>
       <n-button @click="$emit('update:show', false)">取消</n-button>
       <n-button type="primary" :loading="submitting" @click="handleSubmit">
-        新建并运行
+        保存方案
       </n-button>
     </template>
   </n-modal>
@@ -23,18 +28,23 @@
 import { computed, ref } from 'vue'
 import { NModal, NButton } from 'naive-ui'
 import type { RegimeBacktestRun } from '@/api/modules/strategy/regimeEngine'
-import RegimeBacktestCreateForm from './RegimeBacktestCreateForm.vue'
+import RegimeBacktestFormPanel from './RegimeBacktestFormPanel.vue'
 
-defineProps<{
-  show: boolean
-}>()
+withDefaults(
+  defineProps<{
+    show: boolean
+    /** 编辑时传入 run id */
+    runId?: string | null
+  }>(),
+  { runId: null },
+)
 
 const emit = defineEmits<{
   'update:show': [value: boolean]
   success: [run: RegimeBacktestRun]
 }>()
 
-const formRef = ref<InstanceType<typeof RegimeBacktestCreateForm> | null>(null)
+const formRef = ref<InstanceType<typeof RegimeBacktestFormPanel> | null>(null)
 const submitting = computed(() => formRef.value?.submitting ?? false)
 
 async function handleSubmit() {

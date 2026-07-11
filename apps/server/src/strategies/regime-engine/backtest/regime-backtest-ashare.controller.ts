@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
@@ -10,6 +11,7 @@ import {
 import { AdminOnly } from '../../../auth/decorators/admin-only.decorator';
 import { RegimeBacktestService } from './regime-backtest.service';
 import { CreateRegimeBacktestDto } from './dto/create-regime-backtest.dto';
+import { UpdateRegimeBacktestDto } from './dto/update-regime-backtest.dto';
 
 /** Primary A-share backtest API: /api/backtest/ashare */
 @Controller('backtest/ashare')
@@ -117,6 +119,12 @@ export class RegimeBacktestAshareController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
+  }
+
+  @Patch(':id')
+  @AdminOnly()
+  update(@Param('id') id: string, @Body() dto: UpdateRegimeBacktestDto) {
+    return this.service.update(id, dto ?? ({} as UpdateRegimeBacktestDto));
   }
 
   @Delete(':id')

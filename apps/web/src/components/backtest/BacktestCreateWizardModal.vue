@@ -27,7 +27,7 @@
       <n-button quaternary size="small" class="back-btn" @click="goBack">
         ← 更换市场
       </n-button>
-      <RegimeBacktestCreateForm
+      <RegimeBacktestFormPanel
         v-if="market === 'ashare'"
         ref="ashareFormRef"
         :active="show && step === 2"
@@ -52,7 +52,7 @@
           :loading="submitting"
           @click="handleSubmit"
         >
-          {{ market === 'ashare' ? '新建并运行' : '保存策略' }}
+          {{ market === 'ashare' ? '保存方案' : '保存策略' }}
         </n-button>
       </div>
     </template>
@@ -63,7 +63,7 @@
 import { computed, ref, watch } from 'vue'
 import { NModal, NButton } from 'naive-ui'
 import type { RegimeBacktestRun } from '@/api/modules/strategy/regimeEngine'
-import RegimeBacktestCreateForm from '@/components/strategy/regime-backtest/RegimeBacktestCreateForm.vue'
+import RegimeBacktestFormPanel from '@/components/strategy/regime-backtest/RegimeBacktestFormPanel.vue'
 import StrategyFormPanel from '@/components/backtest/StrategyFormPanel.vue'
 
 type Market = 'ashare' | 'crypto'
@@ -77,7 +77,7 @@ const emit = defineEmits<{
 
 const step = ref<1 | 2>(1)
 const market = ref<Market | null>(null)
-const ashareFormRef = ref<InstanceType<typeof RegimeBacktestCreateForm> | null>(null)
+const ashareFormRef = ref<InstanceType<typeof RegimeBacktestFormPanel> | null>(null)
 const cryptoFormRef = ref<InstanceType<typeof StrategyFormPanel> | null>(null)
 
 const stepTitle = computed(() => {

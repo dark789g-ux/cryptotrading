@@ -55,6 +55,40 @@ export function defaultCapitalFormState(): RegimeCapitalFormState {
   }
 }
 
+/** 从回测 capital 快照还原表单状态（缺省字段用默认值） */
+export function hydrateCapitalFormState(
+  capital: RegimeBacktestCapital | null | undefined,
+): RegimeCapitalFormState {
+  const base = defaultCapitalFormState()
+  if (!capital) return base
+
+  const kelly = capital.kelly
+  const cb = capital.circuitBreaker
+  const enableKelly =
+    kelly?.enabled === true || capital.sizing?.mode === 'source_kelly'
+
+  return {
+    requireAllPositionsProfitable: capital.requireAllPositionsProfitable === true,
+    enableKellySizing: enableKelly,
+    simTrades: kelly?.simTrades ?? base.simTrades,
+    windowTrades: kelly?.windowTrades ?? base.windowTrades,
+    stepTrades: kelly?.stepTrades ?? base.stepTrades,
+    kellyFraction: kelly?.kellyFraction ?? capital.sizing?.kellyFraction ?? base.kellyFraction,
+    kellyMaxMult: kelly?.kellyMaxMult ?? capital.sizing?.kellyMaxMult ?? base.kellyMaxMult,
+    enableProbe: kelly?.enableProbe ?? base.enableProbe,
+    enableCooldown: cb?.enableCooldown ?? base.enableCooldown,
+    consecutiveLossesThreshold:
+      cb?.consecutiveLossesThreshold ?? base.consecutiveLossesThreshold,
+    baseCooldownDays: cb?.baseCooldownDays ?? base.baseCooldownDays,
+    maxCooldownDays: cb?.maxCooldownDays ?? base.maxCooldownDays,
+    extendOnLoss: cb?.extendOnLoss ?? base.extendOnLoss,
+    reduceOnProfit: cb?.reduceOnProfit ?? base.reduceOnProfit,
+    enableDrawdownHalt: cb?.enableDrawdownHalt ?? base.enableDrawdownHalt,
+    drawdownHaltPct: cb?.drawdownHaltPct ?? base.drawdownHaltPct,
+    drawdownResumePct: cb?.drawdownResumePct ?? base.drawdownResumePct,
+  }
+}
+
 export function buildCapitalPayload(state: RegimeCapitalFormState): Partial<RegimeBacktestCapital> {
   const sizing: RegimeSizingConfig = state.enableKellySizing
     ? {

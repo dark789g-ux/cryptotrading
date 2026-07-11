@@ -38,6 +38,14 @@ function statusType(run: RegimeBacktestRun): HubBacktestRow['statusType'] {
   }
 }
 
+function canRunStatus(status: RegimeBacktestRun['status']): boolean {
+  return status === 'pending' || status === 'failed'
+}
+
+function canEditStatus(status: RegimeBacktestRun['status']): boolean {
+  return status === 'pending' || status === 'failed'
+}
+
 export function toAshareHubRow(run: RegimeBacktestRun): HubBacktestRow {
   return {
     key: `ashare:${run.id}`,
@@ -69,8 +77,26 @@ export function useHubAshareBacktest() {
   const tradesRows = ref<RegimeBacktestTrade[]>([])
   const tradesLoading = ref(false)
 
+  const showEditModal = ref(false)
+  const editingRunId = ref<string | null>(null)
+
   const progressTimers = ref<Map<string, ReturnType<typeof setInterval>>>(new Map())
+  const pollingIds = ref(new Set<string>())
   const hubRows = computed(() => runs.value.map(toAshareHubRow))
+
+  function getRunStatus(id: string): RegimeBacktestRun['status'] | undefined {
+    return runs.value.find((r) => r.id === id)?.status
+  }
+
+  function canRun(id: string): boolean {
+    const status = getRunStatus(id)
+    return !!status && canRunStatus(status) && !pollingIds.value.has(id)
+  }
+
+  function canEdit(id: string): boolean {
+    const status = getRunStatus(id)
+    return !!status && canEditStatus(status)
+  }
 
   async function loadList(filter?: { status?: string; keyword?: string }) {
     loading.value = true
@@ -81,8 +107,9 @@ export function useHubAshareBacktest() {
       })
       runs.value = result.items
       total.value = result.total
+      // 仅对已在跑的任务续轮询；pending 需用户点「运行」才启动
       result.items
-        .filter((r) => r.status === 'running' || r.status === 'pending')
+        .filter((r) => r.status === 'running')
         .forEach((r) => startPolling(r.id))
     } catch (err: unknown) {
       message.error(err instanceof Error ? err.message : '加载 A 股回测失败')
@@ -126,6 +153,7 @@ export function useHubAshareBacktest() {
 
   function startPolling(id: string) {
     stopPolling(id)
+    pollingIds.value = new Set(pollingIds.value).add(id)
     const timer = setInterval(async () => {
       try {
         const progress = await regimeBacktestApi.getProgress(id)
@@ -157,6 +185,48 @@ export function useHubAshareBacktest() {
       clearInterval(t)
       progressTimers.value.delete(id)
     }
+    if (pollingIds.value.has(id)) {
+      const next = new Set(pollingIds.value)
+      next.delete(id)
+      pollingIds.value = next
+    }
+  }
+
+  async function openRun(id: string) {
+    if (pollingIds.value.has(id) || getRunStatus(id) === 'running') {
+      message.info('回测正在运行中')
+      return
+    }
+    const local = runs.value.find((r) => r.id === id)
+    if (local && !canRunStatus(local.status)) {
+      message.warning(local.status === 'completed' ? '已完成的回测不可再运行' : '当前状态不可运行')
+      return
+    }
+    try {
+      await regimeBacktestApi.run(id)
+      if (local) {
+        local.status = 'running'
+        local.phase = '启动中'
+      }
+      startPolling(id)
+      message.success('已开始运行')
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '启动回测失败')
+    }
+  }
+
+  async function openEdit(id: string) {
+    try {
+      const run = await regimeBacktestApi.get(id)
+      if (!canEditStatus(run.status)) {
+        message.warning('仅等待中或失败的方案可编辑')
+        return
+      }
+      editingRunId.value = id
+      showEditModal.value = true
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '加载方案失败')
+    }
   }
 
   async function remove(id: string) {
@@ -168,20 +238,27 @@ export function useHubAshareBacktest() {
         detailRun.value = null
         showDetail.value = false
       }
+      if (editingRunId.value === id) {
+        editingRunId.value = null
+        showEditModal.value = false
+      }
       await loadList()
     } catch (err: unknown) {
       message.error(err instanceof Error ? err.message : '删除失败')
     }
   }
 
-  function onCreateSuccess(run: RegimeBacktestRun) {
-    startPolling(run.id)
+  /** 创建/编辑保存成功：只刷新列表，不自动跑 */
+  function onCreateSuccess(_run: RegimeBacktestRun) {
     page.value = 1
+    showEditModal.value = false
+    editingRunId.value = null
   }
 
   function dispose() {
     progressTimers.value.forEach((t) => clearInterval(t))
     progressTimers.value.clear()
+    pollingIds.value = new Set()
   }
 
   onUnmounted(dispose)
@@ -200,8 +277,15 @@ export function useHubAshareBacktest() {
     dailyLoading,
     tradesRows,
     tradesLoading,
+    showEditModal,
+    editingRunId,
+    pollingIds,
+    canRun,
+    canEdit,
     loadList,
     openDetail,
+    openRun,
+    openEdit,
     remove,
     onCreateSuccess,
     dispose,

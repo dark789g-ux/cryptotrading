@@ -175,6 +175,13 @@ export interface CreateRegimeBacktestDto {
   dateEnd: string
 }
 
+/** PATCH：与 create 字段对齐；仅 pending/failed 可更新 */
+export type UpdateRegimeBacktestDto = Pick<
+  CreateRegimeBacktestDto,
+  'name' | 'config' | 'capital' | 'dateStart' | 'dateEnd'
+> &
+  Partial<Pick<CreateRegimeBacktestDto, 'note' | 'regimeConfigId'>>
+
 /** 回测 run.config jsonb 快照：内层 config 为象限规则，capital 为资金/成本 */
 export interface RegimeBacktestConfigSnapshot {
   config: RegimeConfigMap
@@ -343,6 +350,9 @@ const ASHARE_BACKTEST_BASE = `${API_BASE}/backtest/ashare`
 export const regimeBacktestApi = {
   create(dto: CreateRegimeBacktestDto): Promise<RegimeBacktestRun> {
     return post<RegimeBacktestRun>(ASHARE_BACKTEST_BASE, dto)
+  },
+  update(id: string, dto: UpdateRegimeBacktestDto): Promise<RegimeBacktestRun> {
+    return patch<RegimeBacktestRun>(`${ASHARE_BACKTEST_BASE}/${id}`, dto)
   },
   run(id: string): Promise<{ runId: string }> {
     return post<{ runId: string }>(`${ASHARE_BACKTEST_BASE}/${id}/run`)

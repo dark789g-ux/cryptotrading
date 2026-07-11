@@ -12,14 +12,14 @@
             <DownloadOutline />
           </n-icon>
         </template>
-        导入参数
+        {{ buttonLabel }}
       </n-button>
     </template>
     <div class="import-panel">
       <n-input
         :value="searchText"
         @update:value="$emit('update:searchText', $event)"
-        placeholder="搜索策略..."
+        :placeholder="searchPlaceholder"
         clearable
         class="import-search"
       />
@@ -34,7 +34,7 @@
               {{ opt.label }}
             </n-list-item>
           </n-list>
-          <n-empty v-else description="无匹配策略" style="margin-top: 16px" />
+          <n-empty v-else :description="emptyDescription" style="margin-top: 16px" />
         </n-scrollbar>
       </n-spin>
     </div>
@@ -55,12 +55,22 @@ import {
 } from 'naive-ui'
 import { DownloadOutline } from '@vicons/ionicons5'
 
-defineProps<{
-  show: boolean
-  searchText: string
-  loading: boolean
-  options: { label: string; value: string }[]
-}>()
+withDefaults(
+  defineProps<{
+    show: boolean
+    searchText: string
+    loading: boolean
+    options: { label: string; value: string }[]
+    buttonLabel?: string
+    searchPlaceholder?: string
+    emptyDescription?: string
+  }>(),
+  {
+    buttonLabel: '导入参数',
+    searchPlaceholder: '搜索策略...',
+    emptyDescription: '无匹配策略',
+  },
+)
 
 defineEmits<{
   (e: 'update:show', v: boolean): void

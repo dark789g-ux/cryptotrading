@@ -14,6 +14,7 @@ import { RegimeBacktestTradeEntity } from '../../../entities/strategy/regime-bac
 import { RegimeStrategyConfigEntity } from '../../../entities/strategy/regime-strategy-config.entity';
 import { ASharesService } from '../../../market-data/a-shares/a-shares.service';
 import { CreateRegimeBacktestDto } from './dto/create-regime-backtest.dto';
+import { UpdateRegimeBacktestDto } from './dto/update-regime-backtest.dto';
 import { RegimeBacktestRunner } from './regime-backtest.runner';
 import { validateRegimeConfig } from '../regime-engine.validation';
 import {
@@ -143,6 +144,59 @@ export class RegimeBacktestService {
     return entity;
   }
 
+  async update(id: string, dto: UpdateRegimeBacktestDto): Promise<RegimeBacktestRunEntity> {
+    const entity = await this.findOne(id);
+    if (entity.status === 'running') {
+      throw new BadRequestException('cannot update a running backtest');
+    }
+    if (entity.status === 'completed') {
+      throw new BadRequestException('cannot update a completed backtest');
+    }
+    if (entity.status !== 'pending' && entity.status !== 'failed') {
+      throw new BadRequestException(`cannot update backtest in status ${entity.status}`);
+    }
+
+    this.validateDto(dto);
+    validateRegimeConfig(dto.config);
+
+    let regimeConfigId: string | null = dto.regimeConfigId ?? null;
+    let regimeConfigVersion: number | null = null;
+    if (regimeConfigId) {
+      const ent = await this.configRepo.findOne({ where: { id: regimeConfigId } });
+      if (!ent) {
+        throw new BadRequestException(`regime config ${regimeConfigId} not found`);
+      }
+      regimeConfigVersion = ent.version;
+    }
+
+    const capital = { ...dto.capital };
+    if (capital.positionRatio !== undefined || capital.maxPositions !== undefined) {
+      this.logger.warn('ignoring capital.positionRatio/maxPositions (deprecated)');
+      delete capital.positionRatio;
+      delete capital.maxPositions;
+    }
+
+    entity.regimeConfigId = regimeConfigId;
+    entity.regimeConfigVersion = regimeConfigVersion;
+    entity.name = dto.name.trim();
+    if (dto.note !== undefined) {
+      entity.note = dto.note ?? null;
+    }
+    entity.config = {
+      config: dto.config,
+      capital,
+    };
+    entity.dateStart = dto.dateStart;
+    entity.dateEnd = dto.dateEnd;
+
+    if (entity.status === 'failed') {
+      entity.status = 'pending';
+      entity.errorMessage = null;
+    }
+
+    return this.runRepo.save(entity);
+  }
+
   async remove(id: string): Promise<void> {
     const entity = await this.findOne(id);
     if (entity.status === 'running') {
@@ -158,6 +212,11 @@ export class RegimeBacktestService {
     }
     if (run.status === 'running') {
       throw new ConflictException('run is already running');
+    }
+    if (run.status === 'completed') {
+      throw new BadRequestException(
+        'completed backtest cannot be re-run; create a new run or edit a pending/failed one',
+      );
     }
 
     await this.runRepo.update(id, {

@@ -3,6 +3,7 @@ import { RegimeBacktestService } from './regime-backtest.service';
 import { CreateRegimeBacktestDto } from './dto/create-regime-backtest.dto';
 import { RegimeConfigMap } from '../../../entities/strategy/regime-strategy-config.entity';
 import { StrategyConditionItem } from '../../../entities/strategy/strategy-condition.entity';
+import { RegimeBacktestRunEntity } from '../../../entities/strategy/regime-backtest-run.entity';
 
 function validConfig(): RegimeConfigMap {
   return {
@@ -212,5 +213,135 @@ describe('RegimeBacktestService.create (inline config)', () => {
     const created = runRepo.create.mock.calls[0][0];
     expect(created.config.capital.kelly).toEqual(dto.capital.kelly);
     expect(created.config.capital.circuitBreaker).toEqual(dto.capital.circuitBreaker);
+  });
+});
+
+describe('RegimeBacktestService.update / triggerRun', () => {
+  let service: RegimeBacktestService;
+  let runRepo: {
+    findOne: jest.Mock;
+    save: jest.Mock;
+    update: jest.Mock;
+  };
+  let configRepo: { findOne: jest.Mock };
+  let runner: { executeRun: jest.Mock };
+
+  function makeEntity(
+    overrides: Partial<RegimeBacktestRunEntity> = {},
+  ): RegimeBacktestRunEntity {
+    return {
+      id: 'run-1',
+      regimeConfigId: null,
+      regimeConfig: null,
+      regimeConfigVersion: null,
+      name: 'old-name',
+      note: null,
+      config: { config: validConfig(), capital: baseDto().capital },
+      dateStart: '20240101',
+      dateEnd: '20240630',
+      status: 'pending',
+      phase: null,
+      progressDone: 0,
+      progressTotal: 0,
+      finalNav: null,
+      totalRet: null,
+      annualRet: null,
+      maxDrawdown: null,
+      sharpe: null,
+      calmar: null,
+      dailyWinRate: null,
+      dailyKelly: null,
+      nTaken: null,
+      nSkipped: null,
+      totalCosts: null,
+      errorMessage: null,
+      createdAt: new Date(),
+      completedAt: null,
+      ...overrides,
+    } as RegimeBacktestRunEntity;
+  }
+
+  beforeEach(() => {
+    runRepo = {
+      findOne: jest.fn(),
+      save: jest.fn(async (x) => x),
+      update: jest.fn(async () => undefined),
+    };
+    configRepo = { findOne: jest.fn() };
+    runner = {
+      executeRun: jest.fn(() => Promise.resolve()),
+    };
+    service = new RegimeBacktestService(
+      runRepo as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      configRepo as never,
+      runner as never,
+      {} as never,
+    );
+  });
+
+  it('allows update when status is pending', async () => {
+    runRepo.findOne.mockResolvedValue(makeEntity({ status: 'pending' }));
+    const dto = baseDto({ name: 'renamed', dateStart: '20240201', dateEnd: '20240701' });
+    const saved = await service.update('run-1', dto);
+
+    expect(saved.name).toBe('renamed');
+    expect(saved.dateStart).toBe('20240201');
+    expect(saved.dateEnd).toBe('20240701');
+    expect(saved.status).toBe('pending');
+    expect(saved.config).toEqual({
+      config: dto.config,
+      capital: expect.objectContaining({ initialCapital: 1_000_000 }),
+    });
+    expect(runRepo.save).toHaveBeenCalled();
+  });
+
+  it('allows update when status is failed and resets to pending', async () => {
+    runRepo.findOne.mockResolvedValue(
+      makeEntity({ status: 'failed', errorMessage: 'boom' }),
+    );
+    const saved = await service.update('run-1', baseDto({ name: 'retry-me' }));
+
+    expect(saved.name).toBe('retry-me');
+    expect(saved.status).toBe('pending');
+    expect(saved.errorMessage).toBeNull();
+  });
+
+  it('rejects update when status is running', async () => {
+    runRepo.findOne.mockResolvedValue(makeEntity({ status: 'running' }));
+    await expect(service.update('run-1', baseDto())).rejects.toThrow(
+      /cannot update a running backtest/,
+    );
+    expect(runRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects update when status is completed', async () => {
+    runRepo.findOne.mockResolvedValue(makeEntity({ status: 'completed' }));
+    await expect(service.update('run-1', baseDto())).rejects.toThrow(
+      /cannot update a completed backtest/,
+    );
+    expect(runRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects triggerRun when status is completed', async () => {
+    runRepo.findOne.mockResolvedValue(makeEntity({ status: 'completed' }));
+    await expect(service.triggerRun('run-1')).rejects.toThrow(
+      /completed backtest cannot be re-run/,
+    );
+    expect(runRepo.update).not.toHaveBeenCalled();
+    expect(runner.executeRun).not.toHaveBeenCalled();
+  });
+
+  it('allows triggerRun when status is pending', async () => {
+    runRepo.findOne.mockResolvedValue(makeEntity({ status: 'pending' }));
+    const result = await service.triggerRun('run-1');
+    expect(result).toEqual({ runId: 'run-1' });
+    expect(runRepo.update).toHaveBeenCalledWith(
+      'run-1',
+      expect.objectContaining({ status: 'running' }),
+    );
+    expect(runner.executeRun).toHaveBeenCalledWith('run-1');
   });
 });
