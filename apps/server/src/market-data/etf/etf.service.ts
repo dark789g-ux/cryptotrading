@@ -25,6 +25,8 @@ export interface EtfSyncOptions {
   syncMode?: 'incremental' | 'overwrite';
   /** 一键同步注入的进度回调（可选）；4 个子步骤按权重映射到全局区间。 */
   onProgress?: EtfSyncOnProgress;
+  /** 中断信号：在子步骤之间检查，支持一键同步取消。 */
+  signal?: AbortSignal;
 }
 
 @Injectable()
@@ -48,6 +50,7 @@ export class EtfService {
     let totalSuccess = 0;
 
     // 1. ETF 目录（0-5%）
+    if (opts.signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
     onProgress?.({ phase: '同步 ETF 目录', percent: 0 });
     this.logger.log('[etf] Step 1/4: 同步 ETF 目录');
     const catalogResult = await this.catalogService.syncCatalog();
@@ -64,12 +67,14 @@ export class EtfService {
     }
 
     // 3. fund_daily 日线（5-30%）
+    if (opts.signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
     this.logger.log(`[etf] Step 2/4: 同步 ${trackedCodes.length} 只 ETF 日线`);
     const dailyResult = await this.fundDailyService.syncFundDaily(
       trackedCodes,
       opts.startDate,
       opts.endDate,
       onProgress ? mapRange(onProgress, '同步 ETF 日线', 5, 30) : undefined,
+      opts.signal,
     );
     allErrors.push(...dailyResult.errors);
     totalSuccess += dailyResult.success;
@@ -88,6 +93,7 @@ export class EtfService {
         opts.endDate,
         opts.syncMode,
         onProgress ? mapRange(onProgress, '同步 ETF PCF', 30, 80) : undefined,
+        opts.signal,
       );
       allErrors.push(...pcfResult.errors);
       totalSuccess += pcfResult.success;
@@ -97,10 +103,12 @@ export class EtfService {
     }
 
     // 5. 技术指标收尾（80-100%）
+    if (opts.signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
     this.logger.log('[etf] Step 4/4: 计算技术指标');
     const indicatorResult = await this.indicatorService.recalculateIndicators(
       [...codesWithDaily].sort(),
       onProgress ? mapRange(onProgress, '计算技术指标', 80, 100) : undefined,
+      opts.signal,
     );
     allErrors.push(...indicatorResult.errors);
     totalSuccess += indicatorResult.success;

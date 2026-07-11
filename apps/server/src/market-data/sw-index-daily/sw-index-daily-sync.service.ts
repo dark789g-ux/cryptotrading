@@ -63,6 +63,7 @@ export class SwIndexDailySyncService {
     dto: SwIndexDailySyncDto,
     onProgress?: (event: SwIndexDailySyncEvent) => void,
   ): Promise<SwIndexDailySyncResult> {
+    const { signal } = dto;
     const errors: SwIndexDailySyncErrorItem[] = [];
     const isOverwrite = (dto.syncMode ?? 'incremental') === 'overwrite';
 
@@ -134,6 +135,7 @@ export class SwIndexDailySyncService {
     let success = 0;
     const affectedTsCodes = new Set<string>();
     for (let i = 0; i < dates.length; i++) {
+      if (signal?.aborted) break;
       const tradeDate = dates[i];
       const params: Record<string, string | number> = { trade_date: tradeDate };
       let rows: RawRow[] = [];
@@ -248,6 +250,7 @@ export class SwIndexDailySyncService {
         message: `开始重算 ${tsCodes.length} 个申万指数的指标`,
       });
       for (let i = 0; i < tsCodes.length; i++) {
+        if (signal?.aborted) break;
         const tsCode = tsCodes[i];
         try {
           await this.indicatorService.recalculateForSymbols([tsCode]);
@@ -285,11 +288,12 @@ export class SwIndexDailySyncService {
     setTimeout(async () => {
       try {
         const result = await this.sync(dto, (e) => subject.next(e));
+        const abortMsg = dto.signal?.aborted ? '（已取消）' : '';
         subject.next({
           type: 'done',
           message: result.errors.length
-            ? `同步完成，${result.errors.length} 项失败`
-            : '同步完成',
+            ? `同步完成${abortMsg}，${result.errors.length} 项失败`
+            : `同步完成${abortMsg}`,
           result,
         });
         subject.complete();

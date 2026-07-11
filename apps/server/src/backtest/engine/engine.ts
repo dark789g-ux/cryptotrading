@@ -321,7 +321,7 @@ export async function runBacktest(
 
     const activeCash = isSimPhase || isProbeMode ? simCash : cash;
     const activePending = isSimPhase || isProbeMode ? simPendingBuys : pendingBuys;
-    if (allowNew && profitGate && activeCash >= config.minOpenCash && !inCooldownNow) {
+    if (allowNew && profitGate && activeCash > 0 && !inCooldownNow) {
       const heldSymbols = new Set<string>(activePositions.map((p) => p.symbol));
       for (const [sym] of activePending) heldSymbols.add(sym);
       // scanSignals 不再接收 cooldownUntil 参数

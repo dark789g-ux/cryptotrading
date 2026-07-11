@@ -100,7 +100,11 @@ export class ASharesSyncService {
       return createResult('partial', symbols, quotes, metrics, adjFactors, indicators, failedItems, range, skippedDates, skippedDatasets);
     }
 
+    const { signal } = dto;
+
     await Promise.all(tradeDates.map(async (tradeDate) => {
+      // 并发场景：abort 后未入队的提前 return，已在飞的等自然完成
+      if (signal?.aborted) return;
       let syncedDatasetsForDate = 0;
       let skippedDatasetsForDate = 0;
       let dailyTsCodes: string[] = [];
@@ -222,6 +226,10 @@ export class ASharesSyncService {
       failedItems.push(createStageFailedItem('mark_dirty_ranges', err));
     }
 
+    if (signal?.aborted) {
+      return createResult('partial', symbols, quotes, metrics, adjFactors, indicators, failedItems, range, skippedDates, skippedDatasets);
+    }
+
     if (changedRanges.size > 0) {
       emit({
         type: 'progress',
@@ -244,6 +252,10 @@ export class ASharesSyncService {
         });
       } catch (err: unknown) {
         failedItems.push(createStageFailedItem('qfq_recalculate', err));
+      }
+
+      if (signal?.aborted) {
+        return createResult('partial', symbols, quotes, metrics, adjFactors, indicators, failedItems, range, skippedDates, skippedDatasets);
       }
 
       emit({
@@ -272,10 +284,18 @@ export class ASharesSyncService {
         failedItems.push(createStageFailedItem('indicator_recalculate', err));
       }
 
+      if (signal?.aborted) {
+        return createResult('partial', symbols, quotes, metrics, adjFactors, indicators, failedItems, range, skippedDates, skippedDatasets);
+      }
+
       try {
         await this.signalRollingIndicatorService.recalculateDirtyForSymbols([...changedRanges.keys()]);
       } catch (err: unknown) {
         failedItems.push(createStageFailedItem('signal_rolling_recalculate', err));
+      }
+
+      if (signal?.aborted) {
+        return createResult('partial', symbols, quotes, metrics, adjFactors, indicators, failedItems, range, skippedDates, skippedDatasets);
       }
 
       try {

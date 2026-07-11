@@ -62,6 +62,10 @@ export interface OneClickSummary {
 export interface OneClickPanelController {
   dateRange: Ref<[number, number] | null>
   running: ComputedRef<boolean>
+  /** start() 已发出但首个 currentRun/currentJob 尚未就绪（POST in-flight）；用于按钮三态与防重复点击。 */
+  starting: ComputedRef<boolean>
+  /** 取消请求已发出但 job 尚未进入终态（status 仍为 running）。 */
+  cancelling: ComputedRef<boolean>
   steps: ComputedRef<OneClickStepState[]>
   totalPercent: ComputedRef<number>
   logEntries: ComputedRef<LogEntry[]>

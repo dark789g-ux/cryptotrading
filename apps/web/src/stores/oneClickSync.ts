@@ -37,6 +37,10 @@ function utcWallClockToMs(s: string): number {
 
 export const useOneClickSyncStore = defineStore('oneClickSync', () => {
   const currentRun = ref<OneClickSyncRun | null>(null)
+  // 本地取消中覆盖：API 返回前立即显示「取消中」，终态时重置
+  const cancellingOverride = ref(false)
+  // 本地启动中覆盖：startRun() 发出后立即显示「启动中…」，首个 currentRun 就绪后复位
+  const startingOverride = ref(false)
   const latestSuccessRun = ref<OneClickSyncRun | null>(null)
   const lastPollError = ref<string | null>(null)
 
@@ -53,6 +57,9 @@ export const useOneClickSyncStore = defineStore('oneClickSync', () => {
 
   // --- getters（供 Panel 渲染，形状与旧 composable 一致）---
   const running = computed(() => currentRun.value?.status === 'running')
+  /** startRun() 已发出但首个 currentRun 尚未就绪（POST in-flight）；用于按钮三态与防重复点击。 */
+  const starting = computed(() => startingOverride.value)
+  const cancelling = computed(() => cancellingOverride.value || currentRun.value?.cancelRequested === true)
   const steps = computed(() => currentRun.value?.steps ?? [])
   // 后端已算总进度，直接用 progress（0-100）
   const totalPercent = computed(() => currentRun.value?.progress ?? 0)
@@ -98,6 +105,7 @@ export const useOneClickSyncStore = defineStore('oneClickSync', () => {
       consecutiveFailures = 0
       lastPollError.value = null
       if (isTerminal(next)) {
+        cancellingOverride.value = false
         stopPolling()
         if (next.status === 'success') void fetchLatestSuccess()
       }
@@ -136,6 +144,7 @@ export const useOneClickSyncStore = defineStore('oneClickSync', () => {
   /** 开始一键同步：POST /runs（单飞，后端命中 running 复用）→ set currentRun → 启轮询。 */
   async function startRun(dto: StartOneClickSyncDto) {
     lastPollError.value = null
+    startingOverride.value = true
     try {
       const run = await oneClickSyncApi.startRun(dto)
       currentRun.value = run
@@ -145,6 +154,8 @@ export const useOneClickSyncStore = defineStore('oneClickSync', () => {
     } catch (err) {
       // 透传后端原始信息（如 400 日期非法），不吞成通用文案
       throw err instanceof Error ? err : new Error('启动一键同步失败')
+    } finally {
+      startingOverride.value = false
     }
   }
 
@@ -166,6 +177,7 @@ export const useOneClickSyncStore = defineStore('oneClickSync', () => {
   async function cancelRun() {
     const run = currentRun.value
     if (!run) return
+    cancellingOverride.value = true
     const next = await oneClickSyncApi.cancelRun(run.id)
     currentRun.value = next
   }
@@ -177,6 +189,8 @@ export const useOneClickSyncStore = defineStore('oneClickSync', () => {
     lastPollError,
     // getters
     running,
+    starting,
+    cancelling,
     steps,
     totalPercent,
     logs,

@@ -44,6 +44,8 @@ export function useUsOneClickSync(message: OneClickMessageApi): OneClickPanelCon
 
   // ---- 直接透传 store getter（形状与 A 股 controller 一致，Panel 模板不动）----
   const running = computed(() => store.running)
+  const starting = computed(() => store.starting)
+  const cancelling = computed(() => store.cancelling)
   const steps = computed<OneClickStepState[]>(() => store.steps)
   const totalPercent = computed(() => store.totalPercent)
   const logEntries = computed<LogEntry[]>(() => store.logs)
@@ -52,7 +54,7 @@ export function useUsOneClickSync(message: OneClickMessageApi): OneClickPanelCon
   const summary = computed<OneClickSummary | null>(() => store.summary)
 
   const canStart = computed(
-    () => !running.value && !!dateRange.value && !!dateRange.value[0] && !!dateRange.value[1],
+    () => !running.value && !starting.value && !!dateRange.value && !!dateRange.value[0] && !!dateRange.value[1],
   )
 
   /** 最近一次 success 的 finishedAt 格式化文本（标题「最近成功」标签用）；无则 ''。 */
@@ -63,7 +65,7 @@ export function useUsOneClickSync(message: OneClickMessageApi): OneClickPanelCon
 
   // ---- 控制：start / cancel 仅转调 store ----
   async function start(): Promise<void> {
-    if (running.value) return
+    if (running.value || starting.value) return
     if (!dateRange.value || !dateRange.value[0] || !dateRange.value[1]) {
       message.error('请先选择日期范围')
       return
@@ -89,6 +91,8 @@ export function useUsOneClickSync(message: OneClickMessageApi): OneClickPanelCon
   return {
     dateRange,
     running,
+    starting,
+    cancelling,
     steps,
     currentStepIndex,
     elapsedMs,

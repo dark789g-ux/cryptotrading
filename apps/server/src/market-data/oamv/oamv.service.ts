@@ -145,8 +145,12 @@ export class OamvService {
     startDate?: string
     endDate?: string
     syncMode?: 'incremental' | 'overwrite'
+    /** 一键同步编排器注入的中断信号 */
+    signal?: AbortSignal
   } = {}): Promise<{ synced: number }> {
     this.logger.log(`开始同步 0AMV 数据，参数: ${JSON.stringify(options)}`)
+
+    if (options.signal?.aborted) throw new DOMException('Sync aborted', 'AbortError')
 
     // 计算日期范围
     const endDate = options.endDate

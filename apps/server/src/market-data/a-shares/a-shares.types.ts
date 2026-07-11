@@ -74,6 +74,8 @@ export interface SyncASharesDto {
   startDate?: string;
   endDate?: string;
   syncMode?: 'incremental' | 'overwrite';
+  /** 取消信号（一键同步编排器注入，循环顶部检查 signal.aborted） */
+  signal?: AbortSignal;
 }
 
 export type ASharesSyncStatus = 'done' | 'partial' | 'error';

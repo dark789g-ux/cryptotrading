@@ -7,6 +7,7 @@ export type SyncCtx = {
   total: number;
   grandTotal: number;
   emit: (e: MoneyFlowSyncEvent) => void;
+  signal?: AbortSignal;
 };
 
 export function pctOf(c: number, g: number): number {

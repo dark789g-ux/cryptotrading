@@ -83,7 +83,6 @@ const configGroups: ConfigGroup[] = [
     { key: 'warmupBars', label: '预热根数' },
     { key: 'lookbackBuffer', label: '回看缓冲' },
     { key: 'maxBacktestBars', label: '最大回测根数' },
-    { key: 'minOpenCash', label: '最小开仓资金' },
     { key: 'cooldownBars', label: '冷却周期数（已废弃）', deprecated: true },
     { key: 'consecutiveLossesReduceOnProfit', label: '盈利后冷却削减（已废弃）', deprecated: true },
   ] },

@@ -16,6 +16,7 @@ import {
   RegimeConfigMap,
 } from '../../../../entities/strategy/regime-strategy-config.entity';
 import { ASHARE_FIELD_COL_MAP } from '../../../../strategy-conditions/strategy-conditions.types';
+import { isSingleWildcardQuadrant } from '../../regime.classifier';
 import { toNum } from '../regime-backtest.helpers';
 
 type DbValue = string | number | null;
@@ -122,6 +123,15 @@ export class MarketSnapshotLoader {
   ): Promise<Map<string, MarketSnapshot>> {
     if (calendar.length === 0) {
       return new Map();
+    }
+
+    // 单象限空 match（通配）：不区分大盘环境，每日均填入最小 snapshot
+    if (isSingleWildcardQuadrant(regimeConfig.quadrants)) {
+      const wildcard = new Map<string, MarketSnapshot>();
+      for (const date of calendar) {
+        wildcard.set(date, { date, targets: new Map() });
+      }
+      return wildcard;
     }
 
     const targets = this.extractTargets(regimeConfig.quadrants);

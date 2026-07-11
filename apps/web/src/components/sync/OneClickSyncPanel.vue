@@ -17,7 +17,7 @@
           v-model:value="ctrl.dateRange.value"
           type="daterange"
           clearable
-          :disabled="ctrl.running.value"
+          :disabled="ctrl.running.value || ctrl.starting.value"
           format="yyyy-MM-dd"
           class="ocs-date-picker"
         />
@@ -26,19 +26,29 @@
             v-model:value="ctrl.syncMode.value"
             :checked-value="'overwrite'"
             :unchecked-value="'incremental'"
-            :disabled="ctrl.running.value"
+            :disabled="ctrl.running.value || ctrl.starting.value"
           />
           <span class="ocs-switch-label">覆盖模式（重拉已有日期）</span>
         </div>
         <n-button
-          v-if="!ctrl.running.value"
+          v-if="ctrl.starting.value"
+          type="primary"
+          :loading="true"
+          disabled
+        >
+          启动中…
+        </n-button>
+        <n-button
+          v-else-if="!ctrl.running.value"
           type="primary"
           :disabled="!ctrl.canStart.value"
           @click="ctrl.start()"
         >
           开始同步
         </n-button>
-        <n-button v-else type="warning" @click="ctrl.cancel()">取消</n-button>
+        <n-button v-else type="warning" :loading="ctrl.cancelling.value" :disabled="ctrl.cancelling.value" @click="ctrl.cancel()">
+          {{ ctrl.cancelling.value ? '取消中…' : '取消' }}
+        </n-button>
       </div>
     </div>
 
@@ -64,7 +74,7 @@
       <n-button
         size="tiny"
         quaternary
-        :disabled="ctrl.running.value"
+        :disabled="ctrl.running.value || ctrl.starting.value"
         @click="toggleAllSteps"
       >{{ allSelectedLabel }}</n-button>
       <span class="ocs-steps-hint">⚠️ 步骤间存在数据依赖，取消上游步骤可能影响下游结果</span>
@@ -79,7 +89,7 @@
         <n-checkbox
           class="ocs-step-checkbox"
           :checked="ctrl.selectedStepKeys.value.includes(step.step)"
-          :disabled="ctrl.running.value"
+          :disabled="ctrl.running.value || ctrl.starting.value"
           @update:checked="ctrl.toggleStep(step.step)"
         />
         <div class="ocs-step-icon" :title="step.status">

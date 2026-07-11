@@ -8,6 +8,7 @@ import { classifyRegime } from '../../regime.classifier';
 import { MarketSnapshot } from '../../market-condition-evaluator';
 import { RawSignal, RankedCandidate } from '../types/backtest-data.types';
 import { assignRanks, rankValueSqlExpr, RankDir } from '../rank-select';
+import { resolveSignalTestUniverse } from './universe-resolver';
 
 @Injectable()
 export class SignalEnumerator {
@@ -28,6 +29,10 @@ export class SignalEnumerator {
   ): Promise<{ top1Signals: RawSignal[]; rankedAll: RankedCandidate[] }> {
     const top1Signals: RawSignal[] = [];
     const rankedAll: RankedCandidate[] = [];
+    const signalUniverse = await resolveSignalTestUniverse(
+      this.dataSource,
+      regimeConfig.universe,
+    );
 
     for (const d of calendar) {
       const snapshot = marketSnapshots.get(d);
@@ -53,7 +58,7 @@ export class SignalEnumerator {
       const rankValueExpr = rankValueSqlExpr(rankField);
 
       const where = this.queryBuilder.buildAShareQuery(conditions);
-      const { sql, params } = buildEnumerateQuery(where, d, { type: 'all' }, {
+      const { sql, params } = buildEnumerateQuery(where, d, signalUniverse, {
         rankValueExpr,
       });
       const rows = await this.dataSource.query<

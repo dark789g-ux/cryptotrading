@@ -1,11 +1,11 @@
 /**
  * exit-simulator/fixed-n.ts
  *
- * fixed_n 出场决策。
- * 从 signal-stats.simulator.ts 迁移，逻辑不变。
+ * fixed_n 出场决策（init + step 循环包装，对外 API 不变）。
  */
 
 import { HoldingDaySnapshot, ExitDecision } from './types';
+import { initFixedNState, stepFixedN } from './steppers/fixed-n.step';
 
 /**
  * fixed_n 出场：持有到 buy_date 后第 N 个**实际可交易日**（停牌日跳过、不计额度），
@@ -22,25 +22,14 @@ export function decideFixedN(
   horizonN: number,
   delistDate: string | null,
 ): ExitDecision | null {
-  let tradableCount = 0;
-  let lastQuoteIdx = 0;
-  let lastQuoteTradable = 0;
+  if (days.length === 0) return null;
+  let state = initFixedNState(days[0]);
+  const opts = { horizonN, delistDate };
   for (let i = 1; i < days.length; i++) {
-    if (delistDate !== null && days[i].calDate >= delistDate) {
-      if (lastQuoteIdx < 0 || days[lastQuoteIdx].qfqClose === null) return null;
-      return {
-        exitDay: days[lastQuoteIdx],
-        exitReason: 'delist',
-        holdDays: lastQuoteTradable,
-      };
-    }
-    if (!days[i].hasQuote) continue;
-    tradableCount++;
-    lastQuoteIdx = i;
-    lastQuoteTradable = tradableCount;
-    if (tradableCount === horizonN) {
-      return { exitDay: days[i], exitReason: 'max_hold', holdDays: tradableCount };
-    }
+    const result = stepFixedN(state, days[i], opts);
+    state = result.state;
+    if (result.decision) return result.decision;
+    if (result.done) return null;
   }
   return null;
 }

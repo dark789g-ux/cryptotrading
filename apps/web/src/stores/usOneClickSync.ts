@@ -55,6 +55,11 @@ export const useUsOneClickSyncStore = defineStore('usOneClickSync', () => {
   const latestSuccessJob = ref<JobRow | null>(null)
   const lastPollError = ref<string | null>(null)
 
+  // 本地覆盖：cancelRun() 发出后立刻 true，pollOnce 检测到终态后复位 false
+  const cancellingOverride = ref(false)
+  // 本地启动中覆盖：startRun() 发出后立即显示「启动中…」，首个 currentJob 就绪后复位
+  const startingOverride = ref(false)
+
   // 250ms ticker 平滑显示耗时（仅 running 时跳动；终态停在最终值）
   const nowTick = ref(Date.now())
 
@@ -73,6 +78,12 @@ export const useUsOneClickSyncStore = defineStore('usOneClickSync', () => {
 
   // --- getters（供 Panel 渲染，形状与 A 股 store 一致）---
   const running = computed(() => currentJob.value?.status === 'running')
+
+  /** startRun() 已发出但首个 currentJob 尚未就绪（POST 入队 + GET 取行 in-flight）；用于按钮三态与防重复点击。 */
+  const starting = computed(() => startingOverride.value)
+
+  /** cancelRun() 已发出但 job 尚未进入终态（status 仍为 running）。 */
+  const cancelling = computed(() => cancellingOverride.value || currentJob.value?.cancelRequested === true)
 
   /**
    * steps：从 resultPayload.steps 映射并补 label；payload 为空/缺 steps（job 刚建、worker 未写）
@@ -154,6 +165,7 @@ export const useUsOneClickSyncStore = defineStore('usOneClickSync', () => {
       consecutiveFailures = 0
       lastPollError.value = null
       if (isTerminal(next)) {
+        cancellingOverride.value = false
         stopPolling()
         if (next.status === 'success') void fetchLatestSuccess()
       }
@@ -192,6 +204,7 @@ export const useUsOneClickSyncStore = defineStore('usOneClickSync', () => {
   /** 开始美股一键同步：POST /one-click-sync → 拿 jobId → getJob 取完整行 → set currentJob → 启轮询。 */
   async function startRun(body: { startDate: string; endDate: string }) {
     lastPollError.value = null
+    startingOverride.value = true
     try {
       const reqBody: UsOneClickSyncBody = {
         dateRange: [body.startDate, body.endDate],
@@ -205,6 +218,8 @@ export const useUsOneClickSyncStore = defineStore('usOneClickSync', () => {
     } catch (err) {
       // 透传后端原始信息（如 400 日期非法），不吞成通用文案
       throw err instanceof Error ? err : new Error('启动美股一键同步失败')
+    } finally {
+      startingOverride.value = false
     }
   }
 
@@ -234,6 +249,7 @@ export const useUsOneClickSyncStore = defineStore('usOneClickSync', () => {
   async function cancelRun() {
     const job = currentJob.value
     if (!job) return
+    cancellingOverride.value = true
     await quantApi.cancelJob(job.id)
   }
 
@@ -244,6 +260,8 @@ export const useUsOneClickSyncStore = defineStore('usOneClickSync', () => {
     lastPollError,
     // getters
     running,
+    starting,
+    cancelling,
     steps,
     totalPercent,
     logs,

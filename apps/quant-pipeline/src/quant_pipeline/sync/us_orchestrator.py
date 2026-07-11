@@ -59,6 +59,7 @@ def run_us_sync(
     tickers: tuple[str, ...] | None = None,
     client: YahooClient | None = None,
     write_start: str | None = None,
+    _suppress_progress: bool = False,
 ) -> UsSyncOutcome:
     """美股同步入口。
 
@@ -67,6 +68,8 @@ def run_us_sync(
     write_start（spec 04 约束B）：默认 None → 等于 date_range 的 start（现有 CLI/单 job
     行为不变）；非 None 时抓取仍用全 [start,end]、指标全序列算，仅写 trade_date >=
     write_start 的行，透传给 sync_us_daily_for_ticker。
+    _suppress_progress=True → job_id 非空时仍 check_cancel 但不 update_progress（供
+    父编排器 us_one_click_orchestrator 独占进度写入）。
     """
 
     start_date, end_date = _parse_date_range(date_range)
@@ -82,7 +85,7 @@ def run_us_sync(
         return outcome
 
     total = len(ticker_list)
-    if job_id is not None:
+    if job_id is not None and not _suppress_progress:
         update_progress(job_id, 0, stage="start")
 
     for i, ticker in enumerate(ticker_list):
@@ -113,9 +116,9 @@ def run_us_sync(
             logger.error("us_sync_ticker_failed", extra={"ticker": ticker, "err": str(exc)})
             outcome.errors.append(f"{ticker}: {exc!r}")
 
-        if job_id is not None and ((i + 1) % 3 == 0 or (i + 1) == total):
+        if job_id is not None and not _suppress_progress and ((i + 1) % 3 == 0 or (i + 1) == total):
             update_progress(job_id, int((i + 1) * 100 / total), stage=f"us_sync:{ticker}")
 
-    if job_id is not None:
+    if job_id is not None and not _suppress_progress:
         update_progress(job_id, 100, stage="done")
     return outcome

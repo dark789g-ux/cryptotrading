@@ -7,7 +7,7 @@
  */
 import type { OneClickStepKey } from './types';
 import type { StepContext } from './step-runners';
-import { failStep, clampPct } from './step-runners';
+import { failStep, clampPct, rethrowIfAbort } from './step-runners';
 import type { EtfSyncProgress } from '../etf/etf.types';
 
 // ── Step6 ETF 数据同步 ───────────────────────────────────────────────────
@@ -28,6 +28,7 @@ export async function runEtf(ctx: StepContext, index: number): Promise<void> {
       endDate: ctx.range.endDate,
       syncMode: ctx.syncMode,
       onProgress,
+      signal: ctx.signal,
     });
 
     ctx.patchStep(index, { rowsWritten: result.success, percent: 100 });
@@ -49,6 +50,7 @@ export async function runEtf(ctx: StepContext, index: number): Promise<void> {
       ctx.pushLog(key, 'info', `ETF 数据同步完成，写入 ${result.success} 行`);
     }
   } catch (e) {
+    rethrowIfAbort(e);
     failStep(ctx, index, key, e);
   }
 }
@@ -72,6 +74,7 @@ export async function runEtfAmv(ctx: StepContext, index: number): Promise<void> 
       ctx.range.endDate,
       ctx.syncMode,
       onProgress,
+      ctx.signal,
     );
 
     ctx.patchStep(index, { rowsWritten: result.success, percent: 100 });
@@ -93,6 +96,7 @@ export async function runEtfAmv(ctx: StepContext, index: number): Promise<void> 
       ctx.pushLog(key, 'info', `ETF AMV 完成，写入 ${result.success} 行`);
     }
   } catch (e) {
+    rethrowIfAbort(e);
     failStep(ctx, index, key, e);
   }
 }
@@ -116,6 +120,7 @@ export async function runEtfMf(ctx: StepContext, index: number): Promise<void> {
       ctx.range.endDate,
       ctx.syncMode,
       onProgress,
+      ctx.signal,
     );
 
     ctx.patchStep(index, { rowsWritten: result.success, percent: 100 });
@@ -137,6 +142,7 @@ export async function runEtfMf(ctx: StepContext, index: number): Promise<void> {
       ctx.pushLog(key, 'info', `ETF 资金净流入完成，写入 ${result.success} 行`);
     }
   } catch (e) {
+    rethrowIfAbort(e);
     failStep(ctx, index, key, e);
   }
 }

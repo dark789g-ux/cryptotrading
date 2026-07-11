@@ -9,8 +9,10 @@
 - 如果有不清楚的地方，停下来，说明哪里困惑，然后提问
 - 代码长度不要超过 500 行，必要时拆分成多个文件或函数
 - 不要为了压行数把代码强行「写平」。超限的正确做法是拆分成独立文件 / 函数 / 组件。
-- **不使用 auto-memory 记忆体系**：不向用户级 memory 目录写入记忆文件 / `MEMORY.md` 索引。
+
+## PLAN 书写规范
 - 书写 PLAN 时，需要把 SubAgent 编排写进去，尽可能的派发 SubAgent 执行方案，执行完成后需要派发 SubAgent 进行代码审查，确保代码质量。
+- 书写 PLAN 时，如果涉及到 UI 的新增/修改/删除，需要在 PLAN 中使用 ASCII 字符的方式，清晰的描述 UI 的变更。
 
 ## Agent 派发规范
 
@@ -100,7 +102,6 @@ market-data/
 |------|----------|
 | DB 查库场景（快捷指南） | [doc/db/index.md](doc/db/index.md) |
 | 编码 / UTF-8 / 中文编辑 | [doc/规范/conventions.md](doc/规范/conventions.md) |
-| NestJS / Vue / SQL / 数据完整性硬规则 | [.claude/rules/](.claude/rules/) |
 | 可触发 Agent 技能 | [.claude/skills/](.claude/skills/)（Tushare → `tushare-sync-dev`；查 DB → `db-inspect`；前端 → `frontend-dev-lessons`） |
 | 量化运维 / worker | [doc/quant-runbook.md](doc/quant-runbook.md)、[apps/quant-pipeline/README.md](apps/quant-pipeline/README.md) |
 | 环境变量全集 | [.env.example](.env.example) |

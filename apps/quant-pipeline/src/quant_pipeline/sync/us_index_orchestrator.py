@@ -59,6 +59,7 @@ def run_us_index_sync(
     symbols: tuple[str, ...] | None = None,
     client: YahooClient | None = None,
     write_start: str | None = None,
+    _suppress_progress: bool = False,
 ) -> UsIndexSyncOutcome:
     """美股指数同步入口。
 
@@ -66,6 +67,8 @@ def run_us_index_sync(
     symbols=None → 缺省 ('.NDX',)（v1 硬编码，无 catalog/tracked 查询）。
     write_start（spec 04 约束B）：默认 None → 等于 date_range 的 start（行为不变）；
     透传给 sync_us_index_for_symbol，仅写 trade_date >= write_start 的行。
+    _suppress_progress=True → job_id 非空时仍 check_cancel 但不 update_progress（供
+    父编排器 us_one_click_orchestrator 独占进度写入）。
     """
 
     start_date, end_date = _parse_date_range(date_range)
@@ -75,7 +78,7 @@ def run_us_index_sync(
     symbol_list = list(symbols) if symbols else list(DEFAULT_INDEX_SYMBOLS)
 
     total = len(symbol_list)
-    if job_id is not None:
+    if job_id is not None and not _suppress_progress:
         update_progress(job_id, 0, stage="start")
 
     for i, index_code in enumerate(symbol_list):
@@ -107,11 +110,11 @@ def run_us_index_sync(
             )
             outcome.errors.append(f"{index_code}: {exc!r}")
 
-        if job_id is not None and ((i + 1) % 3 == 0 or (i + 1) == total):
+        if job_id is not None and not _suppress_progress and ((i + 1) % 3 == 0 or (i + 1) == total):
             update_progress(
                 job_id, int((i + 1) * 100 / total), stage=f"us_index_sync:{index_code}"
             )
 
-    if job_id is not None:
+    if job_id is not None and not _suppress_progress:
         update_progress(job_id, 100, stage="done")
     return outcome

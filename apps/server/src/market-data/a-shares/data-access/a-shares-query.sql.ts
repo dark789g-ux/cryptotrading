@@ -221,21 +221,23 @@ export function buildASharesBaseQuery(
       LEFT JOIN sw_index_catalog sw3 ON sw3.ts_code = s.sw_industry_l3_code${scoreJoin}
       LEFT JOIN LATERAL (
         SELECT
-          SUM(t.net_amount) FILTER (WHERE t.trade_date = l.trade_date) AS net_inflow,
-          SUM(t.net_amount) FILTER (WHERE t.rn <= 5)  AS net_inflow_5d,
-          SUM(t.net_amount) FILTER (WHERE t.rn <= 10) AS net_inflow_10d,
-          SUM(t.net_amount)                            AS net_inflow_20d,
-          SUM(t.buy_lg_amount) FILTER (WHERE t.trade_date = l.trade_date) AS buy_lg_amount,
-          SUM(t.buy_md_amount) FILTER (WHERE t.trade_date = l.trade_date) AS buy_md_amount,
-          SUM(t.buy_sm_amount) FILTER (WHERE t.trade_date = l.trade_date) AS buy_sm_amount
+          SUM(mf.net_amount) FILTER (WHERE dq.rn = 1)  AS net_inflow,
+          SUM(mf.net_amount) FILTER (WHERE dq.rn <= 5)  AS net_inflow_5d,
+          SUM(mf.net_amount) FILTER (WHERE dq.rn <= 10) AS net_inflow_10d,
+          SUM(mf.net_amount)                            AS net_inflow_20d,
+          SUM(mf.buy_lg_amount) FILTER (WHERE dq.rn = 1) AS buy_lg_amount,
+          SUM(mf.buy_md_amount) FILTER (WHERE dq.rn = 1) AS buy_md_amount,
+          SUM(mf.buy_sm_amount) FILTER (WHERE dq.rn = 1) AS buy_sm_amount
         FROM (
-          SELECT net_amount, buy_lg_amount, buy_md_amount, buy_sm_amount, trade_date,
+          SELECT trade_date,
                  ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
-          FROM money_flow_stocks
+          FROM raw.daily_quote
           WHERE ts_code = s.ts_code AND trade_date <= l.trade_date
           ORDER BY trade_date DESC
           LIMIT 20
-        ) t
+        ) dq
+        LEFT JOIN money_flow_stocks mf
+          ON mf.ts_code = s.ts_code AND mf.trade_date = dq.trade_date
       ) mf ON true
       WHERE s.list_status = 'L'
     `;

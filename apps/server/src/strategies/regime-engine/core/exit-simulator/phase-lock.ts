@@ -1,17 +1,11 @@
 /**
  * exit-simulator/phase-lock.ts
  *
- * 阶段锁定 phase_lock 出场决策。
- * 从 signal-stats.simulator.ts 迁移，逻辑不变。
+ * 阶段锁定 phase_lock 出场决策（init + step 循环包装，对外 API 不变）。
  */
 
 import { HoldingDaySnapshot, PhaseLockOptions, PhaseLockOutcome } from './types';
-import { floor2 } from './band-lock';
-
-function isDeadLimitDown(day: HoldingDaySnapshot): boolean {
-  if (day.downLimit === null || day.rawHigh === null) return false;
-  return day.rawHigh <= day.downLimit;
-}
+import { initPhaseLockState, stepPhaseLock } from './steppers/phase-lock.step';
 
 /**
  * phase_lock 出场：两阶段锁定止损（初始止损固定 → 收盘站上 MA5↑ 锁定上移 → 阶段 B 收盘破 MA5↓ 清仓 + 跌停顺延）。
@@ -37,130 +31,55 @@ export function decidePhaseLock(
   recentLows: number[],
   opts: PhaseLockOptions,
 ): PhaseLockOutcome {
-  const { initFactor, lockFactor, delistDate } = opts;
   if (days.length === 0) {
     return { kind: 'no_exit', reason: null, exitIndex: null, exitPrice: null, holdDays: 0, locked: false };
   }
 
-  const entry = days[0];
-
-  if (!entry.hasQuote || entry.qfqOpen === null) {
-    return { kind: 'no_entry', reason: 'suspended', exitIndex: null, exitPrice: null, holdDays: 0, locked: false };
+  const init = initPhaseLockState(days[0], recentLows, opts);
+  if (init.kind === 'no_entry') {
+    return {
+      kind: 'no_entry',
+      reason: init.reason,
+      exitIndex: null,
+      exitPrice: null,
+      holdDays: 0,
+      locked: false,
+    };
   }
-  if (entry.upLimit !== null && entry.rawOpen !== null && entry.rawOpen >= entry.upLimit) {
-    return { kind: 'no_entry', reason: 'limit_up', exitIndex: null, exitPrice: null, holdDays: 0, locked: false };
-  }
 
-  const cost = entry.qfqOpen;
-
-  const initStop: number | null =
-    recentLows.length === 0 ? null : floor2(Math.min(...recentLows) * initFactor);
-
-  let stopNext: number | null = initStop;
-  let locked = false;
-  let pending: 'phase_lock_stop' | 'phase_lock_ma5' | null = null;
-  let hold = 0;
-  let prevMa5 = entry.ma5;
-
-  let lastQuoteIdx = 0;
-  let lastQuoteHold = 0;
-
+  let state = init.state;
   for (let i = 1; i < days.length; i++) {
-    const bar = days[i];
-
-    if (delistDate !== null && bar.calDate >= delistDate) {
-      if (lastQuoteIdx < 0 || days[lastQuoteIdx].qfqClose === null) {
-        return { kind: 'no_exit', reason: null, exitIndex: null, exitPrice: null, holdDays: hold, locked };
-      }
+    const result = stepPhaseLock(state, days[i], opts);
+    state = result.state;
+    if (result.decision) {
+      const d = result.decision;
       return {
         kind: 'exit',
-        reason: 'delist',
-        exitIndex: lastQuoteIdx,
+        reason: d.reason,
+        exitIndex: days.indexOf(d.exitDay),
+        exitPrice: d.exitPrice,
+        holdDays: d.holdDays,
+        locked: d.locked,
+      };
+    }
+    if (result.done) {
+      return {
+        kind: 'no_exit',
+        reason: null,
+        exitIndex: null,
         exitPrice: null,
-        holdDays: lastQuoteHold,
-        locked,
+        holdDays: state.hold,
+        locked: state.locked,
       };
     }
-
-    if (!bar.hasQuote) continue;
-
-    hold += 1;
-    lastQuoteIdx = i;
-    lastQuoteHold = hold;
-    const stopEff = stopNext;
-    const deadLimitDown = isDeadLimitDown(bar);
-
-    // (0) 顺延中（上日封死跌停未能出场）
-    if (pending !== null) {
-      if (!deadLimitDown) {
-        return {
-          kind: 'exit',
-          reason: pending,
-          exitIndex: i,
-          exitPrice: bar.qfqOpen,
-          holdDays: hold,
-          locked,
-        };
-      }
-      continue;
-    }
-
-    // (1) 盘中止损 [最高优先]
-    if (stopEff !== null && bar.qfqLow !== null && bar.qfqLow <= stopEff) {
-      if (deadLimitDown) {
-        pending = 'phase_lock_stop';
-        continue;
-      }
-      const fill = bar.qfqOpen !== null ? Math.min(stopEff, bar.qfqOpen) : stopEff;
-      return {
-        kind: 'exit',
-        reason: 'phase_lock_stop',
-        exitIndex: i,
-        exitPrice: fill,
-        holdDays: hold,
-        locked,
-      };
-    }
-
-    // (2) 收盘判断（当日未触止损）
-    if (!locked) {
-      if (
-        bar.ma5 !== null &&
-        prevMa5 !== null &&
-        bar.qfqClose !== null &&
-        bar.qfqClose > bar.ma5 &&
-        bar.ma5 > prevMa5
-      ) {
-        const base = bar.qfqLow !== null ? Math.max(cost, bar.qfqLow) : cost;
-        stopNext = floor2(base * lockFactor);
-        locked = true;
-      }
-    } else {
-      if (
-        bar.ma5 !== null &&
-        bar.qfqClose !== null &&
-        bar.qfqClose < bar.ma5 &&
-        prevMa5 !== null &&
-        bar.ma5 < prevMa5
-      ) {
-        if (deadLimitDown) {
-          pending = 'phase_lock_ma5';
-          prevMa5 = bar.ma5;
-          continue;
-        }
-        return {
-          kind: 'exit',
-          reason: 'phase_lock_ma5',
-          exitIndex: i,
-          exitPrice: bar.qfqClose,
-          holdDays: hold,
-          locked,
-        };
-      }
-    }
-
-    prevMa5 = bar.ma5;
   }
 
-  return { kind: 'no_exit', reason: null, exitIndex: null, exitPrice: null, holdDays: hold, locked };
+  return {
+    kind: 'no_exit',
+    reason: null,
+    exitIndex: null,
+    exitPrice: null,
+    holdDays: state.hold,
+    locked: state.locked,
+  };
 }

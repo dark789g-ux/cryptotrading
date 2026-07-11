@@ -73,6 +73,19 @@ const STEP_RUNNERS: StepRunner[] = [
 export class OneClickSyncOrchestratorService implements OnModuleInit {
   private readonly logger = new Logger(OneClickSyncOrchestratorService.name);
 
+  /**
+   * 进程内 AbortController 索引（runId → controller）。
+   *
+   * 双重取消真相源：
+   *  - AbortController（进程内）→ cancelRun 触发 abort()，各 step/底层 service 在循环顶部秒级响应，
+   *    打破「当前步必须跑完」的旧限制（spec §6 line 269-270 曾明确接受该限制，本改动突破之）。
+   *  - cancel_requested 列（DB 持久化）→ 重启后仍可识别；编排器步骤间循环顶部 isCancelRequested 兜底。
+   *
+   * 生命周期：startRun 时不创建（orchestrate detached 才创建），cancelRun 时按 id 取出并 abort；
+   * orchestrate 结束（finalize）后清理。若 cancel 早于 orchestrate 启动（极小窗口），fallback 到 DB 标记。
+   */
+  private readonly abortControllers = new Map<string, AbortController>();
+
   constructor(
     @InjectRepository(OneClickSyncRunEntity)
     private readonly runRepo: Repository<OneClickSyncRunEntity>,
@@ -185,13 +198,23 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
     return this.toDto(run);
   }
 
-  /** POST /runs/:id/cancel：置 cancel_requested=true（编排器在步骤间检查）。 */
+  /**
+   * POST /runs/:id/cancel：置 cancel_requested=true + 触发进程内 AbortController.abort()。
+   *
+   * AbortController 让各 step / 底层 service 在循环顶部秒级中断（打破旧限制）；
+   * cancel_requested 列同时写入 DB，作为重启后仍可识别的持久化真相。
+   * 若 AbortController 尚未注册（orchestrate 还没启动，极小窗口），仅 DB 标记，
+   * orchestrate 启动后会在第一次步骤间检查或首步 signal 检查时感知。
+   */
   async cancelRun(id: string): Promise<OneClickSyncRunDto> {
     const run = await this.runRepo.findOne({ where: { id } });
     if (!run) throw new NotFoundException('一键同步任务不存在');
     if (run.status === 'running' && !run.cancelRequested) {
       await this.runRepo.update({ id }, { cancelRequested: true, updatedAt: () => 'now()' });
       run.cancelRequested = true;
+      // 触发进程内中断（若 controller 已注册）。已注册但被 finalize 清理的情况无妨——DB 标记已兜底。
+      const controller = this.abortControllers.get(id);
+      if (controller) controller.abort();
     }
     return this.toDto(run);
   }
@@ -206,6 +229,14 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
       this.logger.error(`orchestrate：run ${runId} 不存在`);
       return;
     }
+
+    // 创建并注册 AbortController —— cancelRun 可通过 abort() 秒级中断当前正在执行的步骤。
+    // 用 try/finally 保证无论编排如何结束都清理 Map（避免内存泄漏）。
+    const abortController = new AbortController();
+    this.abortControllers.set(runId, abortController);
+    // 若 cancel 早于 orchestrate 启动（极小窗口，DB cancelRequested 已 true 但 controller 尚未注册），
+    // 立即 abort 新建的 controller，使首步循环顶部即可感知取消。
+    if (run.cancelRequested) abortController.abort();
     // 内存工作态：steps/logs 直接改，节流刷库。
     const state = {
       steps: run.steps.length === STEP_ORDER.length ? run.steps : buildInitialSteps(),
@@ -235,6 +266,7 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
     const ctx: StepContext = {
       range: { startDate: run.startDate, endDate: run.endDate },
       syncMode: options.syncMode === 'overwrite' ? 'overwrite' : 'incremental',
+      signal: abortController.signal,
       services: {
         baseData: this.baseData,
         aShares: this.aShares,
@@ -264,9 +296,11 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
     };
 
     let cancelled = false;
+    let curIndex = -1; // AbortError 冒泡时定位"当前步"，用于裁决该步及剩余为 skipped。
     try {
       for (let i = 0; i < STEP_RUNNERS.length; i++) {
-        // 步骤间检查 cancel（DB 是真相源；当前步无法中断，与今天一致）。
+        curIndex = i;
+        // 步骤间检查 cancel（DB 是真相源；AbortController 中断后当前步会抛 AbortError，这里仍兜底）。
         if (await this.isCancelRequested(runId)) {
           cancelled = true;
           markRemainingSkipped(state.steps, i);
@@ -294,17 +328,35 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
         }
         // 步骤切换必刷库 + current_step。
         await flushNow({ currentStep: i });
+        // AbortError 由 step-runner 的 catch 透传上来（见 step-runners rethrowIfAbort），
+        // 表示当前步在"完成某个工作单元落库后"被取消中断 → catch 里裁决为 cancelled。
         await STEP_RUNNERS[i](ctx, i);
         // 步骤完成必刷库。
         await flushNow({ currentStep: i });
       }
     } catch (err) {
-      // 编排级异常（理论上各 runner 已自吞，这里兜底）。
-      const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error(`orchestrate 主体异常 run=${runId}: ${msg}`);
-      pushLog(state.logs, { ts: Date.now(), step: 'system', level: 'error', text: `编排异常：${msg}` });
-      await this.finalize(runId, state, 'failed', msg);
-      return;
+      if (isAbortError(err)) {
+        // 取消中断：当前步（curIndex）在抛 AbortError 前已完成当前工作单元落库；
+        // 把当前步（可能被 failStep 标过 failed → 取消优先回改 skipped）及剩余标 skipped，终态 cancelled。
+        cancelled = true;
+        markAbortedFromSkipped(state.steps, Math.max(0, curIndex));
+        pushLog(state.logs, {
+          ts: Date.now(),
+          step: 'system',
+          level: 'warn',
+          text: '一键同步已取消',
+        });
+      } else {
+        // 编排级异常（理论上各 runner 已自吞，这里兜底）。
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`orchestrate 主体异常 run=${runId}: ${msg}`);
+        pushLog(state.logs, { ts: Date.now(), step: 'system', level: 'error', text: `编排异常：${msg}` });
+        await this.finalize(runId, state, 'failed', msg);
+        return;
+      }
+    } finally {
+      // 清理 AbortController（无论正常结束 / 取消 / 失败）。cancelRun 之后的 abort 调用为 no-op。
+      this.abortControllers.delete(runId);
     }
 
     const finalStatus = cancelled ? 'cancelled' : computeFinalStatus(state.steps);
@@ -379,6 +431,13 @@ export class OneClickSyncOrchestratorService implements OnModuleInit {
 
 // ── 模块级纯函数 ──────────────────────────────────────────────────────
 
+/** 是否 AbortError（底层 service 在循环顶部检查 signal.aborted 后抛出，名 'AbortError'）。 */
+export function isAbortError(err: unknown): boolean {
+  if (err == null || typeof err !== 'object') return false;
+  const name = (err as { name?: unknown }).name;
+  return name === 'AbortError';
+}
+
 function setStepStatus(step: OneClickStepState, status: OneClickStepStatus): void {
   step.status = status;
   if (status === 'running' && step.startedAt === null) step.startedAt = Date.now();
@@ -393,6 +452,19 @@ function setStepStatus(step: OneClickStepState, status: OneClickStepStatus): voi
 function markRemainingSkipped(steps: OneClickStepState[], fromIndex: number): void {
   for (let i = fromIndex; i < steps.length; i++) {
     if (steps[i].status === 'pending') setStepStatus(steps[i], 'skipped');
+  }
+}
+
+/**
+ * AbortError 中断专用：把被中断的当前步（可能是 running/failed）及其后 pending 步统一标 skipped。
+ * 与 markRemainingSkipped 区别：后者只改 pending（步骤间取消，已完成步保持原态）；
+ * 本函数额外把"被中断的当前步"回改为 skipped —— 取消优先，不把因取消导致的半途中断显成失败。
+ */
+function markAbortedFromSkipped(steps: OneClickStepState[], curIndex: number): void {
+  for (let i = curIndex; i < steps.length; i++) {
+    if (steps[i].status === 'pending' || steps[i].status === 'running' || steps[i].status === 'failed') {
+      setStepStatus(steps[i], 'skipped');
+    }
   }
 }
 

@@ -3,7 +3,8 @@ import { RegimeBacktestInput } from './regime-backtest.types';
 import { RegimeConfigMap } from '../../../entities/strategy/regime-strategy-config.entity';
 import { MarketSnapshot, IndexTargetSnapshot } from '../market-condition-evaluator';
 import { COST_PRESET_ZERO } from '../core/cost';
-import { HoldingDaySnapshot, SimulationInput } from '../core/exit-simulator';
+import { HoldingDaySnapshot, SimulationInput, simulateTradeCore } from '../core/exit-simulator';
+import { computeCashSplitAlloc } from '../core/sizing';
 
 const INDEX_TARGET = '000001.SH';
 
@@ -117,6 +118,8 @@ const defaultRegimeConfig: RegimeConfigMap = {
       entryConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
       exitMode: 'fixed_n',
       exitParams: { N: 1 },
+      positionRatio: 0.1,
+      maxPositions: 10,
     },
     {
       key: 'Q2',
@@ -138,6 +141,8 @@ const defaultRegimeConfig: RegimeConfigMap = {
       entryConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
       exitMode: 'fixed_n',
       exitParams: { N: 1 },
+      positionRatio: 0.1,
+      maxPositions: 10,
     },
     {
       key: 'Q4',
@@ -150,9 +155,24 @@ const defaultRegimeConfig: RegimeConfigMap = {
       entryConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
       exitMode: 'fixed_n',
       exitParams: { N: 1 },
+      positionRatio: 0.1,
+      maxPositions: 10,
     },
   ],
 };
+
+/** Clone default config and set Q1 (trade) position params. */
+function regimeConfigWithQ1(
+  positionRatio: number,
+  maxPositions: number | null,
+): RegimeConfigMap {
+  return {
+    ...defaultRegimeConfig,
+    quadrants: defaultRegimeConfig.quadrants.map((q) =>
+      q.key === 'Q1' ? { ...q, positionRatio, maxPositions } : { ...q },
+    ),
+  };
+}
 
 function baseInput(overrides: Partial<RegimeBacktestInput> = {}): RegimeBacktestInput {
   return {
@@ -160,8 +180,6 @@ function baseInput(overrides: Partial<RegimeBacktestInput> = {}): RegimeBacktest
     capital: {
       initialCapital: 1_000_000,
       cost: COST_PRESET_ZERO,
-      positionRatio: 0.1,
-      maxPositions: null,
     },
     calendar: ['20260101', '20260102', '20260103', '20260104', '20260105'],
     marketSnapshots: new Map<string, MarketSnapshot>(),
@@ -230,8 +248,6 @@ describe('regime-backtest.engine', () => {
       capital: {
         initialCapital: 10_000_000,
         cost: COST_PRESET_ZERO,
-        positionRatio: 0.1,
-        maxPositions: null,
         circuitBreaker: {
           enableCooldown: true,
           consecutiveLossesThreshold: 2,
@@ -276,8 +292,6 @@ describe('regime-backtest.engine', () => {
           stampSellFrom20230828: 0.0005,
           slippagePerSide: 0,
         },
-        positionRatio: 0.1,
-        maxPositions: null,
       },
       marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
       signalsByDate: new Map([['20260101', [signal]]]),
@@ -291,8 +305,8 @@ describe('regime-backtest.engine', () => {
     expect(t.costsPaid!).toBeGreaterThan(0);
   });
 
-  it('same-day round-trip (exitDate == buyDate)', () => {
-    const signal = makeSignal('000001.SZ', '20260101', '20260102', '20260102', 10, 11);
+  it('T+1: no exit step on buyDate; exits on next tradable day', () => {
+    const signal = makeSignal('000001.SZ', '20260101', '20260102', '20260103', 10, 11);
     const input = baseInput({
       marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
       signalsByDate: new Map([['20260101', [signal]]]),
@@ -300,8 +314,12 @@ describe('regime-backtest.engine', () => {
 
     const result = runRegimeBacktest(input);
     expect(result.trades[0].status).toBe('taken');
-    expect(result.dailyRows[1].positionCount).toBe(0);
-    expect(result.dailyRows[1].cash).toBe(1_010_000);
+    expect(result.trades[0].exitDate).toBe('20260103');
+    // buyDate 仍持仓
+    expect(result.dailyRows[1].positionCount).toBe(1);
+    // 次日出场
+    expect(result.dailyRows[2].positionCount).toBe(0);
+    expect(result.dailyRows[2].cash).toBeCloseTo(1_010_000);
   });
 
   it('mark-to-market: NAV reflects floating P&L before exit', () => {
@@ -342,7 +360,7 @@ describe('regime-backtest.engine', () => {
   });
 
   it('drawdown_halt: freezes on 10% drawdown, resumes on recovery', () => {
-    // Day 0 (20260101): signal A → buy, positionRatio=0.5, alloc=500K
+    // Day 0 (20260101): signal A → buy, Q1 positionRatio=0.5, alloc=500K
     // Day 1 (20260102): mark-to-market, mv unchanged
     // Day 2 (20260103): A exits (ret=-0.7, gross=150K), cash=650K, nav=650K
     //   After close: peak still 1M, prevNav=650K → dd = -0.35
@@ -353,11 +371,10 @@ describe('regime-backtest.engine', () => {
 
     const input = baseInput({
       calendar: ['20260101', '20260102', '20260103', '20260104', '20260105'],
+      regimeConfig: regimeConfigWithQ1(0.5, 10),
       capital: {
         initialCapital: 1_000_000,
         cost: COST_PRESET_ZERO,
-        positionRatio: 0.5,
-        maxPositions: null,
         circuitBreaker: {
           enableCooldown: false,
           consecutiveLossesThreshold: 2,
@@ -389,7 +406,7 @@ describe('regime-backtest.engine', () => {
     expect(tradeB!.skipReason).toBe('drawdown_halt');
   });
 
-  it('slots_full: maxPositions=1, second signal skipped', () => {
+  it('slots_full when n>=maxPositions from quadrant', () => {
     // Both signals same signalDate/buyDate, horizonN=2, exit on 20260104
     const signalA = makeSignal(
       '000001.SZ', '20260101', '20260102', '20260104',
@@ -405,12 +422,7 @@ describe('regime-backtest.engine', () => {
     signalB.simulationInput.exit = { mode: 'fixed_n', horizonN: 2 };
 
     const input = baseInput({
-      capital: {
-        initialCapital: 1_000_000,
-        cost: COST_PRESET_ZERO,
-        positionRatio: 0.1,
-        maxPositions: 1,
-      },
+      regimeConfig: regimeConfigWithQ1(0.1, 1),
       marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
       signalsByDate: new Map([['20260101', [signalA, signalB]]]),
     });
@@ -423,5 +435,321 @@ describe('regime-backtest.engine', () => {
     expect(result.trades[1].skipReason).toBe('slots_full');
     expect(result.summary.nTaken).toBe(1);
     expect(result.summary.nSkipped).toBe(1);
+  });
+
+  it('cash split: second buy uses cash * r/(1-r*n)', () => {
+    const holdExtra = [{ calDate: '20260103', qfqOpen: 10, qfqClose: 10 }];
+    const signalA = makeSignal(
+      '000001.SZ', '20260101', '20260102', '20260104',
+      10, 11, holdExtra,
+    );
+    signalA.simulationInput.exit = { mode: 'fixed_n', horizonN: 2 };
+    const signalB = makeSignal(
+      '000002.SZ', '20260101', '20260102', '20260104',
+      10, 11, holdExtra,
+    );
+    signalB.simulationInput.exit = { mode: 'fixed_n', horizonN: 2 };
+
+    const r = 0.2;
+    const cash0 = 1_000_000;
+    const input = baseInput({
+      regimeConfig: regimeConfigWithQ1(r, 4),
+      marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
+      signalsByDate: new Map([['20260101', [signalA, signalB]]]),
+    });
+
+    const result = runRegimeBacktest(input);
+    expect(result.trades.every((t) => t.status === 'taken')).toBe(true);
+
+    const alloc0 = computeCashSplitAlloc({ cash: cash0, positionRatio: r, openCount: 0 })!;
+    const cash1 = cash0 - alloc0;
+    const alloc1 = computeCashSplitAlloc({ cash: cash1, positionRatio: r, openCount: 1 })!;
+
+    expect(result.trades[0].alloc).toBeCloseTo(alloc0);
+    expect(result.trades[1].alloc).toBeCloseTo(alloc1);
+    // n=0 → 20%; n=1 → 25% of remaining → both 200K when r=0.2
+    expect(result.trades[0].alloc).toBeCloseTo(200_000);
+    expect(result.trades[1].alloc).toBeCloseTo(200_000);
+  });
+
+  it('profit_gate when requireAllPositionsProfitable and open position underwater', () => {
+    const holdA = [
+      { calDate: '20260103', qfqOpen: 9, qfqClose: 9 },
+      { calDate: '20260104', qfqOpen: 9, qfqClose: 9 },
+      { calDate: '20260105', qfqOpen: 11, qfqClose: 11 },
+    ];
+    const signalA = makeSignal(
+      '000001.SZ', '20260101', '20260102', '20260105',
+      10, 11, holdA,
+    );
+    signalA.simulationInput.exit = { mode: 'fixed_n', horizonN: 3 };
+    const signalB = makeSignal(
+      '000002.SZ', '20260104', '20260105', '20260106',
+      10, 11,
+      [{ calDate: '20260105', qfqOpen: 10, qfqClose: 11 }],
+    );
+    signalB.simulationInput.exit = { mode: 'fixed_n', horizonN: 1 };
+
+    const input = baseInput({
+      regimeConfig: regimeConfigWithQ1(0.2, 4),
+      capital: {
+        initialCapital: 1_000_000,
+        cost: COST_PRESET_ZERO,
+        requireAllPositionsProfitable: true,
+      },
+      marketSnapshots: new Map([
+        ['20260101', makeMarketSnapshot(1, 1)],
+        ['20260104', makeMarketSnapshot(1, 1)],
+      ]),
+      signalsByDate: new Map([
+        ['20260101', [signalA]],
+        ['20260104', [signalB]],
+      ]),
+      calendar: ['20260101', '20260102', '20260103', '20260104', '20260105', '20260106'],
+    });
+
+    const result = runRegimeBacktest(input);
+    const tradeB = result.trades.find((t) => t.tsCode === '000002.SZ');
+    expect(tradeB!.status).toBe('skipped');
+    expect(tradeB!.skipReason).toBe('profit_gate');
+  });
+
+  it('budget_full when 1-r*n<=0', () => {
+    // r=0.5: after 2 opens, 1-r*n=0 → third signal budget_full
+    // maxPositions large so slots_full does not fire first
+    const holdExtra = [{ calDate: '20260103', qfqOpen: 10, qfqClose: 10 }];
+    const mk = (code: string) => {
+      const s = makeSignal(code, '20260101', '20260102', '20260104', 10, 11, holdExtra);
+      s.simulationInput.exit = { mode: 'fixed_n', horizonN: 2 };
+      return s;
+    };
+
+    const input = baseInput({
+      regimeConfig: regimeConfigWithQ1(0.5, 10),
+      marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
+      signalsByDate: new Map([
+        ['20260101', [mk('000001.SZ'), mk('000002.SZ'), mk('000003.SZ')]],
+      ]),
+    });
+
+    const result = runRegimeBacktest(input);
+    expect(result.trades[0].status).toBe('taken');
+    expect(result.trades[1].status).toBe('taken');
+    expect(result.trades[2].status).toBe('skipped');
+    expect(result.trades[2].skipReason).toBe('budget_full');
+  });
+
+  const kellyCapital = {
+    initialCapital: 1_000_000,
+    cost: COST_PRESET_ZERO,
+    sizing: {
+      mode: 'source_kelly' as const,
+      floorMult: 0.5,
+      capMult: 1.5,
+      kellyFraction: 0.5,
+      kellyMaxMult: 1,
+    },
+    kelly: {
+      enabled: true,
+      simTrades: 2,
+      windowTrades: 10,
+      stepTrades: 1,
+      kellyFraction: 0.5,
+      kellyMaxMult: 1,
+      enableProbe: true,
+    },
+  };
+
+  it('kelly simulation: live cash unchanged during sim phase', () => {
+    const signal1 = makeSignal('000001.SZ', '20260101', '20260102', '20260103', 10, 9);
+    const signal2 = makeSignal('000002.SZ', '20260103', '20260104', '20260105', 10, 9);
+    const input = baseInput({
+      capital: kellyCapital,
+      calendar: ['20260101', '20260102', '20260103', '20260104', '20260105', '20260106'],
+      marketSnapshots: new Map([
+        ['20260101', makeMarketSnapshot(1, 1)],
+        ['20260103', makeMarketSnapshot(1, 1)],
+      ]),
+      signalsByDate: new Map([
+        ['20260101', [signal1]],
+        ['20260103', [signal2]],
+      ]),
+    });
+
+    const result = runRegimeBacktest(input);
+    const taken = result.trades.filter((t) => t.status === 'taken');
+    expect(taken.length).toBe(2);
+    expect(taken.every((t) => t.tradePhase === 'simulation')).toBe(true);
+    expect(result.dailyRows.every((r) => r.cash === 1_000_000)).toBe(true);
+    expect(result.dailyRows[result.dailyRows.length - 1].nav).toBe(1_000_000);
+  });
+
+  it('kelly probe: continues sampling when kelly mult <= 0 and live empty', () => {
+    const signal1 = makeSignal('000001.SZ', '20260101', '20260102', '20260103', 10, 9);
+    const signal2 = makeSignal('000002.SZ', '20260103', '20260104', '20260105', 10, 9);
+    const signal3 = makeSignal('000003.SZ', '20260106', '20260107', '20260108', 10, 11);
+    const input = baseInput({
+      capital: kellyCapital,
+      calendar: [
+        '20260101', '20260102', '20260103', '20260104', '20260105',
+        '20260106', '20260107', '20260108', '20260109',
+      ],
+      marketSnapshots: new Map([
+        ['20260101', makeMarketSnapshot(1, 1)],
+        ['20260103', makeMarketSnapshot(1, 1)],
+        ['20260106', makeMarketSnapshot(1, 1)],
+      ]),
+      signalsByDate: new Map([
+        ['20260101', [signal1]],
+        ['20260103', [signal2]],
+        ['20260106', [signal3]],
+      ]),
+    });
+
+    const result = runRegimeBacktest(input);
+    const probeTrade = result.trades.find((t) => t.tsCode === '000003.SZ');
+    expect(probeTrade?.status).toBe('taken');
+    expect(probeTrade?.tradePhase).toBe('probe');
+    expect(result.dailyRows.every((r) => r.cash === 1_000_000)).toBe(true);
+  });
+
+  it('kelly disabled: existing behavior unchanged', () => {
+    const signal = makeSignal('000001.SZ', '20260101', '20260102', '20260103', 10, 11);
+    const input = baseInput({
+      capital: {
+        initialCapital: 1_000_000,
+        cost: COST_PRESET_ZERO,
+        sizing: {
+          mode: 'source_kelly' as const,
+          floorMult: 0.5,
+          capMult: 1.5,
+          kellyFraction: 0.5,
+          kellyMaxMult: 1,
+        },
+      },
+      marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
+      signalsByDate: new Map([['20260101', [signal]]]),
+    });
+
+    const result = runRegimeBacktest(input);
+    expect(result.trades[0].status).toBe('taken');
+    expect(result.trades[0].tradePhase).toBeUndefined();
+    expect(result.dailyRows[2].nav).toBeCloseTo(1_010_000);
+    expect(result.dailyRows[2].cash).toBeCloseTo(1_010_000);
+  });
+
+  it('produces auditRows aligned with dailyRows', () => {
+    const signal = makeSignal('000001.SZ', '20260101', '20260102', '20260103', 10, 11);
+    const input = baseInput({
+      marketSnapshots: new Map([
+        ['20260101', makeMarketSnapshot(1, 1)],
+        ['20260102', makeMarketSnapshot(1, 1)],
+        ['20260103', makeMarketSnapshot(1, 1)],
+      ]),
+      signalsByDate: new Map([['20260101', [signal]]]),
+    });
+    const result = runRegimeBacktest(input);
+    expect(result.auditRows).toHaveLength(result.dailyRows.length);
+    const auditDay1 = result.auditRows.find((r) => r.tradeDate === '20260101');
+    expect(auditDay1?.regime).toBeTruthy();
+    expect(auditDay1?.entries.length).toBeGreaterThanOrEqual(1);
+    const auditExitDay = result.auditRows.find((r) => r.exits.some((e) => e.tsCode === '000001.SZ'));
+    expect(auditExitDay).toBeDefined();
+  });
+
+  it('entry filter: suspended / limit_up map to fine skipReason (not sized_out)', () => {
+    const suspended = makeSignal('000001.SZ', '20260101', '20260102', '20260103', 10, 11);
+    suspended.simulationInput.days[0] = holdingDay({
+      calDate: '20260102',
+      hasQuote: false,
+      qfqOpen: null,
+      qfqClose: null,
+    });
+
+    const limitUp = makeSignal('000002.SZ', '20260101', '20260102', '20260103', 10, 11);
+    limitUp.simulationInput.days[0] = holdingDay({
+      calDate: '20260102',
+      qfqOpen: 11,
+      qfqClose: 11,
+      rawOpen: 11,
+      upLimit: 11,
+    });
+
+    const input = baseInput({
+      marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
+      signalsByDate: new Map([['20260101', [suspended, limitUp]]]),
+    });
+    const result = runRegimeBacktest(input);
+    expect(result.trades[0].skipReason).toBe('suspended');
+    expect(result.trades[1].skipReason).toBe('limit_up');
+  });
+
+  it('parity: single position exitDate/ret/exitReason matches simulateTradeCore', () => {
+    const signal = makeSignal(
+      '000001.SZ',
+      '20260101',
+      '20260102',
+      '20260104',
+      10,
+      11,
+      [
+        { calDate: '20260103', qfqOpen: 10.5, qfqClose: 10.8 },
+        { calDate: '20260104', qfqOpen: 11, qfqClose: 11 },
+      ],
+    );
+    signal.simulationInput.exit = { mode: 'fixed_n', horizonN: 2 };
+
+    const coreOut = simulateTradeCore(signal.simulationInput);
+    expect(coreOut.kind).toBe('trade');
+    if (coreOut.kind !== 'trade') return;
+
+    const input = baseInput({
+      calendar: ['20260101', '20260102', '20260103', '20260104', '20260105'],
+      marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
+      signalsByDate: new Map([['20260101', [signal]]]),
+    });
+    const result = runRegimeBacktest(input);
+    const t = result.trades[0];
+    expect(t.status).toBe('taken');
+    expect(t.exitDate).toBe(coreOut.trade.exitDate);
+    expect(t.ret).toBeCloseTo(coreOut.trade.ret);
+    expect(t.exitReason).toBe(coreOut.trade.exitReason);
+    // exitPrice 可由 ret 反推
+    const engineExitPrice = t.ret !== undefined ? 10 * (1 + t.ret) : null;
+    expect(engineExitPrice).toBeCloseTo(coreOut.trade.exitPrice);
+  });
+
+  it('backtest_end: still holding at calendar end force-closes live', () => {
+    // horizonN=5 但日历只到 20260104，窗口凑不满 → 末日强平
+    const signal = makeSignal(
+      '000001.SZ',
+      '20260101',
+      '20260102',
+      '20260104',
+      10,
+      12,
+      [
+        { calDate: '20260103', qfqOpen: 10, qfqClose: 11 },
+        { calDate: '20260104', qfqOpen: 11, qfqClose: 12 },
+      ],
+    );
+    signal.simulationInput.exit = { mode: 'fixed_n', horizonN: 5 };
+    // 截断 days，避免 pad 出假的可交易日
+    signal.simulationInput.days = signal.simulationInput.days.filter((d) =>
+      ['20260102', '20260103', '20260104'].includes(d.calDate),
+    );
+
+    const input = baseInput({
+      calendar: ['20260101', '20260102', '20260103', '20260104'],
+      marketSnapshots: new Map([['20260101', makeMarketSnapshot(1, 1)]]),
+      signalsByDate: new Map([['20260101', [signal]]]),
+    });
+    const result = runRegimeBacktest(input);
+    const t = result.trades[0];
+    expect(t.status).toBe('taken');
+    expect(t.exitReason).toBe('backtest_end');
+    expect(t.exitDate).toBe('20260104');
+    expect(t.ret).toBeCloseTo(0.2); // 12/10 - 1
+    expect(result.dailyRows[3].positionCount).toBe(0);
   });
 });

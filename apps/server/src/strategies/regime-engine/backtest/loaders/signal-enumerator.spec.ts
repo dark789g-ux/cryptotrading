@@ -10,9 +10,11 @@ import { StrategyConditionsQueryBuilder } from '../../../../strategy-conditions/
 import { RegimeConfigMap } from '../../../../entities/strategy/regime-strategy-config.entity';
 import { MarketSnapshot } from '../../market-condition-evaluator';
 import { StrategyConditionItem } from '../../../../entities/strategy/strategy-condition.entity';
+import * as enumeratorMod from '../../../../strategy-conditions/strategy-conditions.enumerator';
 
 function makeTradeConfig(
-  overrides: Partial<RegimeConfigMap['quadrants'][0]> = {},
+  quadrantOverrides: Partial<RegimeConfigMap['quadrants'][0]> = {},
+  configOverrides: Partial<RegimeConfigMap> = {},
 ): RegimeConfigMap {
   return {
     quadrants: [
@@ -30,9 +32,10 @@ function makeTradeConfig(
         maxPositions: 4,
         rankField: 'turnover_rate',
         rankDir: 'desc',
-        ...overrides,
+        ...quadrantOverrides,
       },
     ],
+    ...configOverrides,
   };
 }
 
@@ -141,5 +144,34 @@ describe('SignalEnumerator.enumerate', () => {
     expect(top1Signals).toHaveLength(0);
     expect(rankedAll).toHaveLength(0);
     expect(dataSource.query).not.toHaveBeenCalled();
+  });
+
+  it('universe.mode=symbols → buildEnumerateQuery 使用 list 标的池', async () => {
+    const buildSpy = jest.spyOn(enumeratorMod, 'buildEnumerateQuery');
+    const rows = [{ tsCode: '600000.SH', rankValue: 5 }];
+    const { enumerator } = makeEnumerator(rows);
+
+    const calendar = ['20260101'];
+    const globalCalendar = ['20260101', '20260102'];
+    const marketSnapshots = new Map([['20260101', makeSnapshot('20260101')]]);
+    const regimeConfig = makeTradeConfig({}, {
+      universe: { mode: 'symbols', symbols: ['600000.SH', '000001.SZ'] },
+    });
+
+    await enumerator.enumerate(
+      calendar,
+      globalCalendar,
+      marketSnapshots,
+      regimeConfig,
+      '20260131',
+    );
+
+    expect(buildSpy).toHaveBeenCalled();
+    const universeArg = buildSpy.mock.calls[0][2];
+    expect(universeArg).toEqual({
+      type: 'list',
+      tsCodes: ['600000.SH', '000001.SZ'],
+    });
+    buildSpy.mockRestore();
   });
 });

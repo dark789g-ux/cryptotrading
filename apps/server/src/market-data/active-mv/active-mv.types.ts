@@ -58,6 +58,8 @@ export interface ThsIndexAmvSyncOptions {
   tsCodes?: string[]
   /** 一键同步注入的逐指数进度回调（可选） */
   onProgress?: AmvSyncOnProgress
+  /** 一键同步编排器注入的中断信号 */
+  signal?: AbortSignal
 }
 
 /** 兼容别名（行业语境）：与 ThsIndexAmvSyncOptions 完全同形。 */
@@ -75,6 +77,8 @@ export interface SwIndexAmvSyncOptions {
   tsCodes?: string[]
   /** 一键同步注入的逐指数进度回调（可选） */
   onProgress?: AmvSyncOnProgress
+  /** 一键同步编排器注入的中断信号 */
+  signal?: AbortSignal
 }
 
 /** 同步结果 */

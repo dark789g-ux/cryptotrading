@@ -126,17 +126,24 @@ describe('a-shares-query.sql 技术指标 + 个股 AMV 列', () => {
     expect(sql).toContain('mf.buy_sm_amount   AS "buySmAmount"');
   });
 
-  it('LEFT JOIN LATERAL money_flow_stocks（含大中小单聚合，逐票最近 20 条，纯 SQL 无参数）', () => {
+  it('LEFT JOIN LATERAL（窗口由 raw.daily_quote 驱动，money_flow_stocks LEFT JOIN，与 K 线同源，纯 SQL 无参数）', () => {
     const { sql } = buildASharesBaseQuery(baseDto);
     expect(sql).toContain('LEFT JOIN LATERAL (');
-    expect(sql).toContain('FROM money_flow_stocks');
+    // 窗口驱动表为 raw.daily_quote（与 K 线 getKlines 同源），rn 基于行情交易日排序
+    expect(sql).toContain('FROM raw.daily_quote');
+    expect(sql).toContain('ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn');
     expect(sql).toContain('WHERE ts_code = s.ts_code AND trade_date <= l.trade_date');
-    expect(sql).toContain('SUM(t.net_amount) FILTER (WHERE t.rn <= 5)');
-    expect(sql).toContain('SUM(t.net_amount) FILTER (WHERE t.rn <= 10)');
-    expect(sql).toContain('SUM(t.net_amount)                            AS net_inflow_20d');
-    expect(sql).toContain('SUM(t.buy_lg_amount) FILTER (WHERE t.trade_date = l.trade_date) AS buy_lg_amount');
-    expect(sql).toContain('SUM(t.buy_md_amount) FILTER (WHERE t.trade_date = l.trade_date) AS buy_md_amount');
-    expect(sql).toContain('SUM(t.buy_sm_amount) FILTER (WHERE t.trade_date = l.trade_date) AS buy_sm_amount');
+    // money_flow_stocks 降级为 LEFT JOIN（按唯一键匹配），资金流缺日的 net_amount 为 NULL，SUM 自动忽略
+    expect(sql).toContain('LEFT JOIN money_flow_stocks mf');
+    expect(sql).toContain('ON mf.ts_code = s.ts_code AND mf.trade_date = dq.trade_date');
+    // 累计窗口按 dq.rn 过滤（基于 daily_quote 交易日）
+    expect(sql).toContain('SUM(mf.net_amount) FILTER (WHERE dq.rn <= 5)');
+    expect(sql).toContain('SUM(mf.net_amount) FILTER (WHERE dq.rn <= 10)');
+    expect(sql).toContain('SUM(mf.net_amount)                            AS net_inflow_20d');
+    // 当日大中小单：rn = 1（最新行情日），语义等价旧版 trade_date = l.trade_date
+    expect(sql).toContain('SUM(mf.buy_lg_amount) FILTER (WHERE dq.rn = 1) AS buy_lg_amount');
+    expect(sql).toContain('SUM(mf.buy_md_amount) FILTER (WHERE dq.rn = 1) AS buy_md_amount');
+    expect(sql).toContain('SUM(mf.buy_sm_amount) FILTER (WHERE dq.rn = 1) AS buy_sm_amount');
     expect(sql).toContain(') mf ON true');
   });
 

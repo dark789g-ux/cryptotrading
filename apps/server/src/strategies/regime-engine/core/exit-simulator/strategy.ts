@@ -1,11 +1,11 @@
 /**
  * exit-simulator/strategy.ts
  *
- * strategy 出场决策。
- * 从 signal-stats.simulator.ts 迁移，逻辑不变。
+ * strategy 出场决策（init + step 循环包装，对外 API 不变）。
  */
 
 import { HoldingDaySnapshot, ExitDecision } from './types';
+import { initStrategyState, stepStrategy } from './steppers/strategy.step';
 
 /**
  * strategy 出场：buy_date 之后逐 SSE 交易日 d（从 days[1] 起，buy_date 当天不判）
@@ -21,28 +21,14 @@ export function decideStrategy(
   maxHold: number,
   delistDate: string | null,
 ): ExitDecision | null {
-  let tradableCount = 0;
-  let lastQuoteIdx = 0;
-  let lastQuoteTradable = 0;
+  if (days.length === 0) return null;
+  let state = initStrategyState(days[0]);
+  const opts = { maxHold, delistDate };
   for (let i = 1; i < days.length; i++) {
-    if (delistDate !== null && days[i].calDate >= delistDate) {
-      if (lastQuoteIdx < 0 || days[lastQuoteIdx].qfqClose === null) return null;
-      return {
-        exitDay: days[lastQuoteIdx],
-        exitReason: 'delist',
-        holdDays: lastQuoteTradable,
-      };
-    }
-    if (!days[i].hasQuote) continue;
-    tradableCount++;
-    lastQuoteIdx = i;
-    lastQuoteTradable = tradableCount;
-    if (days[i].exitSignalHit) {
-      return { exitDay: days[i], exitReason: 'signal', holdDays: tradableCount };
-    }
-    if (tradableCount === maxHold) {
-      return { exitDay: days[i], exitReason: 'max_hold', holdDays: tradableCount };
-    }
+    const result = stepStrategy(state, days[i], opts);
+    state = result.state;
+    if (result.decision) return result.decision;
+    if (result.done) return null;
   }
   return null;
 }

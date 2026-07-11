@@ -67,6 +67,7 @@ export class SwAmvService {
     let synced = 0
 
     for (let i = 0; i < indexCodes.length; i++) {
+      if (opts.signal?.aborted) throw new DOMException('Sync aborted', 'AbortError')
       const idx = indexCodes[i]
       try {
         const n = await this.syncOneSwIndex(

@@ -3,6 +3,9 @@
     <n-collapse-item title="本次规则摘要" name="rules">
       <n-empty v-if="quadrants.length === 0" description="无规则快照" size="small" />
       <div v-else class="config-summary">
+        <div v-if="universeLine" class="config-summary__universe">
+          {{ universeLine }}
+        </div>
         <div
           v-for="q in quadrants"
           :key="q.key"
@@ -27,6 +30,14 @@
         </div>
       </div>
     </n-collapse-item>
+
+    <n-collapse-item v-if="capitalSummary.length > 0" title="资金与风控" name="capital">
+      <div class="config-summary config-summary--capital">
+        <div v-for="line in capitalSummary" :key="line" class="config-summary__capital-line">
+          {{ line }}
+        </div>
+      </div>
+    </n-collapse-item>
   </n-collapse>
 </template>
 
@@ -35,8 +46,10 @@ import { computed } from 'vue'
 import { NCollapse, NCollapseItem, NEmpty, NTag } from 'naive-ui'
 import type {
   QuadrantEntry,
+  RegimeBacktestCapital,
   RegimeBacktestConfigSnapshot,
   RegimeBacktestRun,
+  RegimeUniverse,
 } from '@/api/modules/strategy/regimeEngine'
 import { hydrateTrailingLockParams } from '@/components/regime/trailingLockParams'
 import { labelForRankField } from '@/components/regime/rankFieldMeta'
@@ -50,6 +63,73 @@ const quadrants = computed<QuadrantEntry[]>(() => {
   const list = snap?.config?.quadrants
   return Array.isArray(list) ? list : []
 })
+
+const universeLine = computed(() => {
+  const snap = props.run?.config as RegimeBacktestConfigSnapshot | undefined
+  const u = snap?.config?.universe as RegimeUniverse | undefined
+  if (!u || u.mode === 'all') return 'universe=全市场'
+  if (u.mode === 'watchlist') {
+    const id = u.watchlistId ?? '—'
+    return `universe=自选(${id})`
+  }
+  const n = u.symbols?.length ?? 0
+  return `universe=自定义(${n}只)`
+})
+
+const capital = computed<RegimeBacktestCapital | null>(() => {
+  const snap = props.run?.config as RegimeBacktestConfigSnapshot | undefined
+  return snap?.capital ?? null
+})
+
+const capitalSummary = computed<string[]>(() => {
+  const cap = capital.value
+  if (!cap) return []
+
+  const lines: string[] = []
+  lines.push(`初始资金=${formatMoney(cap.initialCapital)}`)
+
+  if (cap.requireAllPositionsProfitable) {
+    lines.push('盈利门禁=on')
+  }
+
+  const sizing = cap.sizing
+  if (sizing?.mode === 'source_kelly' && cap.kelly?.enabled) {
+    const k = cap.kelly
+    lines.push(
+      `凯利=on · sim=${k.simTrades} · win=${k.windowTrades} · step=${k.stepTrades} · f=${k.kellyFraction} · maxMult=${k.kellyMaxMult} · probe=${k.enableProbe ? 'on' : 'off'}`,
+    )
+  } else {
+    lines.push('凯利=off · sizing=fixed')
+  }
+
+  const cb = cap.circuitBreaker
+  if (cb) {
+    if (cb.enableCooldown) {
+      lines.push(
+        `连亏熔断=on · 阈值=${cb.consecutiveLossesThreshold} · base=${cb.baseCooldownDays}d · max=${cb.maxCooldownDays}d · 延=${cb.extendOnLoss} · 缩=${cb.reduceOnProfit}`,
+      )
+    } else {
+      lines.push('连亏熔断=off')
+    }
+    if (cb.enableDrawdownHalt) {
+      lines.push(
+        `回撤熔断=on · 停于=${pct(cb.drawdownHaltPct)} · 复于=${pct(cb.drawdownResumePct)}`,
+      )
+    } else {
+      lines.push('回撤熔断=off')
+    }
+  }
+
+  return lines
+})
+
+function formatMoney(v: number): string {
+  return v.toLocaleString('zh-CN', { maximumFractionDigits: 0 })
+}
+
+function pct(v: number): string {
+  return `${(v * 100).toFixed(0)}%`
+}
 
 function formatRatio(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return '—'
@@ -81,6 +161,13 @@ function trailingLine(q: QuadrantEntry): string | null {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.config-summary__universe {
+  font-size: 12px;
+  color: var(--n-text-color-3, #888);
+  padding: 4px 10px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .config-summary__row {
@@ -125,6 +212,17 @@ function trailingLine(q: QuadrantEntry): string | null {
 }
 
 .config-summary__trailing {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+
+.config-summary--capital {
+  gap: 6px;
+}
+
+.config-summary__capital-line {
+  font-size: 12px;
+  color: var(--n-text-color-2, #666);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   word-break: break-all;
 }

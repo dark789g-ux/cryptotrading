@@ -378,8 +378,21 @@ export class MoneyFlowSyncService {
           total: allTradeDates.length,
           grandTotal,
           emit: (e) => subject.next(e),
+          signal: dto.signal,
         };
         summary.stocks = await this.syncStocks(dto, stockCtx);
+
+        if (dto.signal?.aborted) {
+          const failedCount = (Object.values(summary) as MoneyFlowSyncResult[])
+            .reduce((n, r) => n + (r?.errors.length ?? 0), 0);
+          subject.next({
+            type: 'done',
+            message: failedCount ? `同步完成（已取消），${failedCount} 个错误` : '同步完成（已取消）',
+            summary: summary as MoneyFlowSyncSummary,
+          });
+          subject.complete();
+          return;
+        }
 
         // Phase 3-7: 五维度聚合
         const aggPhaseLabels = [
@@ -435,9 +448,10 @@ export class MoneyFlowSyncService {
 
         const failedCount = (Object.values(summary) as MoneyFlowSyncResult[])
           .reduce((n, r) => n + (r?.errors.length ?? 0), 0);
+        const abortMsg = dto.signal?.aborted ? '（已取消）' : '';
         subject.next({
           type: 'done',
-          message: failedCount ? `同步完成，${failedCount} 个错误` : '同步完成',
+          message: failedCount ? `同步完成${abortMsg}，${failedCount} 个错误` : `同步完成${abortMsg}`,
           summary: summary as MoneyFlowSyncSummary,
         });
         subject.complete();
@@ -488,12 +502,14 @@ export class MoneyFlowSyncService {
 
         let baseCurrent = 0;
         for (let i = 0; i < dims.length; i++) {
+          if (dto.signal?.aborted) break;
           const ctx: SyncCtx = {
             phase: dims[i].label,
             baseCurrent,
             total: totals[i],
             grandTotal,
             emit: (e) => subject.next(e),
+            signal: dto.signal,
           };
           summary[dims[i].key] = await this.runDimension(dims[i].key, dto, ctx);
           baseCurrent += totals[i];
@@ -511,9 +527,10 @@ export class MoneyFlowSyncService {
 
         const failedCount = (Object.values(legacySummary) as MoneyFlowSyncResult[])
           .reduce((n, r) => n + (r?.errors.length ?? 0), 0);
+        const abortMsg = dto.signal?.aborted ? '（已取消）' : '';
         subject.next({
           type: 'done',
-          message: failedCount ? `同步完成，${failedCount} 个错误` : '同步完成',
+          message: failedCount ? `同步完成${abortMsg}，${failedCount} 个错误` : `同步完成${abortMsg}`,
           summary: legacySummary as MoneyFlowSyncSummary,
         });
         subject.complete();

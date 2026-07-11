@@ -3,11 +3,13 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { RegimeBacktestRunEntity } from '../../../entities/strategy/regime-backtest-run.entity';
 import { RegimeBacktestDailyEntity } from '../../../entities/strategy/regime-backtest-daily.entity';
+import { RegimeBacktestDailyLogEntity } from '../../../entities/strategy/regime-backtest-daily-log.entity';
 import { RegimeBacktestTradeEntity } from '../../../entities/strategy/regime-backtest-trade.entity';
 import { RegimeBacktestDataLoader } from './regime-backtest.data-loader';
 import { runRegimeBacktest } from './regime-backtest.engine';
 import { RegimeBacktestCapital } from './regime-backtest.types';
 import { mergeRankAudit } from './rank-audit-merge';
+import { mapAuditRowToEntity } from './regime-backtest-audit.helpers';
 
 const WRITE_BATCH = 500;
 
@@ -20,6 +22,8 @@ export class RegimeBacktestRunner {
     private readonly runRepo: Repository<RegimeBacktestRunEntity>,
     @InjectRepository(RegimeBacktestDailyEntity)
     private readonly dailyRepo: Repository<RegimeBacktestDailyEntity>,
+    @InjectRepository(RegimeBacktestDailyLogEntity)
+    private readonly dailyLogRepo: Repository<RegimeBacktestDailyLogEntity>,
     @InjectRepository(RegimeBacktestTradeEntity)
     private readonly tradeRepo: Repository<RegimeBacktestTradeEntity>,
     @InjectDataSource()
@@ -38,6 +42,7 @@ export class RegimeBacktestRunner {
       );
       try {
         await this.dailyRepo.delete({ runId });
+        await this.dailyLogRepo.delete({ runId });
         await this.tradeRepo.delete({ runId });
       } catch (cleanupErr: unknown) {
         const cmsg = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
@@ -58,6 +63,7 @@ export class RegimeBacktestRunner {
 
     await this.dataSource.transaction(async (mgr) => {
       await mgr.delete(RegimeBacktestDailyEntity, { runId });
+      await mgr.delete(RegimeBacktestDailyLogEntity, { runId });
       await mgr.delete(RegimeBacktestTradeEntity, { runId });
     });
 
@@ -123,9 +129,11 @@ export class RegimeBacktestRunner {
     result: ReturnType<typeof runRegimeBacktest>,
   ): Promise<void> {
     const dailyRows = result.dailyRows;
+    const auditRows = result.auditRows;
     const trades = result.trades;
     const totalBatches =
       Math.ceil(dailyRows.length / WRITE_BATCH) +
+      Math.ceil(auditRows.length / WRITE_BATCH) +
       Math.ceil(trades.length / WRITE_BATCH);
 
     await this.runRepo.update(runId, {
@@ -156,6 +164,14 @@ export class RegimeBacktestRunner {
       await this.runRepo.update(runId, { progressDone: batchNo });
     }
 
+    for (let i = 0; i < auditRows.length; i += WRITE_BATCH) {
+      const slice = auditRows.slice(i, i + WRITE_BATCH);
+      const entities = slice.map((r) => mapAuditRowToEntity(runId, r));
+      await this.dailyLogRepo.save(entities);
+      batchNo++;
+      await this.runRepo.update(runId, { progressDone: batchNo });
+    }
+
     for (let i = 0; i < trades.length; i += WRITE_BATCH) {
       const slice = trades.slice(i, i + WRITE_BATCH);
       const entities = slice.map((t) =>
@@ -169,6 +185,7 @@ export class RegimeBacktestRunner {
           exitMode: t.exitMode,
           status: t.status,
           skipReason: t.skipReason ?? null,
+          tradePhase: t.tradePhase ?? null,
           exitReason: t.exitReason ?? null,
           ret: numStr(t.ret),
           alloc: numStr(t.alloc),

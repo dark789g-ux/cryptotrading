@@ -20,6 +20,10 @@ interface Prelim {
   windowDates: string[];
 }
 
+/**
+ * 为每条信号预取 buyDate→dateEnd 的 HoldingDaySnapshot 序列。
+ * 产出供引擎日频出场步进与 MTM 使用；不预计算 exitDate。
+ */
 @Injectable()
 export class WindowBuilder {
   constructor(

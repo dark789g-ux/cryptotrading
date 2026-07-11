@@ -6,8 +6,9 @@
   step3 us-index-amv    run_us_index_amv_sync .NDX
 
 设计要点（spec 03 + 01 + 04）：
-- 每步对子调用一律传 ``job_id=None``：子 orchestrator 仅算数据 / 返回 outcome、
-  不写进度 / 不 check_cancel，由本编排器**独占** update_progress + result_payload。
+- 每步对子调用传真实 job_id + _suppress_progress=True：子 orchestrator 可在逐 ticker/
+  逐 symbol 粒度 check_cancel_requested，但**不写进度**（update_progress），由本编排器
+  **独占** update_progress + result_payload。
 - 抓取窗口 = ``[US_RETENTION_START, capped_end]``（全史 warmup 恒满，spec 04 约束B）；
   写库窗口 = ``[user_start, capped_end]``（透传 write_start=user_start）。
 - ``capped_end = cap_to_last_closed_session(user_end)``（spec 04 约束A，丢在长 bar）。
@@ -16,6 +17,7 @@
   （前后端硬契约，前端 stores/usOneClickSync.ts 已按此读）。
 - 时间戳一律 epoch ms 整数（前端按数字减法算 elapsed）。
 - 失败不中断：每步 try/except，子调用抛硬异常 → 该步 status=failed + 记 error + 继续下一步。
+  但 JobCancelled 异常会直接冒泡（不吞掉），让 dispatcher 置 cancelled。
 - 取消：每步开始前 check_cancel_requested(job_id) → True 抛 JobCancelled（抛前把
   result_payload 写一次：cancelled=true、未完成步 skipped）。
 - 致命错误（date_range 非法）→ 抛异常让 dispatcher 置 failed。
@@ -188,9 +190,10 @@ def _run_step(
     start_log: str,
     **fn_kwargs: Any,
 ) -> None:
-    """跑单步：check_cancel → running → 调子 orchestrator（job_id=None）→ 映射 outcome。
+    """跑单步：check_cancel → running → 调子 orchestrator（传真实 job_id，抑制子进度写入）→ 映射 outcome。
 
     失败不中断：fn 抛硬异常 → 该步 failed + 记 error（不向上抛，编排器继续下一步）。
+    但 JobCancelled 直接冒泡（不吞掉），让 dispatcher 置 cancelled。
     """
     _check_cancel(job_id, state)
 
@@ -200,7 +203,9 @@ def _run_step(
     state.flush()
 
     try:
-        outcome = fn(job_id=None, **fn_kwargs)
+        outcome = fn(job_id=job_id, _suppress_progress=True, **fn_kwargs)
+    except JobCancelled:
+        raise
     except Exception as exc:  # noqa: BLE001 — 单步失败不中断整链，但显式 error 透出
         logger.error(
             "us_one_click_step_failed",

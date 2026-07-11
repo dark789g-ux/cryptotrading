@@ -191,7 +191,6 @@ export interface BacktestConfig {
   warmupBars: number;
   lookbackBuffer: number;
   maxBacktestBars: number;
-  minOpenCash: number;
   requireAllPositionsProfitable: boolean;
   // 入场信号排序
   entrySortMode: 'single' | 'composite';
@@ -283,7 +282,6 @@ export function validateConfig(config: BacktestConfig): void {
   if (config.minRiskRewardRatio < 0) errs.push('minRiskRewardRatio 不得为负');
   if (config.warmupBars < 0) errs.push('warmupBars 不得为负');
   if (config.maxBacktestBars < 0) errs.push('maxBacktestBars 不得为负');
-  if (config.minOpenCash < 0) errs.push('minOpenCash 不得为负');
   // 冷却参数校验（仅启用时）
   if (config.enableCooldown) {
     if (config.consecutiveLossesThreshold < 1)
@@ -424,7 +422,6 @@ export const DEFAULT_CONFIG: BacktestConfig = {
   warmupBars: 240,
   lookbackBuffer: 0,
   maxBacktestBars: 10000,
-  minOpenCash: 100,
   requireAllPositionsProfitable: false,
   // 入场信号排序
   entrySortMode: 'single',

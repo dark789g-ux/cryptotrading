@@ -121,6 +121,7 @@ export class EtfFundDailyService {
     startDate: string,
     endDate: string,
     onProgress?: EtfSyncOnProgress,
+    signal?: AbortSignal,
   ): Promise<EtfSyncResult> {
     const dailyRepo = this.dataSource.getRepository(FundDailyEntity);
     const trackedSet = new Set(etfCodes);
@@ -143,6 +144,7 @@ export class EtfFundDailyService {
 
     await Promise.all(
       tradeDates.map(async (td) => {
+        if (signal?.aborted) return;
         const rows = (await runWithRetry(
           () => this.tushareClient.query('fund_adj', { trade_date: td }, FUND_ADJ_FIELDS),
           (attempt, err) =>
@@ -194,6 +196,7 @@ export class EtfFundDailyService {
 
     await Promise.all(
       tradeDates.map(async (td) => {
+        if (signal?.aborted) return;
         const rows = (await runWithRetry(
           () => this.tushareClient.query('fund_daily', { trade_date: td }, FUND_DAILY_FIELDS),
           (attempt, err) =>

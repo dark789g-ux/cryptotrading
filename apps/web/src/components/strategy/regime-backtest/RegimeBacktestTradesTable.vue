@@ -1,10 +1,18 @@
 <template>
   <div class="trades-table">
-    <n-radio-group v-model:value="filterMode" size="small" class="trades-table__filter">
-      <n-radio-button value="all">全部</n-radio-button>
-      <n-radio-button value="selected">仅入选</n-radio-button>
-      <n-radio-button value="taken">仅成交</n-radio-button>
-    </n-radio-group>
+    <div class="trades-table__filters">
+      <n-radio-group v-model:value="filterMode" size="small">
+        <n-radio-button value="all">全部</n-radio-button>
+        <n-radio-button value="selected">仅入选</n-radio-button>
+        <n-radio-button value="taken">仅成交</n-radio-button>
+      </n-radio-group>
+      <n-radio-group v-model:value="phaseFilter" size="small">
+        <n-radio-button value="live">仅实盘</n-radio-button>
+        <n-radio-button value="all">全部阶段</n-radio-button>
+        <n-radio-button value="simulation">模拟</n-radio-button>
+        <n-radio-button value="probe">探针</n-radio-button>
+      </n-radio-group>
+    </div>
 
     <n-empty v-if="groups.length === 0" description="无交易记录" size="small" />
     <n-collapse v-else>
@@ -45,7 +53,7 @@ import {
   NTag,
   type DataTableColumns,
 } from 'naive-ui'
-import type { RegimeBacktestTrade } from '@/api/modules/strategy/regimeEngine'
+import type { RegimeBacktestTrade, RegimeTradePhase } from '@/api/modules/strategy/regimeEngine'
 import { formatTradeDate } from '@/components/symbols/a-shares/aSharesFormatters'
 import { labelForRankField } from '@/components/regime/rankFieldMeta'
 
@@ -53,9 +61,27 @@ const props = defineProps<{
   trades: RegimeBacktestTrade[]
 }>()
 
+const emit = defineEmits<{
+  openKline: [payload: { tsCode: string; signalDate: string }]
+}>()
+
 type FilterMode = 'all' | 'selected' | 'taken'
+type PhaseFilter = 'all' | RegimeTradePhase
 
 const filterMode = ref<FilterMode>('all')
+const phaseFilter = ref<PhaseFilter>('live')
+
+const TRADE_PHASE_LABELS: Record<RegimeTradePhase, string> = {
+  simulation: '模拟',
+  probe: '探针',
+  live: '实盘',
+}
+
+const TRADE_PHASE_TAG: Record<RegimeTradePhase, 'default' | 'info' | 'success'> = {
+  simulation: 'default',
+  probe: 'info',
+  live: 'success',
+}
 
 const SKIP_REASON_LABELS: Record<string, string> = {
   already_held: '已持有同标的',
@@ -67,7 +93,12 @@ const SKIP_REASON_LABELS: Record<string, string> = {
   sized_out: '凯利归零',
   budget_full: '开仓预算已满',
   regime_flat: '象限空仓',
+  profit_gate: '持仓未全盈利',
   not_top1: '未入选',
+  suspended: '停牌不可买',
+  limit_up: '涨停不可买',
+  new_listing: '次新股过滤',
+  insufficient_data: '数据不足',
 }
 
 interface TradeDayGroup {
@@ -79,11 +110,20 @@ interface TradeDayGroup {
   rankField: string | null
 }
 
+function matchesPhase(t: RegimeBacktestTrade): boolean {
+  if (phaseFilter.value === 'all') return true
+  if (phaseFilter.value === 'live') {
+    return t.tradePhase == null || t.tradePhase === 'live'
+  }
+  return t.tradePhase === phaseFilter.value
+}
+
 const filteredTrades = computed(() => {
   const list = props.trades ?? []
-  if (filterMode.value === 'selected') return list.filter((t) => t.rank === 1)
-  if (filterMode.value === 'taken') return list.filter((t) => t.status === 'taken')
-  return list
+  let out = list
+  if (filterMode.value === 'selected') out = out.filter((t) => t.rank === 1)
+  else if (filterMode.value === 'taken') out = out.filter((t) => t.status === 'taken')
+  return out.filter(matchesPhase)
 })
 
 const groups = computed<TradeDayGroup[]>(() => {
@@ -126,10 +166,38 @@ function columnsFor(rankField: string | null): DataTableColumns<RegimeBacktestTr
     },
     { title: '代码', key: 'tsCode', width: 110 },
     {
+      title: 'K线',
+      key: 'kline',
+      width: 56,
+      render: (row) =>
+        h(
+          'a',
+          {
+            style: 'cursor:pointer;color:var(--n-primary-color)',
+            onClick: () => emit('openKline', { tsCode: row.tsCode, signalDate: row.signalDate }),
+          },
+          '查看',
+        ),
+    },
+    {
       title: labelForRankField(rankField),
       key: 'rankValue',
       width: 120,
       render: (row) => formatRankValue(row.rankValue),
+    },
+    {
+      title: '阶段',
+      key: 'tradePhase',
+      width: 72,
+      render: (row) => {
+        if (!row.tradePhase) return '-'
+        const phase = row.tradePhase as RegimeTradePhase
+        return h(
+          NTag,
+          { type: TRADE_PHASE_TAG[phase], bordered: false, size: 'small' },
+          { default: () => TRADE_PHASE_LABELS[phase] },
+        )
+      },
     },
     {
       title: '状态',
@@ -162,8 +230,11 @@ function columnsFor(rankField: string | null): DataTableColumns<RegimeBacktestTr
   gap: 12px;
 }
 
-.trades-table__filter {
-  align-self: flex-start;
+.trades-table__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
 }
 
 .trades-table__group-header {

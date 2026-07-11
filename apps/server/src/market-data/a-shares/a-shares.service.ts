@@ -68,11 +68,12 @@ export class ASharesService {
     setTimeout(() => {
       this.syncService.syncWithProgress(dto, (event) => subject.next(event))
         .then((result) => {
+          const abortSuffix = dto.signal?.aborted ? '（已取消）' : '';
           const message = result.status === 'partial'
-            ? `A 股数据部分完成，失败 ${result.failedCount} 项`
+            ? `A 股数据部分完成，失败 ${result.failedCount} 项${abortSuffix}`
             : result.status === 'error'
-              ? `A 股数据同步未完成，失败 ${result.failedCount} 项`
-              : 'A 股数据同步完成';
+              ? `A 股数据同步未完成，失败 ${result.failedCount} 项${abortSuffix}`
+              : `A 股数据同步完成${abortSuffix}`;
           subject.next({ type: 'done', message, ...result });
           subject.complete();
         })

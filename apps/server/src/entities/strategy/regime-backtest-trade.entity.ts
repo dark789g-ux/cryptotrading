@@ -41,6 +41,9 @@ export class RegimeBacktestTradeEntity {
   @Column({ type: 'varchar', length: 20, nullable: true, name: 'skip_reason' })
   skipReason: string | null;
 
+  @Column({ type: 'varchar', length: 12, nullable: true, name: 'trade_phase' })
+  tradePhase: string | null;
+
   @Column({ type: 'varchar', length: 50, nullable: true, name: 'exit_reason' })
   exitReason: string | null;
 

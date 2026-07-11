@@ -57,11 +57,20 @@ export interface QuadrantEntry {
 
 export type RegimeConfigEntry = QuadrantEntry;
 
+/** 信号枚举标的池。缺省或 mode=all 为全市场。 */
+export interface RegimeUniverse {
+  mode: 'all' | 'watchlist' | 'symbols';
+  watchlistId?: string;
+  symbols?: string[];
+}
+
 export interface RegimeConfigMap {
   /** @deprecated 旧版顶层基准大盘指数，已下放到各 quadrant match 的 target 中；保留可选字段以兼容历史数据。 */
   marketIndex?: string;
   /** 有序象限数组；顺序 = 匹配优先级。 */
   quadrants: QuadrantEntry[];
+  /** 信号枚举标的池；缺省 = 全市场。 */
+  universe?: RegimeUniverse;
 }
 
 @Entity('regime_strategy_config')

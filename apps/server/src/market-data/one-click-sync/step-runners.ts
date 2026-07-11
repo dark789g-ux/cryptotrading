@@ -38,6 +38,12 @@ export interface StepContext {
   range: SyncRange;
   /** 同步模式：'incremental'（跳过已有 trade_date）| 'overwrite'（重拉范围内日期）。 */
   syncMode: 'incremental' | 'overwrite';
+  /**
+   * 取消信号（编排器持有 AbortController，cancelRun 时 abort）。
+   * 各 step-runner 把它透传给底层 service（随 startSync/opts 入参），
+   * 底层在循环顶部检查 signal.aborted 并抛 AbortError；step-runner 的 catch 用 rethrowIfAbort 放行冒泡。
+   */
+  signal: AbortSignal;
   services: {
     baseData: BaseDataSyncService;
     aShares: ASharesService;
@@ -63,13 +69,39 @@ export interface StepContext {
   flushThrottled: () => void;
 }
 
-/** 订阅 Subject → 可 await 的 Promise；next 转发到 onEvent，complete resolve，error reject。 */
-export function awaitSubject<E>(subject: Subject<E>, onEvent: (e: E) => void): Promise<void> {
+/**
+ * 订阅 Subject → 可 await 的 Promise；next 转发到 onEvent，complete resolve，error reject。
+ *
+ * abort 感知：若 signal 已 abort 或在订阅期间 abort，立即调用 subject.complete() 让阻塞的 await 解除
+ * （底层 SSE service 的 sync 循环检测到 signal.aborted 后本就会自行 complete，
+ * 这里是对"底层未及时 complete"的兜底——例如 mock 的永不 complete 的 Subject）。
+ */
+export function awaitSubject<E>(
+  subject: Subject<E>,
+  onEvent: (e: E) => void,
+  signal?: AbortSignal,
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      subject.complete();
+      resolve();
+      return;
+    }
+    const onAbort = () => {
+      subject.complete();
+      resolve();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
     subject.subscribe({
       next: (e) => onEvent(e),
-      complete: () => resolve(),
-      error: (err) => reject(err instanceof Error ? err : new Error(String(err))),
+      complete: () => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      },
+      error: (err) => {
+        signal?.removeEventListener('abort', onAbort);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
     });
   });
 }
@@ -116,6 +148,7 @@ export async function runBaseData(ctx: StepContext, index: number): Promise<void
       start_date: range.startDate,
       end_date: range.endDate,
       syncMode: 'incremental',
+      signal: ctx.signal,
     });
     await awaitSubject(subject, (e) => {
       if (e.type === 'progress') {
@@ -130,9 +163,11 @@ export async function runBaseData(ctx: StepContext, index: number): Promise<void
       } else if (e.type === 'error') {
         doneResult = e;
       }
-    });
+    }, ctx.signal);
+    throwIfAborted(ctx.signal);
     applyBaseDataDone(ctx, index, key, doneResult);
   } catch (e) {
+    rethrowIfAbort(e);
     failStep(ctx, index, key, e);
   }
 }
@@ -218,6 +253,7 @@ export async function runAShares(ctx: StepContext, index: number): Promise<void>
       startDate: ctx.range.startDate,
       endDate: ctx.range.endDate,
       syncMode: ctx.syncMode,
+      signal: ctx.signal,
     });
     await awaitSubject(subject, (e) => {
       if (e.type === 'progress') {
@@ -230,9 +266,11 @@ export async function runAShares(ctx: StepContext, index: number): Promise<void>
       } else if (e.type === 'done' || e.type === 'error') {
         finalEvent = e;
       }
-    });
+    }, ctx.signal);
+    throwIfAborted(ctx.signal);
     applyASharesDone(ctx, index, key, finalEvent);
   } catch (e) {
+    rethrowIfAbort(e);
     failStep(ctx, index, key, e);
   }
 }
@@ -268,6 +306,7 @@ export async function runMoneyFlow(ctx: StepContext, index: number): Promise<voi
       start_date: ctx.range.startDate,
       end_date: ctx.range.endDate,
       syncMode: ctx.syncMode,
+      signal: ctx.signal,
     });
     await awaitSubject(subject, (e) => {
       if (e.type === 'progress') {
@@ -280,9 +319,11 @@ export async function runMoneyFlow(ctx: StepContext, index: number): Promise<voi
       } else if (e.type === 'done' || e.type === 'error') {
         finalEvent = e;
       }
-    });
+    }, ctx.signal);
+    throwIfAborted(ctx.signal);
     applyMoneyFlowDone(ctx, index, key, finalEvent);
   } catch (e) {
+    rethrowIfAbort(e);
     failStep(ctx, index, key, e);
   }
 }
@@ -340,6 +381,7 @@ export async function runThsIndexDaily(ctx: StepContext, index: number): Promise
       start_date: ctx.range.startDate,
       end_date: ctx.range.endDate,
       syncMode: ctx.syncMode,
+      signal: ctx.signal,
     });
     await awaitSubject(subject, (e) => {
       if (e.type === 'progress') {
@@ -352,9 +394,11 @@ export async function runThsIndexDaily(ctx: StepContext, index: number): Promise
       } else if (e.type === 'done' || e.type === 'error') {
         finalEvent = e;
       }
-    });
+    }, ctx.signal);
+    throwIfAborted(ctx.signal);
     applyThsIndexDone(ctx, index, key, finalEvent);
   } catch (e) {
+    rethrowIfAbort(e);
     failStep(ctx, index, key, e);
   }
 }
@@ -421,7 +465,7 @@ async function runAmvStep(
   index: number,
   key: OneClickStepKey,
   phaseLabel: string,
-  doSync: (opts: { startDate: string; endDate: string; syncMode: 'incremental' | 'overwrite'; onProgress?: AmvSyncOnProgress }) => Promise<{ synced: number }>,
+  doSync: (opts: { startDate: string; endDate: string; syncMode: 'incremental' | 'overwrite'; onProgress?: AmvSyncOnProgress; signal?: AbortSignal }) => Promise<{ synced: number }>,
 ): Promise<void> {
   ctx.setStatus(index, 'running');
   ctx.pushLog(key, 'info', `开始 ${phaseLabel}（${ctx.syncMode === 'overwrite' ? '覆盖' : '增量'}模式）`);
@@ -441,12 +485,14 @@ async function runAmvStep(
       endDate: ctx.range.endDate,
       syncMode: ctx.syncMode,
       onProgress,
+      signal: ctx.signal,
     });
     const synced = result?.synced ?? 0;
     ctx.patchStep(index, { rowsWritten: synced, percent: 100 });
     ctx.setStatus(index, 'success');
     ctx.pushLog(key, 'info', `${phaseLabel} 完成，写入 ${synced} 行`);
   } catch (e) {
+    rethrowIfAbort(e);
     failStep(ctx, index, key, e);
   }
 }
@@ -463,16 +509,41 @@ export async function runOamv(ctx: StepContext, index: number): Promise<void> {
       startDate: ctx.range.startDate,
       endDate: ctx.range.endDate,
       syncMode: ctx.syncMode,
+      signal: ctx.signal,
     });
     ctx.patchStep(index, { rowsWritten: result?.synced ?? 0, percent: 100 });
     ctx.setStatus(index, 'success');
     ctx.pushLog(key, 'info', '0AMV 同步完成');
   } catch (e) {
+    rethrowIfAbort(e);
     failStep(ctx, index, key, e);
   }
 }
 
 // ── 共用工具 ──────────────────────────────────────────────────────────
+
+/**
+ * 若 e 是 AbortError（取消中断），re-throw 让它冒泡到编排器 catch 裁决为 cancelled；
+ * 否则按正常同步错误处理（fall through 到 failStep）。各 step-runner 的 catch 头部调用。
+ */
+export function rethrowIfAbort(e: unknown): void {
+  if (e != null && typeof e === 'object' && (e as { name?: unknown }).name === 'AbortError') {
+    throw e;
+  }
+}
+
+/**
+ * 若 signal 已 abort，抛 AbortError。
+ * SSE 类 step-runner 在 awaitSubject 返回后调用：
+ * 底层 service 在 abort 时走"正常 complete + push done"路径（不抛），
+ * 但若 awaitSubject 因 abort 提前 resolve、done 事件尚未到达，applyXxxDone 会误判 failed。
+ * 此处统一在 SSE 步骤评估结果前检查 signal，让取消的 SSE 步骤也走 AbortError 冒泡 → skipped，
+ * 与 throw 类 service 行为一致（取消优先，不显失败）。
+ */
+export function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw new DOMException('Sync aborted', 'AbortError');
+}
+
 export function failStep(ctx: StepContext, index: number, key: OneClickStepKey, e: unknown): void {
   ctx.setStatus(index, 'failed');
   const msg = e instanceof Error ? e.message : String(e);

@@ -89,7 +89,7 @@ const REGIME_BUCKET_STOCK_FIELD_WHITELIST: ReadonlySet<string> = new Set(
     .map(([field]) => field),
 );
 
-const ALLOWED_TOP_KEYS = new Set(['quadrants']);
+const ALLOWED_TOP_KEYS = new Set(['quadrants', 'marketIndex', 'universe']);
 const VALID_QUADRANT_KEY_RE = /^[a-zA-Z0-9_-]+$/;
 const EXIT_MODES = new Set(['trailing_lock', 'fixed_n', 'strategy']);
 const VALID_COMPARE_MODES = new Set(['value', 'field']);
@@ -396,6 +396,38 @@ function validateQuadrant(
   }
 }
 
+function validateUniverse(universe: unknown): void {
+  if (universe === undefined || universe === null) return;
+  if (!isPlainObject(universe)) {
+    fail('config.universe 必须为对象');
+  }
+
+  const mode = universe.mode;
+  if (mode !== 'all' && mode !== 'watchlist' && mode !== 'symbols') {
+    fail(`config.universe.mode 非法（须为 all|watchlist|symbols，收到 "${String(mode)}"）`);
+  }
+
+  if (mode === 'watchlist') {
+    const id = universe.watchlistId;
+    if (typeof id !== 'string' || id.trim() === '') {
+      fail('config.universe.watchlistId 在 mode=watchlist 时必填');
+    }
+  }
+
+  if (mode === 'symbols') {
+    const symbols = universe.symbols;
+    if (!Array.isArray(symbols) || symbols.length === 0) {
+      fail('config.universe.symbols 在 mode=symbols 时须为非空数组');
+    }
+    for (let i = 0; i < symbols.length; i++) {
+      const s = symbols[i];
+      if (typeof s !== 'string' || s.trim() === '') {
+        fail(`config.universe.symbols[${i}] 须为非空字符串`);
+      }
+    }
+  }
+}
+
 /**
  * 校验 regime 配置（jsonb 入参，运行时形状未知）。
  * 通过则可安全断言为 RegimeConfigMap；失败抛 BadRequestException（400）并指明字段。
@@ -407,9 +439,11 @@ export function validateRegimeConfig(config: unknown): asserts config is RegimeC
 
   for (const k of Object.keys(config)) {
     if (!ALLOWED_TOP_KEYS.has(k)) {
-      fail(`config 含未知键 "${k}"（仅允许 quadrants）`);
+      fail(`config 含未知键 "${k}"（仅允许 quadrants|marketIndex|universe）`);
     }
   }
+
+  validateUniverse(config.universe);
 
   const quadrants = config.quadrants;
   if (!Array.isArray(quadrants) || quadrants.length === 0) {

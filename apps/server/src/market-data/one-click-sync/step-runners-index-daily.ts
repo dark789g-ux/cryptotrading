@@ -6,7 +6,7 @@
 
 import type { SwIndexDailySyncEvent } from '../sw-index-daily/sw-index-daily.types';
 import type { OneClickErrorItem, OneClickStepKey } from './types';
-import { awaitSubject, clampPct, failStep, type StepContext } from './step-runners';
+import { awaitSubject, clampPct, failStep, rethrowIfAbort, throwIfAborted, type StepContext } from './step-runners';
 
 // ── Step4 申万指数日线（sw-index-daily，SSE）───────────────────────────
 // done.result.errors[] → 步骤 errors；rowsWritten = result.success。
@@ -20,6 +20,7 @@ export async function runSwIndexDaily(ctx: StepContext, index: number): Promise<
       start_date: ctx.range.startDate,
       end_date: ctx.range.endDate,
       syncMode: ctx.syncMode,
+      signal: ctx.signal,
     });
     await awaitSubject(subject, (e) => {
       if (e.type === 'progress') {
@@ -32,9 +33,11 @@ export async function runSwIndexDaily(ctx: StepContext, index: number): Promise<
       } else if (e.type === 'done' || e.type === 'error') {
         finalEvent = e;
       }
-    });
+    }, ctx.signal);
+    throwIfAborted(ctx.signal);
     applySwIndexDone(ctx, index, key, finalEvent);
   } catch (e) {
+    rethrowIfAbort(e);
     failStep(ctx, index, key, e);
   }
 }
@@ -93,6 +96,7 @@ export async function runMarketIndexDaily(ctx: StepContext, index: number): Prom
       start_date: ctx.range.startDate,
       end_date: ctx.range.endDate,
       syncMode: ctx.syncMode,
+      signal: ctx.signal,
     };
     const result = await ctx.services.marketIndexSync.sync(dto);
     ctx.patchStep(index, { rowsWritten: result?.success ?? 0, percent: 100 });
@@ -114,6 +118,7 @@ export async function runMarketIndexDaily(ctx: StepContext, index: number): Prom
       ctx.pushLog(key, 'info', '大盘指数日线同步完成');
     }
   } catch (e) {
+    rethrowIfAbort(e);
     failStep(ctx, index, key, e);
   }
 }

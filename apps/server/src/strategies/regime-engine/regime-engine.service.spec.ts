@@ -151,6 +151,8 @@ function makeActiveConfig(overrides: Record<string, unknown> = {}) {
           entryConditions: [{ field: 'macd_hist', operator: 'gt', value: 0 }],
           exitMode: 'trailing_lock',
           exitParams: { maxHold: null },
+          positionRatio: 0.2,
+          maxPositions: 4,
         },
         {
           key: 'Q2',
@@ -172,6 +174,8 @@ function makeActiveConfig(overrides: Record<string, unknown> = {}) {
           entryConditions: [{ field: 'kdj_j', operator: 'lt', value: 0 }],
           exitMode: 'fixed_n',
           exitParams: { N: 5 },
+          positionRatio: 0.2,
+          maxPositions: 4,
         },
         {
           key: 'Q4',
@@ -437,6 +441,38 @@ describe('RegimeEngineService.runDaily', () => {
   it('tradeDate 格式非法 → 400', async () => {
     const h = makeHarness();
     await expect(h.service.runDaily('2026-06-10')).rejects.toThrow(BadRequestException);
+  });
+
+  it('单象限空 match 通配：不查库，直接走 trade 象限', async () => {
+    const h = makeHarness();
+    const cfg = makeActiveConfig();
+    cfg.config.quadrants = [
+      {
+        key: 'only',
+        label: '唯一象限',
+        action: 'trade',
+        match: [],
+        entryConditions: [{ field: 'brick', operator: 'gt', value: 0 }],
+        exitMode: 'fixed_n',
+        exitParams: { N: 5 },
+        positionRatio: 0.2,
+        maxPositions: 4,
+      },
+    ];
+    h.repos.configRepo.findOne.mockResolvedValue(cfg);
+    h.dataSource.query
+      .mockResolvedValueOnce([{ tsCode: '000001.SZ' }])
+      .mockResolvedValueOnce([{ tsCode: '000001.SZ', close: '10.50' }]);
+
+    const result = await h.service.runDaily('20260610');
+
+    // buildMarketSnapshot 不应查 index_daily
+    expect(h.repos.indexQuoteRepo.createQueryBuilder).not.toHaveBeenCalled();
+    expect(h.repos.indexIndicatorRepo.createQueryBuilder).not.toHaveBeenCalled();
+    // 但应走 trade 象限扫描
+    expect(result.regime).toBe('only');
+    expect(result.action).toBe('trade');
+    expect(result.configVersion).toBe(3);
   });
 });
 

@@ -1,4 +1,4 @@
-import { computeAlloc, computeSourceKellyMult, MIN_ALLOC_YUAN } from './sizing';
+import { computeAlloc, computeCashSplitAlloc, computeSourceKellyMult, MIN_ALLOC_YUAN } from './sizing';
 
 describe('core/sizing', () => {
   const base = {
@@ -44,6 +44,21 @@ describe('core/sizing', () => {
     it('effectivePositionRatio overrides base', () => {
       const alloc = computeAlloc({ ...base, effectivePositionRatio: 0.05 });
       expect(alloc).toBe(50_000);
+    });
+  });
+
+  describe('computeCashSplitAlloc', () => {
+    it('n=0 → cash * r', () => {
+      expect(computeCashSplitAlloc({ cash: 1_000_000, positionRatio: 0.2, openCount: 0 })).toBe(200_000);
+    });
+    it('n=1,r=0.2 → cash * 0.25', () => {
+      expect(computeCashSplitAlloc({ cash: 800_000, positionRatio: 0.2, openCount: 1 })).toBe(200_000);
+    });
+    it('n=3,r=0.2 → cash * 0.5', () => {
+      expect(computeCashSplitAlloc({ cash: 400_000, positionRatio: 0.2, openCount: 3 })).toBeCloseTo(200_000);
+    });
+    it('1 - r*n <= 0 → null (budget_full)', () => {
+      expect(computeCashSplitAlloc({ cash: 100, positionRatio: 0.4, openCount: 3 })).toBeNull();
     });
   });
 

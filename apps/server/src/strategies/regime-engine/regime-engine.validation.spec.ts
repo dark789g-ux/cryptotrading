@@ -78,10 +78,12 @@ describe('validateRegimeConfig', () => {
       { quadrants: validConfig().quadrants, extra: 1 },
       '未知键',
     );
-    expectFail(
-      { quadrants: validConfig().quadrants, marketIndex: '000001.SH' },
-      '未知键',
-    );
+    expect(() =>
+      validateRegimeConfig({
+        quadrants: validConfig().quadrants,
+        marketIndex: '000001.SH',
+      }),
+    ).not.toThrow();
   });
 
   it('quadrants 非法', () => {
@@ -456,6 +458,24 @@ describe('validateRegimeConfig', () => {
     const cfg = validConfig();
     cfg.quadrants[1].rankField = 'garbage';
     expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('universe.mode=symbols 合法', () => {
+    const cfg = validConfig();
+    cfg.universe = { mode: 'symbols', symbols: ['000001.SZ'] };
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('universe.mode=watchlist 缺 watchlistId → fail', () => {
+    const cfg = validConfig();
+    cfg.universe = { mode: 'watchlist' };
+    expectFail(cfg, 'watchlistId');
+  });
+
+  it('universe.mode=symbols 空 symbols → fail', () => {
+    const cfg = validConfig();
+    cfg.universe = { mode: 'symbols', symbols: [] };
+    expectFail(cfg, 'symbols');
   });
 });
 

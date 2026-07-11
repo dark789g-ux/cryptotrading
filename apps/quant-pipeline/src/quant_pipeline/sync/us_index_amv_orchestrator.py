@@ -69,6 +69,7 @@ def run_us_index_amv_sync(
     symbols: tuple[str, ...] | None = None,
     client: YahooClient | None = None,
     write_start: str | None = None,
+    _suppress_progress: bool = False,
 ) -> UsIndexAmvOutcome:
     """美股指数 AMV 同步入口。
 
@@ -79,6 +80,8 @@ def run_us_index_amv_sync(
     （resolve_warmup_start），AMV 行只写 trade_date >= effective_write_start。
     **成分行情仍按全史 [fetch_start,end] 抓取入 us_daily_quote**（spec §75），不传
     write_start——AMV 在全史上算指标（warmup 恒满），只裁 AMV 写窗口。
+    _suppress_progress=True → job_id 非空时仍 check_cancel 但不 update_progress（供
+    父编排器 us_one_click_orchestrator 独占进度写入）。
     """
     start, end = _parse_date_range(date_range)
     effective_write_start = write_start or start
@@ -87,7 +90,7 @@ def run_us_index_amv_sync(
 
     index_codes = list(symbols) if symbols else list(DEFAULT_INDEX_CODES)
     total = len(index_codes)
-    if job_id is not None:
+    if job_id is not None and not _suppress_progress:
         update_progress(job_id, 0, stage="start")
 
     for i, index_code in enumerate(index_codes):
@@ -114,7 +117,7 @@ def run_us_index_amv_sync(
         fetch_start = resolve_warmup_start(index_code, effective_write_start)
 
         # ---- 步骤1：逐 ticker 取成分行情 [fetch_start, end] → raw.us_daily_quote ----
-        if job_id is not None:
+        if job_id is not None and not _suppress_progress:
             update_progress(
                 job_id,
                 int(i * 100 / total),
@@ -161,7 +164,7 @@ def run_us_index_amv_sync(
                 outcome.errors.append(f"{index_code}/{ticker}: {exc!r}")
 
             # 取数阶段进度：把本指数 [i, i+1) 区间按 ticker 进度推进（聚合阶段前给 ~0..90%）
-            if job_id is not None and ((ti + 1) % 20 == 0 or (ti + 1) == n_tickers):
+            if job_id is not None and not _suppress_progress and ((ti + 1) % 20 == 0 or (ti + 1) == n_tickers):
                 frac = (i + (ti + 1) / n_tickers * 0.9) / total
                 update_progress(
                     job_id,
@@ -170,7 +173,7 @@ def run_us_index_amv_sync(
                 )
 
         # ---- 步骤2：读 Σ聚合 + .NDX 点位 + 套公式 → 写 raw.us_index_amv_daily ----
-        if job_id is not None:
+        if job_id is not None and not _suppress_progress:
             update_progress(
                 job_id,
                 min(99, int((i + 0.95) * 100 / total)),
@@ -197,11 +200,11 @@ def run_us_index_amv_sync(
             )
             outcome.errors.append(f"{index_code}: {exc!r}")
 
-        if job_id is not None:
+        if job_id is not None and not _suppress_progress:
             update_progress(
                 job_id, int((i + 1) * 100 / total), stage=f"us_index_amv:done:{index_code}"
             )
 
-    if job_id is not None:
+    if job_id is not None and not _suppress_progress:
         update_progress(job_id, 100, stage="done")
     return outcome

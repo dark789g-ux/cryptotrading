@@ -1,5 +1,6 @@
 import { API_BASE, del, patch, post, request } from '../../client'
 import type { StrategyConditionItem } from './strategyConditions'
+import type { KlineChartBar } from '../market/symbols'
 
 // ── 共享类型 ──────────────────────────────────────────────────────────────────
 
@@ -35,8 +36,15 @@ export interface QuadrantEntry {
   rankDir?: 'asc' | 'desc' | null
 }
 
+export interface RegimeUniverse {
+  mode: 'all' | 'watchlist' | 'symbols'
+  watchlistId?: string
+  symbols?: string[]
+}
+
 export interface RegimeConfigMap {
   quadrants: QuadrantEntry[]
+  universe?: RegimeUniverse
 }
 
 export type RegimeConfigEntry = QuadrantEntry
@@ -111,6 +119,50 @@ export interface RegimeBacktestCostRates {
   slippagePerSide: number
 }
 
+export interface RegimeSizingConfig {
+  mode: 'fixed' | 'signal_weighted' | 'source_kelly'
+  floorMult: number
+  capMult: number
+  kellyFraction: number
+  kellyMaxMult: number
+}
+
+export interface RegimeKellyConfig {
+  enabled: boolean
+  simTrades: number
+  windowTrades: number
+  stepTrades: number
+  kellyFraction: number
+  kellyMaxMult: number
+  enableProbe: boolean
+}
+
+export interface RegimeCircuitBreaker {
+  enableCooldown: boolean
+  consecutiveLossesThreshold: number
+  baseCooldownDays: number
+  maxCooldownDays: number
+  extendOnLoss: number
+  reduceOnProfit: number
+  enableDrawdownHalt: boolean
+  drawdownHaltPct: number
+  drawdownResumePct: number
+}
+
+export interface RegimeBacktestCapital {
+  initialCapital: number
+  cost: RegimeBacktestCostRates
+  /** @deprecated 若传入后端会忽略 */
+  positionRatio?: number
+  /** @deprecated 若传入后端会忽略 */
+  maxPositions?: number | null
+  sizing?: RegimeSizingConfig
+  kelly?: RegimeKellyConfig
+  circuitBreaker?: RegimeCircuitBreaker
+  anchorMode?: boolean
+  requireAllPositionsProfitable?: boolean
+}
+
 export interface CreateRegimeBacktestDto {
   name: string
   note?: string
@@ -118,14 +170,7 @@ export interface CreateRegimeBacktestDto {
   config: RegimeConfigMap
   /** 可选，仅溯源；不用于加载规则 */
   regimeConfigId?: string
-  capital: {
-    initialCapital: number
-    cost: RegimeBacktestCostRates
-    /** @deprecated 若传入后端会忽略 */
-    positionRatio?: number
-    /** @deprecated 若传入后端会忽略 */
-    maxPositions?: number | null
-  }
+  capital: RegimeBacktestCapital
   dateStart: string
   dateEnd: string
 }
@@ -133,14 +178,7 @@ export interface CreateRegimeBacktestDto {
 /** 回测 run.config jsonb 快照：内层 config 为象限规则，capital 为资金/成本 */
 export interface RegimeBacktestConfigSnapshot {
   config: RegimeConfigMap
-  capital: {
-    initialCapital: number
-    cost: RegimeBacktestCostRates
-    /** @deprecated */
-    positionRatio?: number
-    /** @deprecated */
-    maxPositions?: number | null
-  }
+  capital: RegimeBacktestCapital
 }
 
 export interface RegimeBacktestRun {
@@ -188,6 +226,8 @@ export interface RegimeBacktestDaily {
   exposure: number
 }
 
+export type RegimeTradePhase = 'simulation' | 'probe' | 'live'
+
 export interface RegimeBacktestTrade {
   signalDate: string
   buyDate: string | null
@@ -197,6 +237,8 @@ export interface RegimeBacktestTrade {
   exitMode: string | null
   status: 'taken' | 'skipped'
   skipReason: string | null
+  /** kelly 管线阶段；未启用 kelly 时为 null */
+  tradePhase: RegimeTradePhase | null
   ret: number | null
   alloc: number | null
   costsPaid: number | null
@@ -212,27 +254,171 @@ export interface RegimeBacktestListResult {
   items: RegimeBacktestRun[]
 }
 
+export interface RegimeDailyAuditEntry {
+  tsCode: string
+  signalDate: string
+  buyDate: string
+  status: 'taken' | 'skipped'
+  skipReason?: string | null
+  alloc?: number | null
+  tradePhase?: RegimeTradePhase | null
+}
+
+export interface RegimeDailyAuditExit {
+  tsCode: string
+  exitDate: string
+  ret?: number | null
+  realizedRetNet?: number | null
+  exitReason?: string | null
+  tradePhase?: RegimeTradePhase | null
+}
+
+export interface RegimeBacktestDailyLog {
+  tradeDate: string
+  nav: number
+  cash: number
+  regime: string
+  frozenReason: string | null
+  tradePhase: RegimeTradePhase | null
+  entries: RegimeDailyAuditEntry[]
+  exits: RegimeDailyAuditExit[]
+  openSymbols: string[]
+  cooldown: {
+    inCooldown: boolean
+    duration: number | null
+    remaining: number | null
+    consecLosses: number
+  }
+}
+
+export interface RegimeBacktestPositionRow {
+  tsCode: string
+  signalDate: string
+  buyDate: string
+  exitDate: string | null
+  regime: string
+  exitMode: string | null
+  tradePhase: RegimeTradePhase | null
+  alloc: number | null
+  ret: number | null
+  realizedRetNet: number | null
+  exitReason: string | null
+  costsPaid: number | null
+}
+
+export interface RegimeBacktestSymbolStatRow {
+  tsCode: string
+  tradeCount: number
+  winCount: number
+  lossCount: number
+  totalAlloc: number
+  totalPnl: number
+  avgRet: number | null
+  avgRealizedRetNet: number | null
+}
+
+export interface RegimeRowsPage<T> {
+  total: number
+  page: number
+  pageSize: number
+  items: T[]
+}
+
+export interface RegimeTradeOnBar {
+  type: 'entry' | 'exit'
+  tsCode: string
+  price: number
+  reason: string
+  pnl?: number
+  tradePhase?: RegimeTradePhase | null
+}
+
+export type RegimeBacktestKlineBar = KlineChartBar & {
+  trades?: RegimeTradeOnBar[]
+}
+
+/** A 股 Regime 回测：主路径 /backtest/ashare（旧 /regime-engine/backtests 仍可用） */
+const ASHARE_BACKTEST_BASE = `${API_BASE}/backtest/ashare`
+
 export const regimeBacktestApi = {
   create(dto: CreateRegimeBacktestDto): Promise<RegimeBacktestRun> {
-    return post<RegimeBacktestRun>(`${API_BASE}/regime-engine/backtests`, dto)
+    return post<RegimeBacktestRun>(ASHARE_BACKTEST_BASE, dto)
   },
   run(id: string): Promise<{ runId: string }> {
-    return post<{ runId: string }>(`${API_BASE}/regime-engine/backtests/${id}/run`)
+    return post<{ runId: string }>(`${ASHARE_BACKTEST_BASE}/${id}/run`)
   },
   getProgress(id: string): Promise<RegimeBacktestProgress> {
-    return request<RegimeBacktestProgress>(`${API_BASE}/regime-engine/backtests/${id}/progress`)
+    return request<RegimeBacktestProgress>(`${ASHARE_BACKTEST_BASE}/${id}/progress`)
   },
   get(id: string): Promise<RegimeBacktestRun> {
-    return request<RegimeBacktestRun>(`${API_BASE}/regime-engine/backtests/${id}`)
+    return request<RegimeBacktestRun>(`${ASHARE_BACKTEST_BASE}/${id}`)
   },
   listDaily(id: string): Promise<RegimeBacktestDaily[]> {
-    return request<RegimeBacktestDaily[]>(`${API_BASE}/regime-engine/backtests/${id}/daily`)
+    return request<RegimeBacktestDaily[]>(`${ASHARE_BACKTEST_BASE}/${id}/daily`)
   },
   listTrades(id: string): Promise<RegimeBacktestTrade[]> {
-    return request<RegimeBacktestTrade[]>(`${API_BASE}/regime-engine/backtests/${id}/trades`)
+    return request<RegimeBacktestTrade[]>(`${ASHARE_BACKTEST_BASE}/${id}/trades`)
+  },
+  listDailyLog(id: string): Promise<RegimeBacktestDailyLog[]> {
+    return request<RegimeBacktestDailyLog[]>(`${ASHARE_BACKTEST_BASE}/${id}/daily-log`)
+  },
+  listPositions(
+    id: string,
+    params?: {
+      page?: number
+      pageSize?: number
+      sortBy?: string
+      sortOrder?: 'asc' | 'desc'
+      tsCode?: string
+    },
+  ): Promise<RegimeRowsPage<RegimeBacktestPositionRow>> {
+    const qs = new URLSearchParams()
+    if (params?.page) qs.set('page', String(params.page))
+    if (params?.pageSize) qs.set('pageSize', String(params.pageSize))
+    if (params?.sortBy) qs.set('sortBy', params.sortBy)
+    if (params?.sortOrder) qs.set('sortOrder', params.sortOrder)
+    if (params?.tsCode) qs.set('tsCode', params.tsCode)
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return request<RegimeRowsPage<RegimeBacktestPositionRow>>(
+      `${ASHARE_BACKTEST_BASE}/${id}/positions${suffix}`,
+    )
+  },
+  listSymbolStats(
+    id: string,
+    params?: {
+      page?: number
+      pageSize?: number
+      sortBy?: string
+      sortOrder?: 'asc' | 'desc'
+      tsCode?: string
+    },
+  ): Promise<RegimeRowsPage<RegimeBacktestSymbolStatRow>> {
+    const qs = new URLSearchParams()
+    if (params?.page) qs.set('page', String(params.page))
+    if (params?.pageSize) qs.set('pageSize', String(params.pageSize))
+    if (params?.sortBy) qs.set('sortBy', params.sortBy)
+    if (params?.sortOrder) qs.set('sortOrder', params.sortOrder)
+    if (params?.tsCode) qs.set('tsCode', params.tsCode)
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return request<RegimeRowsPage<RegimeBacktestSymbolStatRow>>(
+      `${ASHARE_BACKTEST_BASE}/${id}/symbol-stats${suffix}`,
+    )
+  },
+  getKlineChart(
+    id: string,
+    params: { tsCode: string; signalDate: string; before?: number; after?: number },
+  ): Promise<RegimeBacktestKlineBar[]> {
+    const qs = new URLSearchParams()
+    qs.set('tsCode', params.tsCode)
+    qs.set('signalDate', params.signalDate)
+    if (params.before != null) qs.set('before', String(params.before))
+    if (params.after != null) qs.set('after', String(params.after))
+    return request<RegimeBacktestKlineBar[]>(
+      `${ASHARE_BACKTEST_BASE}/${id}/kline-chart?${qs.toString()}`,
+    )
   },
   remove(id: string): Promise<void> {
-    return del<void>(`${API_BASE}/regime-engine/backtests/${id}`)
+    return del<void>(`${ASHARE_BACKTEST_BASE}/${id}`)
   },
   list(
     page = 1,
@@ -245,7 +431,7 @@ export const regimeBacktestApi = {
     if (filter?.status) params.set('status', filter.status);
     if (filter?.keyword) params.set('keyword', filter.keyword);
     return request<RegimeBacktestListResult>(
-      `${API_BASE}/regime-engine/backtests?${params.toString()}`,
+      `${ASHARE_BACKTEST_BASE}?${params.toString()}`,
     )
   },
 }

@@ -140,6 +140,7 @@ export class EtfMfService {
     endDate: string,
     syncMode?: 'incremental' | 'overwrite',
     onProgress?: EtfSyncOnProgress,
+    signal?: AbortSignal,
   ): Promise<EtfSyncResult> {
     const mfRepo = this.dataSource.getRepository(MoneyFlowEtfEntity);
     const errors: EtfSyncErrorItem[] = [];
@@ -159,6 +160,7 @@ export class EtfMfService {
 
     const total = etfCodes.length;
     for (let i = 0; i < etfCodes.length; i++) {
+      if (signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
       const tsCode = etfCodes[i];
       try {
         const count = await this.syncOneEtf(tsCode, startDate, endDate, mfRepo);

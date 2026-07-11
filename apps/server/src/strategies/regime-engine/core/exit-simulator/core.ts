@@ -2,7 +2,10 @@
  * exit-simulator/core.ts
  *
  * 逐笔出场模拟核心：simulateTradeCore。
- * 从 signal-stats.simulator.ts 迁移，逻辑不变。
+ * 现为入场过滤 + 日频 stepper 批处理循环的 oracle（单测 / 对拍用）。
+ * 组合引擎主路径已改为持仓内日推进，不再在开仓时调用本函数。
+ *
+ * TODO(P2b): enablePartialProfit + partialProfitRatio — 日线 recentHigh 触发部分减仓后余仓续持。
  */
 
 import {

@@ -44,6 +44,7 @@ export class EtfAmvService {
     endDate: string,
     syncMode?: 'incremental' | 'overwrite',
     onProgress?: EtfSyncOnProgress,
+    signal?: AbortSignal,
   ): Promise<EtfSyncResult> {
     const amvRepo = this.dataSource.getRepository(FundAmvDailyEntity);
     const errors: EtfSyncErrorItem[] = [];
@@ -63,6 +64,7 @@ export class EtfAmvService {
 
     const total = etfCodes.length;
     for (let i = 0; i < etfCodes.length; i++) {
+      if (signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
       const tsCode = etfCodes[i];
       try {
         const count = await this.syncOneEtf(

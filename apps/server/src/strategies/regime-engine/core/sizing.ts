@@ -54,6 +54,17 @@ export function computeAlloc(params: ComputeAllocParams): number {
   return base * mult * navRef;
 }
 
+export function computeCashSplitAlloc(params: {
+  cash: number;
+  positionRatio: number;
+  openCount: number;
+}): number | null {
+  const { cash, positionRatio: r, openCount: n } = params;
+  const denom = 1 - r * n;
+  if (!(denom > 0) || !(cash > 0) || !(r > 0)) return null;
+  return cash * (r / denom);
+}
+
 export function computeSourceKellyMult(
   rets: number[],
   sizing: { kellyFraction: number; kellyMaxMult: number },

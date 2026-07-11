@@ -67,7 +67,7 @@ import {
   ChevronBack, ChevronForward,
   TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline, CalculatorOutline,
   LogOutOutline, PersonCircleOutline, AnalyticsOutline, NewspaperOutline,
-  StatsChartOutline, FlashOutline,
+  StatsChartOutline,
 } from '@vicons/ionicons5'
 import { useSidebarCollapsed } from '../../composables/hooks/useSidebarCollapsed'
 import { useAuth } from '../../composables/hooks/useAuth'
@@ -81,6 +81,9 @@ const auth = useAuth()
 
 const activeKey = computed(() => {
   const name = route.name as string
+  const path = route.path
+  // /backtest*（含旧 /regime-backtest redirect）高亮「策略回测」
+  if (name === 'backtest' || path.startsWith('/backtest')) return 'backtest'
   if (name?.startsWith('daily-review')) return 'daily-review'
   // quant 子菜单：jobs / run-detail 命中各自菜单项，其余落总览
   if (name === 'quant-jobs') return 'quant-jobs'
@@ -102,8 +105,6 @@ const menuOptions = computed(() => [
   ...(auth.isAdmin.value ? [{ label: '数据同步', key: 'sync', icon: renderIcon(SyncOutline) }] : []),
   { label: '自选列表', key: 'watchlists', icon: renderIcon(BookmarkOutline) },
   { label: '策略条件', key: 'strategy-conditions', icon: renderIcon(AnalyticsOutline) },
-  { label: 'Regime 回测', key: 'regime-backtest', icon: renderIcon(FlashOutline) },
-  { label: 'Regime 配置', key: 'regime-config', icon: renderIcon(SettingsOutline) },
   { label: '每日复盘', key: 'daily-review', icon: renderIcon(NewspaperOutline) },
   // factor-registry-frontend spec：/quant/* 整树 admin-only，菜单同步隐藏
   ...(auth.isAdmin.value

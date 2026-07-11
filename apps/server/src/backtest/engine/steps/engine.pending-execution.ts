@@ -87,7 +87,7 @@ export function executePendingBuys(
 
     const positionSize = lastNav * positionRatio;
     const alloc = Math.min(positionSize, cash);
-    if (alloc < config.minOpenCash || alloc <= 0) continue;
+    if (alloc <= 0) continue;
 
     const shares = alloc / openPrice;
     const [recLow, recLowTime] = calcRecentLow(df, curIdx, config.recentLowWindow, config.recentLowBuffer);

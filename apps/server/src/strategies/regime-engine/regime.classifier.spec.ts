@@ -3,7 +3,7 @@
  *
  * 参数化 regime 分类器单测（v3 snapshot + 分桶条件）。
  */
-import { classifyRegime, RegimeResult } from './regime.classifier';
+import { classifyRegime, isSingleWildcardQuadrant, RegimeResult } from './regime.classifier';
 import { MarketSnapshot, IndexTargetSnapshot } from './market-condition-evaluator';
 import { QuadrantEntry, RegimeBucketCondition } from '../../entities/strategy/regime-strategy-config.entity';
 
@@ -171,5 +171,56 @@ describe('classifyRegime', () => {
     ];
     const emptySnapshot: MarketSnapshot = { date: '20260610', targets: new Map() };
     expect(classifyRegime(emptySnapshot, qs)).toBe('unknown');
+  });
+
+  it('单象限空 match 通配：任何 snapshot 都命中', () => {
+    const qs: QuadrantEntry[] = [
+      { key: 'only', label: '唯一', action: 'trade', match: [] },
+    ];
+    // 正常 snapshot
+    expect(classifyRegime(makeSnapshot(), qs)).toBe('only');
+    // 空 targets snapshot
+    expect(classifyRegime({ date: '20260610', targets: new Map() }, qs)).toBe('only');
+  });
+
+  it('单象限空 match 通配优先于 evaluateMarketConditions', () => {
+    const qs: QuadrantEntry[] = [
+      { key: 'solo', label: 'solo', action: 'flat', match: [] },
+    ];
+    expect(classifyRegime({ date: '20260610', targets: new Map() }, qs)).toBe('solo');
+  });
+
+  it('多象限下 match 空的象限被跳过（不通配）', () => {
+    // 回归：多象限下空 match 不触发通配
+    const qs: QuadrantEntry[] = [
+      { key: 'empty', label: 'empty', action: 'trade', match: [] },
+      { key: 'real', label: 'real', action: 'trade', match: [cond('dif', 'gt', 0)] },
+    ];
+    expect(classifyRegime(makeSnapshot(), qs)).toBe('real');
+  });
+});
+
+describe('isSingleWildcardQuadrant', () => {
+  it('单象限空 match → true', () => {
+    expect(isSingleWildcardQuadrant([{ key: 'a', match: [] }])).toBe(true);
+  });
+
+  it('单象限非空 match → false', () => {
+    expect(isSingleWildcardQuadrant([{ key: 'a', match: [cond('dif', 'gt', 0)] }])).toBe(false);
+  });
+
+  it('多象限 → false（即使某个 match 为空）', () => {
+    expect(isSingleWildcardQuadrant([{ key: 'a', match: [] }, { key: 'b', match: [cond('dif', 'gt', 0)] }])).toBe(false);
+  });
+
+  it('空数组 / null / 非数组 → false', () => {
+    expect(isSingleWildcardQuadrant([])).toBe(false);
+    expect(isSingleWildcardQuadrant(null)).toBe(false);
+    expect(isSingleWildcardQuadrant(undefined)).toBe(false);
+    expect(isSingleWildcardQuadrant('abc')).toBe(false);
+  });
+
+  it('match 不是数组 → false', () => {
+    expect(isSingleWildcardQuadrant([{ key: 'a', match: null as any }])).toBe(false);
   });
 });

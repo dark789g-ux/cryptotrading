@@ -65,6 +65,8 @@ export function useOneClickSync(message: OneClickMessageApi) {
 
   // ---- 直接透传 store getter（形状与旧实现一致，Panel 模板不动）----
   const running = computed(() => store.running)
+  const starting = computed(() => store.starting)
+  const cancelling = computed(() => store.cancelling)
   const steps = computed<OneClickStepState[]>(() => store.steps.map(withLabel))
   const totalPercent = computed(() => store.totalPercent)
   const logEntries = computed<LogEntry[]>(() => store.logs)
@@ -72,7 +74,7 @@ export function useOneClickSync(message: OneClickMessageApi) {
   const elapsedMs = computed(() => store.elapsedMs)
 
   const canStart = computed(
-    () => !running.value && !!dateRange.value && !!dateRange.value[0] && !!dateRange.value[1],
+    () => !running.value && !starting.value && !!dateRange.value && !!dateRange.value[0] && !!dateRange.value[1],
   )
 
   // ---- summary：由终态 currentRun 派生（旧实现是 start() 结束时一次性构建）----
@@ -97,7 +99,7 @@ export function useOneClickSync(message: OneClickMessageApi) {
 
   // ---- 控制：start / cancel 仅转调 store ----
   async function start(): Promise<void> {
-    if (running.value) return
+    if (running.value || starting.value) return
     if (!dateRange.value || !dateRange.value[0] || !dateRange.value[1]) {
       message.error('请先选择日期范围')
       return
@@ -128,6 +130,8 @@ export function useOneClickSync(message: OneClickMessageApi) {
   return {
     dateRange,
     running,
+    starting,
+    cancelling,
     steps,
     currentStepIndex,
     elapsedMs,

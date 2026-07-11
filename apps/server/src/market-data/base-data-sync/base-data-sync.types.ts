@@ -12,6 +12,8 @@ export interface SyncDto {
    * 不做区间 DELETE；syncMode 仅供前端计算默认日期范围，后端可忽略其值。
    */
   syncMode?: 'incremental' | 'overwrite';
+  /** 取消信号（一键同步编排器注入，循环顶部检查 signal.aborted） */
+  signal?: AbortSignal;
 }
 
 /**

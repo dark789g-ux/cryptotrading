@@ -82,6 +82,7 @@ export async function fetchByDates<TRow>(
   const rowsByDate: Array<{ date: string; rows: TRow[] }> = [];
 
   for (let i = 0; i < dates.length; i++) {
+    if (ctx?.signal?.aborted) break;
     const date = dates[i];
     const params = buildParams ? buildParams(date) : { start_date: date, end_date: date };
     let rows: TRow[] = [];

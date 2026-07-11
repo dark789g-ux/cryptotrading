@@ -3,18 +3,41 @@
     <div class="workspace-page-header">
       <div>
         <h1 class="workspace-page-title">Regime 回测</h1>
-        <p class="page-subtitle">基于 Regime 配置的组合级回测</p>
+        <p class="page-subtitle">配置 Regime 规则并运行组合回测</p>
       </div>
     </div>
 
-    <RegimeBacktestCreateForm
-      ref="createFormRef"
-      :configs="configs"
-      :submitting="creating"
-      @submit="handleCreateAndRun"
-    />
+    <n-card :bordered="false" size="small">
+      <!-- 工具栏：新建按钮 + 筛选区 -->
+      <div class="regime-toolbar">
+        <n-button type="primary" @click="showCreateModal = true">
+          <template #icon><n-icon><add-outline /></n-icon></template>
+          新建 Regime 回测
+        </n-button>
+        <div class="regime-filters">
+          <n-select
+            v-model:value="filterStatusDraft"
+            :options="statusOptions"
+            placeholder="状态"
+            clearable
+            style="width: 140px"
+            @update:value="applyFilters"
+          />
+          <n-input
+            v-model:value="filterKeywordDraft"
+            placeholder="搜索方案名"
+            clearable
+            style="width: 200px"
+            @keydown.enter="applyFilters"
+            @clear="applyFilters"
+          >
+            <template #prefix>
+              <n-icon><search-outline /></n-icon>
+            </template>
+          </n-input>
+        </div>
+      </div>
 
-    <n-card title="历史回测" :bordered="false" size="small" style="margin-top: 16px">
       <n-data-table
         :columns="listColumns"
         :data="listItems"
@@ -26,65 +49,76 @@
       />
     </n-card>
 
-    <template v-if="detailRun">
-      <n-card title="汇总指标" :bordered="false" size="small" style="margin-top: 16px">
-        <RegimeBacktestSummaryCards :run="detailRun" />
-      </n-card>
+    <!-- 新建弹窗 -->
+    <RegimeBacktestCreateModal
+      v-model:show="showCreateModal"
+      @success="handleCreateSuccess"
+    />
 
-      <n-card title="净值曲线" :bordered="false" size="small" style="margin-top: 16px">
-        <n-spin :show="dailyLoading">
-          <RegimeBacktestNavChart
-            v-if="dailyRows.length > 0"
-            :rows="dailyRows"
-            :initial-capital="detailInitialCapital"
-          />
-          <n-empty v-else description="暂无净值数据" />
-        </n-spin>
-      </n-card>
-
-      <n-card title="交易明细" :bordered="false" size="small" style="margin-top: 16px">
-        <n-spin :show="tradesLoading">
-          <RegimeBacktestTradesTable v-if="tradesRows.length > 0" :trades="tradesRows" />
-          <n-empty v-else description="暂无交易数据" />
-        </n-spin>
-      </n-card>
-    </template>
+    <!-- 详情抽屉 -->
+    <RegimeBacktestDetailDrawer
+      v-model:show="showDetailDrawer"
+      :run="detailRun"
+      :daily="dailyRows"
+      :daily-loading="dailyLoading"
+      :trades="tradesRows"
+      :trades-loading="tradesLoading"
+      :initial-capital="detailInitialCapital"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import {
   NButton,
   NCard,
   NDataTable,
-  NEmpty,
-  NSpin,
+  NIcon,
+  NInput,
+  NSelect,
   NTag,
   NProgress,
   useMessage,
   type DataTableColumns,
 } from 'naive-ui'
+import { AddOutline, SearchOutline } from '@vicons/ionicons5'
 import {
-  regimeEngineApi,
   regimeBacktestApi,
-  type RegimeStrategyConfig,
   type RegimeBacktestRun,
   type RegimeBacktestDaily,
   type RegimeBacktestTrade,
 } from '@/api/modules/strategy/regimeEngine'
-import RegimeBacktestCreateForm from '@/components/strategy/regime-backtest/RegimeBacktestCreateForm.vue'
-import RegimeBacktestSummaryCards from '@/components/strategy/regime-backtest/RegimeBacktestSummaryCards.vue'
-import RegimeBacktestNavChart from '@/components/strategy/regime-backtest/RegimeBacktestNavChart.vue'
-import RegimeBacktestTradesTable from '@/components/strategy/regime-backtest/RegimeBacktestTradesTable.vue'
+import RegimeBacktestCreateModal from '@/components/strategy/regime-backtest/RegimeBacktestCreateModal.vue'
+import RegimeBacktestDetailDrawer from '@/components/strategy/regime-backtest/RegimeBacktestDetailDrawer.vue'
 
 const message = useMessage()
 
-const createFormRef = ref<InstanceType<typeof RegimeBacktestCreateForm> | null>(null)
+// ── 筛选状态（双 buffer） ───────────────────────────────────────────────
+const filterStatusDraft = ref<string | null>(null)
+const filterKeywordDraft = ref('')
+const filterStatusApplied = ref<string | null>(null)
+const filterKeywordApplied = ref('')
 
-const configs = ref<RegimeStrategyConfig[]>([])
-const creating = ref(false)
+const statusOptions = [
+  { label: '等待中', value: 'pending' },
+  { label: '运行中', value: 'running' },
+  { label: '已完成', value: 'completed' },
+  { label: '失败', value: 'failed' },
+]
 
+function applyFilters() {
+  filterStatusApplied.value = filterStatusDraft.value
+  filterKeywordApplied.value = filterKeywordDraft.value
+  listPage.value = 1
+  void loadList()
+}
+
+// ── 弹窗 / 抽屉显隐 ────────────────────────────────────────────────────
+const showCreateModal = ref(false)
+const showDetailDrawer = ref(false)
+
+// ── 列表数据 ────────────────────────────────────────────────────────────
 const listItems = ref<RegimeBacktestRun[]>([])
 const listTotal = ref(0)
 const listLoading = ref(false)
@@ -103,6 +137,27 @@ const listPagination = computed(() => ({
   },
 }))
 
+async function loadList() {
+  listLoading.value = true
+  try {
+    const result = await regimeBacktestApi.list(listPage.value, listPageSize, {
+      status: filterStatusApplied.value || undefined,
+      keyword: filterKeywordApplied.value || undefined,
+    })
+    listItems.value = result.items
+    listTotal.value = result.total
+    result.items
+      .filter((r) => r.status === 'running' || r.status === 'pending')
+      .forEach((r) => startPolling(r.id))
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '加载失败'
+    message.error(msg)
+  } finally {
+    listLoading.value = false
+  }
+}
+
+// ── 详情数据 ────────────────────────────────────────────────────────────
 const detailRun = ref<RegimeBacktestRun | null>(null)
 const detailInitialCapital = ref(1000000)
 const dailyRows = ref<RegimeBacktestDaily[]>([])
@@ -110,8 +165,109 @@ const dailyLoading = ref(false)
 const tradesRows = ref<RegimeBacktestTrade[]>([])
 const tradesLoading = ref(false)
 
+async function loadDetail(id: string) {
+  dailyLoading.value = true
+  tradesLoading.value = true
+  try {
+    const [run, daily, trades] = await Promise.all([
+      regimeBacktestApi.get(id),
+      regimeBacktestApi.listDaily(id),
+      regimeBacktestApi.listTrades(id),
+    ])
+    detailRun.value = run
+    const ic = run.config?.capital?.initialCapital
+    if (typeof ic === 'number' && Number.isFinite(ic) && ic > 0) {
+      detailInitialCapital.value = ic
+    }
+    dailyRows.value = daily
+    tradesRows.value = trades
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '加载详情失败'
+    message.error(msg)
+  } finally {
+    dailyLoading.value = false
+    tradesLoading.value = false
+  }
+}
+
+async function showDetail(run: RegimeBacktestRun) {
+  showDetailDrawer.value = true
+  detailRun.value = run
+  dailyRows.value = []
+  tradesRows.value = []
+  await loadDetail(run.id)
+}
+
+// ── 轮询进度 ────────────────────────────────────────────────────────────
 const progressTimers = ref<Map<string, ReturnType<typeof setInterval>>>(new Map())
 
+function startPolling(id: string) {
+  stopPolling(id)
+  const timer = setInterval(async () => {
+    try {
+      const progress = await regimeBacktestApi.getProgress(id)
+      const run = listItems.value.find((r) => r.id === id)
+      if (run) {
+        run.status = progress.status
+        run.phase = progress.phase
+        run.progressDone = progress.progressDone
+        run.progressTotal = progress.progressTotal
+        run.errorMessage = progress.errorMessage
+      }
+      if (progress.status === 'completed' || progress.status === 'failed') {
+        stopPolling(id)
+        if (progress.status === 'completed') {
+          message.success('回测完成')
+        } else {
+          message.error(progress.errorMessage ?? '回测失败')
+        }
+        await loadList()
+        if (detailRun.value?.id === id) {
+          await loadDetail(id)
+        }
+      }
+    } catch {
+      stopPolling(id)
+    }
+  }, 2000)
+  progressTimers.value.set(id, timer)
+}
+
+function stopPolling(id: string) {
+  const t = progressTimers.value.get(id)
+  if (t) {
+    clearInterval(t)
+    progressTimers.value.delete(id)
+  }
+}
+
+// ── 操作：删除 ──────────────────────────────────────────────────────────
+async function handleRemove(id: string) {
+  stopPolling(id)
+  try {
+    await regimeBacktestApi.remove(id)
+    message.success('已删除')
+    if (detailRun.value?.id === id) {
+      detailRun.value = null
+      dailyRows.value = []
+      tradesRows.value = []
+      showDetailDrawer.value = false
+    }
+    await loadList()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '删除失败'
+    message.error(msg)
+  }
+}
+
+// ── 操作：创建成功回调 ─────────────────────────────────────────────────
+function handleCreateSuccess(run: RegimeBacktestRun) {
+  startPolling(run.id)
+  listPage.value = 1
+  void loadList()
+}
+
+// ── 列定义 ────────────────────────────────────────────────────────────
 function statusLabel(run: RegimeBacktestRun): string {
   switch (run.status) {
     case 'pending': return '等待中'
@@ -147,9 +303,10 @@ const listColumns: DataTableColumns<RegimeBacktestRun> = [
   },
   {
     title: '版本',
-    key: 'configVersion',
+    key: 'regimeConfigVersion',
     width: 60,
-    render: (row) => `v${row.configVersion}`,
+    render: (row) =>
+      row.regimeConfigVersion == null ? '内联' : `v${row.regimeConfigVersion}`,
   },
   {
     title: '区间',
@@ -223,140 +380,9 @@ const listColumns: DataTableColumns<RegimeBacktestRun> = [
   },
 ]
 
-async function loadConfigs() {
-  try {
-    configs.value = await regimeEngineApi.listConfigs()
-  } catch {
-    // 非致命
-  }
-}
-
-async function loadList() {
-  listLoading.value = true
-  try {
-    const result = await regimeBacktestApi.list(listPage.value, listPageSize)
-    listItems.value = result.items
-    listTotal.value = result.total
-    result.items
-      .filter((r) => r.status === 'running' || r.status === 'pending')
-      .forEach((r) => startPolling(r.id))
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : '加载失败'
-    message.error(msg)
-  } finally {
-    listLoading.value = false
-  }
-}
-
-async function handleCreateAndRun() {
-  const fd = createFormRef.value?.getFormData()
-  if (!fd || !fd.regimeConfigId || !fd.dateStart || !fd.dateEnd) {
-    message.warning('请填写完整参数')
-    return
-  }
-  creating.value = true
-  try {
-    const run = await regimeBacktestApi.create(fd)
-    message.success(`回测已创建：${run.name}`)
-    startPolling(run.id)
-    await nextTick()
-    listPage.value = 1
-    await loadList()
-    await regimeBacktestApi.run(run.id)
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : '创建失败'
-    message.error(msg)
-  } finally {
-    creating.value = false
-  }
-}
-
-function startPolling(id: string) {
-  stopPolling(id)
-  const timer = setInterval(async () => {
-    try {
-      const progress = await regimeBacktestApi.getProgress(id)
-      const run = listItems.value.find((r) => r.id === id)
-      if (run) {
-        run.status = progress.status
-        run.phase = progress.phase
-        run.progressDone = progress.progressDone
-        run.progressTotal = progress.progressTotal
-        run.errorMessage = progress.errorMessage
-      }
-      if (progress.status === 'completed' || progress.status === 'failed') {
-        stopPolling(id)
-        if (progress.status === 'completed') {
-          message.success('回测完成')
-        } else {
-          message.error(progress.errorMessage ?? '回测失败')
-        }
-        await loadList()
-        if (detailRun.value?.id === id) {
-          await loadDetail(id)
-        }
-      }
-    } catch {
-      stopPolling(id)
-    }
-  }, 2000)
-  progressTimers.value.set(id, timer)
-}
-
-function stopPolling(id: string) {
-  const t = progressTimers.value.get(id)
-  if (t) {
-    clearInterval(t)
-    progressTimers.value.delete(id)
-  }
-}
-
-async function showDetail(run: RegimeBacktestRun) {
-  detailRun.value = run
-  dailyRows.value = []
-  tradesRows.value = []
-  await loadDetail(run.id)
-}
-
-async function loadDetail(id: string) {
-  try {
-    const [run, daily, trades] = await Promise.all([
-      regimeBacktestApi.get(id),
-      regimeBacktestApi.listDaily(id),
-      regimeBacktestApi.listTrades(id),
-    ])
-    detailRun.value = run
-    dailyRows.value = daily
-    tradesRows.value = trades
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : '加载详情失败'
-    message.error(msg)
-  }
-}
-
-async function handleRemove(id: string) {
-  stopPolling(id)
-  try {
-    await regimeBacktestApi.remove(id)
-    message.success('已删除')
-    if (detailRun.value?.id === id) {
-      detailRun.value = null
-      dailyRows.value = []
-      tradesRows.value = []
-    }
-    await loadList()
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : '删除失败'
-    message.error(msg)
-  }
-}
-
-watch(listPage, () => {
-  void loadList()
-})
-
+// ── 生命周期 ────────────────────────────────────────────────────────────
 onMounted(async () => {
-  await Promise.all([loadConfigs(), loadList()])
+  await loadList()
 })
 
 onUnmounted(() => {
@@ -366,12 +392,8 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.regime-backtest-view {
-  padding: 16px;
-}
-
-.page-subtitle {
-  margin: 6px 0 0;
-  color: var(--color-text-secondary);
-}
+.regime-backtest-view { padding: 16px; }
+.page-subtitle { margin: 6px 0 0; color: var(--color-text-secondary); }
+.regime-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; }
+.regime-filters { display: flex; gap: 8px; align-items: center; }
 </style>

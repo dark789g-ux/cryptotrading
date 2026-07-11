@@ -530,6 +530,61 @@ describe('OneClickSyncOrchestratorService', () => {
     expect(repo.rows[0].cancelRequested).toBe(true);
   });
 
+  it('AbortController 即时中断当前步（普通 await 类 throw AbortError）→ run cancelled，后续步 skipped', async () => {
+    // 模拟 industry-amv（Step9，普通 await）正在执行时收到 cancel：
+    // mock 阻塞到 signal abort 才抛 AbortError → rethrowIfAbort 放行 → 编排器裁决 cancelled。
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    // industry-amv（Step9）：返回一个"阻塞到 signal abort 才 reject(AbortError)"的 Promise，
+    // 真实模拟底层 service 在循环中检测到 signal.aborted 后抛 AbortError。
+    mocks.activeMv.syncIndustry = jest.fn((opts: { signal?: AbortSignal }) => {
+      return new Promise<{ synced: number }>((_resolve, reject) => {
+        if (opts?.signal?.aborted) {
+          reject(new DOMException('Sync aborted', 'AbortError'));
+          return;
+        }
+        opts?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('Sync aborted', 'AbortError'));
+        }, { once: true });
+        // 不主动 resolve：等 abort 触发 reject（模拟长耗时步骤）
+      });
+    });
+    const svc = await buildModule(mocks, repo);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
+    // 等到 Step9（industry-amv）进入 running（前 8 步 mock 快速成功）。
+    await flushUntil(() => repo.rows[0]?.steps?.[9]?.status === 'running');
+    // 此时 Step9 的 mock Promise 正在等待 abort。cancel 触发 abort → mock reject(AbortError)。
+    await svc.cancelRun(run.id);
+
+    await flushUntil(() => repo.rows[0]?.status !== 'running');
+
+    const statuses = statusesOf(repo, run.id);
+    // 前面完成的步骤保持原态（base-data..etf-mf = 0..8 成功）
+    expect(statuses[8]).toBe('success');
+    // 取消优先：被中断的当前步（industry-amv，idx 9）及之后全标 skipped（不显 failed）
+    expect(statuses[9]).toBe('skipped');
+    expect(statuses[10]).toBe('skipped');
+    expect(statuses[12]).toBe('skipped');
+    expect(repo.rows[0].status).toBe('cancelled');
+    expect(repo.rows[0].finishedAt).not.toBeNull();
+  });
+
+  it('AbortController Map 在编排结束后清理（无内存泄漏）', async () => {
+    const repo = makeInMemoryRepo();
+    const mocks = happyMocks();
+    const svc = await buildModule(mocks, repo);
+    const run = await svc.startRun('20260601', '20260610', {}, null);
+    await flushUntil(() => repo.rows[0]?.status !== 'running');
+    // 编排正常结束后 Map 不应残留该 run 的 controller
+    // （私有字段，通过 cancelRun 不再能 abort 验证——但更直接的是确保 finalize 路径清理了）
+    // 这里验证：终态已写入，且可正常再 startRun（不因残留 controller 卡住）
+    expect(repo.rows[0].status).toBe('success');
+    const run2 = await svc.startRun('20260701', '20260710', {}, null);
+    expect(run2.id).not.toBe(run.id);
+    await flushUntil(() => repo.rows[1]?.status !== 'running');
+    expect(repo.rows[1].status).toBe('success');
+  });
+
   it('单飞：已有 running 时 startRun 复用不新建', async () => {
     const repo = makeInMemoryRepo();
     const mocks = happyMocks();
@@ -724,12 +779,12 @@ describe('OneClickSyncOrchestratorService', () => {
     expect(mocks.etf.sync).toHaveBeenCalledWith(
       expect.objectContaining({ syncMode: 'overwrite' }),
     );
-    // etfAmv.sync / etfMf.sync 签名是 (etfCodes, startDate, endDate, syncMode, onProgress?)
+    // etfAmv.sync / etfMf.sync 签名是 (etfCodes, startDate, endDate, syncMode, onProgress?, signal?)
     expect(mocks.etfAmv.sync).toHaveBeenCalledWith(
-      expect.any(Array), '20260601', '20260610', 'overwrite', expect.any(Function),
+      expect.any(Array), '20260601', '20260610', 'overwrite', expect.any(Function), expect.any(AbortSignal),
     );
     expect(mocks.etfMf.sync).toHaveBeenCalledWith(
-      expect.any(Array), '20260601', '20260610', 'overwrite', expect.any(Function),
+      expect.any(Array), '20260601', '20260610', 'overwrite', expect.any(Function), expect.any(AbortSignal),
     );
     // market-index-daily 也透传（runner 加了 syncMode 字段，service 实际不读，但调用应包含）
     expect(mocks.marketIndexSync.sync).toHaveBeenCalledWith(

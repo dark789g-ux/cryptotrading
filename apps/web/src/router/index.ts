@@ -24,8 +24,8 @@ const routes: any[] = [
   {
     path: '/backtest',
     name: 'backtest',
-    component: () => import('../views/strategy/BacktestView.vue'),
-    meta: { title: '回测' },
+    component: () => import('../views/strategy/BacktestHubView.vue'),
+    meta: { title: '策略回测' },
   },
   {
     path: '/symbols',
@@ -65,15 +65,11 @@ const routes: any[] = [
   },
   {
     path: '/regime-backtest',
-    name: 'regime-backtest',
-    component: () => import('../views/strategy/RegimeBacktestView.vue'),
-    meta: { title: 'Regime 回测' },
+    redirect: { name: 'backtest' },
   },
   {
     path: '/regime-config',
-    name: 'regime-config',
-    component: () => import('../views/strategy/RegimeConfigView.vue'),
-    meta: { title: 'Regime 配置管理', adminOnly: true },
+    redirect: { name: 'backtest' },
   },
   {
     path: '/daily-review',

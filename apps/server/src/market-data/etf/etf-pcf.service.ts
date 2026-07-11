@@ -38,6 +38,7 @@ export class EtfPcfService {
     tradeDate: string,
     syncMode?: 'incremental' | 'overwrite',
     onProgress?: EtfSyncOnProgress,
+    signal?: AbortSignal,
   ): Promise<EtfSyncResult> {
     const pcfRepo = this.dataSource.getRepository(EtfPcfEntity);
     let totalRows = 0;
@@ -68,6 +69,7 @@ export class EtfPcfService {
     // ── 首轮 ──
     const failedCodes: string[] = [];
     for (let i = 0; i < todo.length; i++) {
+      if (signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
       const r = await this.fetchAndPersistOne(pcfRepo, todo[i], tradeDate, i, todo.length);
       totalRows += r.rows;
       errors.push(...r.clientErrors);
@@ -86,6 +88,7 @@ export class EtfPcfService {
     if (failedCodes.length > 0) {
       this.logger.warn(`[etf-pcf] 首轮失败 ${failedCodes.length} 只，二轮重试`);
       for (let i = 0; i < failedCodes.length; i++) {
+        if (signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
         const r = await this.fetchAndPersistOne(pcfRepo, failedCodes[i], tradeDate, i, failedCodes.length);
         totalRows += r.rows;
         errors.push(...r.clientErrors);

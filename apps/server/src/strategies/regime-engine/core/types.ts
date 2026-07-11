@@ -72,4 +72,9 @@ export type SkipReason =
   | 'sized_out' // 仓位算出来 ≈0
   | 'regime_flat' // regime 当日不开仓
   | 'budget_full' // 1 - positionRatio * n <= 0，开仓停开（非强平）
-  | 'not_top1'; // 同日排序未入选（审计行；未进引擎）
+  | 'profit_gate' // requireAllPositionsProfitable：现存持仓未全部盈利
+  | 'not_top1' // 同日排序未入选（审计行；未进引擎）
+  | 'suspended' // 买入日停牌 / 无有效开盘价
+  | 'limit_up' // 一字涨停不可买
+  | 'new_listing' // 次新股过滤
+  | 'insufficient_data'; // 持有窗口为空或缺少出场所需字段

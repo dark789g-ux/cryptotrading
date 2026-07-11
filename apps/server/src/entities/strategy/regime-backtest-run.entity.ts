@@ -26,8 +26,8 @@ export class RegimeBacktestRunEntity {
   @JoinColumn({ name: 'regime_config_id' })
   regimeConfig: RegimeStrategyConfigEntity | null;
 
-  @Column({ type: 'int', name: 'regime_config_version' })
-  regimeConfigVersion: number;
+  @Column({ type: 'int', nullable: true, name: 'regime_config_version' })
+  regimeConfigVersion: number | null;
 
   @Column({ type: 'varchar', length: 200 })
   name: string;

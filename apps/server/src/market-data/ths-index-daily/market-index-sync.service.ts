@@ -40,6 +40,8 @@ export interface MarketIndexSyncDto {
   end_date: string;
   /** 同步模式（本 service 为 no-op，见类注释）；与一键同步 ctx.syncMode 形态对齐 */
   syncMode?: 'incremental' | 'overwrite';
+  /** 中断信号：在内层循环体和指标重算前检查，支持一键同步取消。 */
+  signal?: AbortSignal;
 }
 
 export interface MarketIndexSyncErrorItem {
@@ -84,6 +86,7 @@ export class MarketIndexSyncService {
     // syncMode 对本 service 为 no-op（无跳过逻辑，逐指数全量重拉 + upsert 即覆盖）；
     // 此处仅记录模式，便于排查与一键同步 API 形态对齐。
     const syncMode = dto.syncMode ?? 'incremental';
+    const signal = dto.signal;
     this.logger.log(
       `[market-index] syncMode=${syncMode}（no-op：本 service 无增量跳过，逐指数全量重拉 + upsert）`,
     );
@@ -126,6 +129,7 @@ export class MarketIndexSyncService {
 
     for (const tsCode of allTsCodes) {
       for (const seg of segments) {
+        if (signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
         let rows: RawRow[] = [];
         try {
           rows = (await runWithRetry(
@@ -200,6 +204,7 @@ export class MarketIndexSyncService {
 
     // 指标重算（MA/MACD/KDJ/BBI/BRICK，复用 ThsIndexDailyIndicatorService，它读 index_daily_quotes）
     for (const tsCode of affected) {
+      if (signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
       // 0AMV 基准指数（EXTRA_OAMV_CODES）自治指标（OamvService.recomputeIndicatorsAll），跳过 MA/MACD/KDJ 重算。
       if (EXTRA_OAMV_CODES.includes(tsCode)) continue;
       try {

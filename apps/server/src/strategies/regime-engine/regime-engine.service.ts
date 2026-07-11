@@ -33,7 +33,7 @@ import { IndexDailyIndicatorEntity } from '../../entities/index-daily/index-dail
 import { StrategyConditionItem } from '../../entities/strategy/strategy-condition.entity';
 import { StrategyConditionsQueryBuilder } from '../../strategy-conditions/strategy-conditions.query-builder';
 import { buildEnumerateQuery } from '../../strategy-conditions/strategy-conditions.enumerator';
-import { classifyRegime, RegimeResult } from './regime.classifier';
+import { classifyRegime, isSingleWildcardQuadrant, RegimeResult } from './regime.classifier';
 import { validateRegimeConfig } from './regime-engine.validation';
 import {
   CreateRegimeConfigDto,
@@ -326,6 +326,11 @@ export class RegimeEngineService {
     tradeDate: string,
     config: RegimeConfigMap,
   ): Promise<MarketSnapshot | null> {
+    // 单象限空 match（通配）：无需加载任何大盘数据，返回最小 snapshot，由 classifyRegime 通配命中。
+    if (isSingleWildcardQuadrant(config.quadrants)) {
+      return { date: tradeDate, targets: new Map() };
+    }
+
     const indexTargets = new Set<string>();
     let hasStockBucket = false;
     for (const q of config.quadrants ?? []) {

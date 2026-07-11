@@ -74,6 +74,7 @@ export class BaseDataSyncService {
    * 同步入口（不发 SSE，返回汇总结果）。串行 4 步，依赖顺序硬保证。
    */
   async sync(dto: SyncDto, onProgress?: (event: SyncEvent) => void): Promise<SyncResult> {
+    const { signal } = dto;
     const errors: ErrorItem[] = [];
     // 预期正常的空日（仅 suspend_d 当日无停复牌）—— 与 errors 分桶，不计入"失败 N 项"。
     const warnings: ErrorItem[] = [];
@@ -81,6 +82,7 @@ export class BaseDataSyncService {
     const rangeParams = { start_date: dto.start_date, end_date: dto.end_date };
 
     // ── Step1 trade_cal ────────────────────────────────────────────
+    if (signal?.aborted) return { success, skipped: 0, errors, warnings };
     onProgress?.({
       type: 'progress',
       phase: 'trade_cal',
@@ -143,6 +145,7 @@ export class BaseDataSyncService {
 
     // ── Step3 stk_limit 逐开市日 ───────────────────────────────────
     for (let i = 0; i < openDates.length; i++) {
+      if (signal?.aborted) break;
       const tradeDate = openDates[i];
       const params = { trade_date: tradeDate };
       onProgress?.({
@@ -211,6 +214,7 @@ export class BaseDataSyncService {
 
     // ── Step4 suspend_d 逐开市日 ───────────────────────────────────
     for (let i = 0; i < openDates.length; i++) {
+      if (signal?.aborted) break;
       const tradeDate = openDates[i];
       const params = { trade_date: tradeDate };
       onProgress?.({
@@ -306,12 +310,13 @@ export class BaseDataSyncService {
     setTimeout(async () => {
       try {
         const result = await this.sync(dto, (e) => subject.next(e));
-        // 失败判定只看 errors；warnings（正常空日）仅作文案补充，不影响"X 项失败"措辞。
+        // 中断时：已拉数据不丢，走正常完成路径（push done 事件 + complete）
+        const abortMsg = dto.signal?.aborted ? '（已取消）' : '';
         const failPart = result.errors.length ? `，${result.errors.length} 项失败` : '';
         const warnPart = result.warnings.length ? `，${result.warnings.length} 项空日警告` : '';
         subject.next({
           type: 'done',
-          message: `同步完成${failPart}${warnPart}`,
+          message: `同步完成${abortMsg}${failPart}${warnPart}`,
           result,
         });
         subject.complete();

@@ -2,15 +2,18 @@
 
 覆盖：
 - 三步顺序调用 run_us_sync → run_us_index_sync → run_us_index_amv_sync。
-- 每步对子调用一律传 job_id=None（编排器独占 update_progress）。
+- 每步对子调用传真实 job_id + _suppress_progress=True（激活子级取消检查，但抑制子级
+  进度写入，编排器独占 update_progress）。
 - result_payload schema 严格对齐 spec 01：顶层字段 / steps[] / logs[] 形态、step key、
   rowsWritten 取各 outcome 真实字段、failed_items+errors 映射成 errors[]。
 - 时间戳一律 epoch ms 整数。
 - 进度 step_base ∈ {0,33,66}，每步结束写 base+33（0→33→66→100），stage 写步名。
 - capped_end 经 cap_to_last_closed_session。
 - 失败不中断：某步抛硬异常 → 该步 failed + 记 error + 后续步仍执行。
+- JobCancelled 从子 orchestrator 冒泡（不被 _run_step 的 except 吞掉）。
 - 取消：step2 前 check_cancel True → 抛 JobCancelled + result_payload cancelled=true、
   未完成步 skipped（抛前写库一次）。
+- 子 orchestrator 内部取消：子级抛 JobCancelled → 冒泡到 dispatcher。
 - logs ≤200 截断。
 - 致命错误（date_range 非法）→ 抛异常（让 dispatcher 置 failed）。
 
@@ -126,19 +129,22 @@ def _step(payload, key):
 
 
 # ===========================================================================
-# 三步顺序 + job_id=None + date_range 透传
+# 三步顺序 + job_id 透传 + _suppress_progress=True + date_range 透传
 # ===========================================================================
-def test_three_steps_called_in_order_with_job_id_none() -> None:
+def test_three_steps_called_in_order_with_real_job_id() -> None:
     r = _run()
     assert r["exc"] is None
     # 三个子调用都被调一次
     r["us_mock"].assert_called_once()
     r["idx_mock"].assert_called_once()
     r["amv_mock"].assert_called_once()
-    # 每步对子调用一律传 job_id=None
-    assert r["us_mock"].call_args.kwargs["job_id"] is None
-    assert r["idx_mock"].call_args.kwargs["job_id"] is None
-    assert r["amv_mock"].call_args.kwargs["job_id"] is None
+    # 每步对子调用传真实 job_id（激活子级取消检查）+ _suppress_progress=True
+    assert r["us_mock"].call_args.kwargs["job_id"] is not None
+    assert r["us_mock"].call_args.kwargs["_suppress_progress"] is True
+    assert r["idx_mock"].call_args.kwargs["job_id"] is not None
+    assert r["idx_mock"].call_args.kwargs["_suppress_progress"] is True
+    assert r["amv_mock"].call_args.kwargs["job_id"] is not None
+    assert r["amv_mock"].call_args.kwargs["_suppress_progress"] is True
 
 
 def test_subcall_date_range_uses_retention_start_and_capped_end() -> None:
@@ -400,6 +406,32 @@ def test_cancel_before_step1_marks_all_skipped() -> None:
     for s in final["steps"]:
         assert s["status"] == "skipped"
     r["us_mock"].assert_not_called()
+
+
+# ===========================================================================
+# 子 orchestrator 内部取消：JobCancelled 从子级冒泡（不被 _run_step 吞掉）
+# ===========================================================================
+def test_sub_orchestrator_job_cancelled_propagates() -> None:
+    """子 orchestrator 内部（逐 ticker 循环）抛 JobCancelled → 冒泡到顶层，不吞掉。"""
+    r = _run(us_side_effect=JobCancelled("user cancelled"))
+    assert isinstance(r["exc"], JobCancelled)
+    # step1 仍在 running 态（因为 JobCancelled 被子级抛出，_run_step 来不及标 failed）
+    # 后续 step2/step3 未开始 → pending
+    final = r["final"]
+    assert _step(final, "us-stocks")["status"] == "running"
+    assert _step(final, "us-index-daily")["status"] == "pending"
+    assert _step(final, "us-index-amv")["status"] == "pending"
+
+
+def test_sub_orchestrator_job_cancelled_at_step2_propagates() -> None:
+    """step2 子 orchestrator 内部抛 JobCancelled → 冒泡。"""
+    r = _run(idx_side_effect=JobCancelled("user cancelled"))
+    assert isinstance(r["exc"], JobCancelled)
+    final = r["final"]
+    assert _step(final, "us-stocks")["status"] == "success"
+    assert _step(final, "us-index-daily")["status"] == "running"
+    assert _step(final, "us-index-amv")["status"] == "pending"
+    r["amv_mock"].assert_not_called()
 
 
 # ===========================================================================

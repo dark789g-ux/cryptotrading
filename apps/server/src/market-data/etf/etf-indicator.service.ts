@@ -33,7 +33,7 @@ export class EtfIndicatorService {
    * 重算指定 ETF 列表的技术指标。
    * 全量重算每个 ts_code 的所有已有日线对应的指标。
    */
-  async recalculateIndicators(etfCodes: string[], onProgress?: EtfSyncOnProgress): Promise<EtfSyncResult> {
+  async recalculateIndicators(etfCodes: string[], onProgress?: EtfSyncOnProgress, signal?: AbortSignal): Promise<EtfSyncResult> {
     const indicatorRepo = this.dataSource.getRepository(FundDailyIndicatorEntity);
     const errors: EtfSyncErrorItem[] = [];
     let totalWritten = 0;
@@ -41,6 +41,7 @@ export class EtfIndicatorService {
     const total = etfCodes.length;
 
     for (let i = 0; i < etfCodes.length; i++) {
+      if (signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
       const tsCode = etfCodes[i];
       try {
         const count = await this.recalculateForSymbol(tsCode, indicatorRepo);
