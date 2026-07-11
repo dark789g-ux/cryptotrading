@@ -49,6 +49,8 @@ export interface QuadrantEntry {
   rankField?: string | null;
   /** rankField≠none 时必填 */
   rankDir?: 'asc' | 'desc' | null;
+  /** trade 可选：仅当全部现存持仓盈利时才开新仓；缺省 false */
+  requireAllPositionsProfitable?: boolean;
   /** 研究证据（可选）。 */
   evidence?: Record<string, unknown> | null;
   /** optional extra config */

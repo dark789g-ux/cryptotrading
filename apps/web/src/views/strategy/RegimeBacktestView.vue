@@ -55,8 +55,8 @@
       @success="handleCreateSuccess"
     />
 
-    <!-- 详情抽屉 -->
-    <RegimeBacktestDetailDrawer
+    <!-- 详情弹窗 -->
+    <RegimeBacktestDetailModal
       v-model:show="showDetailDrawer"
       :run="detailRun"
       :daily="dailyRows"
@@ -90,7 +90,7 @@ import {
   type RegimeBacktestTrade,
 } from '@/api/modules/strategy/regimeEngine'
 import RegimeBacktestCreateModal from '@/components/strategy/regime-backtest/RegimeBacktestCreateModal.vue'
-import RegimeBacktestDetailDrawer from '@/components/strategy/regime-backtest/RegimeBacktestDetailDrawer.vue'
+import RegimeBacktestDetailModal from '@/components/strategy/regime-backtest/RegimeBacktestDetailModal.vue'
 
 const message = useMessage()
 

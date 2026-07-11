@@ -34,6 +34,8 @@ export interface QuadrantEntry {
   rankField?: string | null
   /** rankField≠none 时必填；none 时为 null */
   rankDir?: 'asc' | 'desc' | null
+  /** trade 可选：仅当全部现存持仓盈利时才开新仓；缺省 false */
+  requireAllPositionsProfitable?: boolean
 }
 
 export interface RegimeUniverse {

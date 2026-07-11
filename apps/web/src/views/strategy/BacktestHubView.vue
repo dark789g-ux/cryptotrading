@@ -45,9 +45,8 @@
         :pagination="pagination"
         :bordered="false"
         size="small"
-        :scroll-x="1040"
+        :scroll-x="1100"
         :row-key="(r: HubBacktestRow) => r.key"
-        :row-props="rowProps"
       />
     </n-card>
 
@@ -70,7 +69,7 @@
       @success="() => void reload()"
     />
 
-    <RegimeBacktestDetailDrawer
+    <RegimeBacktestDetailModal
       v-model:show="ashareShowDetail"
       :run="ashareDetailRun"
       :daily="ashareDaily"
@@ -80,25 +79,22 @@
       :initial-capital="ashareInitialCapital"
     />
 
-    <n-drawer
+    <n-modal
       v-model:show="cryptoShowDetail"
-      width="min(1600px, 96vw)"
-      placement="right"
-      :mask-closable="false"
-      class="glass-drawer"
+      preset="card"
+      :title="cryptoSelected ? `回测详情 · ${cryptoSelected.name}` : '回测详情'"
+      :bordered="false"
+      :segmented="{ content: true }"
+      style="width: min(1600px, 96vw)"
+      :content-style="{ maxHeight: '80vh', overflow: 'auto' }"
     >
-      <n-drawer-content
-        :title="cryptoSelected ? `回测详情 · ${cryptoSelected.name}` : ''"
-        closable
-      >
-        <BacktestDetail
-          v-if="cryptoSelected"
-          :strategy="cryptoSelected"
-          :run="cryptoLatestRun"
-          :loading="cryptoDetailLoading"
-        />
-      </n-drawer-content>
-    </n-drawer>
+      <BacktestDetail
+        v-if="cryptoSelected"
+        :strategy="cryptoSelected"
+        :run="cryptoLatestRun"
+        :loading="cryptoDetailLoading"
+      />
+    </n-modal>
 
     <n-modal
       v-model:show="cryptoShowProgress"
@@ -140,7 +136,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
 import {
-  NButton, NCard, NDataTable, NDrawer, NDrawerContent, NIcon, NInput,
+  NButton, NCard, NDataTable, NIcon, NInput,
   NModal, NProgress, NRadioButton, NRadioGroup, NSelect, NTag,
   type DataTableColumns,
 } from 'naive-ui'
@@ -152,7 +148,7 @@ import BacktestCreateWizardModal from '@/components/backtest/BacktestCreateWizar
 import StrategyModal from '@/components/backtest/StrategyModal.vue'
 import BacktestDetail from '@/components/backtest/BacktestDetail.vue'
 import RegimeBacktestCreateModal from '@/components/strategy/regime-backtest/RegimeBacktestCreateModal.vue'
-import RegimeBacktestDetailDrawer from '@/components/strategy/regime-backtest/RegimeBacktestDetailDrawer.vue'
+import RegimeBacktestDetailModal from '@/components/strategy/regime-backtest/RegimeBacktestDetailModal.vue'
 import { useHubAshareBacktest } from '@/composables/backtest/useHubAshareBacktest'
 import { useHubCryptoBacktest } from '@/composables/backtest/useHubCryptoBacktest'
 
@@ -242,16 +238,6 @@ const pagination = computed(() => {
   }
 })
 
-function rowProps(row: HubBacktestRow) {
-  return {
-    style: 'cursor: pointer',
-    onClick: () => {
-      if (row.market === 'ashare') void ashare.openDetail(row.id)
-      else void crypto.openDetail(row.id)
-    },
-  }
-}
-
 const listColumns: DataTableColumns<HubBacktestRow> = [
   {
     title: '市场', key: 'market', width: 72, fixed: 'left',
@@ -289,13 +275,17 @@ const listColumns: DataTableColumns<HubBacktestRow> = [
     render: (row) => (row.createdAt ? new Date(row.createdAt).toLocaleString('zh-CN') : '-'),
   },
   {
-    title: '操作', key: 'actions', width: 168, fixed: 'right',
+    title: '操作', key: 'actions', width: 220, fixed: 'right',
     render: (row) => {
       if (row.market === 'ashare') {
         const running = ashare.pollingIds.value.has(row.id) || row.statusType === 'info'
         const runDisabled = !ashare.canRun(row.id)
         const editDisabled = !ashare.canEdit(row.id)
-        return h('div', { style: 'display:flex;gap:4px', onClick: (e: Event) => e.stopPropagation() }, [
+        return h('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' }, [
+          h(NButton, {
+            size: 'tiny', quaternary: true,
+            onClick: () => void ashare.openDetail(row.id),
+          }, { default: () => '详情' }),
           h(NButton, {
             size: 'tiny', quaternary: true, type: 'primary',
             disabled: runDisabled,
@@ -313,7 +303,11 @@ const listColumns: DataTableColumns<HubBacktestRow> = [
         ])
       }
       const running = crypto.pollingIds.value.has(row.id)
-      return h('div', { style: 'display:flex;gap:4px', onClick: (e: Event) => e.stopPropagation() }, [
+      return h('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' }, [
+        h(NButton, {
+          size: 'tiny', quaternary: true,
+          onClick: () => void crypto.openDetail(row.id),
+        }, { default: () => '详情' }),
         h(NButton, {
           size: 'tiny', quaternary: true, type: 'primary',
           onClick: () => void crypto.openRun(row.id, row.name),

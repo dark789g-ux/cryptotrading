@@ -6,7 +6,6 @@ import type {
 } from '@/api/modules/strategy/regimeEngine'
 
 export interface RegimeCapitalFormState {
-  requireAllPositionsProfitable: boolean
   enableKellySizing: boolean
   simTrades: number
   windowTrades: number
@@ -35,7 +34,6 @@ const DEFAULT_SIZING: RegimeSizingConfig = {
 
 export function defaultCapitalFormState(): RegimeCapitalFormState {
   return {
-    requireAllPositionsProfitable: false,
     enableKellySizing: false,
     simTrades: 50,
     windowTrades: 50,
@@ -68,7 +66,6 @@ export function hydrateCapitalFormState(
     kelly?.enabled === true || capital.sizing?.mode === 'source_kelly'
 
   return {
-    requireAllPositionsProfitable: capital.requireAllPositionsProfitable === true,
     enableKellySizing: enableKelly,
     simTrades: kelly?.simTrades ?? base.simTrades,
     windowTrades: kelly?.windowTrades ?? base.windowTrades,
@@ -123,8 +120,5 @@ export function buildCapitalPayload(state: RegimeCapitalFormState): Partial<Regi
   }
 
   const payload: Partial<RegimeBacktestCapital> = { sizing, kelly, circuitBreaker }
-  if (state.requireAllPositionsProfitable) {
-    payload.requireAllPositionsProfitable = true
-  }
   return payload
 }

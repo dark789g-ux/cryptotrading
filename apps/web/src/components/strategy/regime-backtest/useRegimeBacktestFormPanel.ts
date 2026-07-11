@@ -10,7 +10,7 @@ import type {
 import { regimeBacktestApi } from '@/api/modules/strategy/regimeEngine'
 import { watchlistApi } from '@/api'
 import { useRegimeConfigForm } from '@/components/regime/useRegimeConfigForm'
-import { cloneQuadrant, makeDefaultQuadrant } from '@/components/regime/regimeConfigEditor.helpers'
+import { cloneQuadrant, makeDefaultQuadrant, hydrateProfitGateFromCapital } from '@/components/regime/regimeConfigEditor.helpers'
 import {
   buildCapitalPayload,
   defaultCapitalFormState,
@@ -206,9 +206,13 @@ export function useRegimeBacktestFormPanel(options: {
     symbolsText.value = (universe.symbols ?? []).join('\n')
   }
 
-  function applyQuadrants(quadrants: QuadrantEntry[] | undefined) {
+  function applyQuadrants(
+    quadrants: QuadrantEntry[] | undefined,
+    capital?: { requireAllPositionsProfitable?: boolean } | null,
+  ) {
     if (Array.isArray(quadrants) && quadrants.length > 0) {
       regimeForm.quadrants = quadrants.map((q) => cloneQuadrant(q))
+      hydrateProfitGateFromCapital(regimeForm.quadrants, capital)
     } else {
       regimeForm.quadrants = [makeDefaultQuadrant('q1', '象限1')]
     }
@@ -232,7 +236,7 @@ export function useRegimeBacktestFormPanel(options: {
       dateRange.value = null
     }
     applyUniverse(cfg?.universe)
-    applyQuadrants(cfg?.quadrants)
+    applyQuadrants(cfg?.quadrants, capital)
   }
 
   async function loadWatchlists() {

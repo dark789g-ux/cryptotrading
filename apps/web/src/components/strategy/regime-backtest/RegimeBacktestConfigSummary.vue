@@ -21,6 +21,7 @@
               <span class="config-summary__meta">r={{ formatRatio(q.positionRatio) }}</span>
               <span class="config-summary__meta">maxN={{ q.maxPositions ?? '—' }}</span>
               <span class="config-summary__meta">{{ rankSummary(q) }}</span>
+              <span v-if="profitGateOn(q)" class="config-summary__meta">盈利门禁=on</span>
             </template>
           </div>
           <div v-if="q.action === 'trade'" class="config-summary__exit">
@@ -88,10 +89,6 @@ const capitalSummary = computed<string[]>(() => {
   const lines: string[] = []
   lines.push(`初始资金=${formatMoney(cap.initialCapital)}`)
 
-  if (cap.requireAllPositionsProfitable) {
-    lines.push('盈利门禁=on')
-  }
-
   const sizing = cap.sizing
   if (sizing?.mode === 'source_kelly' && cap.kelly?.enabled) {
     const k = cap.kelly
@@ -141,6 +138,13 @@ function rankSummary(q: QuadrantEntry): string {
   if (q.rankField === 'none' || q.rankField == null) return `sort=${label}`
   const arrow = q.rankDir === 'asc' ? '↑' : '↓'
   return `sort=${label}${arrow}`
+}
+
+/** 与引擎一致：象限优先，缺省回退 legacy capital */
+function profitGateOn(q: QuadrantEntry): boolean {
+  if (q.requireAllPositionsProfitable === true) return true
+  if (q.requireAllPositionsProfitable === false) return false
+  return capital.value?.requireAllPositionsProfitable === true
 }
 
 function trailingLine(q: QuadrantEntry): string | null {

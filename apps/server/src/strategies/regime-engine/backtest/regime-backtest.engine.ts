@@ -39,7 +39,6 @@ export function runRegimeBacktest(input: RegimeBacktestInput): RegimeBacktestRes
   const kellyCfg = capital.kelly;
   const kellyEnabled = isKellyPipelineEnabled(input);
   const anchorMode = capital.anchorMode ?? false;
-  const requireAllProfitable = capital.requireAllPositionsProfitable ?? false;
   let positionRatio: number | null | undefined;
   let maxPositions: number | null = null;
   const buyFeeRate = buyRate(cost);
@@ -215,6 +214,7 @@ export function runRegimeBacktest(input: RegimeBacktestInput): RegimeBacktestRes
     let regimeNoOpen = regime === 'unknown';
     let entryAction: 'trade' | 'flat' | undefined;
     let exitMode: string | undefined;
+    let requireAllProfitable = false;
     if (!regimeNoOpen) {
       const entry = regimeConfig.quadrants.find((q) => q.key === regime);
       entryAction = entry?.action;
@@ -223,6 +223,10 @@ export function runRegimeBacktest(input: RegimeBacktestInput): RegimeBacktestRes
 
       positionRatio = entry?.positionRatio;
       maxPositions = entry?.maxPositions ?? null;
+      requireAllProfitable =
+        entry?.requireAllPositionsProfitable
+        ?? capital.requireAllPositionsProfitable
+        ?? false;
     }
 
     const frozenCooldown =

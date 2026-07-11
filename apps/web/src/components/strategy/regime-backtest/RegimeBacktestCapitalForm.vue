@@ -3,15 +3,6 @@
     <template v-if="showSizing">
       <n-form-item>
         <template #label>
-          <LabelWithTip label="仅全部盈利时开新仓">
-            开启后，仅当全部现存持仓市值不低于成本时才允许新开仓
-          </LabelWithTip>
-        </template>
-        <n-switch v-model:value="model.requireAllPositionsProfitable" />
-      </n-form-item>
-
-      <n-form-item>
-        <template #label>
           <LabelWithTip label="启用凯利公式仓位管理">
             基于滑动窗口胜率与赔率动态计算每笔交易的最优仓位比例
           </LabelWithTip>
@@ -162,7 +153,7 @@ import type { RegimeCapitalFormState } from './regimeCapitalForm'
 
 const props = withDefaults(
   defineProps<{
-    /** sizing=盈利门禁+Kelly；risk=连亏/回撤熔断；all=全部（兼容旧用法） */
+    /** sizing=Kelly；risk=连亏/回撤熔断；all=全部（兼容旧用法） */
     section?: 'sizing' | 'risk' | 'all'
   }>(),
   { section: 'all' },

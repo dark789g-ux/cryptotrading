@@ -313,6 +313,11 @@ function validateTradeQuadrant(entry: Record<string, unknown>, path: string): vo
     fail(`${path}.exitParams 必须为对象（${exitMode} 模式参数）`);
   }
 
+  validateOptionalBoolean(
+    entry.requireAllPositionsProfitable,
+    `${path}.requireAllPositionsProfitable`,
+  );
+
   if (exitMode === 'fixed_n') {
     validatePositiveNumber(params.N, `${path}.exitParams.N`, 'fixed_n 持有天数');
   } else if (exitMode === 'strategy') {

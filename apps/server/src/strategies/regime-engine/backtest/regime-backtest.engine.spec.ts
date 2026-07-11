@@ -514,6 +514,154 @@ describe('regime-backtest.engine', () => {
     expect(tradeB!.skipReason).toBe('profit_gate');
   });
 
+  it('profit_gate per quadrant: gate-on skips, gate-off allows with same underwater book', () => {
+    const holdA = [
+      { calDate: '20260103', qfqOpen: 9, qfqClose: 9 },
+      { calDate: '20260104', qfqOpen: 9, qfqClose: 9 },
+      { calDate: '20260105', qfqOpen: 9, qfqClose: 9 },
+      { calDate: '20260106', qfqOpen: 11, qfqClose: 11 },
+    ];
+    const signalA = makeSignal(
+      '000001.SZ', '20260101', '20260102', '20260106',
+      10, 11, holdA,
+    );
+    signalA.simulationInput.exit = { mode: 'fixed_n', horizonN: 4 };
+    const signalB = makeSignal(
+      '000002.SZ', '20260104', '20260105', '20260106',
+      10, 11,
+      [{ calDate: '20260105', qfqOpen: 10, qfqClose: 11 }],
+    );
+    signalB.simulationInput.exit = { mode: 'fixed_n', horizonN: 1 };
+    const signalC = makeSignal(
+      '000003.SZ', '20260105', '20260106', '20260107',
+      10, 11,
+    );
+    signalC.simulationInput.exit = { mode: 'fixed_n', horizonN: 1 };
+
+    const regimeConfig: RegimeConfigMap = {
+      ...defaultRegimeConfig,
+      quadrants: defaultRegimeConfig.quadrants.map((q) => {
+        if (q.key === 'Q1') {
+          return { ...q, requireAllPositionsProfitable: true, positionRatio: 0.2, maxPositions: 4 };
+        }
+        if (q.key === 'Q3') {
+          return { ...q, requireAllPositionsProfitable: false, positionRatio: 0.2, maxPositions: 4 };
+        }
+        return { ...q };
+      }),
+    };
+
+    const input = baseInput({
+      regimeConfig,
+      marketSnapshots: new Map([
+        ['20260101', makeMarketSnapshot(1, 1)],
+        ['20260104', makeMarketSnapshot(1, 1)],
+        ['20260105', makeMarketSnapshot(-1, 1)],
+      ]),
+      signalsByDate: new Map([
+        ['20260101', [signalA]],
+        ['20260104', [signalB]],
+        ['20260105', [signalC]],
+      ]),
+      calendar: ['20260101', '20260102', '20260103', '20260104', '20260105', '20260106', '20260107'],
+    });
+
+    const result = runRegimeBacktest(input);
+    const tradeB = result.trades.find((t) => t.tsCode === '000002.SZ');
+    const tradeC = result.trades.find((t) => t.tsCode === '000003.SZ');
+    expect(tradeB!.status).toBe('skipped');
+    expect(tradeB!.skipReason).toBe('profit_gate');
+    expect(tradeC!.status).toBe('taken');
+  });
+
+  it('profit_gate legacy fallback: capital true when quadrants omit key', () => {
+    const holdA = [
+      { calDate: '20260103', qfqOpen: 9, qfqClose: 9 },
+      { calDate: '20260104', qfqOpen: 9, qfqClose: 9 },
+      { calDate: '20260105', qfqOpen: 11, qfqClose: 11 },
+    ];
+    const signalA = makeSignal(
+      '000001.SZ', '20260101', '20260102', '20260105',
+      10, 11, holdA,
+    );
+    signalA.simulationInput.exit = { mode: 'fixed_n', horizonN: 3 };
+    const signalB = makeSignal(
+      '000002.SZ', '20260104', '20260105', '20260106',
+      10, 11,
+      [{ calDate: '20260105', qfqOpen: 10, qfqClose: 11 }],
+    );
+    signalB.simulationInput.exit = { mode: 'fixed_n', horizonN: 1 };
+
+    const input = baseInput({
+      regimeConfig: regimeConfigWithQ1(0.2, 4),
+      capital: {
+        initialCapital: 1_000_000,
+        cost: COST_PRESET_ZERO,
+        requireAllPositionsProfitable: true,
+      },
+      marketSnapshots: new Map([
+        ['20260101', makeMarketSnapshot(1, 1)],
+        ['20260104', makeMarketSnapshot(1, 1)],
+      ]),
+      signalsByDate: new Map([
+        ['20260101', [signalA]],
+        ['20260104', [signalB]],
+      ]),
+      calendar: ['20260101', '20260102', '20260103', '20260104', '20260105', '20260106'],
+    });
+
+    const result = runRegimeBacktest(input);
+    const tradeB = result.trades.find((t) => t.tsCode === '000002.SZ');
+    expect(tradeB!.status).toBe('skipped');
+    expect(tradeB!.skipReason).toBe('profit_gate');
+  });
+
+  it('profit_gate: explicit quadrant false overrides capital true', () => {
+    const holdA = [
+      { calDate: '20260103', qfqOpen: 9, qfqClose: 9 },
+      { calDate: '20260104', qfqOpen: 9, qfqClose: 9 },
+      { calDate: '20260105', qfqOpen: 11, qfqClose: 11 },
+    ];
+    const signalA = makeSignal(
+      '000001.SZ', '20260101', '20260102', '20260105',
+      10, 11, holdA,
+    );
+    signalA.simulationInput.exit = { mode: 'fixed_n', horizonN: 3 };
+    const signalB = makeSignal(
+      '000002.SZ', '20260104', '20260105', '20260106',
+      10, 11,
+      [{ calDate: '20260105', qfqOpen: 10, qfqClose: 11 }],
+    );
+    signalB.simulationInput.exit = { mode: 'fixed_n', horizonN: 1 };
+
+    const regimeConfig = regimeConfigWithQ1(0.2, 4);
+    regimeConfig.quadrants = regimeConfig.quadrants.map((q) =>
+      q.key === 'Q1' ? { ...q, requireAllPositionsProfitable: false } : q,
+    );
+
+    const input = baseInput({
+      regimeConfig,
+      capital: {
+        initialCapital: 1_000_000,
+        cost: COST_PRESET_ZERO,
+        requireAllPositionsProfitable: true,
+      },
+      marketSnapshots: new Map([
+        ['20260101', makeMarketSnapshot(1, 1)],
+        ['20260104', makeMarketSnapshot(1, 1)],
+      ]),
+      signalsByDate: new Map([
+        ['20260101', [signalA]],
+        ['20260104', [signalB]],
+      ]),
+      calendar: ['20260101', '20260102', '20260103', '20260104', '20260105', '20260106'],
+    });
+
+    const result = runRegimeBacktest(input);
+    const tradeB = result.trades.find((t) => t.tsCode === '000002.SZ');
+    expect(tradeB!.status).toBe('taken');
+  });
+
   it('budget_full when 1-r*n<=0', () => {
     // r=0.5: after 2 opens, 1-r*n=0 → third signal budget_full
     // maxPositions large so slots_full does not fire first

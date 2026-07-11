@@ -1,75 +1,76 @@
 <template>
-  <n-drawer
+  <n-modal
     :show="show"
-    placement="right"
-    :width="drawerWidth"
+    preset="card"
+    :title="run ? `回测详情 · ${run.name}` : '回测详情'"
+    :bordered="false"
+    :segmented="{ content: true }"
+    style="width: min(1400px, 96vw)"
+    :content-style="{ maxHeight: '80vh', overflow: 'auto' }"
     @update:show="$emit('update:show', $event)"
   >
-    <n-drawer-content :title="run ? `回测详情 · ${run.name}` : ''" closable>
-      <n-tabs v-model:value="activeTab" type="line" animated>
-        <n-tab-pane name="summary" tab="汇总">
-          <n-card v-if="run" :bordered="false" size="small" style="margin-bottom: 16px">
-            <RegimeBacktestConfigSummary :run="run" />
-          </n-card>
-          <n-card v-if="run" title="汇总指标" :bordered="false" size="small">
-            <RegimeBacktestSummaryCards :run="run" />
-          </n-card>
-        </n-tab-pane>
+    <n-tabs v-model:value="activeTab" type="line" animated>
+      <n-tab-pane name="summary" tab="汇总">
+        <n-card v-if="run" :bordered="false" size="small" style="margin-bottom: 16px">
+          <RegimeBacktestConfigSummary :run="run" />
+        </n-card>
+        <n-card v-if="run" title="汇总指标" :bordered="false" size="small">
+          <RegimeBacktestSummaryCards :run="run" />
+        </n-card>
+      </n-tab-pane>
 
-        <n-tab-pane name="nav" tab="净值">
-          <n-spin :show="dailyLoading">
-            <RegimeBacktestNavChart
-              v-if="daily.length > 0"
-              :rows="daily"
-              :initial-capital="initialCapital"
-            />
-            <n-empty v-else description="暂无净值数据" />
-          </n-spin>
-        </n-tab-pane>
+      <n-tab-pane name="nav" tab="净值">
+        <n-spin :show="dailyLoading">
+          <RegimeBacktestNavChart
+            v-if="daily.length > 0"
+            :rows="daily"
+            :initial-capital="initialCapital"
+          />
+          <n-empty v-else description="暂无净值数据" />
+        </n-spin>
+      </n-tab-pane>
 
-        <n-tab-pane name="trades" tab="交易">
-          <n-spin :show="tradesLoading">
-            <RegimeBacktestTradesTable
-              v-if="trades.length > 0"
-              :trades="trades"
-              @open-kline="openKline"
-            />
-            <n-empty v-else description="暂无交易数据" />
-          </n-spin>
-        </n-tab-pane>
-
-        <n-tab-pane name="audit" tab="日审计">
-          <RegimeBacktestDailyLogTable
-            :rows="dailyLog"
-            :loading="dailyLogLoading"
+      <n-tab-pane name="trades" tab="交易">
+        <n-spin :show="tradesLoading">
+          <RegimeBacktestTradesTable
+            v-if="trades.length > 0"
+            :trades="trades"
             @open-kline="openKline"
           />
-        </n-tab-pane>
+          <n-empty v-else description="暂无交易数据" />
+        </n-spin>
+      </n-tab-pane>
 
-        <n-tab-pane name="positions" tab="仓位/标的">
-          <RegimeBacktestPositionsPanel
-            :run-id="run?.id ?? null"
-            :active="activeTab === 'positions'"
-            @open-kline="openKline"
-          />
-        </n-tab-pane>
-      </n-tabs>
+      <n-tab-pane name="audit" tab="日审计">
+        <RegimeBacktestDailyLogTable
+          :rows="dailyLog"
+          :loading="dailyLogLoading"
+          @open-kline="openKline"
+        />
+      </n-tab-pane>
 
-      <RegimeBacktestKlineModal
-        v-model:show="klineShow"
-        :run-id="run?.id ?? null"
-        :ts-code="klineTsCode"
-        :signal-date="klineSignalDate"
-      />
-    </n-drawer-content>
-  </n-drawer>
+      <n-tab-pane name="positions" tab="仓位/标的">
+        <RegimeBacktestPositionsPanel
+          :run-id="run?.id ?? null"
+          :active="activeTab === 'positions'"
+          @open-kline="openKline"
+        />
+      </n-tab-pane>
+    </n-tabs>
+
+    <RegimeBacktestKlineModal
+      v-model:show="klineShow"
+      :run-id="run?.id ?? null"
+      :ts-code="klineTsCode"
+      :signal-date="klineSignalDate"
+    />
+  </n-modal>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import {
-  NDrawer,
-  NDrawerContent,
+  NModal,
   NCard,
   NSpin,
   NEmpty,
@@ -105,7 +106,6 @@ defineEmits<{
   'update:show': [value: boolean]
 }>()
 
-const drawerWidth = 'min(1400px, 96vw)'
 const activeTab = ref('summary')
 
 const dailyLog = ref<RegimeBacktestDailyLog[]>([])

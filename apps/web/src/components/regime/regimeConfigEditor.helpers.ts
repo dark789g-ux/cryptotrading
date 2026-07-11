@@ -50,6 +50,7 @@ export function cloneQuadrant(q: QuadrantEntry): QuadrantEntry {
     maxPositions: q.maxPositions ?? (q.action === 'trade' ? 4 : null),
     rankField,
     rankDir,
+    requireAllPositionsProfitable: q.requireAllPositionsProfitable,
   }
 }
 
@@ -202,6 +203,9 @@ export function buildRegimeConfigDto(form: {
           entry.exitParams = q.exitParams ? { ...q.exitParams } : {}
         }
       }
+      if (q.requireAllPositionsProfitable === true) {
+        entry.requireAllPositionsProfitable = true
+      }
     } else {
       // flat：原样保留 rank 字段（不强制剥离）
       if (q.rankField != null) entry.rankField = q.rankField
@@ -222,4 +226,21 @@ export function buildRegimeConfigMap(form: {
   quadrants: QuadrantEntry[]
 }): RegimeConfigMap {
   return buildRegimeConfigDto(form).config
+}
+
+/** 旧 capital 快照迁移：capital 开启且象限均未定义时，灌入全部 trade 象限 */
+export function hydrateProfitGateFromCapital(
+  quadrants: QuadrantEntry[],
+  capital: { requireAllPositionsProfitable?: boolean } | null | undefined,
+): void {
+  if (capital?.requireAllPositionsProfitable !== true) return
+  const anyDefined = quadrants.some(
+    (q) => q.action === 'trade' && q.requireAllPositionsProfitable !== undefined,
+  )
+  if (anyDefined) return
+  for (const q of quadrants) {
+    if (q.action === 'trade') {
+      q.requireAllPositionsProfitable = true
+    }
+  }
 }

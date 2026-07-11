@@ -55,6 +55,17 @@
           />
         </n-space>
       </n-form-item>
+      <n-form-item>
+        <template #label>
+          <LabelWithTip label="仅全部盈利时开新仓">
+            开启后，仅当全部现存持仓市值不低于成本时才允许新开仓
+          </LabelWithTip>
+        </template>
+        <n-switch
+          :value="quadrant.requireAllPositionsProfitable === true"
+          @update:value="(v: boolean) => (quadrant.requireAllPositionsProfitable = v)"
+        />
+      </n-form-item>
     </template>
 
     <n-divider>分桶条件（大盘级）</n-divider>
@@ -81,8 +92,10 @@ import {
   NSelect,
   NDivider,
   NSpace,
+  NSwitch,
   NText,
 } from 'naive-ui'
+import LabelWithTip from '@/components/backtest/strategy/LabelWithTip.vue'
 import type { SelectOption } from 'naive-ui'
 import RegimeBucketConditionRows from '@/components/regime/RegimeBucketConditionRows.vue'
 import {
