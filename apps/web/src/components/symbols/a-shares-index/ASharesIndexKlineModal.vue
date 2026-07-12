@@ -126,10 +126,11 @@ const emit = defineEmits<{
 const message = useMessage()
 
 /**
- * 指数 K 线副图白名单：成交量 + KDJ + MACD；sw/industry/concept/custom 另含 0AMV / 0AMV_MACD。
+ * 指数 K 线副图白名单：成交量 + KDJ + MACD + 资金净流入（FLOW）；
+ * sw/industry/concept/custom 另含 0AMV / 0AMV_MACD。
  * MA（MA5/MA30/…）在主图叠加，KlineChart 默认渲染。
  */
-const BASE_SUBPLOTS: SubplotKey[] = ['VOL', 'KDJ', 'MACD']
+const BASE_SUBPLOTS: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'FLOW']
 const AMV_SUBPLOTS: SubplotKey[] = ['0AMV', '0AMV_MACD']
 
 const availableSubplots = computed(() =>

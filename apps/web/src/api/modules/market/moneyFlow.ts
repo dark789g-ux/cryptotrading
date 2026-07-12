@@ -11,6 +11,7 @@ export type {
   MoneyFlowIndustryRow,
   MoneyFlowSectorRow,
   MoneyFlowMarketRow,
+  MoneyFlowIndexRow,
   MoneyFlowMemberRow,
   MoneyFlowCondition,
   MoneyFlowConditionOp,
@@ -26,6 +27,7 @@ import type {
   MoneyFlowIndustryRow,
   MoneyFlowSectorRow,
   MoneyFlowMarketRow,
+  MoneyFlowIndexRow,
   MoneyFlowMemberRow,
 } from '@cryptotrading/shared-types'
 
@@ -58,6 +60,13 @@ export const moneyFlowApi = {
   // industries 改 POST：DTO 由 query 切到 body，支持服务端筛选 + 高级 conditions
   queryIndustries: (params: MoneyFlowQueryParams) =>
     post<MoneyFlowIndustryRow[]>(`${API_BASE}/money-flow/industries/query`, params),
+
+  // 同花顺行业资金流（ths-industries）同为 POST + body 筛选
+  queryThsIndustries: (params: MoneyFlowQueryParams) =>
+    post<MoneyFlowIndustryRow[]>(`${API_BASE}/money-flow/ths-industries/query`, params),
+
+  queryIndices: (params: MoneyFlowQueryParams) =>
+    request<MoneyFlowIndexRow[]>(`${API_BASE}/money-flow/indices${buildQs(params)}`),
 
   querySectors: (params: MoneyFlowQueryParams) =>
     request<MoneyFlowSectorRow[]>(`${API_BASE}/money-flow/sectors${buildQs(params)}`),

@@ -68,6 +68,15 @@ export type CustomIndexKlineRow = IndexDailyKlineRow;
 /** GET /api/custom-indices/:id/amv 与 active-mv AmvSeriesRow 同构 */
 export type CustomIndexAmvRow = AmvSeriesRow;
 
+/** GET /api/custom-indices/:id/money-flow 单行（金额单位：亿元） */
+export interface CustomIndexMoneyFlowRow {
+  tradeDate: string;
+  netAmount: number | null;
+  buyLgAmount: number | null;
+  buyMdAmount: number | null;
+  buySmAmount: number | null;
+}
+
 export interface MemberInput {
   con_code: string;
   weight?: number;

@@ -90,6 +90,19 @@ export class CustomIndexController {
     return this.service.getAmv(req.user.id, id, startDate, endDate);
   }
 
+  @Get(':id/money-flow')
+  moneyFlow(
+    @Req() req: RequestWithUser,
+    @Param('id') id: string,
+    @Query('start_date') startDate?: string,
+    @Query('end_date') endDate?: string,
+  ) {
+    if (!startDate || !endDate) {
+      throw new BadRequestException('start_date 与 end_date 必填');
+    }
+    return this.service.getMoneyFlow(req.user.id, id, startDate, endDate);
+  }
+
   @Post(':id/sse-token')
   issueSseToken(@Req() req: RequestWithUser, @Param('id') id: string) {
     return this.service.issueSseToken(req.user.id, id);

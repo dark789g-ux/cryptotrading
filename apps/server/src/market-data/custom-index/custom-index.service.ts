@@ -25,6 +25,7 @@ import type {
   CustomIndexKlineRow,
   CustomIndexLatestResult,
   CustomIndexMemberRow,
+  CustomIndexMoneyFlowRow,
   MemberInput,
 } from './custom-index.types';
 import {
@@ -628,6 +629,65 @@ export class CustomIndexService {
         };
       })
       .filter((r): r is CustomIndexAmvRow => r != null);
+  }
+
+  /**
+   * 查询自定义指数资金净流入时序。
+   * custom_index_money_flow 表存万元，÷10000 转亿元（与 MoneyFlowService.toYi 一致）。
+   */
+  async getMoneyFlow(
+    userId: string,
+    id: string,
+    startDate?: string,
+    endDate?: string,
+  ): Promise<CustomIndexMoneyFlowRow[]> {
+    await this.requireOwnedDefinition(userId, id);
+
+    const params: unknown[] = [id];
+    let dateFilter = '';
+    if (startDate) {
+      params.push(startDate);
+      dateFilter += ` AND mf.trade_date >= $${params.length}`;
+    }
+    if (endDate) {
+      params.push(endDate);
+      dateFilter += ` AND mf.trade_date <= $${params.length}`;
+    }
+
+    const rows = await this.dataSource.query<
+      Array<{
+        tradeDate: string;
+        netAmount: number | null;
+        buyLgAmount: number | null;
+        buyMdAmount: number | null;
+        buySmAmount: number | null;
+      }>
+    >(
+      `SELECT
+          mf.trade_date AS "tradeDate",
+          mf.net_amount AS "netAmount",
+          mf.buy_lg_amount AS "buyLgAmount",
+          mf.buy_md_amount AS "buyMdAmount",
+          mf.buy_sm_amount AS "buySmAmount"
+        FROM custom_index_money_flow mf
+        WHERE mf.custom_index_id = $1${dateFilter}
+        ORDER BY mf.trade_date ASC`,
+      params,
+    );
+
+    return rows.map((r): CustomIndexMoneyFlowRow => {
+      const net = nullableNum(r.netAmount);
+      const lg = nullableNum(r.buyLgAmount);
+      const md = nullableNum(r.buyMdAmount);
+      const sm = nullableNum(r.buySmAmount);
+      return {
+        tradeDate: r.tradeDate,
+        netAmount: net != null ? net / 10000 : null,
+        buyLgAmount: lg != null ? lg / 10000 : null,
+        buyMdAmount: md != null ? md / 10000 : null,
+        buySmAmount: sm != null ? sm / 10000 : null,
+      };
+    });
   }
 
   async issueSseToken(

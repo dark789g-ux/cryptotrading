@@ -119,6 +119,15 @@ export interface CustomIndexSseProgressEvent {
   last_error?: string | null
 }
 
+/** GET /api/custom-indices/:id/money-flow 单行（金额单位：亿元） */
+export interface CustomIndexMoneyFlowRow {
+  tradeDate: string
+  netAmount: number | null
+  buyLgAmount: number | null
+  buyMdAmount: number | null
+  buySmAmount: number | null
+}
+
 function buildQuery(params: Record<string, string | number | undefined>): string {
   const qs = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
@@ -183,6 +192,14 @@ export const customIndexApi = {
       `${API_BASE}/custom-indices/${encodeURIComponent(id)}/amv${buildQuery({
         startDate,
         endDate,
+      })}`,
+    ),
+
+  getMoneyFlow: (id: string, startDate: string, endDate: string) =>
+    request<CustomIndexMoneyFlowRow[]>(
+      `${API_BASE}/custom-indices/${encodeURIComponent(id)}/money-flow${buildQuery({
+        start_date: startDate,
+        end_date: endDate,
       })}`,
     ),
 
