@@ -14,7 +14,7 @@ describe('a-shares-suspend.sql 状态机', () => {
     expect(A_SHARES_SUSPEND_LATERAL).toContain('sd.trade_date <= l.trade_date');
     expect(A_SHARES_SUSPEND_LATERAL).toContain('ORDER BY sd.trade_date DESC');
     expect(A_SHARES_SUSPEND_LATERAL).toContain(SUSPEND_TYPE_ORDER);
-    expect(A_SHARES_SUSPEND_LATERAL).toContain("CASE WHEN le.suspend_type = 'S' THEN 'suspended' ELSE 'none' END");
+    expect(A_SHARES_SUSPEND_LATERAL).toContain("CASE WHEN le.suspend_type = 'S' AND q.trade_date IS NULL THEN 'suspended' ELSE 'none' END");
   });
 
   it('suspendSinceDate 取最近 R 之后的连续 S 起点', () => {
@@ -27,15 +27,30 @@ describe('a-shares-suspend.sql 状态机', () => {
     const sql = buildSingleStockSuspendSql();
     expect(sql).toContain('SELECT MAX(trade_date) AS trade_date FROM raw.daily_quote');
     expect(sql).toContain('sd.trade_date <= l.trade_date');
-    expect(sql).toContain('CASE WHEN le.suspend_type = \'S\' THEN \'suspended\' ELSE \'none\' END AS status');
+    expect(sql).toContain('CASE WHEN le.suspend_type = \'S\' AND lq.trade_date IS DISTINCT FROM l.trade_date THEN \'suspended\' ELSE \'none\' END AS status');
     expect(sql).toContain('"asOfTradeDate"');
     expect(sql).toContain('"lastQuoteTradeDate"');
+    expect(sql).toContain('lq.trade_date IS DISTINCT FROM l.trade_date');
   });
 
   it('S 无 R → suspended；同日 ORDER BY 使 R 优先', () => {
     // R=0, S=1 → same day R sorts first → latest effective event is R → 'none'
     expect(SUSPEND_TYPE_ORDER).toBe("CASE sd.suspend_type WHEN 'R' THEN 0 ELSE 1 END");
     expect(A_SHARES_SUSPEND_LATERAL).toMatch(/ORDER BY sd\.trade_date DESC, CASE sd\.suspend_type WHEN 'R' THEN 0 ELSE 1 END/);
+  });
+
+  it('单股 SQL：status/sinceDate/timing 三个 CASE WHEN 均含行情交叉验证', () => {
+    const sql = buildSingleStockSuspendSql();
+    // 三处 le.suspend_type = 'S' 后都应跟 AND lq.trade_date IS DISTINCT FROM l.trade_date
+    const matches = sql.match(/le\.suspend_type = 'S' AND lq\.trade_date IS DISTINCT FROM l\.trade_date/g);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBe(3);
+  });
+
+  it('LATERAL：status/sinceDate/timing 三个 CASE WHEN 均含行情交叉验证', () => {
+    const matches = A_SHARES_SUSPEND_LATERAL.match(/le\.suspend_type = 'S' AND q\.trade_date IS NULL/g);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBe(3);
   });
 });
 

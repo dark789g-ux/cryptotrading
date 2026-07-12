@@ -5,7 +5,11 @@
  *   asOf = MAX(trade_date) FROM raw.daily_quote
  *   latest event = most recent row in suspend_d with trade_date <= asOf
  *                  (same-day S+R → R wins via ORDER BY suspend_type)
- *   suspend_type = 'S' → suspended; otherwise none
+ *   suspended = latest event is 'S' AND asOf当天该标的无行情（交叉验证）
+ *
+ * 盘中临时停牌（suspend_timing 非空）当天已复牌并产生行情，不算停牌态。
+ * Tushare suspend_d 对盘中临停只返回 S、不返回 R，这是接口语义（非同步问题），
+ * 因此停牌态必须用"asOf 当天无行情"交叉验证。
  *
  * Missing tradeDate on daily_quote is NOT treated as suspended.
  */
@@ -20,9 +24,9 @@ export const SUSPEND_TYPE_ORDER = "CASE sd.suspend_type WHEN 'R' THEN 0 ELSE 1 E
 export const A_SHARES_SUSPEND_LATERAL = `
       LEFT JOIN LATERAL (
         SELECT
-          CASE WHEN le.suspend_type = 'S' THEN 'suspended' ELSE 'none' END AS suspend_status,
-          CASE WHEN le.suspend_type = 'S' THEN ss.since_date ELSE NULL END AS suspend_since_date,
-          CASE WHEN le.suspend_type = 'S' THEN le.suspend_timing ELSE NULL END AS suspend_timing
+          CASE WHEN le.suspend_type = 'S' AND q.trade_date IS NULL THEN 'suspended' ELSE 'none' END AS suspend_status,
+          CASE WHEN le.suspend_type = 'S' AND q.trade_date IS NULL THEN ss.since_date ELSE NULL END AS suspend_since_date,
+          CASE WHEN le.suspend_type = 'S' AND q.trade_date IS NULL THEN le.suspend_timing ELSE NULL END AS suspend_timing
         FROM (
           SELECT sd.suspend_type, sd.trade_date, sd.suspend_timing
           FROM raw.suspend_d sd
@@ -145,9 +149,9 @@ export function buildSingleStockSuspendSql(): string {
       )
       SELECT
         l.trade_date AS "asOfTradeDate",
-        CASE WHEN le.suspend_type = 'S' THEN 'suspended' ELSE 'none' END AS status,
-        CASE WHEN le.suspend_type = 'S' THEN sd.since_date ELSE NULL END AS "sinceDate",
-        CASE WHEN le.suspend_type = 'S' THEN le.suspend_timing ELSE NULL END AS timing,
+        CASE WHEN le.suspend_type = 'S' AND lq.trade_date IS DISTINCT FROM l.trade_date THEN 'suspended' ELSE 'none' END AS status,
+        CASE WHEN le.suspend_type = 'S' AND lq.trade_date IS DISTINCT FROM l.trade_date THEN sd.since_date ELSE NULL END AS "sinceDate",
+        CASE WHEN le.suspend_type = 'S' AND lq.trade_date IS DISTINCT FROM l.trade_date THEN le.suspend_timing ELSE NULL END AS timing,
         lq.trade_date AS "lastQuoteTradeDate"
       FROM latest l
       LEFT JOIN last_event le ON true
