@@ -53,6 +53,8 @@ interface BuildKlineChartOptionsParams {
    * 保证 KlineChart.vue 现有调用与 spec 行为不变。
    */
   subplots?: SubplotConfig[]
+  /** 当前停牌：主图末根 K 右沿至轴右端绘制半透明冻结区 */
+  suspendBand?: boolean
 }
 
 const DEFAULT_SUBPLOT_ORDER_NO_FLOW: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK']
@@ -141,6 +143,39 @@ function buildKdjMarkArea(data: KlineChartBar[]) {
   ] as [any, any][]
 }
 
+const SUSPEND_BAND_COLOR = 'rgba(208, 152, 11, 0.08)'
+const SUSPEND_BAND_LABEL_COLOR = 'rgba(208, 152, 11, 0.45)'
+
+/** 停牌冻结区：从末根 K 右沿延伸至类目轴右端（需配合 xAxis.max 扩展） */
+function buildSuspendMarkArea(
+  lastIdx: number,
+  axisMax: number,
+): NonNullable<CandlestickSeriesOption['markArea']> {
+  return {
+    silent: true,
+    itemStyle: { color: SUSPEND_BAND_COLOR, borderWidth: 0 },
+    label: {
+      show: true,
+      position: 'inside',
+      align: 'center',
+      verticalAlign: 'middle',
+      formatter: '停牌中',
+      color: SUSPEND_BAND_LABEL_COLOR,
+      fontSize: 11,
+    },
+    data: [
+      [{ xAxis: lastIdx + 0.5 }, { xAxis: axisMax }],
+    ] as NonNullable<CandlestickSeriesOption['markArea']>['data'],
+  }
+}
+
+function resolveSuspendAxisMax(lastIdx: number, suspendBand: boolean): number | undefined {
+  if (!suspendBand || lastIdx < 0) return undefined
+  // 视觉延伸：约 15% 窗口宽度，至少 3 个类目槽
+  const padding = Math.max(3, Math.round((lastIdx + 1) * 0.15))
+  return lastIdx + padding
+}
+
 export function buildKlineChartOption({
   data,
   echartsTheme,
@@ -148,6 +183,7 @@ export function buildKlineChartOption({
   sliderStart = 0,
   zoom,
   subplots,
+  suspendBand = false,
 }: BuildKlineChartOptionsParams): EChartsOption {
   const resolvedSubplots: SubplotConfig[] = subplots ?? defaultSubplotsForData(data)
   // FLOW 副图渲染只取决于用户偏好（resolvedSubplots 是否包含 FLOW），不再依赖数据是否有 moneyFlow
@@ -161,6 +197,7 @@ export function buildKlineChartOption({
   const times = data.map((row) => row.open_time)
   const klines = data.map((row) => [row.open, row.close, row.low, row.high])
   const lastIdx = data.length - 1
+  const suspendAxisMax = resolveSuspendAxisMax(lastIdx, suspendBand)
   const brickRangeValues = data.flatMap<BrickRangeDatum>((row, idx) => {
     const current = row.brickChart?.brick
     const prev = idx > 0 ? data[idx - 1]?.brickChart?.brick : undefined
@@ -205,6 +242,9 @@ export function buildKlineChartOption({
           label: { show: false },
         }
       : undefined,
+    ...(suspendBand && suspendAxisMax != null
+      ? { markArea: buildSuspendMarkArea(lastIdx, suspendAxisMax) }
+      : {}),
   }
 
   const maSeries: LineSeriesOption[] = (['MA5', 'MA30', 'MA60', 'MA120', 'MA240'] as const).map((key) => ({
@@ -460,7 +500,7 @@ export function buildKlineChartOption({
     axisPointer: { link: [{ xAxisIndex: 'all' }] },
     legend: buildLegend(resolvedSubplots),
     grid: buildGrid(resolvedSubplots),
-    xAxis: buildXAxes(times, resolvedSubplots),
+    xAxis: buildXAxes(times, resolvedSubplots, suspendAxisMax),
     yAxis: buildYAxes(resolvedSubplots),
     dataZoom: buildDataZoom(resolvedSubplots, sliderStart, DATA_ZOOM_THROTTLE_MS, zoom),
     graphic: buildGraphics(lastIdx, data, resolvedSubplots),

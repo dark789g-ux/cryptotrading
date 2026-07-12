@@ -15,10 +15,13 @@ import {
   buildASharesHydrateQuery,
   buildASharesIdSortQuery,
 } from './data-access/a-shares-query.sql';
+import { buildSingleStockSuspendSql } from './data-access/a-shares-suspend.sql';
 import { ASharesSyncService } from './sync/a-shares-sync.service';
 import {
   AShareKlineRow,
+  AShareKlinesResponse,
   AShareSearchResult,
+  AShareSuspendInfo,
   ASharesSyncEvent,
   ASharesSyncResult,
   QueryASharesDto,
@@ -28,7 +31,9 @@ import {
 
 export type {
   AShareKlineRow,
+  AShareKlinesResponse,
   AShareSearchResult,
+  AShareSuspendInfo,
   ASharesSyncEvent,
   ASharesSyncResult,
   QueryASharesDto,
@@ -248,7 +253,7 @@ export class ASharesService {
     limit = 300,
     priceMode: 'qfq' | 'raw' = 'qfq',
     range?: { startDate?: string; endDate?: string },
-  ): Promise<AShareKlineRow[]> {
+  ): Promise<AShareKlinesResponse> {
     const safeLimit = Math.min(1000, Math.max(30, Number(limit) || 300));
     const priceCols = priceMode === 'raw'
       ? { open: 'q.open', high: 'q.high', low: 'q.low', close: 'q.close', pctChg: 'q.pct_chg' }
@@ -267,7 +272,8 @@ export class ASharesService {
     params.push(safeLimit);
     const limitParam = `$${params.length}`;
 
-    const rows = await this.dataSource.query<Array<Record<string, string | number | boolean | null>>>(`
+    const [rows, suspendRows] = await Promise.all([
+      this.dataSource.query<Array<Record<string, string | number | boolean | null>>>(`
       SELECT *
       FROM (
         SELECT
@@ -321,9 +327,12 @@ export class ASharesService {
         LIMIT ${limitParam}
       ) recent
       ORDER BY "tradeDate" ASC
-    `, params);
+    `, params),
+      this.dataSource.query<Array<Record<string, string | null>>>(buildSingleStockSuspendSql(), [tsCode]),
+    ]);
 
-    return rows.map((row) => {
+    const suspend = this.mapSuspendRow(suspendRows[0]);
+    const bars = rows.map((row) => {
       const brick = asNullableNumber(row.brick);
       const brickDelta = asNullableNumber(row.brickDelta);
       return {
@@ -366,6 +375,19 @@ export class ASharesService {
           : { brick, delta: brickDelta, xg: row.brickXg === true },
       };
     });
+
+    return { bars, suspend };
+  }
+
+  private mapSuspendRow(row: Record<string, string | null> | undefined): AShareSuspendInfo {
+    const status = row?.status === 'suspended' ? 'suspended' : 'none';
+    return {
+      status,
+      sinceDate: row?.sinceDate ?? null,
+      timing: row?.timing ?? null,
+      lastQuoteTradeDate: row?.lastQuoteTradeDate ?? null,
+      asOfTradeDate: row?.asOfTradeDate ?? null,
+    };
   }
 
   async recalcKlines(
@@ -377,8 +399,8 @@ export class ASharesService {
       endDate?: string;
     },
     kdjParams?: { n: number; m1: number; m2: number },
-  ): Promise<AShareKlineRow[]> {
-    const rows = await this.getKlines(
+  ): Promise<AShareKlinesResponse> {
+    const { bars, suspend } = await this.getKlines(
       tsCode,
       query.limit,
       query.priceMode === 'raw' ? 'raw' : 'qfq',
@@ -386,24 +408,27 @@ export class ASharesService {
     );
 
     if (!kdjParams || !isCustomKdjParams(kdjParams)) {
-      return rows;
+      return { bars, suspend };
     }
 
     const kdjSeries = calcKdjSeries(
-      rows.map((r) => ({ high: r.high, low: r.low, close: r.close })),
+      bars.map((r) => ({ high: r.high, low: r.low, close: r.close })),
       kdjParams.n,
       kdjParams.m1,
       kdjParams.m2,
     );
 
-    return rows.map((row, index) => {
-      const kdj = roundKdjPoint(kdjSeries[index]);
-      return {
-        ...row,
-        'KDJ.K': kdj.k,
-        'KDJ.D': kdj.d,
-        'KDJ.J': kdj.j,
-      };
-    });
+    return {
+      bars: bars.map((row, index) => {
+        const kdj = roundKdjPoint(kdjSeries[index]);
+        return {
+          ...row,
+          'KDJ.K': kdj.k,
+          'KDJ.D': kdj.d,
+          'KDJ.J': kdj.j,
+        };
+      }),
+      suspend,
+    };
   }
 }

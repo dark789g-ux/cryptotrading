@@ -44,7 +44,7 @@ describe('aShareDetailFetcher', () => {
       { id: 'b', tsCode: TS_CODE, tradeDate: '20260106', name: '平安', pctChange: null, latest: null, netAmount: '-2.2', netD5Amount: null, buyLgAmount: null, buyLgAmountRate: null, buyMdAmount: null, buyMdAmountRate: null, buySmAmount: null, buySmAmountRate: null },
       { id: 'c', tsCode: TS_CODE, tradeDate: '20260105', name: '平安', pctChange: null, latest: null, netAmount: '1.1', netD5Amount: null, buyLgAmount: null, buyLgAmountRate: null, buyMdAmount: null, buyMdAmountRate: null, buySmAmount: null, buySmAmountRate: null },
     ]
-    getKlinesMock.mockResolvedValue(klineFixture)
+    getKlinesMock.mockResolvedValue({ bars: klineFixture, suspend: { status: 'none', sinceDate: null, timing: null, lastQuoteTradeDate: null, asOfTradeDate: null } })
     queryStocksMock.mockResolvedValue(flowFixture)
 
     const result = await fetchAShareDetail(TS_CODE, LIMIT, 'qfq')
@@ -70,7 +70,7 @@ describe('aShareDetailFetcher', () => {
     const klineFixture = [
       { open_time: '2026-01-05', open: 1, high: 2, low: 1, close: 2, volume: 100 },
     ]
-    getKlinesMock.mockResolvedValue(klineFixture)
+    getKlinesMock.mockResolvedValue({ bars: klineFixture, suspend: { status: 'none', sinceDate: null, timing: null, lastQuoteTradeDate: null, asOfTradeDate: null } })
     queryStocksMock.mockResolvedValue([])
 
     const result = await fetchAShareDetail(TS_CODE, LIMIT, 'qfq')
@@ -82,18 +82,19 @@ describe('aShareDetailFetcher', () => {
 
   it('fetchAShareKlineOnly 不触发 moneyFlowApi.queryStocks（priceMode 切换路径）', async () => {
     const klineFixture = [{ open_time: '2026-01-05', open: 1, high: 2, low: 1, close: 2, volume: 100 }]
-    getKlinesMock.mockResolvedValue(klineFixture)
+    getKlinesMock.mockResolvedValue({ bars: klineFixture, suspend: { status: 'none', sinceDate: null, timing: null, lastQuoteTradeDate: null, asOfTradeDate: null } })
 
     const result = await fetchAShareKlineOnly(TS_CODE, LIMIT, 'raw')
 
     expect(getKlinesMock).toHaveBeenCalledTimes(1)
     expect(getKlinesMock).toHaveBeenCalledWith(TS_CODE, LIMIT, 'raw', undefined)
     expect(queryStocksMock).not.toHaveBeenCalled()
-    expect(result).toBe(klineFixture)
+    expect(result.bars).toBe(klineFixture)
+    expect(result.suspend.status).toBe('none')
   })
 
   it('fetchAShareDetail 传 range 时透传给 getKlines（资金流仍按 limit，无 range）', async () => {
-    getKlinesMock.mockResolvedValue([])
+    getKlinesMock.mockResolvedValue({ bars: [], suspend: { status: 'none', sinceDate: null, timing: null, lastQuoteTradeDate: null, asOfTradeDate: null } })
     queryStocksMock.mockResolvedValue([])
     const range = { startDate: '20240101', endDate: '20240201' }
 
@@ -105,7 +106,7 @@ describe('aShareDetailFetcher', () => {
   })
 
   it('fetchAShareKlineOnly 透传 range', async () => {
-    getKlinesMock.mockResolvedValue([])
+    getKlinesMock.mockResolvedValue({ bars: [], suspend: { status: 'none', sinceDate: null, timing: null, lastQuoteTradeDate: null, asOfTradeDate: null } })
     const range = { startDate: '20240101', endDate: '20240201' }
 
     await fetchAShareKlineOnly(TS_CODE, 1000, 'raw', range)

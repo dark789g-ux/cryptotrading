@@ -128,6 +128,29 @@ export interface AShareQuoteForIndicator {
   amount: string | null;
 }
 
+export type AShareSuspendStatus = 'none' | 'suspended';
+
+export interface AShareSuspendInfo {
+  status: AShareSuspendStatus;
+  sinceDate: string | null;
+  timing: string | null;
+  lastQuoteTradeDate: string | null;
+  asOfTradeDate?: string | null;
+}
+
+export interface AShareQueryRowSuspendFields {
+  suspendStatus: AShareSuspendStatus;
+  suspendSinceDate: string | null;
+  suspendTiming: string | null;
+  lastQuoteTradeDate: string | null;
+  quoteIsStale: boolean;
+}
+
+export interface AShareKlinesResponse {
+  bars: AShareKlineRow[];
+  suspend: AShareSuspendInfo;
+}
+
 export interface AShareKlineRow {
   open_time: string;
   open: number;

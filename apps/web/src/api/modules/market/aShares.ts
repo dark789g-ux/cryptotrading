@@ -3,6 +3,41 @@ import { appendQueryParam } from '../../query'
 import type { KdjSubplotParams, KlineChartBar } from './symbols'
 
 export type ASharePriceMode = 'qfq' | 'raw'
+export type AShareSuspendStatus = 'none' | 'suspended'
+
+export interface AShareKlineSuspend {
+  status: AShareSuspendStatus
+  sinceDate: string | null
+  timing: string | null
+  lastQuoteTradeDate: string | null
+  asOfTradeDate: string | null
+}
+
+export const DEFAULT_AShare_KLINE_SUSPEND: AShareKlineSuspend = {
+  status: 'none',
+  sinceDate: null,
+  timing: null,
+  lastQuoteTradeDate: null,
+  asOfTradeDate: null,
+}
+
+export interface AShareKlineResult {
+  bars: AShareKlineBar[]
+  suspend: AShareKlineSuspend
+}
+
+/** 兼容旧版数组响应与新版 { bars, suspend } 包装 */
+export function parseAShareKlinesResponse(
+  raw: AShareKlineBar[] | AShareKlineResult,
+): AShareKlineResult {
+  if (Array.isArray(raw)) {
+    return { bars: raw, suspend: { ...DEFAULT_AShare_KLINE_SUSPEND } }
+  }
+  return {
+    bars: raw.bars ?? [],
+    suspend: raw.suspend ?? { ...DEFAULT_AShare_KLINE_SUSPEND },
+  }
+}
 export type NumericConditionPayload =
   | { field: string; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; valueType?: 'number'; value: number }
   | { field: string; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; valueType: 'field'; compareField: string }
@@ -38,6 +73,11 @@ export interface AShareRow {
   totalMv?: string | null
   circMv?: string | null
   tradeDate: string | null
+  suspendStatus: AShareSuspendStatus
+  suspendSinceDate: string | null
+  suspendTiming: string | null
+  lastQuoteTradeDate: string | null
+  quoteIsStale: boolean
   // ── 技术指标列（T1 后端 SELECT 别名，canonical key 与共享 descriptor 一致）──
   // 数值列 PG NUMERIC/double 经 JSON 返回为 string；brickXg 例外为 boolean（DB brick_xg 是 boolean，
   // node-postgres 直接解析为 JS boolean，不是数字串）。
@@ -201,7 +241,9 @@ export const aSharesApi = {
     qs.set('priceMode', priceMode)
     if (range?.startDate) qs.set('startDate', range.startDate)
     if (range?.endDate)   qs.set('endDate', range.endDate)
-    return request<AShareKlineBar[]>(`${API_BASE}/a-shares/${encodeURIComponent(tsCode)}/klines?${qs.toString()}`)
+    return request<AShareKlineBar[] | AShareKlineResult>(
+      `${API_BASE}/a-shares/${encodeURIComponent(tsCode)}/klines?${qs.toString()}`,
+    ).then(parseAShareKlinesResponse)
   },
   recalcKlines: (
     tsCode: string, limit = 300, priceMode: ASharePriceMode = 'qfq',
@@ -213,7 +255,10 @@ export const aSharesApi = {
     qs.set('priceMode', priceMode)
     if (range?.startDate) qs.set('startDate', range.startDate)
     if (range?.endDate)   qs.set('endDate', range.endDate)
-    return post<AShareKlineBar[]>(`${API_BASE}/a-shares/${encodeURIComponent(tsCode)}/klines/recalc?${qs.toString()}`, body)
+    return post<AShareKlineBar[] | AShareKlineResult>(
+      `${API_BASE}/a-shares/${encodeURIComponent(tsCode)}/klines/recalc?${qs.toString()}`,
+      body,
+    ).then(parseAShareKlinesResponse)
   },
   sync: (body: AShareSyncBody = {}) =>
     post<AShareSyncResult>(`${API_BASE}/a-shares/sync`, body),

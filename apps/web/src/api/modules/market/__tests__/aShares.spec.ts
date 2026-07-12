@@ -5,7 +5,7 @@
  *  - POST /api/a-shares/:tsCode/klines/recalc?limit=&priceMode=&startDate=&endDate=
  *  - query building mirrors getKlines
  *  - body carries kdjParams when provided
- *  - returns AShareKlineBar[]
+ *  - returns { bars, suspend } (legacy array wrapped by parseAShareKlinesResponse)
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { aSharesApi } from '../aShares'
@@ -57,6 +57,36 @@ const bar = {
   BBI: null,
 }
 
+describe('aSharesApi.getKlines', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('解析新版 { bars, suspend } 响应', async () => {
+    const fetchMock = mockFetchOnce({
+      bars: [bar],
+      suspend: {
+        status: 'suspended',
+        sinceDate: '20260707',
+        timing: '全天',
+        lastQuoteTradeDate: '20260706',
+        asOfTradeDate: '20260710',
+      },
+    })
+    const res = await aSharesApi.getKlines('000008.SZ')
+
+    expect(res.bars).toEqual([bar])
+    expect(res.suspend.status).toBe('suspended')
+    expect(res.suspend.sinceDate).toBe('20260707')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/a-shares/000008.SZ/klines?limit=300&priceMode=qfq')
+  })
+
+  it('兼容旧版数组响应，suspend 降级为 none', async () => {
+    mockFetchOnce([bar])
+    const res = await aSharesApi.getKlines('000001.SZ')
+    expect(res.bars).toEqual([bar])
+    expect(res.suspend.status).toBe('none')
+  })
+})
+
 describe('aSharesApi.recalcKlines', () => {
   afterEach(() => vi.unstubAllGlobals())
 
@@ -64,7 +94,7 @@ describe('aSharesApi.recalcKlines', () => {
     const fetchMock = mockFetchOnce([bar])
     const res = await aSharesApi.recalcKlines('000001.SZ')
 
-    expect(res).toEqual([bar])
+    expect(res).toEqual({ bars: [bar], suspend: expect.objectContaining({ status: 'none' }) })
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('/api/a-shares/000001.SZ/klines/recalc?limit=300&priceMode=qfq')
     expect((init as RequestInit).method).toBe('POST')

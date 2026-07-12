@@ -92,6 +92,7 @@
               :available-subplots="watchlistAvailableSubplots"
               :recalc-indicators="recalcKdjIndicators"
               :symbol-code="selectedSymbol"
+              :suspend="isWatchlistAShare(selectedSymbol) ? klineSuspend : undefined"
               @update:range="onKlineRangeChange"
             />
           </div>
@@ -116,6 +117,8 @@ import {
   klinesApi,
   quantApi,
   watchlistApi,
+  DEFAULT_AShare_KLINE_SUSPEND,
+  type AShareKlineSuspend,
   type ColumnPreferenceItem,
   type KlineChartBar,
   type WatchlistQuoteRow,
@@ -138,6 +141,7 @@ const showAddModal = ref(false)
 const showChartDrawer = ref(false)
 const selectedSymbol = ref('')
 const klineData = ref<KlineChartBar[]>([])
+const klineSuspend = ref<AShareKlineSuspend>({ ...DEFAULT_AShare_KLINE_SUSPEND })
 const loadingKline = ref(false)
 const scoresMap = ref(new Map<string, number>())
 const scoresLoading = ref(false)
@@ -177,7 +181,9 @@ async function reloadAShareKline(rangeDates: KlineRangeDates | null) {
   loadingKline.value = true
   try {
     const limit = rangeDates ? RANGE_LIMIT : DEFAULT_LIMIT
-    klineData.value = await aSharesApi.getKlines(symbol, limit, 'qfq', rangeDates ?? undefined)
+    const klineResult = await aSharesApi.getKlines(symbol, limit, 'qfq', rangeDates ?? undefined)
+    klineData.value = klineResult.bars
+    klineSuspend.value = klineResult.suspend
   } catch (err: unknown) {
     console.error(err)
   } finally {
@@ -192,13 +198,15 @@ async function recalcKdjIndicators(params?: IndicatorSubplotParams): Promise<voi
     if (isWatchlistAShare(symbol)) {
       const rangeDates = klineRangeToDates()
       const limit = rangeDates ? RANGE_LIMIT : DEFAULT_LIMIT
-      klineData.value = await aSharesApi.recalcKlines(
+      const klineResult = await aSharesApi.recalcKlines(
         symbol,
         limit,
         'qfq',
         rangeDates ?? undefined,
         { kdjParams: params?.KDJ },
       )
+      klineData.value = klineResult.bars
+      klineSuspend.value = klineResult.suspend
     } else {
       klineData.value = await klinesApi.recalcKlines(symbol, store.interval, { kdjParams: params?.KDJ })
     }
@@ -352,10 +360,15 @@ async function openChart(symbol: string) {
   resetKlineRange() // 新标的：清空选区，回各自默认窗口
   loadingKline.value = true
   klineData.value = []
+  klineSuspend.value = { ...DEFAULT_AShare_KLINE_SUSPEND }
   try {
-    klineData.value = isWatchlistAShare(symbol)
-      ? await aSharesApi.getKlines(symbol, DEFAULT_LIMIT, 'qfq') // A 股：有界默认窗口
-      : await klinesApi.getKlines(symbol, store.interval) // crypto：后端返回全量历史，A 类客户端裁切
+    if (isWatchlistAShare(symbol)) {
+      const result = await aSharesApi.getKlines(symbol, DEFAULT_LIMIT, 'qfq')
+      klineData.value = result.bars
+      klineSuspend.value = result.suspend
+    } else {
+      klineData.value = await klinesApi.getKlines(symbol, store.interval)
+    }
   } catch (err: unknown) {
     console.error(err)
   } finally {

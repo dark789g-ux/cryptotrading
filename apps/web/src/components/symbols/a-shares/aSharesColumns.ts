@@ -2,6 +2,7 @@ import { h, type Ref } from 'vue'
 import { NButton, NIcon, NTag, NTooltip, type DataTableColumns } from 'naive-ui'
 import { OpenOutline } from '@vicons/ionicons5'
 import SymbolStarButton from '../../common/SymbolStarButton.vue'
+import SuspendStatusTag from './SuspendStatusTag.vue'
 import type { AShareRow } from '@/api'
 import { colors } from '../../../styles/tokens'
 import { formatAmount, formatMarketCap, formatMoneyFlow, formatNumber, formatPercent, formatTradeDate, trendClass } from './aSharesFormatters'
@@ -15,6 +16,8 @@ interface ASharesColumnsOptions {
   scoresMap: Ref<Map<string, number>>
   scoresLoading: Ref<boolean>
 }
+
+const STALE_QUOTE_STYLE = { color: 'var(--color-text-secondary)' }
 
 function getPctChangeColor(value: string | null) {
   const num = value == null ? 0 : Number(value)
@@ -40,7 +43,19 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
           h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, row.tsCode),
         ]),
     },
-    { title: '名称', key: 'name', width: 120, fixed: 'left', sorter: true, defaultVisible: true, render: (row) => row.name },
+    { title: '名称', key: 'name', width: 150, fixed: 'left', sorter: true, defaultVisible: true, render: (row) =>
+        h('div', { style: 'display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0' }, [
+          h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, row.name),
+          row.suspendStatus === 'suspended'
+            ? h(SuspendStatusTag, {
+                status: row.suspendStatus,
+                sinceDate: row.suspendSinceDate,
+                timing: row.suspendTiming,
+                variant: 'list',
+              })
+            : null,
+        ]),
+    },
     { title: '市场', key: 'market', width: 100, sorter: true, defaultVisible: true, render: (row) => row.market ?? '-' },
     { title: '申万一级', key: 'swIndustryL1Code', width: 140, sorter: true, defaultVisible: true, render: (row) => row.swIndustryL1Name ?? row.swIndustryL1Code ?? '-' },
     { title: '申万二级', key: 'swIndustryL2Code', width: 140, sorter: true, defaultVisible: false, render: (row) => row.swIndustryL2Name ?? row.swIndustryL2Code ?? '-' },
@@ -51,7 +66,12 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
       width: 130,
       sorter: true,
       defaultVisible: true,
-      render: (row) => formatNumber(row.close, 2),
+      render: (row) =>
+        h(
+          'span',
+          { style: row.quoteIsStale ? STALE_QUOTE_STYLE : undefined },
+          formatNumber(row.close, 2),
+        ),
     },
     {
       title: `涨跌幅(${priceSuffix})`,
@@ -60,6 +80,9 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
       sorter: true,
       defaultVisible: true,
       render: (row) => {
+        if (row.quoteIsStale) {
+          return h('span', { style: STALE_QUOTE_STYLE }, formatPercent(row.pctChg))
+        }
         const color = getPctChangeColor(row.pctChg)
         return h(
           'span',
@@ -75,7 +98,21 @@ export function createASharesColumnDefs(options: ASharesColumnsOptions): SymbolC
     { title: 'PB', key: 'pb', descKey: 'pb', width: 90, sorter: true, defaultVisible: true, render: (row) => formatNumber(row.pb, 2) },
     { title: '总市值', key: 'totalMv', descKey: 'total_mv', width: 120, sorter: true, defaultVisible: false, render: (row) => formatMarketCap(row.totalMv) },
     { title: '流通市值', key: 'circMv', descKey: 'circ_mv', width: 120, sorter: true, defaultVisible: false, render: (row) => formatMarketCap(row.circMv) },
-    { title: '交易日', key: 'tradeDate', width: 110, sorter: true, defaultVisible: true, render: (row) => formatTradeDate(row.tradeDate) },
+    {
+      title: '交易日',
+      key: 'tradeDate',
+      width: 110,
+      sorter: true,
+      defaultVisible: true,
+      render: (row) => {
+        const text = formatTradeDate(row.tradeDate)
+        if (!row.quoteIsStale) return text
+        return h(NTooltip, null, {
+          trigger: () => h('span', { style: STALE_QUOTE_STYLE }, text),
+          default: () => '末交易日（停牌中）',
+        })
+      },
+    },
     {
       title: '评分',
       key: 'modelScore',

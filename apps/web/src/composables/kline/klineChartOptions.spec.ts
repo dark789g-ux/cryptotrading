@@ -368,3 +368,23 @@ describe('buildKlineChartOption — VOL 成交量"相对前收"明暗着色', ()
     expectFillToBe(volColors(data)[1], UP, ALPHA_SOLID)
   })
 })
+
+describe('buildKlineChartOption — suspendBand 冻结区', () => {
+  it('suspendBand=true 时 candlestick 含 markArea 且 xAxis 扩展 max', () => {
+    const opt = buildKlineChartOption({ data: baseData, echartsTheme, suspendBand: true })
+    const candle = arrify(opt.series).find((s) => (s as { type?: string }).type === 'candlestick') as {
+      markArea?: { data?: unknown[] }
+    }
+    expect(candle?.markArea?.data?.length).toBeGreaterThan(0)
+    const xs = arrify(opt.xAxis) as Array<{ max?: number }>
+    expect(xs[0].max).toBeGreaterThan(baseData.length - 1)
+  })
+
+  it('suspendBand 默认 false 时不含 markArea', () => {
+    const opt = buildKlineChartOption({ data: baseData, echartsTheme })
+    const candle = arrify(opt.series).find((s) => (s as { type?: string }).type === 'candlestick') as {
+      markArea?: { data?: unknown[] }
+    }
+    expect(candle?.markArea).toBeUndefined()
+  })
+})

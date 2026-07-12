@@ -12,6 +12,7 @@
       :reset="reset"
       :symbol-code="props.symbolCode"
       :symbol-name="props.symbolName"
+      :suspend="props.suspend"
       @update:range="onRangeUpdate"
     >
       <template v-if="hasActionsSlot" #actions><slot name="actions" /></template>
@@ -36,7 +37,7 @@ import {
 } from '../../composables/kline/subplotConfig'
 import { useKlineChartPrefs } from '../../composables/kline/useKlineChartPrefs'
 import { readKlineZoom, writeKlineZoom } from '../../composables/kline/klineZoomStorage'
-import type { KlineChartBar } from '@/api'
+import type { AShareKlineSuspend, KlineChartBar } from '@/api'
 import { useTheme } from '../../composables/hooks/useTheme'
 
 type Granularity = 'date' | 'hour' | 'minute'
@@ -60,6 +61,7 @@ const props = withDefaults(
     recalcIndicators?: (params?: IndicatorSubplotParams) => Promise<void>
     symbolCode?: string
     symbolName?: string
+    suspend?: AShareKlineSuspend | null
   }>(),
   {
     currentTs: '',
@@ -73,6 +75,7 @@ const props = withDefaults(
     availableSubplots: () => [...ALL_SUBPLOT_KEYS],
     symbolCode: '',
     symbolName: '',
+    suspend: null,
   },
 )
 
@@ -212,6 +215,7 @@ async function renderChart(retry = 0) {
       sliderStart: props.sliderStart,
       zoom: readKlineZoom() ?? undefined,
       subplots: subs,
+      suspendBand: props.suspend?.status === 'suspended',
     }),
   )
   // 程序化 setOption 触发的 datazoom 在当前帧/下一帧内回调，用 rAF 延后解除抑制。
@@ -246,7 +250,7 @@ function onRangeUpdate(value: [number, number] | null) {
 }
 
 watch(
-  () => [props.data, props.currentTs, props.sliderStart, echartsTheme.value, subplots.value] as const,
+  () => [props.data, props.currentTs, props.sliderStart, props.suspend, echartsTheme.value, subplots.value] as const,
   () => {
     void renderChart()
   },

@@ -11,6 +11,9 @@
     <InfoRow label="市净率(倍)" :value="formatNumber(row.pb, 2)" />
     <InfoRow label="换手率(%)" :value="formatPercent(row.turnoverRate)" />
     <InfoRow label="量比(倍)" :value="formatVolumeRatio(row.volumeRatio)" />
+    <InfoRow label="停牌状态" :value="formatSuspendStatusLabel(row.suspendStatus)" />
+    <InfoRow label="停牌日起" :value="formatTradeDate(row.suspendSinceDate)" />
+    <InfoRow label="停牌时段" :value="row.suspendTiming ?? '-'" />
   </div>
   <n-empty v-else description="未选择标的" size="small" />
 </template>
@@ -26,7 +29,9 @@ import {
   formatPercent,
   formatMarketCap,
   formatVolumeRatio,
+  formatTradeDate,
 } from './aSharesFormatters'
+import { formatSuspendStatusLabel } from './suspendDisplay'
 
 defineProps<{
   row: AShareRow | null

@@ -116,12 +116,19 @@ export function buildGrid(subplots: SubplotConfig[]): EChartsOption['grid'] {
   return grids as EChartsOption['grid']
 }
 
-export function buildXAxes(times: string[], subplots: SubplotConfig[]): EChartsOption['xAxis'] {
+export function buildXAxes(
+  times: string[],
+  subplots: SubplotConfig[],
+  axisMax?: number,
+): EChartsOption['xAxis'] {
   const lastIdx = subplots.length // 最底部副图的 gridIndex（不含主图时 = 0，仅主图）
+  const maxOpt = axisMax != null ? { max: axisMax } : {}
   const axes: any[] = [
     {
       type: 'category',
       data: times,
+      boundaryGap: true,
+      ...maxOpt,
       axisLabel: { show: false },
       axisPointer: { label: { show: lastIdx === 0 } },
     },
@@ -133,6 +140,8 @@ export function buildXAxes(times: string[], subplots: SubplotConfig[]): EChartsO
       type: 'category',
       data: times,
       gridIndex,
+      boundaryGap: true,
+      ...maxOpt,
       axisLabel: { show: false },
       axisPointer: { label: { show: isLast } },
     })

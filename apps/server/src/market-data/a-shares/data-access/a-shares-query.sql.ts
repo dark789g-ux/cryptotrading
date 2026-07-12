@@ -1,4 +1,10 @@
 import { QueryASharesDto, QueryConditionOp } from '../a-shares.types';
+import {
+  A_SHARES_LAST_QUOTE_LATERAL,
+  A_SHARES_SUSPEND_LATERAL,
+  buildStaleAwarePriceSelect,
+  buildSuspendSelectAliases,
+} from './a-shares-suspend.sql';
 
 const OP_MAP: Record<QueryConditionOp, string> = {
   gt: '>',
@@ -392,9 +398,7 @@ function latestCtePrefix(req: JoinRequirements): string {
 
 function buildHydrateSelect(dto: QueryASharesDto): string {
   const priceMode = dto.priceMode === 'raw' ? 'raw' : 'qfq';
-  const priceCols = priceMode === 'raw'
-    ? { close: 'q.close', change: 'q.change', pctChg: 'q.pct_chg' }
-    : { close: 'q.qfq_close', change: 'q.qfq_change', pctChg: 'q.qfq_pct_chg' };
+  const priceCols = buildStaleAwarePriceSelect(priceMode);
 
   return `
       SELECT
@@ -419,7 +423,7 @@ function buildHydrateSelect(dto: QueryASharesDto): string {
         m.pb,
         m.total_mv AS "totalMv",
         m.circ_mv AS "circMv",
-        q.trade_date AS "tradeDate",
+        ${priceCols.tradeDate} AS "tradeDate",
         i.ma5 AS "ma5", i.ma30 AS "ma30", i.ma60 AS "ma60", i.ma120 AS "ma120", i.ma240 AS "ma240", i.bbi AS "bbi",
         i.kdj_j AS "kdjJ", i.kdj_k AS "kdjK", i.kdj_d AS "kdjD", i.dif AS "dif", i.dea AS "dea", i.macd AS "macd",
         i.atr_14 AS "atr14", i.loss_atr_14 AS "lossAtr14", i.low_9 AS "low9", i.high_9 AS "high9",
@@ -442,7 +446,7 @@ function buildHydrateSelect(dto: QueryASharesDto): string {
            JOIN watchlists w ON w.id = wi.watchlist_id
            WHERE wi.symbol = s.ts_code),
           '[]'::jsonb
-        ) AS tags`;
+        ) AS tags,${buildSuspendSelectAliases()}`;
 }
 
 function buildFullHydrateFromClause(state: ParamState): string {
@@ -455,7 +459,7 @@ function buildFullHydrateFromClause(state: ParamState): string {
       LEFT JOIN stock_amv_daily sa ON sa.ts_code = s.ts_code AND sa.trade_date = l.trade_date
       LEFT JOIN sw_index_catalog sw1 ON sw1.ts_code = s.sw_industry_l1_code
       LEFT JOIN sw_index_catalog sw2 ON sw2.ts_code = s.sw_industry_l2_code
-      LEFT JOIN sw_index_catalog sw3 ON sw3.ts_code = s.sw_industry_l3_code${MONEY_FLOW_LATERAL}
+      LEFT JOIN sw_index_catalog sw3 ON sw3.ts_code = s.sw_industry_l3_code${A_SHARES_SUSPEND_LATERAL}${A_SHARES_LAST_QUOTE_LATERAL}${MONEY_FLOW_LATERAL}
       WHERE s.list_status = 'L'`;
 }
 
@@ -537,7 +541,7 @@ export function buildASharesBaseQuery(
       LEFT JOIN stock_amv_daily sa ON sa.ts_code = s.ts_code AND sa.trade_date = l.trade_date
       LEFT JOIN sw_index_catalog sw1 ON sw1.ts_code = s.sw_industry_l1_code
       LEFT JOIN sw_index_catalog sw2 ON sw2.ts_code = s.sw_industry_l2_code
-      LEFT JOIN sw_index_catalog sw3 ON sw3.ts_code = s.sw_industry_l3_code${scoreJoin}${MONEY_FLOW_LATERAL}
+      LEFT JOIN sw_index_catalog sw3 ON sw3.ts_code = s.sw_industry_l3_code${scoreJoin}${A_SHARES_SUSPEND_LATERAL}${A_SHARES_LAST_QUOTE_LATERAL}${MONEY_FLOW_LATERAL}
       WHERE s.list_status = 'L'`;
 
   sql = appendFilters(sql, dto, state);

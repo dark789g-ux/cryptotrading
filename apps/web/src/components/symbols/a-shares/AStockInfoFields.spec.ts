@@ -28,6 +28,11 @@ function makeRow(overrides: Partial<AShareRow> = {}): AShareRow {
     totalMv: '204560000', // 万元 → 20456 亿
     circMv: '204560000',
     tradeDate: '20260618',
+    suspendStatus: 'none',
+    suspendSinceDate: null,
+    suspendTiming: null,
+    lastQuoteTradeDate: null,
+    quoteIsStale: false,
     ma5: null, ma30: null, ma60: null, ma120: null, ma240: null,
     bbi: null,
     kdjJ: null, kdjK: null, kdjD: null,
@@ -46,10 +51,10 @@ function mountFields(row: AShareRow | null) {
 }
 
 describe('AStockInfoFields', () => {
-  it('渲染全部 11 个字段行', () => {
+  it('渲染全部 14 个字段行', () => {
     const wrapper = mountFields(makeRow())
     const rows = wrapper.findAllComponents({ name: 'InfoRow' })
-    expect(rows.length).toBe(11)
+    expect(rows.length).toBe(14)
   })
 
   it('label 含单位', () => {
@@ -67,6 +72,9 @@ describe('AStockInfoFields', () => {
       '市净率(倍)',
       '换手率(%)',
       '量比(倍)',
+      '停牌状态',
+      '停牌日起',
+      '停牌时段',
     ])
   })
 
@@ -96,6 +104,18 @@ describe('AStockInfoFields', () => {
     const wrapper = mountFields(makeRow({ volumeRatio: '1.5' }))
     const values = wrapper.findAll('.info-row__value').map((el) => el.text())
     expect(values[10]).toBe('1.50倍')
+  })
+
+  it('停牌字段：suspended 行展示状态/日起/时段', () => {
+    const wrapper = mountFields(makeRow({
+      suspendStatus: 'suspended',
+      suspendSinceDate: '20260707',
+      suspendTiming: '全天',
+    }))
+    const values = wrapper.findAll('.info-row__value').map((el) => el.text())
+    expect(values[11]).toBe('停牌中')
+    expect(values[12]).toBe('2026-07-07')
+    expect(values[13]).toBe('全天')
   })
 
   it('row null → 显示未选择标的空状态', () => {

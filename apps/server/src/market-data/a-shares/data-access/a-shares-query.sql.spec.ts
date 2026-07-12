@@ -302,6 +302,33 @@ describe('a-shares-query.sql indexTsCode 指数成分股筛选', () => {
   });
 });
 
+describe('a-shares-query.sql 停牌字段', () => {
+  const baseDto: QueryASharesDto = { priceMode: 'qfq' };
+
+  it('SELECT 含 suspendStatus / quoteIsStale / lastQuoteTradeDate', () => {
+    const { sql } = buildASharesBaseQuery(baseDto);
+    expect(sql).toContain('"suspendStatus"');
+    expect(sql).toContain('"suspendSinceDate"');
+    expect(sql).toContain('"suspendTiming"');
+    expect(sql).toContain('"lastQuoteTradeDate"');
+    expect(sql).toContain('"quoteIsStale"');
+  });
+
+  it('hydrate FROM 含 suspend + last_quote LATERAL', () => {
+    const { sql } = buildASharesBaseQuery(baseDto);
+    expect(sql).toContain('raw.suspend_d');
+    expect(sql).toContain(') sus ON true');
+    expect(sql).toContain(') lq ON true');
+  });
+
+  it('停牌 stale fallback：close/pctChg/tradeDate 用 CASE WHEN suspended AND q.trade_date IS NULL', () => {
+    const { sql } = buildASharesBaseQuery(baseDto);
+    expect(sql).toContain("sus.suspend_status = 'suspended' AND q.trade_date IS NULL");
+    expect(sql).toContain('lq.qfq_close');
+    expect(sql).toContain('lq.trade_date');
+  });
+});
+
 describe('a-shares-query.sql 两阶段 Phase1 id-sort', () => {
   it('按 pctChg 排序：Phase1 不含 LATERAL / tags', () => {
     const dto: QueryASharesDto = { sort: { field: 'pctChg', order: 'descend' }, priceMode: 'qfq' };

@@ -351,7 +351,7 @@ export class RegimeBacktestService {
     const endDate = shiftTradeDate(signalDate, safeAfter * 2);
     const sym = tsCode.trim();
 
-    const [bars, trades] = await Promise.all([
+    const [{ bars }, trades] = await Promise.all([
       this.aSharesService.getKlines(sym, safeBefore + safeAfter + 5, 'qfq', {
         startDate,
         endDate,

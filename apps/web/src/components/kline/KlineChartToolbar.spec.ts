@@ -57,6 +57,7 @@ function mountToolbar(props: {
   prefs?: SubplotPrefs
   symbolCode?: string
   symbolName?: string
+  suspend?: import('@/api').AShareKlineSuspend | null
 } = {}, slots?: { actions?: () => ReturnType<typeof h> }) {
   const onUpdateRange = vi.fn()
 
@@ -95,6 +96,7 @@ function mountToolbar(props: {
               reset,
               symbolCode: props.symbolCode,
               symbolName: props.symbolName,
+              suspend: props.suspend ?? null,
               'onUpdate:range': onUpdateRange,
             },
             slots,
@@ -521,5 +523,59 @@ describe('KlineChartToolbar actions 具名插槽', () => {
       .findAllComponents(NButton)
       .find((b) => b.attributes('aria-label') === '副图设置')
     expect(settingsBtn).toBeTruthy()
+  })
+})
+
+describe('KlineChartToolbar 停牌标识', () => {
+  let lastWrapper: ReturnType<typeof mountToolbar>['wrapper'] | null = null
+
+  afterEach(() => {
+    if (lastWrapper) {
+      lastWrapper.unmount()
+      lastWrapper = null
+    }
+    document.body.innerHTML = ''
+    vi.restoreAllMocks()
+  })
+
+  it('停牌时渲染「停牌中」Badge 与副文案', async () => {
+    const { wrapper } = mountToolbar({
+      symbolCode: '000008.SZ',
+      symbolName: '神州高铁',
+      suspend: {
+        status: 'suspended',
+        sinceDate: '20260707',
+        timing: '全天',
+        lastQuoteTradeDate: '20260706',
+        asOfTradeDate: '20260710',
+      },
+    })
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.text()).toContain('停牌中')
+    expect(wrapper.find('.kline-toolbar__suspend-caption').text()).toContain('行情截至 2026-07-06')
+    expect(wrapper.find('.kline-toolbar__suspend-caption').text()).toContain('自 2026-07-07 停牌')
+  })
+
+  it('非停牌时不渲染 Badge 与副文案', async () => {
+    const { wrapper } = mountToolbar({
+      symbolCode: '000001.SZ',
+      symbolName: '平安银行',
+      suspend: {
+        status: 'none',
+        sinceDate: null,
+        timing: null,
+        lastQuoteTradeDate: null,
+        asOfTradeDate: null,
+      },
+    })
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.text()).not.toContain('停牌中')
+    expect(wrapper.find('.kline-toolbar__suspend-caption').exists()).toBe(false)
   })
 })

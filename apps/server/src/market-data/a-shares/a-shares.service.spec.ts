@@ -22,11 +22,25 @@ function squash(s: string): string {
 
 // ── mock 工厂 ─────────────────────────────────────────────────────────────────
 
-function makeDataSourceMock() {
+function makeQueryDataSourceMock() {
   return { query: jest.fn().mockResolvedValue([]) };
 }
 
-function makeService(dataSource: ReturnType<typeof makeDataSourceMock>): ASharesService {
+function makeKlinesDataSourceMock() {
+  return {
+    query: jest.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        status: 'none',
+        sinceDate: null,
+        timing: null,
+        lastQuoteTradeDate: '20240710',
+        asOfTradeDate: '20240710',
+      }]),
+  };
+}
+
+function makeService(dataSource: ReturnType<typeof makeQueryDataSourceMock>): ASharesService {
   // ASharesService 构造函数：symbolRepo, dataSource, syncService
   // getKlines 只碰 dataSource，其余 null 即可。
   return new ASharesService(null as never, dataSource as never, null as never);
@@ -36,12 +50,13 @@ function makeService(dataSource: ReturnType<typeof makeDataSourceMock>): AShares
 
 async function callGetKlines(
   service: ASharesService,
-  dataSource: ReturnType<typeof makeDataSourceMock>,
+  dataSource: ReturnType<typeof makeKlinesDataSourceMock>,
   args: Parameters<ASharesService['getKlines']>,
-): Promise<{ sql: string; params: unknown[] }> {
+): Promise<{ sql: string; params: unknown[]; suspendSql: string; suspendParams: unknown[] }> {
   await service.getKlines(...args);
   const [sql, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
-  return { sql, params };
+  const [suspendSql, suspendParams] = dataSource.query.mock.calls[1] as [string, unknown[]];
+  return { sql, params, suspendSql, suspendParams };
 }
 
 // ── 测试套件 ──────────────────────────────────────────────────────────────────
@@ -52,15 +67,17 @@ describe('ASharesService.getKlines - 日期区间参数', () => {
   const safeLimit = 300; // Math.min(1000, Math.max(30, 300)) = 300
 
   describe('不传 range（向后兼容）', () => {
-    it('params 数组为 [tsCode, safeLimit]', async () => {
-      const ds = makeDataSourceMock();
+    it('params 数组为 [tsCode, safeLimit]，并行查询 suspend', async () => {
+      const ds = makeKlinesDataSourceMock();
       const svc = makeService(ds);
-      const { params } = await callGetKlines(svc, ds, [tsCode, defaultLimit, 'qfq', undefined]);
+      const { params, suspendParams } = await callGetKlines(svc, ds, [tsCode, defaultLimit, 'qfq', undefined]);
       expect(params).toEqual([tsCode, safeLimit]);
+      expect(suspendParams).toEqual([tsCode]);
+      expect(ds.query).toHaveBeenCalledTimes(2);
     });
 
     it('SQL 不含 trade_date 区间约束', async () => {
-      const ds = makeDataSourceMock();
+      const ds = makeKlinesDataSourceMock();
       const svc = makeService(ds);
       const { sql } = await callGetKlines(svc, ds, [tsCode, defaultLimit, 'qfq', undefined]);
       const flat = squash(sql);
@@ -74,14 +91,14 @@ describe('ASharesService.getKlines - 日期区间参数', () => {
     const endDate = '20240630';
 
     it('params 数组为 [tsCode, startDate, endDate, safeLimit]', async () => {
-      const ds = makeDataSourceMock();
+      const ds = makeKlinesDataSourceMock();
       const svc = makeService(ds);
       const { params } = await callGetKlines(svc, ds, [tsCode, defaultLimit, 'qfq', { startDate, endDate }]);
       expect(params).toEqual([tsCode, startDate, endDate, safeLimit]);
     });
 
     it('SQL 含 q.trade_date >= $2 且 q.trade_date <= $3，LIMIT $4', async () => {
-      const ds = makeDataSourceMock();
+      const ds = makeKlinesDataSourceMock();
       const svc = makeService(ds);
       const { sql } = await callGetKlines(svc, ds, [tsCode, defaultLimit, 'qfq', { startDate, endDate }]);
       const flat = squash(sql);
@@ -95,14 +112,14 @@ describe('ASharesService.getKlines - 日期区间参数', () => {
     const startDate = '20240101';
 
     it('params 数组为 [tsCode, startDate, safeLimit]', async () => {
-      const ds = makeDataSourceMock();
+      const ds = makeKlinesDataSourceMock();
       const svc = makeService(ds);
       const { params } = await callGetKlines(svc, ds, [tsCode, defaultLimit, 'qfq', { startDate }]);
       expect(params).toEqual([tsCode, startDate, safeLimit]);
     });
 
     it('SQL 含 q.trade_date >= $2，不含 <=，LIMIT $3', async () => {
-      const ds = makeDataSourceMock();
+      const ds = makeKlinesDataSourceMock();
       const svc = makeService(ds);
       const { sql } = await callGetKlines(svc, ds, [tsCode, defaultLimit, 'qfq', { startDate }]);
       const flat = squash(sql);
@@ -116,14 +133,14 @@ describe('ASharesService.getKlines - 日期区间参数', () => {
     const endDate = '20240630';
 
     it('params 数组为 [tsCode, endDate, safeLimit]', async () => {
-      const ds = makeDataSourceMock();
+      const ds = makeKlinesDataSourceMock();
       const svc = makeService(ds);
       const { params } = await callGetKlines(svc, ds, [tsCode, defaultLimit, 'qfq', { endDate }]);
       expect(params).toEqual([tsCode, endDate, safeLimit]);
     });
 
     it('SQL 含 q.trade_date <= $2，不含 >=，LIMIT $3', async () => {
-      const ds = makeDataSourceMock();
+      const ds = makeKlinesDataSourceMock();
       const svc = makeService(ds);
       const { sql } = await callGetKlines(svc, ds, [tsCode, defaultLimit, 'qfq', { endDate }]);
       const flat = squash(sql);
@@ -131,6 +148,43 @@ describe('ASharesService.getKlines - 日期区间参数', () => {
       expect(flat).not.toContain('trade_date >=');
       expect(flat).toContain('LIMIT $3');
     });
+  });
+});
+
+describe('ASharesService.getKlines - suspend 响应', () => {
+  const tsCode = '000008.SZ';
+
+  it('返回 { bars, suspend } 包装，suspend 含 asOfTradeDate', async () => {
+    const ds = makeKlinesDataSourceMock();
+    ds.query
+      .mockReset()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        status: 'suspended',
+        sinceDate: '20260707',
+        timing: null,
+        lastQuoteTradeDate: '20260706',
+        asOfTradeDate: '20260710',
+      }]);
+    const svc = makeService(ds);
+
+    const result = await svc.getKlines(tsCode, 300, 'qfq', undefined);
+    expect(result.bars).toEqual([]);
+    expect(result.suspend).toEqual({
+      status: 'suspended',
+      sinceDate: '20260707',
+      timing: null,
+      lastQuoteTradeDate: '20260706',
+      asOfTradeDate: '20260710',
+    });
+  });
+
+  it('suspend SQL 锚定 raw.suspend_d 与全局 MAX(trade_date)', async () => {
+    const ds = makeKlinesDataSourceMock();
+    const svc = makeService(ds);
+    const { suspendSql } = await callGetKlines(svc, ds, [tsCode, 300, 'qfq', undefined]);
+    expect(squash(suspendSql)).toContain('raw.suspend_d');
+    expect(squash(suspendSql)).toContain('MAX(trade_date) AS trade_date FROM raw.daily_quote');
   });
 });
 
@@ -223,33 +277,57 @@ function makeMockRows(count = 12): MockDbRow[] {
   return rows;
 }
 
+const DEFAULT_SUSPEND_ROW = {
+  status: 'none',
+  sinceDate: null,
+  timing: null,
+  lastQuoteTradeDate: '20240112',
+  asOfTradeDate: '20240112',
+};
+
+function setupKlinesAndSuspendMock(
+  ds: ReturnType<typeof makeKlinesDataSourceMock>,
+  bars: MockDbRow[] | [] = [],
+) {
+  ds.query.mockReset();
+  ds.query
+    .mockResolvedValueOnce(bars)
+    .mockResolvedValueOnce([DEFAULT_SUSPEND_ROW]);
+}
+
 // ── 测试套件：recalcKlines ────────────────────────────────────────────────────
 
 describe('ASharesService.recalcKlines', () => {
   const tsCode = '000001.SZ';
 
   it('不传 kdjParams 时返回与 getKlines 完全相同的数据', async () => {
-    const ds = makeDataSourceMock();
-    ds.query.mockResolvedValue(makeMockRows());
+    const ds = makeKlinesDataSourceMock();
+    setupKlinesAndSuspendMock(ds, makeMockRows());
     const svc = makeService(ds);
 
     const fromGet = await svc.getKlines(tsCode, 300, 'qfq', undefined);
+    setupKlinesAndSuspendMock(ds, makeMockRows());
     const fromRecalc = await svc.recalcKlines(tsCode, { priceMode: 'qfq' }, undefined);
 
     expect(fromRecalc).toEqual(fromGet);
   });
 
   it('自定义 KDJ 参数会改变 KDJ 三列，其余列保持不变', async () => {
-    const ds = makeDataSourceMock();
-    ds.query.mockResolvedValue(makeMockRows());
+    const ds = makeKlinesDataSourceMock();
+    setupKlinesAndSuspendMock(ds, makeMockRows());
     const svc = makeService(ds);
 
-    const defaultRows = await svc.recalcKlines(tsCode, { priceMode: 'qfq' }, undefined);
-    const customRows = await svc.recalcKlines(
+    const defaultResult = await svc.recalcKlines(tsCode, { priceMode: 'qfq' }, undefined);
+    setupKlinesAndSuspendMock(ds, makeMockRows());
+    const customResult = await svc.recalcKlines(
       tsCode,
       { priceMode: 'qfq' },
       { n: 6, m1: 2, m2: 2 },
     );
+
+    const defaultRows = defaultResult.bars;
+    const customRows = customResult.bars;
+    expect(customResult.suspend).toEqual(defaultResult.suspend);
 
     expect(customRows).toHaveLength(defaultRows.length);
 
@@ -299,11 +377,12 @@ describe('ASharesService.recalcKlines', () => {
   });
 
   it('显式传入默认参数 9/3/3 时不触发重算，结果与 getKlines 一致', async () => {
-    const ds = makeDataSourceMock();
-    ds.query.mockResolvedValue(makeMockRows());
+    const ds = makeKlinesDataSourceMock();
+    setupKlinesAndSuspendMock(ds, makeMockRows());
     const svc = makeService(ds);
 
     const fromGet = await svc.getKlines(tsCode, 300, 'qfq', undefined);
+    setupKlinesAndSuspendMock(ds, makeMockRows());
     const fromRecalc = await svc.recalcKlines(
       tsCode,
       { priceMode: 'qfq' },
@@ -314,8 +393,8 @@ describe('ASharesService.recalcKlines', () => {
   });
 
   it('startDate/endDate 会透传给 getKlines 并出现在 SQL 中', async () => {
-    const ds = makeDataSourceMock();
-    ds.query.mockResolvedValue([]);
+    const ds = makeKlinesDataSourceMock();
+    setupKlinesAndSuspendMock(ds, []);
     const svc = makeService(ds);
 
     await svc.recalcKlines(
@@ -332,9 +411,9 @@ describe('ASharesService.recalcKlines', () => {
   });
 
   it('priceMode=raw 时 SQL 选择 q.high/q.low/q.close，且自定义 KDJ 按 4 位小数取整', async () => {
-    const ds = makeDataSourceMock();
+    const ds = makeKlinesDataSourceMock();
     const mockRows = makeMockRows();
-    ds.query.mockResolvedValue(mockRows);
+    setupKlinesAndSuspendMock(ds, mockRows);
     const svc = makeService(ds);
 
     const kdjParams = { n: 6, m1: 2, m2: 2 };
@@ -356,9 +435,9 @@ describe('ASharesService.recalcKlines', () => {
       kdjParams.m2,
     ).map(roundKdjPoint);
 
-    expect(out).toHaveLength(expected.length);
-    for (let i = 0; i < out.length; i++) {
-      const bar = out[i] as { 'KDJ.K': number; 'KDJ.D': number; 'KDJ.J': number };
+    expect(out.bars).toHaveLength(expected.length);
+    for (let i = 0; i < out.bars.length; i++) {
+      const bar = out.bars[i] as { 'KDJ.K': number; 'KDJ.D': number; 'KDJ.J': number };
       expect(bar['KDJ.K']).toBeCloseTo(expected[i].k, 4);
       expect(bar['KDJ.D']).toBeCloseTo(expected[i].d, 4);
       expect(bar['KDJ.J']).toBeCloseTo(expected[i].j, 4);
@@ -372,7 +451,7 @@ describe('ASharesService.recalcKlines', () => {
 
 describe('ASharesService.query - indexTsCode 校验', () => {
   it('非法后缀 .XX 时抛 BadRequestException', async () => {
-    const ds = makeDataSourceMock();
+    const ds = makeQueryDataSourceMock();
     const svc = makeService(ds);
 
     await expect(svc.query({ indexTsCode: 'foo.XX' })).rejects.toThrow(BadRequestException);
@@ -380,21 +459,29 @@ describe('ASharesService.query - indexTsCode 校验', () => {
   });
 
   it('无后缀时抛 BadRequestException', async () => {
-    const ds = makeDataSourceMock();
+    const ds = makeQueryDataSourceMock();
     const svc = makeService(ds);
 
     await expect(svc.query({ indexTsCode: 'foo' })).rejects.toThrow(BadRequestException);
   });
 
   it('.TI 后缀不抛异常', async () => {
-    const ds = makeDataSourceMock();
+    const ds = makeQueryDataSourceMock();
+    ds.query
+      .mockResolvedValueOnce([{ count: '0' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
     const svc = makeService(ds);
 
     await expect(svc.query({ indexTsCode: '885001.TI' })).resolves.toBeDefined();
   });
 
   it('.SI 后缀不抛异常', async () => {
-    const ds = makeDataSourceMock();
+    const ds = makeQueryDataSourceMock();
+    ds.query
+      .mockResolvedValueOnce([{ count: '0' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
     const svc = makeService(ds);
 
     await expect(svc.query({ indexTsCode: '801010.SI' })).resolves.toBeDefined();
@@ -403,7 +490,7 @@ describe('ASharesService.query - indexTsCode 校验', () => {
 
 describe('ASharesService.query - 两阶段 + skipCount', () => {
   it('skipCount=true 时不发起 COUNT 查询', async () => {
-    const ds = makeDataSourceMock();
+    const ds = makeQueryDataSourceMock();
     ds.query
       .mockResolvedValueOnce([{ tsCode: '600519.SH' }, { tsCode: '000858.SZ' }])
       .mockResolvedValueOnce([{ tsCode: '600519.SH' }, { tsCode: '000858.SZ' }]);
@@ -423,7 +510,7 @@ describe('ASharesService.query - 两阶段 + skipCount', () => {
   });
 
   it('skipCount=false 时先 COUNT 再 id-sort 再 hydrate', async () => {
-    const ds = makeDataSourceMock();
+    const ds = makeQueryDataSourceMock();
     ds.query
       .mockResolvedValueOnce([{ count: '100' }])
       .mockResolvedValueOnce([{ tsCode: '600519.SH' }])

@@ -98,9 +98,10 @@ describe('AShareDetailDrawer update:range（B 类）', () => {
 
 describe('AShareDetailDrawer recalcIndicators', () => {
   it('KDJ 参数变更成功后替换 klineRows，并带上当前选区与 priceMode', async () => {
-    const recalcSpy = vi.spyOn(aSharesApi, 'recalcKlines').mockResolvedValue([
-      { open_time: '2026-01-02', close: '11' } as never,
-    ])
+    const recalcSpy = vi.spyOn(aSharesApi, 'recalcKlines').mockResolvedValue({
+      bars: [{ open_time: '2026-01-02', close: '11' } as never],
+      suspend: { status: 'none', sinceDate: null, timing: null, lastQuoteTradeDate: null, asOfTradeDate: null },
+    })
 
     const { wrapper, show } = mountDrawer()
     show.value = true

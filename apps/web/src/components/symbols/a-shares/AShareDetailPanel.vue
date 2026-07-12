@@ -22,6 +22,7 @@
                   :recalc-indicators="recalcKdjIndicators"
                   :symbol-code="row?.tsCode"
                   :symbol-name="row?.name"
+                  :suspend="klineSuspend"
                   @update:range="onKlineRangeChange"
                 />
               </template>
@@ -45,7 +46,7 @@ import { NEmpty, NSpin, useMessage } from 'naive-ui'
 import KlineChart from '../../kline/KlineChart.vue'
 import KlineWithInfoPanel from '../shared/KlineWithInfoPanel.vue'
 import AStockInfoFields from './AStockInfoFields.vue'
-import { aSharesApi, type AShareKlineBar, type AShareRow } from '@/api'
+import { aSharesApi, DEFAULT_AShare_KLINE_SUSPEND, type AShareKlineBar, type AShareKlineSuspend, type AShareRow } from '@/api'
 import type { AmvSeriesRow } from '@/api/modules/market/active-mv'
 import type { IndicatorSubplotParams } from '@/composables/kline/subplotConfig'
 import type { SubplotKey } from '@/composables/kline/subplotConfig'
@@ -81,6 +82,7 @@ const RANGE_LIMIT = 1000
 
 const loading = ref(false)
 const klineRows = ref<AShareKlineBar[]>([])
+const klineSuspend = ref<AShareKlineSuspend>({ ...DEFAULT_AShare_KLINE_SUSPEND })
 // 缓存最近一次的资金流 raw 行，供 priceMode 切换路径复用
 const cachedFlowRows = ref<MoneyFlowRowLike[]>([])
 // 缓存最近一次的 AMV 序列，供 priceMode 切换路径复用（重 merge 不重拉）
@@ -102,12 +104,14 @@ async function loadDetail(rangeDates: KlineRangeDates | null) {
   if (!tsCode) return
   loading.value = true
   klineRows.value = []
+  klineSuspend.value = { ...DEFAULT_AShare_KLINE_SUSPEND }
   cachedFlowRows.value = []
   cachedAmvRows.value = []
   try {
     const limit = rangeDates ? RANGE_LIMIT : DEFAULT_LIMIT
     const result = await fetchAShareDetail(tsCode, limit, props.priceMode, rangeDates ?? undefined)
     klineRows.value = result.kline
+    klineSuspend.value = result.suspend
     cachedFlowRows.value = result.flowRows
     cachedAmvRows.value = result.amvRows
   } catch (err: unknown) {
@@ -125,10 +129,10 @@ async function reloadKlineOnly() {
   try {
     const rangeDates = currentRangeDates()
     const limit = rangeDates ? RANGE_LIMIT : DEFAULT_LIMIT
-    const rawKline = await fetchAShareKlineOnly(tsCode, limit, props.priceMode, rangeDates ?? undefined)
-    // 把缓存的资金流 + AMV 挂回新 K 线（开发模式下若日期格式漂移 R3 探针会触发）
+    const klineResult = await fetchAShareKlineOnly(tsCode, limit, props.priceMode, rangeDates ?? undefined)
+    klineSuspend.value = klineResult.suspend
     klineRows.value = mergeKlineWithAmv(
-      mergeKlineWithMoneyFlow(rawKline, cachedFlowRows.value),
+      mergeKlineWithMoneyFlow(klineResult.bars, cachedFlowRows.value),
       cachedAmvRows.value,
     )
   } catch (err: unknown) {
@@ -144,15 +148,16 @@ async function recalcKdjIndicators(params?: IndicatorSubplotParams): Promise<voi
   const rangeDates = currentRangeDates()
   const limit = rangeDates ? RANGE_LIMIT : DEFAULT_LIMIT
   try {
-    const rawKline = await aSharesApi.recalcKlines(
+    const klineResult = await aSharesApi.recalcKlines(
       tsCode,
       limit,
       props.priceMode,
       rangeDates ?? undefined,
       { kdjParams: params?.KDJ },
     )
+    klineSuspend.value = klineResult.suspend
     klineRows.value = mergeKlineWithAmv(
-      mergeKlineWithMoneyFlow(rawKline, cachedFlowRows.value),
+      mergeKlineWithMoneyFlow(klineResult.bars, cachedFlowRows.value),
       cachedAmvRows.value,
     )
   } catch (err: unknown) {
@@ -166,6 +171,7 @@ watch(
   ([visible, tsCode]) => {
     if (visible === false) {
       klineRows.value = []
+      klineSuspend.value = { ...DEFAULT_AShare_KLINE_SUSPEND }
       cachedFlowRows.value = []
       cachedAmvRows.value = []
       resetKlineRange()

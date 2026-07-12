@@ -8,7 +8,7 @@
 // 按日期合并到 K 线每根 bar 的 moneyFlow 字段。priceMode 切换路径只重拉
 // K 线，资金流由 Drawer 缓存原始 flowRows 后重新 merge。
 
-import { aSharesApi, type AShareKlineBar } from '@/api/modules/market/aShares'
+import { aSharesApi, type AShareKlineBar, type AShareKlineResult, type AShareKlineSuspend } from '@/api/modules/market/aShares'
 import { moneyFlowApi } from '@/api/modules/market/moneyFlow'
 import { activeMvApi, type AmvSeriesRow } from '@/api/modules/market/active-mv'
 import { mergeKlineWithMoneyFlow, type MoneyFlowRowLike } from '@/composables/kline/mergeMoneyFlow'
@@ -17,6 +17,8 @@ import { mergeKlineWithAmv } from '@/composables/kline/mergeAmv'
 export interface AShareDetailFetchResult {
   /** 已 merge moneyFlow + AMV 的 K 线数组，每根 bar 自带 row.moneyFlow / '0AMV' 等 */
   kline: AShareKlineBar[]
+  /** K 线接口附带的停牌态（与 bars 同响） */
+  suspend: AShareKlineSuspend
   /** 透出 raw 资金流行，供 priceMode 切换路径复用（重 merge 不重拉） */
   flowRows: MoneyFlowRowLike[]
   /** 透出 AMV 序列，供 priceMode 切换路径复用（重 merge 不重拉） */
@@ -37,14 +39,15 @@ export async function fetchAShareDetail(
   priceMode: 'qfq' | 'raw',
   range?: { startDate?: string; endDate?: string },
 ): Promise<AShareDetailFetchResult> {
-  const [kline, flowRows, amvRows] = await Promise.all([
+  const [klineResult, flowRows, amvRows] = await Promise.all([
     aSharesApi.getKlines(tsCode, limit, priceMode, range),
     moneyFlowApi.queryStocks({ ts_code: tsCode, limit }),
     // AMV 失败不应拖垮 K 线主图：吞错降级为空序列（副图缺日填 null）
     activeMvApi.getStock(tsCode, limit).catch(() => [] as AmvSeriesRow[]),
   ])
   return {
-    kline: mergeKlineWithAmv(mergeKlineWithMoneyFlow(kline, flowRows), amvRows),
+    kline: mergeKlineWithAmv(mergeKlineWithMoneyFlow(klineResult.bars, flowRows), amvRows),
+    suspend: klineResult.suspend,
     flowRows,
     amvRows,
   }
@@ -56,6 +59,6 @@ export async function fetchAShareKlineOnly(
   limit: number,
   priceMode: 'qfq' | 'raw',
   range?: { startDate?: string; endDate?: string },
-): Promise<AShareKlineBar[]> {
+): Promise<AShareKlineResult> {
   return aSharesApi.getKlines(tsCode, limit, priceMode, range)
 }

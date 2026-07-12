@@ -1,11 +1,23 @@
 <template>
   <div class="kline-toolbar">
-    <!-- 左侧：时间范围选择器 -->
-    <div class="kline-toolbar__range">
-      <span v-if="symbolCode" class="kline-toolbar__symbol">
-        <span class="kline-toolbar__symbol-code">{{ symbolCode }}</span>
-        <span v-if="symbolName" class="kline-toolbar__symbol-name">{{ symbolName }}</span>
-      </span>
+    <!-- 左侧：标的 + 时间范围选择器 -->
+    <div class="kline-toolbar__left">
+      <div v-if="symbolCode || showSuspend" class="kline-toolbar__symbol-block">
+        <span v-if="symbolCode" class="kline-toolbar__symbol">
+          <span class="kline-toolbar__symbol-code">{{ symbolCode }}</span>
+          <span v-if="symbolName" class="kline-toolbar__symbol-name">{{ symbolName }}</span>
+          <suspend-status-tag
+            v-if="showSuspend"
+            class="kline-toolbar__suspend-tag"
+            :status="suspend?.status"
+            :since-date="suspend?.sinceDate"
+            :timing="suspend?.timing"
+            variant="toolbar"
+          />
+        </span>
+        <span v-if="suspendCaption" class="kline-toolbar__suspend-caption">{{ suspendCaption }}</span>
+      </div>
+      <div class="kline-toolbar__range">
       <n-date-picker
         v-if="granularity === 'date'"
         type="daterange"
@@ -35,6 +47,7 @@
         :disabled="disabledRange"
         @update:value="onRangeUpdate"
       />
+      </div>
     </div>
 
     <!-- 右侧：副图设置齿轮 -->
@@ -179,7 +192,9 @@ import {
   type SubplotPrefs,
 } from '@/composables/kline/subplotConfig'
 import KdjParamsEditor from './KdjParamsEditor.vue'
-import type { KlineChartBar } from '@/api'
+import SuspendStatusTag from '../symbols/a-shares/SuspendStatusTag.vue'
+import { buildSuspendToolbarCaption, isSuspended as checkSuspended } from '../symbols/a-shares/suspendDisplay'
+import type { AShareKlineSuspend, KlineChartBar } from '@/api'
 
 type Granularity = 'date' | 'hour' | 'minute'
 
@@ -194,13 +209,22 @@ const props = withDefaults(
     reset: () => void
     symbolCode?: string
     symbolName?: string
+    suspend?: AShareKlineSuspend | null
   }>(),
   {
     disabledRange: false,
     symbolCode: '',
     symbolName: '',
+    suspend: null,
   },
 )
+
+const showSuspend = computed(() => checkSuspended(props.suspend?.status))
+
+const suspendCaption = computed(() => {
+  if (!showSuspend.value || !props.suspend) return ''
+  return buildSuspendToolbarCaption(props.suspend)
+})
 
 const emit = defineEmits<{
   (e: 'update:range', value: [number, number] | null): void
@@ -294,7 +318,7 @@ function onReset(): void {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 44px;
+  min-height: 44px;
   padding: 8px 12px;
   background: #2b2f36; /* colors.surface.elevated */
   border: 1px solid #3a3f48; /* colors.border.DEFAULT */
@@ -303,19 +327,44 @@ function onReset(): void {
   box-sizing: border-box;
 }
 
+.kline-toolbar__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.kline-toolbar__symbol-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
 .kline-toolbar__range {
   display: flex;
   align-items: center;
   gap: 8px;
   flex: 0 1 auto;
+  min-width: 0;
 }
 
 .kline-toolbar__symbol {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex: 0 0 auto;
   font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.kline-toolbar__suspend-caption {
+  color: #848e9c;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
 .kline-toolbar__symbol-code {

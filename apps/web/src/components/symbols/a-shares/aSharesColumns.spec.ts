@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { isVNode, ref } from 'vue'
+import { isVNode, ref, type VNode } from 'vue'
 import { createASharesColumnDefs } from './aSharesColumns'
+import SuspendStatusTag from './SuspendStatusTag.vue'
 import { INDICATOR_DESCRIPTORS } from '../columns/indicatorColumnDefs'
 import type { AShareRow } from '@/api'
 
@@ -117,5 +118,50 @@ describe('createASharesColumnDefs · 技术指标列接入', () => {
     expect(renderText(trueNode)).toBe('真')
     expect(renderText(xg.render({ brickXg: false } as unknown as AShareRow))).toBe('假')
     expect(renderText(xg.render({ brickXg: null } as unknown as AShareRow))).toBe('-')
+  })
+})
+
+describe('createASharesColumnDefs · 停牌标识', () => {
+  const baseRow = {
+    tsCode: '000008.SZ',
+    name: '神州高铁',
+    close: '2.36',
+    pctChg: '0.00',
+    tradeDate: '20260706',
+    suspendStatus: 'suspended',
+    suspendSinceDate: '20260707',
+    suspendTiming: '全天',
+    quoteIsStale: true,
+  } as unknown as AShareRow
+
+  it('停牌行名称列含 SuspendStatusTag', () => {
+    const cols = createASharesColumnDefs(makeOptions())
+    const nameCol = cols.find((c) => c.key === 'name')!
+    const node = nameCol.render(baseRow) as VNode
+    expect(isVNode(node)).toBe(true)
+    const children = node.children as VNode[]
+    const tag = children.find((c) => isVNode(c) && c.type === SuspendStatusTag)
+    expect(tag).toBeTruthy()
+    expect(tag?.props?.status).toBe('suspended')
+  })
+
+  it('quoteIsStale 时 close/pctChg/tradeDate 使用次要字色', () => {
+    const cols = createASharesColumnDefs(makeOptions())
+    const byKey = new Map(cols.map((c) => [c.key, c]))
+    const closeNode = byKey.get('close')!.render(baseRow) as { props?: { style?: { color?: string } } }
+    const pctNode = byKey.get('pctChg')!.render(baseRow) as { props?: { style?: { color?: string } } }
+    const tradeNode = byKey.get('tradeDate')!.render(baseRow) as { children?: { default?: () => unknown } }
+    expect(closeNode.props?.style?.color).toBe('var(--color-text-secondary)')
+    expect(pctNode.props?.style?.color).toBe('var(--color-text-secondary)')
+    expect(isVNode(tradeNode)).toBe(true)
+  })
+
+  it('非停牌行名称列不含 SuspendStatusTag', () => {
+    const cols = createASharesColumnDefs(makeOptions())
+    const nameCol = cols.find((c) => c.key === 'name')!
+    const node = nameCol.render({ ...baseRow, suspendStatus: 'none' } as unknown as AShareRow) as VNode
+    const children = (node.children ?? []) as VNode[]
+    const tag = children.find((c) => isVNode(c) && c.type === SuspendStatusTag)
+    expect(tag).toBeUndefined()
   })
 })
