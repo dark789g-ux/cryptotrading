@@ -236,6 +236,8 @@ $RECYCLE.BIN/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+#  Cursor 本地工作区配置（规则、缓存、索引等），不随仓库共享
+.cursor/
 
 # Marimo
 marimo/_static/
@@ -255,11 +257,7 @@ ui_test/test_config.json
 ui_test/.tmp/
 
 # ZCode harness 本地产物（不随仓库共享）
-.zcode/scheduled_tasks.lock
-.zcode/settings.local.json
-.zcode/launch.json
-.zcode/tmp/
-.zcode/worktrees/
+.zcode/
 
 # opencode
 .opencode/
