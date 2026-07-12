@@ -35,6 +35,9 @@ function makeBar(openTime: string): KlineChartBar {
     DEA: null,
     MACD: null,
     BBI: null,
+    VWAP5: null,
+    VWAP10: null,
+    VWAP20: null,
   }
 }
 

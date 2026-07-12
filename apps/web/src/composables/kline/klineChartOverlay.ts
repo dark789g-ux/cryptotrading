@@ -1,6 +1,6 @@
 import type { GraphicComponentOption } from 'echarts'
 import { colors } from '../../styles/tokens'
-import { AMV_COLORS, BRICK_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS } from './chartColors'
+import { AMV_COLORS, BRICK_COLORS, KDJ_COLORS, MA_COLORS, MACD_COLORS, VWAP_COLORS } from './chartColors'
 import { resolveKTopPct, resolveSubplotLayout } from './klineChartLayout'
 import { ARROW_RICH, arrow, arrowRichTag, fmt, fmtCompact, fmtXg, resolveVolumeColor } from './klineChartUtils'
 import type { SubplotConfig, SubplotKey } from './subplotConfig'
@@ -31,17 +31,26 @@ const buildMaText = (idx: number, data: KlineChartBar[]) => {
   const row = idx >= 0 && idx < data.length ? data[idx] : undefined
   const prev = idx > 0 && idx - 1 < data.length ? data[idx - 1] : undefined
   const keys = ['MA5', 'MA30', 'MA60', 'MA120', 'MA240'] as const
+  const vwapKeys = ['VWAP5', 'VWAP10', 'VWAP20'] as const
   const rich: Record<string, unknown> = { ...ARROW_RICH }
   keys.forEach((key) => {
     rich[key.toLowerCase()] = { fill: MA_COLORS[key], fontSize: 12 }
   })
+  vwapKeys.forEach((key) => {
+    rich[key.toLowerCase()] = { fill: VWAP_COLORS[key], fontSize: 12 }
+  })
   if (!row) return { text: '', rich, ...GRAPHIC_BG }
-  const text = keys
+  const maParts = keys
     .map((key) => {
       const state = arrow(row[key], prev?.[key])
       return `${key}: {${key.toLowerCase()}|${fmt(row[key])}}{${arrowRichTag(state.key)}|${state.sym}}`
     })
-    .join('  ')
+  const vwapParts = vwapKeys
+    .map((key) => {
+      const state = arrow(row[key], prev?.[key])
+      return `${key}: {${key.toLowerCase()}|${fmt(row[key], 2)}}{${arrowRichTag(state.key)}|${state.sym}}`
+    })
+  const text = [...maParts, ...vwapParts].join('  ')
   return { text, rich, ...GRAPHIC_BG }
 }
 

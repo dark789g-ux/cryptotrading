@@ -124,6 +124,7 @@ export class ASharesIndicatorService {
       close: row.qfqClose ?? 0,
       volume: row.vol ?? 0,
       quote_volume: row.amount ?? 0,
+      qfqClose: row.qfqClose ?? 0,
     }));
     const calculated = workerPool
       ? await workerPool.run(klineRows, effectiveSeedState)
@@ -172,6 +173,7 @@ export class ASharesIndicatorService {
       close: row.qfqClose ?? 0,
       volume: row.vol ?? 0,
       quote_volume: row.amount ?? 0,
+      qfqClose: row.qfqClose ?? 0,
     })));
     const brickChart = calcBrickChartPoints(rows.map((row) => ({
       high: Number(row.qfqHigh ?? 0),
@@ -257,6 +259,7 @@ export class ASharesIndicatorService {
       close: row.qfqClose ?? 0,
       volume: row.vol ?? 0,
       quote_volume: row.amount ?? 0,
+      qfqClose: row.qfqClose ?? 0,
     }));
     const historyCalc = calcIndicatorsStreaming(klineRows);
     const lastState = historyCalc[historyCalc.length - 1].state;
@@ -331,6 +334,9 @@ export class ASharesIndicatorService {
       obv5d: row.obv5d,
       obv10d: row.obv10d,
       obv20d: row.obv20d,
+      vwap5: row.vwap5,
+      vwap10: row.vwap10,
+      vwap20: row.vwap20,
     });
   }
 

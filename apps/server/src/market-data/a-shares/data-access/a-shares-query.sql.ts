@@ -54,6 +54,9 @@ const RAW_CONDITION_COL_MAP: Record<string, string> = {
   obv5d: 'i.obv5d',
   obv10d: 'i.obv10d',
   obv20d: 'i.obv20d',
+  VWAP5: 'i.vwap5',
+  VWAP10: 'i.vwap10',
+  VWAP20: 'i.vwap20',
 };
 
 const QFQ_CONDITION_COL_MAP: Record<string, string> = {
@@ -123,6 +126,9 @@ const RAW_SORT_COL_MAP: Record<string, string> = {
   obv5d: 'i.obv5d',
   obv10d: 'i.obv10d',
   obv20d: 'i.obv20d',
+  vwap5: 'i.vwap5',
+  vwap10: 'i.vwap10',
+  vwap20: 'i.vwap20',
 };
 
 const QFQ_SORT_COL_MAP: Record<string, string> = {
@@ -433,6 +439,7 @@ function buildHydrateSelect(dto: QueryASharesDto): string {
         sa.amv_dif AS "amvDif", sa.amv_dea AS "amvDea", sa.amv_macd AS "amvMacd",
         i.roc10, i.roc20, i.roc60,
         i.obv5d AS "obv5d", i.obv10d AS "obv10d", i.obv20d AS "obv20d",
+        i.vwap5 AS "vwap5", i.vwap10 AS "vwap10", i.vwap20 AS "vwap20",
         mf.net_inflow      AS "netInflow",
         mf.net_inflow_5d   AS "netInflow5d",
         mf.net_inflow_10d  AS "netInflow10d",

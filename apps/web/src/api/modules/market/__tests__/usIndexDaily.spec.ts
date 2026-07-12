@@ -32,6 +32,7 @@ describe('usIndexDailyApi.query', () => {
         MA5: null, MA30: null, MA60: null, MA120: null, MA240: null,
         'KDJ.K': 10, 'KDJ.D': 20, 'KDJ.J': 30,
         DIF: null, DEA: null, MACD: null, BBI: null,
+        VWAP5: null, VWAP10: null, VWAP20: null,
       },
     ]
     const fetchMock = mockFetchOnce(rows)

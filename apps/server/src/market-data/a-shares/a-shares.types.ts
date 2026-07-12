@@ -172,6 +172,9 @@ export interface AShareKlineRow {
   MA60: number | null;
   MA120: number | null;
   MA240: number | null;
+  VWAP5: number | null;
+  VWAP10: number | null;
+  VWAP20: number | null;
   '10_quote_volume': number | null;
   atr_14: number | null;
   loss_atr_14: number | null;

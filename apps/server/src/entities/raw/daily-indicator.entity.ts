@@ -98,6 +98,15 @@ export class DailyIndicatorEntity {
   @Column({ type: 'double precision', nullable: true })
   obv20d: number | null;
 
+  @Column({ type: 'double precision', nullable: true })
+  vwap5: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  vwap10: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  vwap20: number | null;
+
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

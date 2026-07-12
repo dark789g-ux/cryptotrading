@@ -48,6 +48,8 @@ function makeSeedState(overrides?: Partial<IndicatorCalcState>): IndicatorCalcSt
     qvols: Array.from({ length: 9 }, () => 1000),
     trs: Array.from({ length: 13 }, () => 1.5),
     signedAmounts: Array.from({ length: 20 }, () => 1000),
+    amounts: Array.from({ length: 20 }, () => 1000),
+    qfqVols: Array.from({ length: 20 }, () => 1000),
     brickSma2a: 10,
     brickSma4a: 10,
     brickSma5a: 10,

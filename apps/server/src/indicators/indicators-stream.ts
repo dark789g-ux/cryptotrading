@@ -14,6 +14,8 @@ export interface IndicatorCalcState {
   qvols: number[];
   trs: number[];
   signedAmounts: number[];
+  amounts: number[];
+  qfqVols: number[];
   brickSma2a: number;
   brickSma4a: number;
   brickSma5a: number;
@@ -62,6 +64,8 @@ export function normalizeIndicatorCalcState(value: unknown): IndicatorCalcState 
     qvols: arr(raw.qvols, 9),
     trs: arr(raw.trs, 13),
     signedAmounts: arr(raw.signedAmounts, 20),
+    amounts: arr(raw.amounts, 20),
+    qfqVols: arr(raw.qfqVols, 20),
     brickSma2a: num(raw.brickSma2a),
     brickSma4a: num(raw.brickSma4a),
     brickSma5a: num(raw.brickSma5a),
@@ -83,6 +87,7 @@ class IndicatorStreamCalculator {
     const high = parseFloat(String(source.high));
     const low = parseFloat(String(source.low));
     const qvol = parseFloat(String(source.quote_volume || 0));
+    const volRaw = parseFloat(String(source.volume || 0));
     const prev = this.state;
     const index = prev?.count ?? 0;
 
@@ -121,6 +126,20 @@ class IndicatorStreamCalculator {
     const prevClose = prev?.closes[prev.closes.length - 1] ?? close;
     const signed = close > prevClose ? qvol : close < prevClose ? -qvol : 0;
     const signedAmountsForCalc = appendWindow(prev?.signedAmounts ?? [], signed, 20);
+
+    // VWAP：滚动成交额 / 复权成交量 × 10（元/股）
+    // 复权方向：前复权把历史价格调低（qfq_close < close），等效成交量应调大，
+    // 故 qfq_vol = vol × close / qfq_close（= vol / 复权比），使 VWAP 与 qfq K线对齐。
+    const qfqCloseVal = parseFloat(String(source.qfqClose ?? source.close ?? 0));
+    const qfqVol = close && qfqCloseVal ? volRaw * (close / qfqCloseVal) : volRaw;
+    const amountsForCalc = appendWindow(prev?.amounts ?? [], qvol, 20);
+    const qfqVolsForCalc = appendWindow(prev?.qfqVols ?? [], qfqVol, 20);
+    const calcVwap = (n: number): number | null => {
+      const a = sumLastOrNull(amountsForCalc, n, index);
+      const v = sumLastOrNull(qfqVolsForCalc, n, index);
+      if (a == null || v == null || v === 0) return null;
+      return roundSig(a / v * 10, 8);
+    };
 
     const tr = index === 0
       ? high - low
@@ -169,6 +188,8 @@ class IndicatorStreamCalculator {
       qvols: qvolsForCalc.slice(-9),
       trs: trsForCalc.slice(-13),
       signedAmounts: signedAmountsForCalc.slice(-19),
+      amounts: amountsForCalc.slice(-19),
+      qfqVols: qfqVolsForCalc.slice(-19),
       brickSma2a: brick.sma2a,
       brickSma4a: brick.sma4a,
       brickSma5a: brick.sma5a,
@@ -206,6 +227,9 @@ class IndicatorStreamCalculator {
         obv5d: roundNullableSig(sumLastOrNull(signedAmountsForCalc, 5, index), 2),
         obv10d: roundNullableSig(sumLastOrNull(signedAmountsForCalc, 10, index), 2),
         obv20d: roundNullableSig(sumLastOrNull(signedAmountsForCalc, 20, index), 2),
+        vwap5: calcVwap(5),
+        vwap10: calcVwap(10),
+        vwap20: calcVwap(20),
       },
       state: cloneState(nextState),
       brickChart: { brick: brick.brick, delta: brickDelta, xg: brickXg },
@@ -305,6 +329,8 @@ function cloneState(state: IndicatorCalcState): IndicatorCalcState {
     qvols: [...state.qvols],
     trs: [...state.trs],
     signedAmounts: [...state.signedAmounts],
+    amounts: [...state.amounts],
+    qfqVols: [...state.qfqVols],
   };
 }
 

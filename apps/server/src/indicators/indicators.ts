@@ -15,6 +15,7 @@ export interface KlineRow {
   trades?: string | number;
   taker_buy_base_vol?: string | number;
   taker_buy_quote_vol?: string | number;
+  qfqClose?: string | number;
 }
 
 export interface KlineRowWithIndicators extends KlineRow {
@@ -43,6 +44,9 @@ export interface KlineRowWithIndicators extends KlineRow {
   obv5d: number | null;
   obv10d: number | null;
   obv20d: number | null;
+  vwap5: number | null;
+  vwap10: number | null;
+  vwap20: number | null;
 }
 
 /** EMA — 首值以第一个数据为种子（Python: k = 2/(period+1)） */
@@ -225,6 +229,27 @@ export function calcIndicators(rows: KlineRow[]): KlineRowWithIndicators[] {
   const obv10d = calcStrictRollingSum(signedAmounts, 10);
   const obv20d = calcStrictRollingSum(signedAmounts, 20);
 
+  // VWAP：滚动成交额 / 复权成交量 × 10（元/股）
+  // 复权方向：前复权把历史价格调低（qfq_close < close），等效成交量应调大，
+  // 故 qfq_vol = vol × close / qfq_close（= vol / 复权比），使 VWAP 与 qfq K线对齐。
+  const vols = rows.map((r) => parseFloat(String(r.volume || 0)));
+  const qfqCloses = rows.map((r) => parseFloat(String(r.qfqClose ?? r.close ?? 0)));
+  const qfqVols = closes.map((c, i) => {
+    const q = qfqCloses[i];
+    return c && q ? vols[i] * (c / q) : vols[i];
+  });
+  const amounts = qvols; // quote_volume = 成交额(千元)
+  const rollingAmount5 = calcStrictRollingSum(amounts, 5);
+  const rollingAmount10 = calcStrictRollingSum(amounts, 10);
+  const rollingAmount20 = calcStrictRollingSum(amounts, 20);
+  const rollingQfqVol5 = calcStrictRollingSum(qfqVols, 5);
+  const rollingQfqVol10 = calcStrictRollingSum(qfqVols, 10);
+  const rollingQfqVol20 = calcStrictRollingSum(qfqVols, 20);
+  function calcVwap(amountSum: number | null, volSum: number | null): number | null {
+    if (amountSum == null || volSum == null || volSum === 0) return null;
+    return roundSig(amountSum / volSum * 10, 8);
+  }
+
   return rows.map((row, i) => ({
     ...row,
     DIF: roundSig(dif[i], 8),
@@ -252,5 +277,8 @@ export function calcIndicators(rows: KlineRow[]): KlineRowWithIndicators[] {
     obv5d: roundNullableSig(obv5d[i], 2),
     obv10d: roundNullableSig(obv10d[i], 2),
     obv20d: roundNullableSig(obv20d[i], 2),
+    vwap5: calcVwap(rollingAmount5[i], rollingQfqVol5[i]),
+    vwap10: calcVwap(rollingAmount10[i], rollingQfqVol10[i]),
+    vwap20: calcVwap(rollingAmount20[i], rollingQfqVol20[i]),
   })) as KlineRowWithIndicators[];
 }

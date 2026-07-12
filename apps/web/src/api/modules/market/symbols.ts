@@ -40,6 +40,9 @@ export interface KlineChartBar {
   MA60: number | null
   MA120: number | null
   MA240: number | null
+  VWAP5: number | null
+  VWAP10: number | null
+  VWAP20: number | null
   'KDJ.K': number | null
   'KDJ.D': number | null
   'KDJ.J': number | null

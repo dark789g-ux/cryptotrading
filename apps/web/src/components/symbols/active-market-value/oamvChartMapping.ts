@@ -31,6 +31,9 @@ export function mapOamvToChartBar(d: OamvData): KlineChartBar {
     DEA: d.amvDea ?? null,
     MACD: d.amvMacd ?? null,
     BBI: null,
+    VWAP5: null,
+    VWAP10: null,
+    VWAP20: null,
     brickChart: undefined,
   }
 }

@@ -87,7 +87,7 @@ export function buildLegend(subplots: SubplotConfig[]): EChartsOption['legend'] 
     {
       ...legendBase,
       top: pct(Math.max(plan.kTop - LEGEND_OFFSET_PCT, 0)),
-      data: ['K', 'MA5', 'MA30', 'MA60', 'MA120', 'MA240'],
+      data: ['K', 'MA5', 'MA30', 'MA60', 'MA120', 'MA240', 'VWAP5', 'VWAP10', 'VWAP20'],
     },
   ]
   for (const slot of plan.subplots) {

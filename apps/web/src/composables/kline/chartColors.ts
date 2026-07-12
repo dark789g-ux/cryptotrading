@@ -63,5 +63,12 @@ export const AMV_COLORS = {
   zeroLine: '#848E9C',
 } as const
 
+// VWAP（滚动成交量加权平均价）主图配色：3 条线与 MA5/MA60/MA240 区分
+export const VWAP_COLORS = {
+  VWAP5:  '#E66BA0',  // 品红
+  VWAP10: '#56C5D0',  // 青绿
+  VWAP20: '#7B9EFF',  // 天蓝
+} as const
+
 // 参考线（锚点价格线等）
 export const ANCHOR_LINE_COLOR = '#F0B90B'

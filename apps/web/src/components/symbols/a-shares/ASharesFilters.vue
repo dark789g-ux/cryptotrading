@@ -233,6 +233,16 @@ const advancedFieldOptions: NumericConditionFieldOption[] = [
   },
   {
     type: 'group',
+    label: 'VWAP',
+    key: 'vwap',
+    children: [
+      { label: 'VWAP5', value: 'VWAP5', descKey: 'vwap5' },
+      { label: 'VWAP10', value: 'VWAP10', descKey: 'vwap10' },
+      { label: 'VWAP20', value: 'VWAP20', descKey: 'vwap20' },
+    ],
+  },
+  {
+    type: 'group',
     label: 'KDJ',
     key: 'kdj',
     children: [

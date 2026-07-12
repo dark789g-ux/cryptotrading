@@ -12,6 +12,7 @@ interface QuoteRow {
   close: string | null;
   vol: string | null;
   amount: string | null;
+  qfqClose: string | null;
 }
 
 interface SymbolRow {
@@ -47,7 +48,8 @@ async function loadQuotes(client: Client, tsCode: string): Promise<QuoteRow[]> {
       low,
       close,
       vol,
-      amount
+      amount,
+      qfq_close AS "qfqClose"
     FROM raw.daily_quote
     WHERE ts_code = $1
       AND open IS NOT NULL
@@ -69,6 +71,7 @@ async function upsertIndicators(client: Client, tsCode: string, rows: QuoteRow[]
     close: row.close ?? 0,
     volume: row.vol ?? 0,
     quote_volume: row.amount ?? 0,
+    qfqClose: row.qfqClose ?? row.close,
   })));
   const brickChart = calcBrickChartPoints(rows.map((row) => ({
     high: Number(row.high ?? 0),
@@ -81,7 +84,7 @@ async function upsertIndicators(client: Client, tsCode: string, rows: QuoteRow[]
     const chunk = withIndicators.slice(start, start + chunkSize);
     const values: Array<string | number | boolean | null> = [];
     const placeholders = chunk.map((row, index) => {
-      const base = index * 27;
+      const base = index * 30;
       const source = rows[start + index];
       values.push(
         tsCode,
@@ -111,8 +114,11 @@ async function upsertIndicators(client: Client, tsCode: string, rows: QuoteRow[]
         row.obv5d,
         row.obv10d,
         row.obv20d,
+        row.vwap5,
+        row.vwap10,
+        row.vwap20,
       );
-      return `(${Array.from({ length: 27 }, (_, offset) => `$${base + offset + 1}`).join(', ')})`;
+      return `(${Array.from({ length: 30 }, (_, offset) => `$${base + offset + 1}`).join(', ')})`;
     });
 
     await client.query(`
@@ -143,7 +149,10 @@ async function upsertIndicators(client: Client, tsCode: string, rows: QuoteRow[]
         brick_xg,
         obv5d,
         obv10d,
-        obv20d
+        obv20d,
+        vwap5,
+        vwap10,
+        vwap20
       )
       VALUES ${placeholders.join(', ')}
       ON CONFLICT (ts_code, trade_date) DO UPDATE SET
@@ -172,6 +181,9 @@ async function upsertIndicators(client: Client, tsCode: string, rows: QuoteRow[]
         obv5d = EXCLUDED.obv5d,
         obv10d = EXCLUDED.obv10d,
         obv20d = EXCLUDED.obv20d,
+        vwap5 = EXCLUDED.vwap5,
+        vwap10 = EXCLUDED.vwap10,
+        vwap20 = EXCLUDED.vwap20,
         updated_at = now()
     `, values);
   }
