@@ -8,6 +8,7 @@ import type {
   QuadrantEntry,
 } from '@/api/modules/strategy/regimeEngine'
 import { regimeBacktestApi } from '@/api/modules/strategy/regimeEngine'
+import { aSharesApi } from '@/api/modules/market/aShares'
 import { watchlistApi } from '@/api'
 import { useRegimeConfigForm } from '@/components/regime/useRegimeConfigForm'
 import { cloneQuadrant, makeDefaultQuadrant, hydrateProfitGateFromCapital } from '@/components/regime/regimeConfigEditor.helpers'
@@ -78,6 +79,15 @@ function msToTradeDate(ms: number): string {
   return `${y}${m}${day}`
 }
 
+/** 把毫秒时间戳格式化为 YYYY-MM-DD 展示串（仅供 hint 文字用，不复用于提交） */
+function msToDisplay(ms: number): string {
+  const d = new Date(ms)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 function matchCostTier(cost: RegimeBacktestCostRates | undefined): string {
   if (!cost) return 'realistic'
   for (const [key, preset] of Object.entries(COST_TIER_PRESETS)) {
@@ -115,6 +125,38 @@ export function useRegimeBacktestFormPanel(options: {
   const capitalForm = ref<RegimeCapitalFormState>(defaultCapitalFormState())
   const costTier = ref('realistic')
   const dateRange = ref<[number, number] | null>(null)
+
+  /**
+   * 回测区间可选下限（全局全市场 min/max of raw.daily_quote）。
+   * null 表示未加载或加载失败 —— 此时 isDateDisabled 降级为仅禁未来，不阻塞用户。
+   * 约束与标的集合无关，故跨 reset / 标的切换保持，不随表单字段清空。
+   */
+  const availableRange = ref<{ startMs: number; endMs: number } | null>(null)
+  const availableRangeLoading = ref(false)
+  const availableRangeText = computed(() => {
+    if (availableRangeLoading.value) return '加载中...'
+    if (!availableRange.value) return '获取失败，已忽略限制'
+    const { startMs, endMs } = availableRange.value
+    return `${msToDisplay(startMs)} ～ ${msToDisplay(endMs)}`
+  })
+
+  async function loadAvailableRange() {
+    // 全局全市场 min/max 在应用生命周期内不变；已成功加载过则跳过，避免重复请求 / 旧响应覆盖
+    if (availableRange.value) return
+    availableRangeLoading.value = true
+    try {
+      const { min, max } = await aSharesApi.getDateRange()
+      if (min && max) {
+        availableRange.value = { startMs: tradeDateToMs(min), endMs: tradeDateToMs(max) }
+      } else {
+        availableRange.value = null
+      }
+    } catch {
+      availableRange.value = null
+    } finally {
+      availableRangeLoading.value = false
+    }
+  }
 
   const universeMode = ref<'all' | 'watchlist' | 'symbols'>('all')
   const watchlistId = ref<string | null>(null)
@@ -306,7 +348,9 @@ export function useRegimeBacktestFormPanel(options: {
   }
 
   function isDateDisabled(ts: number): boolean {
-    return ts > todayLocalMs()
+    if (ts > todayLocalMs()) return true
+    if (availableRange.value && ts < availableRange.value.startMs) return true
+    return false
   }
 
   function resetForm() {
@@ -334,6 +378,7 @@ export function useRegimeBacktestFormPanel(options: {
     activeTab.value = 'basics'
     importSchemesLoaded = false
     importSearchText.value = ''
+    void loadAvailableRange()
     if (options.runId.value) {
       void hydrateEditRun()
     } else {
@@ -363,7 +408,11 @@ export function useRegimeBacktestFormPanel(options: {
 
   onMounted(() => {
     void loadWatchlists()
-    if (options.active.value) prepareOpen()
+    if (options.active.value) {
+      prepareOpen()
+    } else {
+      void loadAvailableRange()
+    }
   })
 
   async function submit(): Promise<boolean> {
@@ -424,6 +473,7 @@ export function useRegimeBacktestFormPanel(options: {
     costTier,
     costTierOptions: COST_TIER_OPTIONS,
     dateRange,
+    availableRangeText,
     universeMode,
     watchlistId,
     symbolsText,

@@ -70,13 +70,16 @@
               />
             </n-form-item>
             <n-form-item label="回测区间">
-              <n-date-picker
-                v-model:value="dateRange"
-                type="daterange"
-                clearable
-                :is-date-disabled="isDateDisabled"
-                style="width: 100%"
-              />
+              <div class="date-range-wrap">
+                <n-date-picker
+                  v-model:value="dateRange"
+                  type="daterange"
+                  clearable
+                  :is-date-disabled="isDateDisabled"
+                  style="width: 100%"
+                />
+                <div class="available-range-hint">可用区间 {{ availableRangeText }}</div>
+              </div>
             </n-form-item>
           </div>
         </n-tab-pane>
@@ -162,6 +165,7 @@ const {
   costTier,
   costTierOptions,
   dateRange,
+  availableRangeText,
   universeMode,
   watchlistId,
   symbolsText,
@@ -226,5 +230,13 @@ defineExpose({ submit, canSubmit, submitting, resetForm })
 }
 .regime-form-tabs :deep(.n-tab-pane) .section-card:last-child {
   margin-bottom: 4px;
+}
+.available-range-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--n-text-color-3, #999);
+}
+.date-range-wrap {
+  width: 100%;
 }
 </style>
