@@ -8,7 +8,8 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: cryptouser
-      POSTGRES_PASSWORD: cryptopass
+      # 生产密码必须由宿主机环境注入，未设置/为空时 compose 拒绝启动（避免弱密码裸奔）
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在宿主机设置 POSTGRES_PASSWORD（生产 DB 密码）}
       POSTGRES_DB: cryptodb
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -30,7 +31,8 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: cryptouser
-      DB_PASS: cryptopass
+      # 复用宿主机 POSTGRES_PASSWORD；DB_PASS 与 DB 密码保持一致
+      DB_PASS: ${POSTGRES_PASSWORD:?请在宿主机设置 POSTGRES_PASSWORD（生产 DB 密码）}
       DB_NAME: cryptodb
       SERVER_PORT: 3000
       NODE_ENV: production
