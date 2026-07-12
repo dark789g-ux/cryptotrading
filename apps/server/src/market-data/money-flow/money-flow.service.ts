@@ -8,6 +8,7 @@ import { MoneyFlowMarketEntity } from '../../entities/money-flow/money-flow-mark
 import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock.entity';
 import { MoneyFlowThsIndustryEntity } from '../../entities/money-flow/money-flow-ths-industry.entity';
 import { MoneyFlowIndexEntity } from '../../entities/money-flow/money-flow-index.entity';
+import { SwIndexCatalogEntity } from '../../entities/sw-index/sw-index-catalog.entity';
 import { QueryFlowDto, QueryCondition } from './dto/query-flow.dto';
 import type {
   MoneyFlowStockRow,
@@ -71,6 +72,8 @@ export class MoneyFlowService {
     private readonly indexRepo: Repository<MoneyFlowIndexEntity>,
     @InjectRepository(ThsMemberStockEntity)
     private readonly memberRepo: Repository<ThsMemberStockEntity>,
+    @InjectRepository(SwIndexCatalogEntity)
+    private readonly swCatalogRepo: Repository<SwIndexCatalogEntity>,
   ) {}
 
   async queryStocks(dto: QueryFlowDto): Promise<MoneyFlowStockRow[]> {
@@ -149,6 +152,22 @@ export class MoneyFlowService {
           qb.andWhere(`${col} ${opSql} :${paramKey}`, { [paramKey]: cond.value });
         }
       });
+    }
+
+    // ---------- 申万行业级别过滤 ----------
+    // money_flow_industries 无 level 列，需经 sw_index_catalog 的 level 反查 ts_code 集合。
+    // levelNum 显式 Number 化 + 三值校验，避免字符串 '1' 漏过（参考 index-daily.service.ts）。
+    const levelNum = dto.sw_level == null ? null : Number(dto.sw_level);
+    if (levelNum === 1 || levelNum === 2 || levelNum === 3) {
+      const swRows = await this.swCatalogRepo.find({
+        where: { level: levelNum as 1 | 2 | 3 },
+        select: ['tsCode'],
+      });
+      const swTsCodes = swRows.map(r => r.tsCode);
+      if (swTsCodes.length === 0) {
+        return []; // 该级别目录命中 0 个 → 返回空，避免 IN ('{}') 退化成全表
+      }
+      qb.andWhere('i.ts_code IN (:...swTsCodes)', { swTsCodes });
     }
 
     if (dto.limit) {

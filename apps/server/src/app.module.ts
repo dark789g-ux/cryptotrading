@@ -35,6 +35,7 @@ import { UsIndexConstituentEntity } from './entities/raw/us-index-constituent.en
 import { TradeCalEntity } from './entities/raw/trade-cal.entity';
 import { StkLimitEntity } from './entities/raw/stk-limit.entity';
 import { SuspendEntity } from './entities/raw/suspend.entity';
+import { AmvCalcStateEntity } from './entities/raw/amv-calc-state.entity';
 import { IndexClassifyEntity } from './entities/raw/index-classify.entity';
 import { IndexMemberEntity } from './entities/raw/index-member.entity';
 import { FinaIndicatorEntity } from './entities/raw/fina-indicator.entity';
@@ -62,6 +63,8 @@ import { MoneyFlowStockEntity } from './entities/money-flow/money-flow-stock.ent
 import { MoneyFlowIndustryEntity } from './entities/money-flow/money-flow-industry.entity';
 import { MoneyFlowSectorEntity } from './entities/money-flow/money-flow-sector.entity';
 import { MoneyFlowMarketEntity } from './entities/money-flow/money-flow-market.entity';
+import { MoneyFlowThsIndustryEntity } from './entities/money-flow/money-flow-ths-industry.entity';
+import { MoneyFlowIndexEntity } from './entities/money-flow/money-flow-index.entity';
 import { ThsMemberStockEntity } from './entities/money-flow/ths-member-stock.entity';
 import { ThsIndexCatalogEntity } from './entities/index-catalog/ths-index-catalog.entity';
 import { IndexWeightEntity } from './entities/index-catalog/index-weight.entity';
@@ -105,6 +108,7 @@ import { RegimeDailyPickEntity } from './entities/strategy/regime-daily-pick.ent
 import { RegimeBacktestRunEntity } from './entities/strategy/regime-backtest-run.entity';
 import { RegimeBacktestDailyEntity } from './entities/strategy/regime-backtest-daily.entity';
 import { RegimeBacktestTradeEntity } from './entities/strategy/regime-backtest-trade.entity';
+import { RegimeBacktestDailyLogEntity } from './entities/strategy/regime-backtest-daily-log.entity';
 import { RegimeEngineModule } from './strategies/regime-engine/regime-engine.module';
 import { CustomIndexDefinitionEntity } from './entities/custom-index/custom-index-definition.entity';
 import { CustomIndexWeightVersionEntity } from './entities/custom-index/custom-index-weight-version.entity';
@@ -162,6 +166,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           TradeCalEntity,
           StkLimitEntity,
           SuspendEntity,
+          AmvCalcStateEntity,
           IndexClassifyEntity,
           IndexMemberEntity,
           FinaIndicatorEntity,
@@ -190,6 +195,11 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           MoneyFlowIndustryEntity,
           MoneyFlowSectorEntity,
           MoneyFlowMarketEntity,
+          // forFeature 注册但 forRoot 遗漏会导致 EntityMetadataNotFoundError（DI 能注入
+          // Repository 实例，但 createQueryBuilder/find 等需 metadata 的调用会炸）：
+          // ths-industries / index 两实体历史遗漏，随看板 getLatestDates 顶上来才暴露。
+          MoneyFlowThsIndustryEntity,
+          MoneyFlowIndexEntity,
           ThsMemberStockEntity,
           ThsIndexCatalogEntity,
           IndexWeightEntity,
@@ -225,6 +235,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           RegimeBacktestRunEntity,
           RegimeBacktestDailyEntity,
           RegimeBacktestTradeEntity,
+          RegimeBacktestDailyLogEntity,
           OneClickSyncRunEntity,
           // ---- A 股自定义指数（spec 2026-06-28-custom-index-create-design）----
           CustomIndexDefinitionEntity,

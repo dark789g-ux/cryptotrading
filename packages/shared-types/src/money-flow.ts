@@ -34,6 +34,8 @@ export interface MoneyFlowQueryParams {
   net_sell_amount_min?: number
   /** 高级筛选条件数组（仅 industries/query） */
   conditions?: MoneyFlowCondition[]
+  /** 申万行业级别筛选：1=一级 / 2=二级 / 3=三级（仅申万行业维度有效） */
+  sw_level?: 1 | 2 | 3
 }
 
 /** POST /money-flow/sync/* 同步参数 */

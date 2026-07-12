@@ -11,6 +11,9 @@
       使其在用户停留「A 股指数」子 tab 时仍保持挂载，stocksPanelRef 始终绑定 →
       「成分股」跨 tab 过滤可用。
     -->
+    <n-tab-pane name="dashboard" tab="看板">
+      <a-shares-dashboard-panel />
+    </n-tab-pane>
     <n-tab-pane name="stocks" tab="股票" display-directive="show">
       <a-shares-panel ref="stocksPanelRef" />
     </n-tab-pane>
@@ -27,8 +30,9 @@ import { nextTick, onActivated, ref, watch } from 'vue'
 import { NTabPane, NTabs } from 'naive-ui'
 import ASharesPanel from './ASharesPanel.vue'
 import ASharesIndexPanel from '../a-shares-index/ASharesIndexPanel.vue'
+import ASharesDashboardPanel from '../a-shares-dashboard/ASharesDashboardPanel.vue'
 
-const subTab = ref<'stocks' | 'index'>('stocks')
+const subTab = ref<'dashboard' | 'stocks' | 'index'>('dashboard')
 const indexPanelRef = ref<{ resize: () => void } | null>(null)
 const stocksPanelRef = ref<{
   applyIndexFilter: (

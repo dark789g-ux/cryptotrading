@@ -9,6 +9,7 @@ import { MoneyFlowMarketEntity } from '../../entities/money-flow/money-flow-mark
 import { ThsMemberStockEntity } from '../../entities/money-flow/ths-member-stock.entity';
 import { MoneyFlowThsIndustryEntity } from '../../entities/money-flow/money-flow-ths-industry.entity';
 import { MoneyFlowIndexEntity } from '../../entities/money-flow/money-flow-index.entity';
+import { SwIndexCatalogEntity } from '../../entities/sw-index/sw-index-catalog.entity';
 import { IndexWeightEntity } from '../../entities/index-catalog/index-weight.entity';
 import { MoneyFlowController } from './money-flow.controller';
 import { MoneyFlowSyncController } from './money-flow-sync.controller';
@@ -30,6 +31,7 @@ import { IndexCatalogModule } from '../index-catalog/index-catalog.module';
     MoneyFlowIndexEntity,
     MoneyFlowThsIndustryEntity,
     IndexWeightEntity,
+    SwIndexCatalogEntity,
   ])],
   controllers: [MoneyFlowController, MoneyFlowSyncController],
   providers: [MoneyFlowService, MoneyFlowSyncService, MoneyFlowAggregationService, TushareClientService],
