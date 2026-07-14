@@ -65,6 +65,14 @@ export async function runWithRetry<T>(
 
 export const RETRY_MAX_ATTEMPTS = RETRY_BACKOFFS.length;
 
+/** YYYYMMDD 日期加减天数。datetime.md 规则:禁 new Date('YYYYMMDD'),需插分隔符。 */
+export function shiftYyyymmdd(yyyymmdd: string, deltaDays: number): string {
+  const iso = `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}T00:00:00Z`;
+  const t = new Date(iso).getTime() + deltaDays * 86400000;
+  const d = new Date(t);
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
 export async function batchUpsert<T extends object>(
   repo: Repository<T>,
   entities: T[],

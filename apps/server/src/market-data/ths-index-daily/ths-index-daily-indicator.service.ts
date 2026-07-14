@@ -47,8 +47,11 @@ export class ThsIndexDailyIndicatorService {
     return written;
   }
 
-  private async backfillIndexAmount(tsCode: string, category: string): Promise<void> {
-    if (category === 'market') return;
+  private async backfillIndexAmount(
+    tsCode: string,
+    category: string,
+  ): Promise<Map<string, number | null>> {
+    if (category === 'market') return new Map();
 
     const minMax = await this.quotesRepo
       .createQueryBuilder('q')
@@ -58,10 +61,12 @@ export class ThsIndexDailyIndicatorService {
       .getRawOne();
     const minDate = minMax?.minDate;
     const maxDate = minMax?.maxDate;
-    if (!minDate || !maxDate) return;
+    if (!minDate || !maxDate) return new Map();
+
+    const amountMap = new Map<string, number | null>();
 
     if (category === 'sw') {
-      await this.dataSource.query(
+      const rows = await this.dataSource.query<{ tradeDate: string; amount: number | null }[]>(
         `
           UPDATE index_daily_quotes q
           SET amount = agg.amount
@@ -76,11 +81,15 @@ export class ThsIndexDailyIndicatorService {
             GROUP BY dq.trade_date
           ) agg
           WHERE q.ts_code = $1 AND q.trade_date = agg.trade_date
+          RETURNING q.trade_date AS "tradeDate", q.amount AS amount
         `,
         [tsCode, minDate, maxDate],
       );
+      for (const r of rows) {
+        amountMap.set(r.tradeDate, r.amount);
+      }
     } else {
-      await this.dataSource.query(
+      const rows = await this.dataSource.query<{ tradeDate: string; amount: number | null }[]>(
         `
           UPDATE index_daily_quotes q
           SET amount = agg.amount
@@ -93,14 +102,20 @@ export class ThsIndexDailyIndicatorService {
             GROUP BY dq.trade_date
           ) agg
           WHERE q.ts_code = $1 AND q.trade_date = agg.trade_date
+          RETURNING q.trade_date AS "tradeDate", q.amount AS amount
         `,
         [tsCode, minDate, maxDate],
       );
+      for (const r of rows) {
+        amountMap.set(r.tradeDate, r.amount);
+      }
     }
+
+    return amountMap;
   }
 
   private async recalculateForSymbol(tsCode: string): Promise<number> {
-    let rows = await this.quotesRepo
+    const rows = await this.quotesRepo
       .createQueryBuilder('q')
       .select([
         'q.tsCode',
@@ -123,28 +138,12 @@ export class ThsIndexDailyIndicatorService {
 
     if (!rows.length) return 0;
 
-    await this.backfillIndexAmount(tsCode, rows[0].category);
-
-    rows = await this.quotesRepo
-      .createQueryBuilder('q')
-      .select([
-        'q.tsCode',
-        'q.tradeDate',
-        'q.open',
-        'q.high',
-        'q.low',
-        'q.close',
-        'q.volHand',
-        'q.amount',
-        'q.category',
-      ])
-      .where('q.tsCode = :ts', { ts: tsCode })
-      .andWhere('q.open IS NOT NULL')
-      .andWhere('q.high IS NOT NULL')
-      .andWhere('q.low IS NOT NULL')
-      .andWhere('q.close IS NOT NULL')
-      .orderBy('q.tradeDate', 'ASC')
-      .getMany();
+    const amountMap = await this.backfillIndexAmount(tsCode, rows[0].category);
+    if (amountMap.size > 0) {
+      for (const r of rows) {
+        if (amountMap.has(r.tradeDate)) r.amount = amountMap.get(r.tradeDate) ?? null;
+      }
+    }
 
     const klineRows: KlineRow[] = rows.map((r) => ({
       open_time: r.tradeDate,

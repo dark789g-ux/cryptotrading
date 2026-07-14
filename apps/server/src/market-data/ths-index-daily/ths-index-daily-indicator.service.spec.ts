@@ -102,6 +102,11 @@ describe('ThsIndexDailyIndicatorService', () => {
     const upsertCalls = indicatorsRepo.upsert.mock.calls;
     expect(upsertCalls).toHaveLength(1);
     const [persisted] = upsertCalls[0];
+
+    // 验证 quotes 全历史只查一次（无冗余第二次查询）
+    // createQueryBuilder 被调用 2 次：1 次主查询 + 1 次 backfillIndexAmount 的 minMax 查询
+    // 旧代码此处为 3 次（多一次完全相同的主查询）
+    expect(quotesRepo.createQueryBuilder).toHaveBeenCalledTimes(2);
     expect(persisted).toHaveLength(quoteRows.length);
 
     for (let i = 0; i < quoteRows.length; i++) {
@@ -122,5 +127,39 @@ describe('ThsIndexDailyIndicatorService', () => {
       expect(p.obv10d).toBeNull();
       expect(p.obv20d).toBeNull();
     }
+  });
+
+  it('market 类型 backfill 返回空 Map，不触发 dataSource.query 和第二次查询', async () => {
+    const quoteRows = Array.from({ length: 5 }, (_, i) => ({
+      tradeDate: `2026060${i + 1}`,
+      open: 100 + i,
+      high: 105 + i,
+      low: 95 + i,
+      close: 100 + i * 1.5,
+      category: 'market',
+    }));
+    const quotesRepo = fakeQuotesRepo(quoteRows);
+    const indicatorsRepo = fakeIndicatorsRepo();
+    const dataSource = fakeDataSource();
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ThsIndexDailyIndicatorService,
+        { provide: getRepositoryToken(IndexDailyQuoteEntity), useValue: quotesRepo },
+        { provide: getRepositoryToken(IndexDailyIndicatorEntity), useValue: indicatorsRepo },
+        { provide: DataSource, useValue: dataSource },
+      ],
+    }).compile();
+    module.useLogger(false);
+
+    const service = module.get(ThsIndexDailyIndicatorService);
+    const written = await service.recalculateForSymbols(['881001.TI']);
+    expect(written).toBe(quoteRows.length);
+
+    // market 类型不调用 dataSource.query（backfillIndexAmount 直接返回空 Map）
+    expect(dataSource.query).not.toHaveBeenCalled();
+
+    // createQueryBuilder 只调用 1 次（主查询），backfillIndexAmount 提前返回不查 minMax
+    expect(quotesRepo.createQueryBuilder).toHaveBeenCalledTimes(1);
   });
 });

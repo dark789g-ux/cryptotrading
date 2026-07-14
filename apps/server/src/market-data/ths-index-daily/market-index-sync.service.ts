@@ -10,6 +10,7 @@ import {
   deduplicateBy,
   runWithRetry,
   RETRY_MAX_ATTEMPTS,
+  shiftYyyymmdd,
 } from '../_shared/sync-helpers';
 
 /**
@@ -22,10 +23,9 @@ import {
  *
  * spec: docs/superpowers/specs/2026-06-23-market-index-dynamic-scope-design/02-backend.md §2.2
  *
- * syncMode 说明：本 service 无「跳过已有 (ts_code, trade_date)」逻辑——每次按 ts_code 逐指数、
- * 按 5 年段全量重拉 Tushare index_daily，再 upsert（ON CONFLICT DO UPDATE，本身即覆盖）。
- * 因此 syncMode='overwrite' 对本 service 是 no-op：incremental 与 overwrite 行为完全一致。
- * 字段仅作 API 对齐（与一键同步 ctx.syncMode 形态统一）+ 日志标识，不改变落库行为。
+ * syncMode 说明：incremental 模式按 MAX(trade_date) 水位裁剪起点，仅拉 (maxDate, end] 新段；
+ * overwrite 模式走全量兜底（effectiveStart = dto.start_date）。index_daily 是当日行情快照
+ *（Tushare 文档确认无历史回溯修正），增量同步安全。
  */
 // Tushare index_daily 出参：ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol(手),amount(千元)
 const INDEX_DAILY_FIELDS =
@@ -41,7 +41,7 @@ export type MarketIndexOnProgress = (p: { phase: string; percent: number; messag
 export interface MarketIndexSyncDto {
   start_date: string;
   end_date: string;
-  /** 同步模式（本 service 为 no-op，见类注释）；与一键同步 ctx.syncMode 形态对齐 */
+  /** 同步模式：incremental 按 MAX(trade_date) 水位裁剪；overwrite 全量兜底 */
   syncMode?: 'incremental' | 'overwrite';
   /** 中断信号：在内层循环体和指标重算前检查，支持一键同步取消。 */
   signal?: AbortSignal;
@@ -88,19 +88,17 @@ export class MarketIndexSyncService {
   ) {}
 
   async sync(dto: MarketIndexSyncDto): Promise<MarketIndexSyncResult> {
-    // syncMode 对本 service 为 no-op（无跳过逻辑，逐指数全量重拉 + upsert 即覆盖）；
-    // 此处仅记录模式，便于排查与一键同步 API 形态对齐。
     const syncMode = dto.syncMode ?? 'incremental';
     const signal = dto.signal;
     this.logger.log(
-      `[market-index] syncMode=${syncMode}（no-op：本 service 无增量跳过，逐指数全量重拉 + upsert）`,
+      `[market-index] syncMode=${syncMode}（incremental 按 MAX(trade_date) 水位裁剪；overwrite 全量兜底）`,
     );
     const errors: MarketIndexSyncErrorItem[] = [];
     let success = 0;
     const affected = new Set<string>();
 
-    const segments = this.computeSegments(dto.start_date, dto.end_date);
-    if (segments.length === 0) {
+    // 校验 start_date / end_date 格式
+    if (!dto.start_date || !dto.end_date || dto.start_date.length !== 8 || dto.end_date.length !== 8 || dto.start_date > dto.end_date) {
       errors.push({
         apiName: 'no_segments',
         params: { start_date: dto.start_date, end_date: dto.end_date },
@@ -132,9 +130,39 @@ export class MarketIndexSyncService {
       new Set([...scopeRows.map((r) => r.tsCode), ...EXTRA_OAMV_CODES]),
     );
 
+    // 增量水位:overwrite 模式跳过水位(全量兜底),incremental 模式按 MAX(trade_date) 裁剪起点。
+    // index_daily 是当日行情快照(Tushare 文档确认无历史回溯修正),增量安全。
+    const tsCodeMaxDate = new Map<string, string>();
+    if (syncMode !== 'overwrite') {
+      for (const tsCode of allTsCodes) {
+        const row = await this.quotesRepo
+          .createQueryBuilder('q')
+          .select('MAX(q.tradeDate)', 'maxDate')
+          .where('q.tsCode = :ts', { ts: tsCode })
+          .getRawOne<{ maxDate: string | null }>();
+        if (row?.maxDate) tsCodeMaxDate.set(tsCode, row.maxDate);
+      }
+    }
+    if (syncMode !== 'overwrite' && tsCodeMaxDate.size > 0) {
+      this.logger.log(
+        `[market-index] 增量模式：按水位裁剪，${tsCodeMaxDate.size}/${allTsCodes.length} 个指数有历史水位`,
+      );
+    }
+
     for (let ti = 0; ti < allTsCodes.length; ti++) {
       const tsCode = allTsCodes[ti];
-      for (const seg of segments) {
+      // 按 syncMode 决定起点:overwrite 全量;incremental 且有水位 → 水位 +1 天;无水位 → 全量(首次)
+      let effectiveStart = dto.start_date;
+      if (syncMode !== 'overwrite') {
+        const maxDate = tsCodeMaxDate.get(tsCode);
+        if (maxDate && maxDate >= dto.start_date) {
+          effectiveStart = shiftYyyymmdd(maxDate, 1);
+        }
+      }
+      const effectiveSegments = this.computeSegments(effectiveStart, dto.end_date);
+      if (effectiveSegments.length === 0) continue; // 已最新,跳过该指数
+
+      for (const seg of effectiveSegments) {
         if (signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
         let rows: RawRow[] = [];
         try {

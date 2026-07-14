@@ -11,6 +11,14 @@ import { StkLimitEntity } from '../../entities/raw/stk-limit.entity';
 import { SuspendEntity } from '../../entities/raw/suspend.entity';
 import { TushareClientService } from '../a-shares/services/tushare-client.service';
 
+/** 按 apiName 区分返回值的 mock impl，用于并发场景（调用顺序不确定）。 */
+function mockQueryByApiName(responses: Record<string, unknown[]>) {
+  return (apiName: string) => {
+    const rows = responses[apiName] ?? [];
+    return Promise.resolve(rows);
+  };
+}
+
 interface MockRepo {
   upsert: jest.Mock;
   create: jest.Mock;
@@ -383,5 +391,119 @@ describe('BaseDataSyncService', () => {
     const result = await service.sync(DTO);
 
     expect(result.errors.filter((e) => e.apiName === 'stk_limit_incomplete')).toEqual([]);
+  });
+
+  // ── 并发场景补测 ──────────────────────────────────────────────────────
+
+  it('并发：多日期(≥3)所有 stk_limit/suspend_d 均被拉取并 upsert', async () => {
+    const { service, client, tradeCalRepo, stkLimitRepo, suspendRepo, dailyQuoteRepo } = await buildModule();
+    // trade_cal
+    client.query.mockResolvedValueOnce([calRow('20260512', '1'), calRow('20260513', '1'), calRow('20260514', '1')]);
+    tradeCalRepo.find.mockResolvedValueOnce([{ calDate: '20260512' }, { calDate: '20260513' }, { calDate: '20260514' }]);
+    // 并发场景：调用顺序不确定，用 mockImplementation 按 apiName 分派
+    client.query.mockImplementation(mockQueryByApiName({
+      trade_cal: [],
+      stk_limit: [stkRow('000001.SZ', '20260512'), stkRow('000002.SZ', '20260513'), stkRow('000003.SZ', '20260514')],
+      suspend_d: [suspendRow('000002.SZ', '20260512', 'S'), suspendRow('000003.SZ', '20260513', 'R'), suspendRow('000004.SZ', '20260514', 'S')],
+    }));
+    seedStkLimitCompleteness(dailyQuoteRepo, [], []);
+
+    const result = await service.sync({ ...DTO, start_date: '20260512', end_date: '20260514' });
+
+    expect(stkLimitRepo.upsert).toHaveBeenCalled();
+    expect(suspendRepo.upsert).toHaveBeenCalled();
+    // success = trade_cal upsert(3行) + stk_limit upsert(3日期 × 3行/日期 = 9) + suspend_d upsert(3日期 × 3行/日期 = 9) = 21
+    // mockQueryByApiName 对相同 apiName 返回同一数组，故每个日期都拿到全部 3 行
+    const totalStkLimitRows = 3 * 3; // 3 dates × 3 rows per date (mock returns same array for all dates)
+    const totalSuspendDRows = 3 * 3; // 3 dates × 3 rows per date
+    const expectedSuccess = 3 + totalStkLimitRows + totalSuspendDRows; // 3 trade_cal + stk_limit + suspend_d
+    expect(result.success).toBe(expectedSuccess);
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it('并发：某日期 query 抛异常 → 收集到 errors，其他日期不受影响', async () => {
+    const { service, client, tradeCalRepo, stkLimitRepo, suspendRepo, dailyQuoteRepo } = await buildModule();
+    // trade_cal
+    client.query.mockResolvedValueOnce([calRow('20260512', '1'), calRow('20260513', '1'), calRow('20260514', '1')]);
+    tradeCalRepo.find.mockResolvedValueOnce([{ calDate: '20260512' }, { calDate: '20260513' }, { calDate: '20260514' }]);
+    // stk_limit 20260513 抛异常，其他正常
+    let stkCallCount = 0;
+    client.query.mockImplementation((apiName: string) => {
+      if (apiName === 'stk_limit') {
+        stkCallCount++;
+        if (stkCallCount <= 2) {
+          // attempt 1 & 2 for 20260513: rejected; other dates pass
+          // 由于 runWithRetry 会为同一 tradeDate 重试，我们需要区分
+        }
+      }
+      return Promise.resolve([]);
+    });
+    // 用更精确的 mock：按 apiName + tradeDate 分派
+    const pendingStk = new Map<string, number>();
+    client.query.mockImplementation((apiName: string, params?: Record<string, unknown>) => {
+      if (apiName === 'stk_limit') {
+        const td = params?.trade_date as string;
+        const count = (pendingStk.get(td) ?? 0) + 1;
+        pendingStk.set(td, count);
+        if (td === '20260513') {
+          return Promise.reject(new Error('boom-concurrent'));
+        }
+        return Promise.resolve([stkRow('000001.SZ', td)]);
+      }
+      if (apiName === 'suspend_d') {
+        const td = params?.trade_date as string;
+        return Promise.resolve([suspendRow('000002.SZ', td as string, 'S')]);
+      }
+      return Promise.resolve([]);
+    });
+    seedStkLimitCompleteness(dailyQuoteRepo, [], []);
+
+    const result = await service.sync({ ...DTO, start_date: '20260512', end_date: '20260514' });
+
+    // 20260513 stk_limit 失败 → errors 中有 stk_limit
+    const stkErr = result.errors.find((e) => e.apiName === 'stk_limit' && e.params?.trade_date === '20260513');
+    expect(stkErr).toBeDefined();
+    expect(stkErr?.message).toContain('boom-concurrent');
+    // 20260512 和 20260514 正常 upsert
+    expect(stkLimitRepo.upsert).toHaveBeenCalled();
+    // suspend_d 三个日期都正常
+    expect(suspendRepo.upsert).toHaveBeenCalled();
+    // warnings 无（suspend_d 都返回非空）
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it('对账 collectCompletenessErrors 在所有日期 upsert 后执行', async () => {
+    const { service, client, tradeCalRepo, stkLimitRepo, dailyQuoteRepo } = await buildModule();
+    client.query.mockResolvedValueOnce([calRow('20260512', '1'), calRow('20260513', '1')]);
+    tradeCalRepo.find.mockResolvedValueOnce([{ calDate: '20260512' }, { calDate: '20260513' }]);
+    // 并发 stk_limit：两个日期都有数据
+    client.query.mockImplementation(mockQueryByApiName({
+      trade_cal: [],
+      stk_limit: [stkRow('000001.SZ', '20260512'), stkRow('000001.SZ', '20260513')],
+      suspend_d: [],
+    }));
+    // 对账：stk_limit 入库 < baseline
+    seedStkLimitCompleteness(
+      dailyQuoteRepo,
+      [
+        { trade_date: '20260512', total: '4000' },
+        { trade_date: '20260513', total: '3000' },
+      ],
+      [
+        { trade_date: '20260512', total: '5000' },
+        { trade_date: '20260513', total: '5000' },
+      ],
+    );
+
+    const result = await service.sync({ ...DTO, start_date: '20260512', end_date: '20260513' });
+
+    // 对账 errors 在 results 中
+    const incompleteErrors = result.errors.filter((e) => e.apiName === 'stk_limit_incomplete');
+    expect(incompleteErrors).toHaveLength(2);
+    // stk_limit upsert 发生在对账 query 之前
+    const stkLimitUpsertOrder = stkLimitRepo.upsert.mock.invocationCallOrder[0];
+    const dailyQuoteQueryOrder = dailyQuoteRepo.query.mock.invocationCallOrder[0];
+    expect(stkLimitUpsertOrder).toBeLessThan(dailyQuoteQueryOrder);
   });
 });

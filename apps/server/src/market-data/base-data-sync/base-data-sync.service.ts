@@ -143,41 +143,61 @@ export class BaseDataSyncService {
       return { success, skipped: 0, errors, warnings };
     }
 
-    // ── Step3 stk_limit 逐开市日 ───────────────────────────────────
-    for (let i = 0; i < openDates.length; i++) {
-      if (signal?.aborted) break;
-      const tradeDate = openDates[i];
+    // ── Step3 stk_limit 并发逐开市日 ────────────────────────────────
+    let stkCompleted = 0;
+    const stkResults = await Promise.all(openDates.map(async (tradeDate) => {
+      if (signal?.aborted) return null; // 对齐 a-shares:未入队提前 return
       const params = { trade_date: tradeDate };
-      onProgress?.({
-        type: 'progress',
-        phase: 'stk_limit',
-        current: i,
-        total: openDates.length,
-        percent: pctOf(i, openDates.length),
-        message: `同步涨跌停 stk_limit ${tradeDate}`,
-      });
-      let rows: RawRow[];
       try {
-        rows = (await runWithRetry(
+        const rows = (await runWithRetry(
           () => this.tushareClient.query('stk_limit', params, STK_LIMIT_FIELDS),
           (attempt, err) =>
             onProgress?.({
               type: 'progress',
               phase: 'stk_limit',
-              current: i,
+              current: stkCompleted,
               total: openDates.length,
-              percent: pctOf(i, openDates.length),
+              percent: pctOf(stkCompleted, openDates.length),
               message: `stk_limit ${tradeDate} 重试中（第 ${attempt}/${RETRY_MAX_ATTEMPTS} 次） ${truncate(String(err), 60)}`,
             }),
         )) as RawRow[];
+        stkCompleted++; // 单线程 JS 原子递增
+        onProgress?.({
+          type: 'progress',
+          phase: 'stk_limit',
+          current: stkCompleted,
+          total: openDates.length,
+          percent: pctOf(stkCompleted, openDates.length),
+          message: `同步涨跌停 stk_limit ${tradeDate}`,
+        });
+        return { tradeDate, rows };
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        this.logger.error(`stk_limit ${tradeDate} 调用失败：${msg}`, e instanceof Error ? e.stack : undefined);
+        stkCompleted++;
+        onProgress?.({
+          type: 'progress',
+          phase: 'stk_limit',
+          current: stkCompleted,
+          total: openDates.length,
+          percent: pctOf(stkCompleted, openDates.length),
+          message: `stk_limit ${tradeDate} 调用失败`,
+        });
+        return { tradeDate, error: e };
+      }
+    }));
+    // 遍历结果处理：有 error → errors.push；0 行 → errors.push(stk_limit_empty)；非空 → create + upsertBatched
+    for (const r of stkResults) {
+      if (r == null) continue; // abort 未入队
+      if ('error' in r) {
+        const msg = r.error instanceof Error ? r.error.message : String(r.error);
+        const params = { trade_date: r.tradeDate };
+        this.logger.error(`stk_limit ${r.tradeDate} 调用失败：${msg}`, r.error instanceof Error ? r.error.stack : undefined);
         errors.push({ apiName: 'stk_limit', params, message: msg });
         continue;
       }
+      const { tradeDate, rows } = r;
       // stk_limit 某开市日 0 行 = 可疑（每只票每开市日都该有涨跌停价）
       if (rows.length === 0) {
+        const params = { trade_date: tradeDate };
         this.logger.warn(`stk_limit ${tradeDate} 返回 0 行（可疑），params=${JSON.stringify(params)}`);
         errors.push({ apiName: 'stk_limit_empty', params });
         continue;
@@ -212,42 +232,62 @@ export class BaseDataSyncService {
       errors.push({ apiName: 'stk_limit_incomplete', params: {}, message });
     }
 
-    // ── Step4 suspend_d 逐开市日 ───────────────────────────────────
-    for (let i = 0; i < openDates.length; i++) {
-      if (signal?.aborted) break;
-      const tradeDate = openDates[i];
+    // ── Step4 suspend_d 并发逐开市日 ────────────────────────────────
+    let suspendCompleted = 0;
+    const suspendResults = await Promise.all(openDates.map(async (tradeDate) => {
+      if (signal?.aborted) return null; // 对齐 a-shares:未入队提前 return
       const params = { trade_date: tradeDate };
-      onProgress?.({
-        type: 'progress',
-        phase: 'suspend_d',
-        current: i,
-        total: openDates.length,
-        percent: pctOf(i, openDates.length),
-        message: `同步停复牌 suspend_d ${tradeDate}`,
-      });
-      let rows: RawRow[];
       try {
-        rows = (await runWithRetry(
-          // 不传 suspend_type → 返回当日 S+R 全部行
+        // 不传 suspend_type → 返回当日 S+R 全部行
+        const rows = (await runWithRetry(
           () => this.tushareClient.query('suspend_d', params, SUSPEND_FIELDS),
           (attempt, err) =>
             onProgress?.({
               type: 'progress',
               phase: 'suspend_d',
-              current: i,
+              current: suspendCompleted,
               total: openDates.length,
-              percent: pctOf(i, openDates.length),
+              percent: pctOf(suspendCompleted, openDates.length),
               message: `suspend_d ${tradeDate} 重试中（第 ${attempt}/${RETRY_MAX_ATTEMPTS} 次） ${truncate(String(err), 60)}`,
             }),
         )) as RawRow[];
+        suspendCompleted++; // 单线程 JS 原子递增
+        onProgress?.({
+          type: 'progress',
+          phase: 'suspend_d',
+          current: suspendCompleted,
+          total: openDates.length,
+          percent: pctOf(suspendCompleted, openDates.length),
+          message: `同步停复牌 suspend_d ${tradeDate}`,
+        });
+        return { tradeDate, rows };
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        this.logger.error(`suspend_d ${tradeDate} 调用失败：${msg}`, e instanceof Error ? e.stack : undefined);
+        suspendCompleted++;
+        onProgress?.({
+          type: 'progress',
+          phase: 'suspend_d',
+          current: suspendCompleted,
+          total: openDates.length,
+          percent: pctOf(suspendCompleted, openDates.length),
+          message: `suspend_d ${tradeDate} 调用失败`,
+        });
+        return { tradeDate, error: e };
+      }
+    }));
+    // 遍历结果处理：有 error → errors.push；0 行 → warnings.push(suspend_d_empty)；非空 → create + upsertBatched
+    for (const r of suspendResults) {
+      if (r == null) continue; // abort 未入队
+      if ('error' in r) {
+        const msg = r.error instanceof Error ? r.error.message : String(r.error);
+        const params = { trade_date: r.tradeDate };
+        this.logger.error(`suspend_d ${r.tradeDate} 调用失败：${msg}`, r.error instanceof Error ? r.error.stack : undefined);
         errors.push({ apiName: 'suspend_d', params, message: msg });
         continue;
       }
+      const { tradeDate, rows } = r;
       // suspend_d 某日 0 行 = 正常（当日无停复牌事件）；归 warnings，不计入"失败 N 项"
       if (rows.length === 0) {
+        const params = { trade_date: tradeDate };
         this.logger.warn(`suspend_d ${tradeDate} 返回 0 行（正常空日），params=${JSON.stringify(params)}`);
         warnings.push({ apiName: 'suspend_d_empty', params });
         continue;
