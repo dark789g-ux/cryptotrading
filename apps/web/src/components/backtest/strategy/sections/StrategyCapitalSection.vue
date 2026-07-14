@@ -24,6 +24,15 @@
 
     <n-form-item>
       <template #label>
+        <LabelWithTip label="交易费率">
+          0.1% 填 0.001，填 0 表示不计费（币安现货默认 0.1%）
+        </LabelWithTip>
+      </template>
+      <n-input-number v-model:value="params.feeRate" :min="0" :max="0.01" :step="0.0001" :precision="4" style="width:100%" />
+    </n-form-item>
+
+    <n-form-item>
+      <template #label>
         <LabelWithTip label="仅全部盈利时开新仓">
           开启后：当前所有持仓的止损价须已上移至成本之上（止损价 &gt; 入场价），才允许开新仓；空仓不受限
         </LabelWithTip>

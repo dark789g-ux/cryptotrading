@@ -207,6 +207,7 @@ export class BacktestService {
         strategyRepo: this.strategyRepo,
         candleLogRepo: this.candleLogRepo,
         dataService: this.dataService,
+        dataSource: this.dataSource,
         updateProgress: (id, patch) => this.updateProgress(id, patch),
         finalizeProgress: (id, patch) => this.finalizeProgress(id, patch),
       },

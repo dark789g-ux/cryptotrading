@@ -98,7 +98,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, h } from 'vue'
+import { ref, computed, onMounted, h } from 'vue'
 import {
   useMessage, useDialog,
   NButton, NIcon, NCard, NDataTable, NDrawer, NDrawerContent,
@@ -106,6 +106,7 @@ import {
 } from 'naive-ui'
 import { AddOutline, PlayOutline, CreateOutline, TrashOutline, EyeOutline, EllipsisVerticalOutline, TimeOutline } from '@vicons/ionicons5'
 import { strategyApi, backtestApi, type BacktestProgress } from '@/api'
+import { useBacktestPolling } from '../../composables/backtest/useBacktestPolling'
 import { colors } from '../../styles/tokens'
 import StrategyModal from '../../components/backtest/StrategyModal.vue'
 import BacktestDetail from '../../components/backtest/BacktestDetail.vue'
@@ -128,81 +129,30 @@ const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 
-// ── 进度 Modal ────────────────────────────────────────────────
+// ── 进度 Modal / 轮询 ────────────────────────────────────────
 const showProgressModal = ref(false)
-const progressModalStrategyId = ref<string | null>(null)
 const progressModalStrategyName = ref('')
-const progressModalData = ref<BacktestProgress | null>(null)
 
-const isProgressRunning = computed(() =>
-  !!progressModalStrategyId.value && pollingIds.value.has(progressModalStrategyId.value),
-)
-
-// ── 进度轮询 ──────────────────────────────────────────────────
-const progressMap = ref<Record<string, BacktestProgress>>({})
-const pollErrorCount: Record<string, number> = {}
-const pollingIds = ref(new Set<string>())
-let pollTimer: ReturnType<typeof setInterval> | null = null
-
-async function pollTick() {
-  for (const id of pollingIds.value) {
-    try {
-      const p = await backtestApi.getProgress(id)
-      pollErrorCount[id] = 0
-      if (!p) {
-        pollingIds.value.delete(id)
-        const updated = { ...progressMap.value }
-        delete updated[id]
-        progressMap.value = updated
-        checkStopTimer()
-        continue
+const {
+  progressMap,
+  pollingIds,
+  isProgressRunning,
+  progressModalStrategyId,
+  progressModalData,
+  startPolling,
+} = useBacktestPolling({
+  onComplete(id, runId) {
+    const p = progressMap.value[id]
+    if (p?.status === 'done') {
+      message.success('回测完成')
+      if (runId && showDetailDrawer.value && selectedStrategy.value?.id === id) {
+        backtestApi.getRun(runId).then((r) => (latestRun.value = r))
       }
-      progressMap.value = { ...progressMap.value, [id]: p }
-      if (progressModalStrategyId.value === id) progressModalData.value = p
-      if (p.status === 'done' || p.status === 'error') {
-        pollingIds.value.delete(id)
-        checkStopTimer()
-        if (p.status === 'done') {
-          message.success('回测完成')
-          if (p.runId && showDetailDrawer.value && selectedStrategy.value?.id === id) {
-            backtestApi.getRun(p.runId).then((r) => (latestRun.value = r))
-          }
-        } else {
-          message.error(p.message || '回测失败')
-        }
-        loadStrategies()
-      }
-    } catch {
-      pollErrorCount[id] = (pollErrorCount[id] ?? 0) + 1
-      if (pollErrorCount[id] >= 3) {
-        const errProgress = { ...progressMap.value[id], status: 'error' as const, message: '进度查询失败' }
-        progressMap.value = { ...progressMap.value, [id]: errProgress }
-        if (progressModalStrategyId.value === id) progressModalData.value = errProgress
-        pollingIds.value.delete(id)
-        checkStopTimer()
-      }
+    } else if (p?.status === 'error') {
+      message.error(p.message || '回测失败')
     }
-  }
-}
-
-function checkStopTimer() {
-  if (!pollingIds.value.size && pollTimer !== null) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
-
-function startPolling(strategyId: string) {
-  pollingIds.value.add(strategyId)
-  pollErrorCount[strategyId] = 0
-  if (!pollTimer) {
-    pollTick()
-    pollTimer = setInterval(pollTick, 500)
-  }
-}
-
-onBeforeUnmount(() => {
-  if (pollTimer !== null) clearInterval(pollTimer)
+    loadStrategies()
+  },
 })
 
 // ── 格式化工具 ────────────────────────────────────────────────

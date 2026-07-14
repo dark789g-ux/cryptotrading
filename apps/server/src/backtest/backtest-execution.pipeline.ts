@@ -1,5 +1,6 @@
 import type { Logger } from '@nestjs/common';
 import type { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { BacktestRunEntity } from '../entities/backtest/backtest-run.entity';
 import { BacktestTradeEntity } from '../entities/backtest/backtest-trade.entity';
 import { BacktestCandleLogEntity } from '../entities/backtest/backtest-candle-log.entity';
@@ -17,6 +18,7 @@ export interface BacktestPipelineContext {
   strategyRepo: Repository<StrategyEntity>;
   candleLogRepo: Repository<BacktestCandleLogEntity>;
   dataService: BacktestDataService;
+  dataSource: DataSource;
   updateProgress: (strategyId: string, patch: Partial<BacktestProgress>) => void;
   finalizeProgress: (strategyId: string, patch: Partial<BacktestProgress>) => void;
 }
@@ -105,68 +107,76 @@ export async function executeBacktestPipeline(
 
     ctx.updateProgress(progressKey, { phase: '保存结果', percent: 96 });
 
-    const run = ctx.runRepo.create({
-      userId,
-      strategyId,
-      timeframe: config.timeframe,
-      dateStart: config.dateStart,
-      dateEnd: config.dateEnd,
-      symbols: targetSymbols,
-      stats: reportData,
-      configSnapshot: config as unknown as Record<string, unknown>,
-    } as Partial<BacktestRunEntity>) as BacktestRunEntity;
-    const savedRun = await ctx.runRepo.save(run);
+    const savedRun = await ctx.dataSource.transaction(async (manager) => {
+      const run = ctx.runRepo.create({
+        userId,
+        strategyId,
+        timeframe: config.timeframe,
+        dateStart: config.dateStart,
+        dateEnd: config.dateEnd,
+        symbols: targetSymbols,
+        stats: reportData,
+        configSnapshot: config as unknown as Record<string, unknown>,
+      } as Partial<BacktestRunEntity>) as BacktestRunEntity;
+      const saved = await manager.save(run);
 
-    const allTradesForDb = [...simTrades, ...trades];
-    if (allTradesForDb.length) {
-      const tradeEntities: Partial<BacktestTradeEntity>[] = allTradesForDb.map((t) => ({
-        runId: savedRun.id,
-        symbol: t.symbol,
-        entryTime: new Date(t.entryTime.replace(' ', 'T') + 'Z'),
-        entryPrice: t.entryPrice,
-        exitTime: new Date(t.exitTime.replace(' ', 'T') + 'Z'),
-        exitPrice: t.exitPrice,
-        pnl: t.pnl,
-        pnlPct: t.returnPct,
-        holdBars: t.holdCandles,
-        tradePhase: t.tradePhase,
-      }));
-      await ctx.tradeRepo.save(tradeEntities as BacktestTradeEntity[]);
-    }
-
-    if (candleLog && candleLog.length > 0) {
-      const CHUNK_SIZE = 500;
-      for (let i = 0; i < candleLog.length; i += CHUNK_SIZE) {
-        const chunk = candleLog.slice(i, i + CHUNK_SIZE);
-        const values = chunk.map((entry) => ({
-          runId: savedRun.id,
-          barIdx: entry.barIdx,
-          ts: new Date(entry.ts.replace(' ', 'T') + 'Z'),
-          openEquity: String(entry.openEquity),
-          closeEquity: String(entry.closeEquity),
-          posCount: entry.posCount,
-          maxPositions: effectiveMaxPos,
-          entriesJson: entry.entries,
-          exitsJson: entry.exits,
-          openSymbolsJson: entry.openSymbols ?? [],
-          inCooldown: entry.inCooldown,
-          cooldownDuration: entry.cooldownDuration ?? null,
-          cooldownRemaining: entry.cooldownRemaining ?? null,
+      const allTradesForDb = [...simTrades, ...trades];
+      if (allTradesForDb.length) {
+        const tradeEntities: Partial<BacktestTradeEntity>[] = allTradesForDb.map((t) => ({
+          runId: saved.id,
+          symbol: t.symbol,
+          entryTime: new Date(t.entryTime.replace(' ', 'T') + 'Z'),
+          entryPrice: t.entryPrice,
+          exitTime: new Date(t.exitTime.replace(' ', 'T') + 'Z'),
+          exitPrice: t.exitPrice,
+          pnl: t.pnl,
+          pnlPct: t.returnPct,
+          holdBars: t.holdCandles,
+          tradePhase: t.tradePhase,
         }));
-        await ctx.candleLogRepo
-          .createQueryBuilder()
-          .insert()
-          .into(BacktestCandleLogEntity)
-          .values(values)
-          .execute();
+        await manager.save(tradeEntities as BacktestTradeEntity[]);
       }
-      ctx.logger.log(`candleLog 写入完成：runId=${savedRun.id}，共 ${candleLog.length} 条`);
-    }
 
-    await ctx.strategyRepo.update({ id: strategyId, userId } as any, {
-      lastBacktestAt: savedRun.createdAt,
-      lastBacktestReturn: stats.totalReturnPct,
-      symbols: targetSymbols,
+      if (candleLog && candleLog.length > 0) {
+        const CHUNK_SIZE = 500;
+        for (let i = 0; i < candleLog.length; i += CHUNK_SIZE) {
+          const chunk = candleLog.slice(i, i + CHUNK_SIZE);
+          const values = chunk.map((entry) => ({
+            runId: saved.id,
+            barIdx: entry.barIdx,
+            ts: new Date(entry.ts.replace(' ', 'T') + 'Z'),
+            openEquity: String(entry.openEquity),
+            closeEquity: String(entry.closeEquity),
+            posCount: entry.posCount,
+            maxPositions: effectiveMaxPos,
+            entriesJson: entry.entries,
+            exitsJson: entry.exits,
+            openSymbolsJson: entry.openSymbols ?? [],
+            inCooldown: entry.inCooldown,
+            cooldownDuration: entry.cooldownDuration ?? null,
+            cooldownRemaining: entry.cooldownRemaining ?? null,
+          }));
+          await manager
+            .createQueryBuilder()
+            .insert()
+            .into(BacktestCandleLogEntity)
+            .values(values)
+            .execute();
+        }
+        ctx.logger.log(`candleLog 写入完成：runId=${saved.id}，共 ${candleLog.length} 条`);
+      }
+
+      await manager.update(
+        StrategyEntity,
+        { id: strategyId, userId } as any,
+        {
+          lastBacktestAt: saved.createdAt,
+          lastBacktestReturn: stats.totalReturnPct,
+          symbols: targetSymbols,
+        },
+      );
+
+      return saved;
     });
 
     ctx.finalizeProgress(progressKey, {

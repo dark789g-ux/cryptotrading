@@ -1,6 +1,7 @@
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { strategyApi, backtestApi, type BacktestProgress } from '@/api'
+import { useBacktestPolling } from './useBacktestPolling'
 import type { HubBacktestRow } from '@/components/backtest/hubTypes'
 
 type StrategyRow = {
@@ -54,18 +55,31 @@ export function useHubCryptoBacktest() {
   const detailLoading = ref(false)
 
   const showProgressModal = ref(false)
-  const progressModalStrategyId = ref<string | null>(null)
   const progressModalStrategyName = ref('')
-  const progressModalData = ref<BacktestProgress | null>(null)
-  const progressMap = ref<Record<string, BacktestProgress>>({})
-  const pollErrorCount: Record<string, number> = {}
-  const pollingIds = ref(new Set<string>())
-  let pollTimer: ReturnType<typeof setInterval> | null = null
+
+  const {
+    progressMap,
+    pollingIds,
+    isProgressRunning,
+    progressModalStrategyId,
+    progressModalData,
+    startPolling,
+  } = useBacktestPolling({
+    onComplete(id, runId) {
+      const p = progressMap.value[id]
+      if (p?.status === 'done') {
+        message.success('回测完成')
+        if (runId && showDetailDrawer.value && selectedStrategy.value?.id === id) {
+          backtestApi.getRun(runId).then((r) => (latestRun.value = r))
+        }
+      } else if (p?.status === 'error') {
+        message.error(p.message || '回测失败')
+      }
+      loadList()
+    },
+  })
 
   const hubRows = computed(() => strategies.value.map(toCryptoHubRow))
-  const isProgressRunning = computed(() =>
-    !!progressModalStrategyId.value && pollingIds.value.has(progressModalStrategyId.value),
-  )
 
   async function loadList(keyword?: string) {
     loading.value = true
@@ -132,63 +146,6 @@ export function useHubCryptoBacktest() {
     })
   }
 
-  function checkStopTimer() {
-    if (!pollingIds.value.size && pollTimer !== null) {
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
-  }
-
-  async function pollTick() {
-    for (const id of pollingIds.value) {
-      try {
-        const p = await backtestApi.getProgress(id)
-        pollErrorCount[id] = 0
-        if (!p) {
-          pollingIds.value.delete(id)
-          const updated = { ...progressMap.value }
-          delete updated[id]
-          progressMap.value = updated
-          checkStopTimer()
-          continue
-        }
-        progressMap.value = { ...progressMap.value, [id]: p }
-        if (progressModalStrategyId.value === id) progressModalData.value = p
-        if (p.status === 'done' || p.status === 'error') {
-          pollingIds.value.delete(id)
-          checkStopTimer()
-          if (p.status === 'done') {
-            message.success('回测完成')
-            if (p.runId && showDetailDrawer.value && selectedStrategy.value?.id === id) {
-              backtestApi.getRun(p.runId).then((r) => (latestRun.value = r))
-            }
-          } else {
-            message.error(p.message || '回测失败')
-          }
-          await loadList()
-        }
-      } catch {
-        pollErrorCount[id] = (pollErrorCount[id] ?? 0) + 1
-        if (pollErrorCount[id] >= 3) {
-          const errProgress = { ...progressMap.value[id], status: 'error' as const, message: '进度查询失败' }
-          progressMap.value = { ...progressMap.value, [id]: errProgress }
-          if (progressModalStrategyId.value === id) progressModalData.value = errProgress
-          pollingIds.value.delete(id)
-          checkStopTimer()
-        }
-      }
-    }
-  }
-
-  function startPolling(strategyId: string) {
-    pollingIds.value.add(strategyId)
-    pollErrorCount[strategyId] = 0
-    if (!pollTimer) {
-      void pollTick()
-      pollTimer = setInterval(() => void pollTick(), 500)
-    }
-  }
-
   async function openRun(id: string, name: string) {
     if (pollingIds.value.has(id)) {
       progressModalStrategyId.value = id
@@ -225,10 +182,6 @@ export function useHubCryptoBacktest() {
     progressModalStrategyName.value = full.name
     showProgressModal.value = true
   }
-
-  onBeforeUnmount(() => {
-    if (pollTimer !== null) clearInterval(pollTimer)
-  })
 
   return {
     strategies,

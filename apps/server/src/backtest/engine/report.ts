@@ -116,6 +116,8 @@ function buildPositions(allTrades: TradeRecord[]): object[] {
     const totalSell = trades.reduce((a, t) => a + t.exitPrice * t.shares, 0);
     const avgSell = totalShares ? totalSell / totalShares : 0;
     const totalPnl = trades.reduce((a, t) => a + t.pnl, 0);
+    const totalEntryFee = trades.reduce((a, t) => a + (t.entryFee ?? 0), 0);
+    const totalExitFee = trades.reduce((a, t) => a + (t.exitFee ?? 0), 0);
     const closeTime = trades.reduce((a, t) => (t.exitTime > a ? t.exitTime : a), '');
     const holdCandles = trades.reduce((a, t) => Math.max(a, t.holdCandles), 0);
     const sortedTrades = [...trades].sort((a, b) => a.exitTime.localeCompare(b.exitTime));
@@ -143,6 +145,9 @@ function buildPositions(allTrades: TradeRecord[]): object[] {
       cumulativeOdds: lastFullTrade ? (lastFullTrade.cumulativeOdds ?? 0) : 0,
       windowWinRate: lastFullTrade ? (lastFullTrade.windowWinRate ?? 0) : 0,
       windowOdds: lastFullTrade ? (lastFullTrade.windowOdds ?? 0) : 0,
+      entryFee: Math.round(totalEntryFee * 1e4) / 1e4,
+      exitFee: Math.round(totalExitFee * 1e4) / 1e4,
+      totalFee: Math.round((totalEntryFee + totalExitFee) * 1e4) / 1e4,
     });
   }
 

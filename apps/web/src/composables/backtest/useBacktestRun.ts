@@ -16,6 +16,8 @@ export function useBacktestRun(
   const chartRef = ref<HTMLElement | null>(null)
   let chart: echarts.ECharts | null = null
 
+  function handleChartResize() { chart?.resize() }
+
   const allRuns = ref<any[]>([])
   const selectedRunId = ref<string | null>(null)
   const currentRunDetail = ref<any>(null)
@@ -137,8 +139,8 @@ export function useBacktestRun(
     } catch { /* ignore */ }
   }, { immediate: true })
 
-  onMounted(() => { window.addEventListener('resize', () => chart?.resize()) })
-  onUnmounted(() => { chart?.dispose(); window.removeEventListener('resize', () => chart?.resize()) })
+  onMounted(() => { window.addEventListener('resize', handleChartResize) })
+  onUnmounted(() => { chart?.dispose(); window.removeEventListener('resize', handleChartResize) })
 
   return {
     chartRef,

@@ -1,8 +1,8 @@
 import type { CooldownState } from '../cooldown';
 import { registerExit } from '../cooldown';
 import type { BacktestConfig, CandleExitEvent, KlineBarRow, Position, TradeRecord } from '../models';
-import { processCandle, processEntryCandle } from '../position-handler';
-import { createTradeRecord } from '../trade-helper';
+import { processPositionCandle } from '../position-handler';
+import { createTradeRecord, settleSell } from '../trade-helper';
 
 const DATA_GAP_REASON = '数据断流';
 
@@ -37,18 +37,16 @@ export function processPositions(
 
     if (ts === pos.entryTime) {
       // 买入当根特殊处理
-      const [newCash, entryTradeRecs, exited] = processEntryCandle(
-        pos, df, curIdx, ts, cash, config,
-      );
-      cash = newCash;
-      allTrades.push(...entryTradeRecs);
+      const result = processPositionCandle(pos, df, curIdx, config, { isEntryCandle: true, ts });
+      cash += result.cashDelta;
+      allTrades.push(...result.trades);
 
       // 收集交易记录
-      tradeRecs.push(...entryTradeRecs);
+      tradeRecs.push(...result.trades);
 
-      if (exited) {
+      if (result.action === 'exit_full') {
         // 只对非半仓的完整平仓登记冷却
-        const last = entryTradeRecs[entryTradeRecs.length - 1];
+        const last = result.trades[result.trades.length - 1];
         if (last && !last.isHalf && config.enableCooldown && !skipCooldown) {
           registerExit(
             cooldownState,
@@ -80,14 +78,14 @@ export function processPositions(
     }
 
     // 常规 K 线处理
-    const [action, cashDelta, posTradeRecs] = processCandle(pos, df, curIdx, config);
-    cash += cashDelta;
-    allTrades.push(...posTradeRecs);
+    const result = processPositionCandle(pos, df, curIdx, config, { isEntryCandle: false, ts: String(df[curIdx].open_time) });
+    cash += result.cashDelta;
+    allTrades.push(...result.trades);
 
     // 收集交易记录
-    tradeRecs.push(...posTradeRecs);
+    tradeRecs.push(...result.trades);
 
-    if (action === 'exit_full') {
+    if (result.action === 'exit_full') {
       // 只对非半仓的完整平仓登记冷却
       const last = tradeRecs[tradeRecs.length - 1];
       if (last && !last.isHalf && config.enableCooldown && !skipCooldown) {
@@ -139,12 +137,11 @@ function forceCloseOnDataGap(
   skipCooldown = false,
 ): [number, TradeRecord] {
   const closePrice = df[curIdx].close;
-  const proceeds = pos.shares * closePrice;
-  const pnl = proceeds - pos.shares * pos.entryPrice;
-  const newCash = cash + proceeds;
+  const { netProceeds, exitFee, entryFeePortion, pnl } = settleSell(pos, closePrice, pos.shares, config);
+  const newCash = cash + netProceeds;
 
   const holdCandles = Math.max(1, curIdx - pos.entryIdx + 1);
-  const rec = createTradeRecord(pos, ts, closePrice, pos.shares, pnl, DATA_GAP_REASON, holdCandles, false);
+  const rec = createTradeRecord(pos, ts, closePrice, pos.shares, pnl, DATA_GAP_REASON, holdCandles, false, entryFeePortion, exitFee);
   allTrades.push(rec);
 
   if (config.enableCooldown && !skipCooldown) {
