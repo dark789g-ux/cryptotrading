@@ -14,6 +14,17 @@
 
 export type SubplotKey = 'VOL' | 'KDJ' | 'MACD' | 'BRICK' | 'FLOW' | '0AMV' | '0AMV_MACD'
 
+/** K 线主图指标 key(逐线开关) */
+export type MainIndicatorKey =
+  | 'MA5' | 'MA30' | 'MA60' | 'MA120' | 'MA240'
+  | 'VWAP5' | 'VWAP10' | 'VWAP20'
+
+/** 全部主图指标 key,固定顺序(MA 组 + VWAP 组) */
+export const ALL_MAIN_INDICATOR_KEYS: readonly MainIndicatorKey[] = [
+  'MA5', 'MA30', 'MA60', 'MA120', 'MA240',
+  'VWAP5', 'VWAP10', 'VWAP20',
+]
+
 export interface SubplotConfig {
   key: SubplotKey
   visible: boolean
@@ -37,6 +48,8 @@ export interface SubplotPrefs {
   heightPct: Record<SubplotKey, number>
   /** 自定义指标参数；等于默认值时省略，保持持久化精简 */
   params?: IndicatorSubplotParams
+  /** 主图指标逐线可见性;缺省视为全开(向后兼容) */
+  mainIndicators?: Record<MainIndicatorKey, boolean>
 }
 
 /** 外部输入的偏好（如 localStorage 原始值 / update 入参），params 允许 partial */
@@ -44,8 +57,10 @@ export type PartialIndicatorSubplotParams = {
   [K in keyof IndicatorSubplotParams]?: Partial<NonNullable<IndicatorSubplotParams[K]>>
 }
 
-export type RawSubplotPrefs = Partial<Omit<SubplotPrefs, 'params'>> & {
+export type RawSubplotPrefs = Partial<Omit<SubplotPrefs, 'params' | 'mainIndicators'>> & {
   params?: PartialIndicatorSubplotParams | undefined
+  /** 允许 partial 主图指标(仅含被改的 key) */
+  mainIndicators?: Partial<Record<MainIndicatorKey, boolean>>
 }
 
 export const ALL_SUBPLOT_KEYS: readonly SubplotKey[] = [
@@ -57,6 +72,12 @@ export const ALL_SUBPLOT_KEYS: readonly SubplotKey[] = [
   '0AMV',
   '0AMV_MACD',
 ]
+
+/** 主图指标默认可见性(全开) */
+export const DEFAULT_MAIN_INDICATOR_VISIBILITY: Record<MainIndicatorKey, boolean> = {
+  MA5: true, MA30: true, MA60: true, MA120: true, MA240: true,
+  VWAP5: true, VWAP10: true, VWAP20: true,
+}
 
 /**
  * 默认高度（百分比）— 与重构前 GRID_WITH_FLOW 的 height 字段对齐。
@@ -122,6 +143,7 @@ export function defaultPrefsFor(prefsKey: string): SubplotPrefs {
     order: [...DEFAULT_SUBPLOT_ORDER],
     visibility: baseVisibility,
     heightPct: { ...DEFAULT_SUBPLOT_HEIGHT_PCT },
+    mainIndicators: { ...DEFAULT_MAIN_INDICATOR_VISIBILITY },
   }
 }
 
@@ -155,6 +177,20 @@ function normalizeKdjParams(p?: Partial<KdjSubplotParams> | null): KdjSubplotPar
     m1: clampOrDefault(input.m1, DEFAULT_KDJ_PARAMS.m1, KDJ_PARAM_RANGES.m1),
     m2: clampOrDefault(input.m2, DEFAULT_KDJ_PARAMS.m2, KDJ_PARAM_RANGES.m2),
   }
+}
+
+/** 把外部输入归一化为完整的 mainIndicators 记录,缺失项补全为默认(可见) */
+export function normalizeMainIndicators(
+  raw?: Partial<Record<MainIndicatorKey, boolean>> | null,
+): Record<MainIndicatorKey, boolean> {
+  const result = { ...DEFAULT_MAIN_INDICATOR_VISIBILITY }
+  if (raw && typeof raw === 'object') {
+    for (const key of ALL_MAIN_INDICATOR_KEYS) {
+      const v = raw[key]
+      if (typeof v === 'boolean') result[key] = v
+    }
+  }
+  return result
 }
 
 /**
@@ -218,6 +254,8 @@ export function normalizePrefs(
       result.params = normalized
     }
   }
+
+  result.mainIndicators = normalizeMainIndicators(raw?.mainIndicators)
 
   return result
 }

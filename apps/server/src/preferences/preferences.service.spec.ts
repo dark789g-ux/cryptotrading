@@ -12,6 +12,11 @@ import {
   SYNC_STEPS_SCOPES,
   isValidSyncScope,
   sanitizeSyncSteps,
+  KLINE_PREFS_KEY_PREFIX,
+  KLINE_PREFS_KEYS,
+  isValidKlinePrefsKey,
+  EMPTY_KLINE_PREFS,
+  sanitizeKlinePrefs,
 } from './preferences.service';
 
 describe('PreferencesService', () => {
@@ -377,6 +382,238 @@ describe('PreferencesService', () => {
 
       repo.findOneBy.mockResolvedValueOnce(captured);
       await expect(service.getSyncSteps('user-1', 'us')).resolves.toEqual({ steps });
+    });
+  });
+
+  // ── K线偏好 ──────────────────────────────────────────────
+
+  describe('isValidKlinePrefsKey', () => {
+    it('合法 key → true', () => {
+      for (const k of KLINE_PREFS_KEYS) {
+        expect(isValidKlinePrefsKey(k)).toBe(true);
+      }
+    });
+
+    it('非法 key → false', () => {
+      expect(isValidKlinePrefsKey('unknown')).toBe(false);
+      expect(isValidKlinePrefsKey('')).toBe(false);
+      expect(isValidKlinePrefsKey('A-SHARE')).toBe(false);
+    });
+  });
+
+  describe('sanitizeKlinePrefs', () => {
+    it('非法输入（null / 数组 / 字符串）→ 空结构', () => {
+      expect(sanitizeKlinePrefs(null)).toEqual(EMPTY_KLINE_PREFS);
+      expect(sanitizeKlinePrefs(['VOL', 'MACD'])).toEqual(EMPTY_KLINE_PREFS);
+      expect(sanitizeKlinePrefs('string')).toEqual(EMPTY_KLINE_PREFS);
+      expect(sanitizeKlinePrefs(42)).toEqual(EMPTY_KLINE_PREFS);
+    });
+
+    it('合法结构原样保留', () => {
+      const input: any = {
+        order: ['VOL', 'KDJ', 'MACD'],
+        visibility: { VOL: true, KDJ: false },
+        heightPct: { VOL: 10, KDJ: 15 },
+        params: { KDJ: { n: 9, m1: 3, m2: 3 } },
+        mainIndicators: { MA5: true, MA30: false },
+      };
+      expect(sanitizeKlinePrefs(input)).toEqual({
+        order: ['VOL', 'KDJ', 'MACD'],
+        visibility: { VOL: true, KDJ: false },
+        heightPct: { VOL: 10, KDJ: 15 },
+        params: { KDJ: { n: 9, m1: 3, m2: 3 } },
+        mainIndicators: { MA5: true, MA30: false },
+      });
+    });
+
+    it('heightPct 越界值（3, 21, NaN, "8"）被过滤', () => {
+      const input: any = {
+        order: [],
+        visibility: {},
+        heightPct: { VOL: 10, LOW: 3, HIGH: 21, NAN: NaN, STR: '8' },
+      };
+      expect(sanitizeKlinePrefs(input).heightPct).toEqual({ VOL: 10 });
+    });
+
+    it('order 非字符串项被过滤', () => {
+      const input: any = {
+        order: ['VOL', 123, null, '', 'MACD', undefined],
+        visibility: {},
+        heightPct: {},
+      };
+      expect(sanitizeKlinePrefs(input).order).toEqual(['VOL', 'MACD']);
+    });
+
+    it('visibility 非 boolean 值被过滤', () => {
+      const input: any = {
+        order: [],
+        visibility: { VOL: true, KDJ: 'yes', MACD: 1, BRICK: null },
+        heightPct: {},
+      };
+      expect(sanitizeKlinePrefs(input).visibility).toEqual({ VOL: true });
+    });
+
+    it('params 非对象被省略，对象原样保留', () => {
+      expect(sanitizeKlinePrefs({ params: 'bad' }).params).toBeUndefined();
+      expect(sanitizeKlinePrefs({ params: [1, 2] }).params).toBeUndefined();
+      expect(sanitizeKlinePrefs({ params: null }).params).toBeUndefined();
+
+      const obj: any = { KDJ: { n: 9 } };
+      expect(sanitizeKlinePrefs({ params: obj }).params).toEqual({ KDJ: { n: 9 } });
+    });
+
+    it('mainIndicators 非对象被省略，合法对象保留', () => {
+      expect(sanitizeKlinePrefs({ mainIndicators: 'bad' }).mainIndicators).toBeUndefined();
+      expect(sanitizeKlinePrefs({ mainIndicators: null }).mainIndicators).toBeUndefined();
+
+      const input: any = { mainIndicators: { MA5: true, MA30: false } };
+      expect(sanitizeKlinePrefs(input).mainIndicators).toEqual({ MA5: true, MA30: false });
+    });
+
+    it('mainIndicators 中非 boolean 值被过滤', () => {
+      const input: any = { mainIndicators: { MA5: true, MA30: 'yes', VWAP5: 1 } };
+      expect(sanitizeKlinePrefs(input).mainIndicators).toEqual({ MA5: true });
+    });
+
+    it('空对象 → 空结构', () => {
+      expect(sanitizeKlinePrefs({})).toEqual(EMPTY_KLINE_PREFS);
+    });
+  });
+
+  describe('getKlinePrefs', () => {
+    it('无记录 → EMPTY_KLINE_PREFS', async () => {
+      repo.findOneBy.mockResolvedValueOnce(null);
+
+      await expect(service.getKlinePrefs('user-1', 'crypto')).resolves.toEqual(EMPTY_KLINE_PREFS);
+      expect(repo.findOneBy).toHaveBeenCalledWith({
+        userId: 'user-1',
+        key: KLINE_PREFS_KEY_PREFIX + 'crypto',
+      });
+    });
+
+    it('有记录 → sanitize 后返回', async () => {
+      const stored = {
+        order: ['VOL', 'MACD'],
+        visibility: { VOL: true },
+        heightPct: { VOL: 10 },
+        mainIndicators: { MA5: true },
+      };
+      repo.findOneBy.mockResolvedValueOnce({
+        id: 'pref-1',
+        userId: 'user-1',
+        key: KLINE_PREFS_KEY_PREFIX + 'crypto',
+        value: stored,
+      } as UserPreferenceEntity);
+
+      await expect(service.getKlinePrefs('user-1', 'crypto')).resolves.toEqual(stored);
+    });
+
+    it('脏数据 → sanitize 后返回干净结构', async () => {
+      repo.findOneBy.mockResolvedValueOnce({
+        id: 'pref-1',
+        userId: 'user-1',
+        key: KLINE_PREFS_KEY_PREFIX + 'crypto',
+        value: 'corrupted',
+      } as UserPreferenceEntity);
+
+      await expect(service.getKlinePrefs('user-1', 'crypto')).resolves.toEqual(EMPTY_KLINE_PREFS);
+    });
+  });
+
+  describe('saveKlinePrefs', () => {
+    it('首次存储 → INSERT，用 newId', async () => {
+      repo.findOneBy.mockResolvedValueOnce(null);
+      repo.create.mockImplementation((entity) => entity as UserPreferenceEntity);
+      repo.save.mockImplementation(async (entity) => entity as UserPreferenceEntity);
+
+      const input = {
+        order: ['VOL', 'MACD'],
+        visibility: { VOL: true },
+        heightPct: { VOL: 10 },
+      };
+
+      await service.saveKlinePrefs('user-1', 'crypto', input);
+
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          key: KLINE_PREFS_KEY_PREFIX + 'crypto',
+          value: input,
+        }),
+      );
+      expect(repo.save).toHaveBeenCalled();
+    });
+
+    it('重复存储 → UPDATE 同一行', async () => {
+      const existing = {
+        id: 'pref-1',
+        userId: 'user-1',
+        key: KLINE_PREFS_KEY_PREFIX + 'crypto',
+        value: { order: [], visibility: {}, heightPct: {} },
+      } as UserPreferenceEntity;
+      repo.findOneBy.mockResolvedValueOnce(existing);
+      repo.save.mockImplementation(async (entity) => entity as UserPreferenceEntity);
+
+      const newValue = {
+        order: ['KDJ'],
+        visibility: { KDJ: true },
+        heightPct: { KDJ: 15 },
+      };
+
+      await service.saveKlinePrefs('user-1', 'crypto', newValue);
+
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ value: newValue }),
+      );
+      expect(repo.create).not.toHaveBeenCalled();
+    });
+
+    it('sanitize 入参（过滤非法字段）', async () => {
+      repo.findOneBy.mockResolvedValueOnce(null);
+      repo.create.mockImplementation((entity) => entity as UserPreferenceEntity);
+      repo.save.mockImplementation(async (entity) => entity as UserPreferenceEntity);
+
+      await service.saveKlinePrefs('user-1', 'crypto', {
+        order: ['VOL', 123, null, 'MACD'],
+        visibility: { VOL: true, BAD: 'yes' },
+        heightPct: { VOL: 10, LOW: 3, HIGH: 21 },
+        params: 'invalid',
+        mainIndicators: { MA5: true, BAD: 1 },
+      } as any);
+
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          value: {
+            order: ['VOL', 'MACD'],
+            visibility: { VOL: true },
+            heightPct: { VOL: 10 },
+            mainIndicators: { MA5: true },
+          },
+        }),
+      );
+    });
+
+    it('save 后 getKlinePrefs 读回一致（round-trip）', async () => {
+      repo.findOneBy.mockResolvedValueOnce(null);
+      repo.create.mockImplementation((entity) => entity as UserPreferenceEntity);
+
+      let captured!: UserPreferenceEntity;
+      repo.save.mockImplementation(async (entity) => {
+        captured = entity as UserPreferenceEntity;
+        return captured;
+      });
+
+      const input = {
+        order: ['VOL', 'MACD'],
+        visibility: { VOL: true, MACD: false },
+        heightPct: { VOL: 10, MACD: 12 },
+        params: { KDJ: { n: 9 } },
+        mainIndicators: { MA5: true },
+      };
+      await service.saveKlinePrefs('user-1', 'a-share', input);
+
+      repo.findOneBy.mockResolvedValueOnce(captured);
+      await expect(service.getKlinePrefs('user-1', 'a-share')).resolves.toEqual(input);
     });
   });
 });

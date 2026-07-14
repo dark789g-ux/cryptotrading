@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildKlineChartOption } from './klineChartOptions'
 import { CANDLE_COLORS } from './chartColors'
-import { DEFAULT_SUBPLOT_HEIGHT_PCT, type SubplotConfig, type SubplotKey } from './subplotConfig'
+import { DEFAULT_SUBPLOT_HEIGHT_PCT, type MainIndicatorKey, type SubplotConfig, type SubplotKey } from './subplotConfig'
 import type { KlineChartBar } from '@/api'
 
 function subplotsOf(keys: SubplotKey[]): SubplotConfig[] {
@@ -52,8 +52,8 @@ function arrify<T>(x: T | T[] | undefined): T[] {
 describe('buildKlineChartOption — 无 moneyFlow（snapshot 守护）', () => {
   const opt = buildKlineChartOption({ data: baseData, echartsTheme })
 
-  it('series 数量与改造前一致（candle + 5MA + VOL + 3KDJ + DIF + DEA + 2MACD + BRICK = 15）', () => {
-    expect(arrify(opt.series).length).toBe(15)
+  it('series 数量与改造前一致（candle + 5MA + 3VWAP + VOL + 3KDJ + DIF + DEA + 2MACD + BRICK = 18）', () => {
+    expect(arrify(opt.series).length).toBe(18)
   })
 
   it('grid 数量 = 5', () => {
@@ -105,7 +105,7 @@ describe('buildKlineChartOption — 有 moneyFlow（按行内嵌）', () => {
     }))
     const opt = buildKlineChartOption({ data, echartsTheme })
 
-    expect(arrify(opt.series).length).toBe(16)
+    expect(arrify(opt.series).length).toBe(19)
     expect(arrify(opt.grid).length).toBe(6)
     expect(arrify(opt.xAxis).length).toBe(6)
     expect(arrify(opt.yAxis).length).toBe(6)
@@ -126,7 +126,7 @@ describe('buildKlineChartOption — 有 moneyFlow（按行内嵌）', () => {
     // 改为第 6 条后，原先的 gridIndex=4 不再显示 axisPointer label
     expect(xs[4].axisPointer.label.show).toBe(false)
 
-    const flowSeries = arrify(opt.series)[15] as any
+    const flowSeries = arrify(opt.series).find((s: any) => s.name === 'FLOW') as any
     expect(flowSeries.type).toBe('bar')
     expect(flowSeries.xAxisIndex).toBe(5)
     expect(flowSeries.yAxisIndex).toBe(5)
@@ -185,18 +185,18 @@ describe('buildKlineChartOption — 有 moneyFlow（按行内嵌）', () => {
     const data: KlineChartBar[] = baseData.map(row => ({ ...row, moneyFlow: null }))
     const opt = buildKlineChartOption({ data, echartsTheme })
     expect(arrify(opt.grid).length).toBe(5)
-    expect(arrify(opt.series).length).toBe(15)
+    expect(arrify(opt.series).length).toBe(18)
     const dz = arrify(opt.dataZoom) as any[]
     expect(dz[0].xAxisIndex).toEqual([0, 1, 2, 3, 4])
   })
 })
 
 describe('buildKlineChartOption — 默认布局回归（不含 AMV 时与接入前一致）', () => {
-  it('显式传 VOL/KDJ/MACD/BRICK（无 AMV）：grid=5、series=15，与 4 副图布局等价', () => {
+  it('显式传 VOL/KDJ/MACD/BRICK（无 AMV）：grid=5、series=18，与 4 副图布局等价', () => {
     const subplots = subplotsOf(['VOL', 'KDJ', 'MACD', 'BRICK'])
     const opt = buildKlineChartOption({ data: baseData, echartsTheme, subplots })
     expect(arrify(opt.grid).length).toBe(5)
-    expect(arrify(opt.series).length).toBe(15)
+    expect(arrify(opt.series).length).toBe(18)
   })
 })
 
@@ -389,5 +389,99 @@ describe('buildKlineChartOption — suspendBand 冻结区', () => {
       markArea?: { data?: unknown[] }
     }
     expect(candle?.markArea).toBeUndefined()
+  })
+})
+
+/** 辅助：取 series 中所有 name 的集合 */
+function seriesNames(opt: ReturnType<typeof buildKlineChartOption>): string[] {
+  return arrify(opt.series).map((s: any) => s.name)
+}
+
+/** 辅助：取主图 legend data 的第一个元素的 data 数组 */
+function mainLegendData(opt: ReturnType<typeof buildKlineChartOption>): string[] {
+  const legends = arrify(opt.legend) as Array<{ data?: string[] }>
+  return legends[0]?.data ?? []
+}
+
+describe('buildKlineChartOption — mainIndicators filtering', () => {
+  it('默认(不传 mainIndicators) → 8 条指标线全在 series 中(回归)', () => {
+    const opt = buildKlineChartOption({ data: baseData, echartsTheme })
+    const names = seriesNames(opt)
+    expect(names).toContain('MA5')
+    expect(names).toContain('MA30')
+    expect(names).toContain('MA60')
+    expect(names).toContain('MA120')
+    expect(names).toContain('MA240')
+    expect(names).toContain('VWAP5')
+    expect(names).toContain('VWAP10')
+    expect(names).toContain('VWAP20')
+  })
+
+  it('mainIndicators: { MA60: false } → MA60 不在 series，其余 7 条在', () => {
+    const opt = buildKlineChartOption({ data: baseData, echartsTheme, mainIndicators: { MA60: false } })
+    const names = seriesNames(opt)
+    expect(names).not.toContain('MA60')
+    expect(names).toContain('MA5')
+    expect(names).toContain('MA30')
+    expect(names).toContain('MA120')
+    expect(names).toContain('MA240')
+    expect(names).toContain('VWAP5')
+    expect(names).toContain('VWAP10')
+    expect(names).toContain('VWAP20')
+    // total = 18 - 1 = 17
+    expect(names.length).toBe(17)
+  })
+
+  it('mainIndicators: { VWAP5: false, VWAP20: false } → 仅 VWAP10 在', () => {
+    const opt = buildKlineChartOption({ data: baseData, echartsTheme, mainIndicators: { VWAP5: false, VWAP20: false } })
+    const names = seriesNames(opt)
+    expect(names).not.toContain('VWAP5')
+    expect(names).toContain('VWAP10')
+    expect(names).not.toContain('VWAP20')
+    // total = 18 - 2 = 16
+    expect(names.length).toBe(16)
+  })
+
+  it('全关 MA → maSeries 为空数组，series 中无 MAx', () => {
+    const opt = buildKlineChartOption({
+      data: baseData,
+      echartsTheme,
+      mainIndicators: { MA5: false, MA30: false, MA60: false, MA120: false, MA240: false },
+    })
+    const names = seriesNames(opt)
+    expect(names).not.toContain('MA5')
+    expect(names).not.toContain('MA30')
+    expect(names).not.toContain('MA60')
+    expect(names).not.toContain('MA120')
+    expect(names).not.toContain('MA240')
+    // VWAP still visible: total = 18 - 5 = 13
+    expect(names.length).toBe(13)
+  })
+
+  it('legend data 不含被关的指标名', () => {
+    const opt = buildKlineChartOption({ data: baseData, echartsTheme, mainIndicators: { MA60: false, VWAP20: false } })
+    const data = mainLegendData(opt)
+    expect(data).toContain('K')
+    expect(data).toContain('MA5')
+    expect(data).toContain('MA30')
+    expect(data).not.toContain('MA60')
+    expect(data).toContain('MA120')
+    expect(data).toContain('MA240')
+    expect(data).toContain('VWAP5')
+    expect(data).toContain('VWAP10')
+    expect(data).not.toContain('VWAP20')
+  })
+
+  it('partial(undefined 字段) → 当作可见', () => {
+    // 只有 MA60 显式 true，其余未传 → 全部可见
+    const opt = buildKlineChartOption({ data: baseData, echartsTheme, mainIndicators: { MA60: true } })
+    const names = seriesNames(opt)
+    expect(names).toContain('MA60')
+    expect(names).toContain('VWAP5')
+    // all 8 present, total = 18
+    expect(names.length).toBe(18)
+    const data = mainLegendData(opt)
+    expect(data).toContain('MA60')
+    expect(data).toContain('VWAP20')
   })
 })

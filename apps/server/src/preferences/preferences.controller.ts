@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Param, Put } from '@nestjs/common';
 import { CurrentUserParam as CurrentUser } from '../auth/decorators/current-user.decorator';
-import { PreferencesService, isValidTableId, isValidSyncScope } from './preferences.service';
+import { PreferencesService, isValidTableId, isValidSyncScope, isValidKlinePrefsKey } from './preferences.service';
 
 type CurrentUserPayload = { id: string };
 
@@ -46,5 +46,25 @@ export class PreferencesController {
       throw new BadRequestException(`unknown sync-steps scope: ${scope}`);
     }
     return this.preferencesService.saveSyncSteps(user.id, scope, body?.steps);
+  }
+
+  @Get('kline/:prefsKey')
+  getKlinePrefs(@CurrentUser() user: CurrentUserPayload, @Param('prefsKey') prefsKey: string) {
+    if (!isValidKlinePrefsKey(prefsKey)) {
+      throw new BadRequestException(`unknown kline prefsKey: ${prefsKey}`);
+    }
+    return this.preferencesService.getKlinePrefs(user.id, prefsKey);
+  }
+
+  @Put('kline/:prefsKey')
+  saveKlinePrefs(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('prefsKey') prefsKey: string,
+    @Body() body: unknown,
+  ) {
+    if (!isValidKlinePrefsKey(prefsKey)) {
+      throw new BadRequestException(`unknown kline prefsKey: ${prefsKey}`);
+    }
+    return this.preferencesService.saveKlinePrefs(user.id, prefsKey, body);
   }
 }

@@ -15,6 +15,15 @@ export interface SyncStepsPreference {
   steps: string[]
 }
 
+/** 后端返回/写入的 K 线偏好结构(字段全可选,缺省由前端 normalize) */
+export interface KlinePrefsPayload {
+  order?: string[]
+  visibility?: Record<string, boolean>
+  heightPct?: Record<string, number>
+  params?: Record<string, unknown>
+  mainIndicators?: Record<string, boolean>
+}
+
 export const preferencesApi = {
   getTableColumns: (tableId: string) =>
     request<ScopeViewPreferences>(`${API_BASE}/preferences/columns/${tableId}`),
@@ -24,4 +33,8 @@ export const preferencesApi = {
     request<SyncStepsPreference>(`${API_BASE}/preferences/sync-steps/${scope}`),
   saveSyncSteps: (scope: string, body: SyncStepsPreference) =>
     put<{ ok: true }>(`${API_BASE}/preferences/sync-steps/${scope}`, body),
+  getKlinePrefs: (prefsKey: string) =>
+    request<KlinePrefsPayload>(`${API_BASE}/preferences/kline/${prefsKey}`),
+  saveKlinePrefs: (prefsKey: string, body: KlinePrefsPayload) =>
+    put<{ ok: true }>(`${API_BASE}/preferences/kline/${prefsKey}`, body),
 }

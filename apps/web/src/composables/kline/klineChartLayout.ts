@@ -1,7 +1,7 @@
 import type { EChartsOption } from 'echarts'
 import { colors } from '../../styles/tokens'
 import { fmtCompact } from './klineChartUtils'
-import type { SubplotConfig, SubplotKey } from './subplotConfig'
+import type { SubplotConfig, SubplotKey, MainIndicatorKey } from './subplotConfig'
 
 const SUB_AXIS_LABEL = { fontSize: 9, color: colors.text.DEFAULT } as const
 const SUB_AXIS_SPLIT_NUMBER = 2
@@ -81,13 +81,20 @@ function planLayout(subplots: SubplotConfig[]): LayoutPlan {
 
 const pct = (v: number) => `${v}%`
 
-export function buildLegend(subplots: SubplotConfig[]): EChartsOption['legend'] {
+export function buildLegend(
+  subplots: SubplotConfig[],
+  mainIndicators?: Partial<Record<MainIndicatorKey, boolean>>,
+): EChartsOption['legend'] {
   const plan = planLayout(subplots)
+  const mainLegendData: string[] = ['K']
+  for (const key of ['MA5', 'MA30', 'MA60', 'MA120', 'MA240', 'VWAP5', 'VWAP10', 'VWAP20'] as const) {
+    if (mainIndicators?.[key] !== false) mainLegendData.push(key)
+  }
   const result: NonNullable<EChartsOption['legend']>[] = [
     {
       ...legendBase,
       top: pct(Math.max(plan.kTop - LEGEND_OFFSET_PCT, 0)),
-      data: ['K', 'MA5', 'MA30', 'MA60', 'MA120', 'MA240', 'VWAP5', 'VWAP10', 'VWAP20'],
+      data: mainLegendData,
     },
   ]
   for (const slot of plan.subplots) {

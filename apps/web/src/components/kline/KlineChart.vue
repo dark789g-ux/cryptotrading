@@ -71,7 +71,7 @@ const props = withDefaults(
     granularity: 'date',
     range: null,
     disabledRange: false,
-    prefsKey: 'default',
+    prefsKey: 'a-share',
     availableSubplots: () => [...ALL_SUBPLOT_KEYS],
     symbolCode: '',
     symbolName: '',
@@ -163,7 +163,7 @@ function scheduleGraphicUpdate(idx: number, data: KlineChartBar[], subs: Subplot
 
     lastGraphicIdx = nextIdx
     chartInstance?.setOption(
-      { graphic: buildKlineChartGraphics(nextIdx, data, subs) },
+      { graphic: buildKlineChartGraphics(nextIdx, data, subs, prefs.value.mainIndicators) },
       { lazyUpdate: true, silent: true },
     )
   })
@@ -216,6 +216,7 @@ async function renderChart(retry = 0) {
       zoom: readKlineZoom() ?? undefined,
       subplots: subs,
       suspendBand: props.suspend?.status === 'suspended',
+      mainIndicators: prefs.value.mainIndicators,
     }),
   )
   // 程序化 setOption 触发的 datazoom 在当前帧/下一帧内回调，用 rAF 延后解除抑制。

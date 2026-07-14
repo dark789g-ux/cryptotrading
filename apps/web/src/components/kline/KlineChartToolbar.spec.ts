@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { defineComponent, h, nextTick, ref } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
-import { NButton, NConfigProvider, NDatePicker, NInputNumber } from 'naive-ui'
+import { NButton, NConfigProvider, NDatePicker, NInputNumber, NCheckbox } from 'naive-ui'
 
 import KlineChartToolbar from './KlineChartToolbar.vue'
 import KdjParamsEditor from './KdjParamsEditor.vue'
 import {
+  ALL_MAIN_INDICATOR_KEYS,
   ALL_SUBPLOT_KEYS,
   DEFAULT_KDJ_PARAMS,
   type IndicatorSubplotParams,
+  type MainIndicatorKey,
   type RawSubplotPrefs,
   type SubplotKey,
   type SubplotPrefs,
@@ -77,6 +79,9 @@ function mountToolbar(props: {
         }
         if ('params' in partial) {
           prefs.value.params = partial.params as IndicatorSubplotParams | undefined
+        }
+        if (partial.mainIndicators !== undefined) {
+          prefs.value.mainIndicators = { ...prefs.value.mainIndicators, ...partial.mainIndicators } as Record<MainIndicatorKey, boolean>
         }
       })
       const reset = vi.fn(() => {
@@ -580,5 +585,132 @@ describe('KlineChartToolbar 停牌标识', () => {
 
     expect(wrapper.text()).not.toContain('停牌中')
     expect(wrapper.find('.kline-toolbar__suspend-caption').exists()).toBe(false)
+  })
+})
+
+describe('KlineChartToolbar 主图指标设置', () => {
+  let lastWrapper: ReturnType<typeof mountToolbar>['wrapper'] | null = null
+
+  afterEach(() => {
+    if (lastWrapper) {
+      lastWrapper.unmount()
+      lastWrapper = null
+    }
+    document.body.innerHTML = ''
+    vi.restoreAllMocks()
+  })
+
+  /** 获取弹窗内所有 NCheckbox 组件,前 8 个为主图指标(按 ALL_MAIN_INDICATOR_KEYS 顺序) */
+  function getMainIndicatorCheckboxes(wrapper: ReturnType<typeof mountToolbar>['wrapper']) {
+    const allCheckboxes = wrapper.findAllComponents(NCheckbox)
+    // 主图指标 checkbox 位于 subplot checkbox 之前,共 8 个
+    return allCheckboxes.slice(0, 8)
+  }
+
+  it('渲染 8 个主图指标 checkbox，标签分别为 MA5/MA30/MA60/MA120/MA240/VWAP5/VWAP10/VWAP20', async () => {
+    const { wrapper } = mountToolbar()
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    await openSubplotPanel(wrapper)
+
+    const mainCheckboxes = getMainIndicatorCheckboxes(wrapper)
+    expect(mainCheckboxes.length).toBe(8)
+
+    const expectedLabels = ['MA5', 'MA30', 'MA60', 'MA120', 'MA240', 'VWAP5', 'VWAP10', 'VWAP20']
+    for (let i = 0; i < expectedLabels.length; i++) {
+      expect(mainCheckboxes[i].text()).toContain(expectedLabels[i])
+    }
+  })
+
+  it('点击 MA60 checkbox → 调用 props.update 且入参含 mainIndicators: { ..., MA60: <新值> }', async () => {
+    const { wrapper } = mountToolbar()
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    await openSubplotPanel(wrapper)
+
+    const mainCheckboxes = getMainIndicatorCheckboxes(wrapper)
+    // MA60 is index 2 (MA5=0, MA30=1, MA60=2)
+    const ma60Checkbox = mainCheckboxes[2]
+    expect(ma60Checkbox.text()).toContain('MA60')
+    // 默认选中 → checked=true
+    expect(ma60Checkbox.props('checked')).toBe(true)
+
+    // 模拟取消选中
+    ma60Checkbox.vm.$emit('update:checked', false)
+    await nextTick()
+    await flushPromises()
+
+    const updateFn = wrapper.vm.update as ReturnType<typeof vi.fn>
+    expect(updateFn).toHaveBeenCalled()
+    const lastCall = updateFn.mock.calls[updateFn.mock.calls.length - 1][0]
+    expect(lastCall.mainIndicators).toBeDefined()
+    expect(lastCall.mainIndicators.MA60).toBe(false)
+  })
+
+  it('prefs.mainIndicators 为 { MA5: false } 时 → MA5 checkbox 未选中,其余选中', async () => {
+    const prefs = defaultTestPrefs()
+    prefs.mainIndicators = {
+      MA5: false,
+      MA30: true,
+      MA60: true,
+      MA120: true,
+      MA240: true,
+      VWAP5: true,
+      VWAP10: true,
+      VWAP20: true,
+    } as Record<MainIndicatorKey, boolean>
+    const { wrapper } = mountToolbar({ prefs })
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    await openSubplotPanel(wrapper)
+
+    const mainCheckboxes = getMainIndicatorCheckboxes(wrapper)
+    expect(mainCheckboxes.length).toBe(8)
+
+    // MA5 (index 0) should be unchecked
+    expect(mainCheckboxes[0].props('checked')).toBe(false)
+
+    // All others should be checked
+    for (let i = 1; i < mainCheckboxes.length; i++) {
+      expect(mainCheckboxes[i].props('checked')).toBe(true)
+    }
+  })
+
+  it('prefs 不含 mainIndicators(undefined) → 所有主图 checkbox 默认选中(=== false 逻辑)', async () => {
+    const prefs = defaultTestPrefs()
+    // Explicitly remove mainIndicators to simulate undefined
+    delete prefs.mainIndicators
+    const { wrapper } = mountToolbar({ prefs })
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    await openSubplotPanel(wrapper)
+
+    const mainCheckboxes = getMainIndicatorCheckboxes(wrapper)
+    expect(mainCheckboxes.length).toBe(8)
+
+    for (let i = 0; i < mainCheckboxes.length; i++) {
+      expect(mainCheckboxes[i].props('checked')).toBe(true)
+    }
+  })
+
+  it('顶部标题文字为"图表设置"', async () => {
+    const { wrapper } = mountToolbar()
+    lastWrapper = wrapper
+    await flushPromises()
+    await nextTick()
+
+    await openSubplotPanel(wrapper)
+
+    const titleEl = document.body.querySelector('.subplot-panel__title')
+    expect(titleEl).toBeTruthy()
+    expect(titleEl!.textContent).toContain('图表设置')
   })
 })

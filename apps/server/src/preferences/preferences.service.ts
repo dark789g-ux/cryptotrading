@@ -71,6 +71,113 @@ export function sanitizeSyncSteps(input: unknown): string[] {
   );
 }
 
+// ── K线偏好 ──────────────────────────────────────────────
+
+export interface KlinePrefs {
+  order: string[];
+  visibility: Record<string, boolean>;
+  heightPct: Record<string, number>;
+  params?: Record<string, unknown>;
+  mainIndicators?: Record<string, boolean>;
+}
+
+export const KLINE_PREFS_KEY_PREFIX = 'kline-prefs:';
+
+export const KLINE_PREFS_KEYS = [
+  'a-share',
+  'crypto',
+  'backtest',
+  'watchlist',
+  'us-stock',
+  'us-index',
+  'a-shares-index-kline',
+  'a-shares-etf-kline',
+  'oamv',
+  'money-flow-kline',
+  'regime-backtest',
+] as const;
+
+export type KlinePrefsKey = (typeof KLINE_PREFS_KEYS)[number];
+
+export function isValidKlinePrefsKey(x: string): x is KlinePrefsKey {
+  return (KLINE_PREFS_KEYS as readonly string[]).includes(x);
+}
+
+export const EMPTY_KLINE_PREFS: KlinePrefs = { order: [], visibility: {}, heightPct: {} };
+
+/**
+ * 只做结构净化，不做业务 fallback。
+ * 与 sanitizeScopeView / sanitizeSyncSteps 一致风格。
+ * 不校验 key 是否在已知白名单（前端 normalizePrefs 负责）。
+ */
+export function sanitizeKlinePrefs(input: unknown): KlinePrefs {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    return { order: [], visibility: {}, heightPct: {} };
+  }
+  const obj = input as Record<string, unknown>;
+
+  // order: 非数组→[], 过滤出 string 且非空项
+  const order: string[] = Array.isArray(obj.order)
+    ? (obj.order as unknown[]).filter(
+        (v): v is string => typeof v === 'string' && v !== '',
+      )
+    : [];
+
+  // visibility: 非对象→{}, 过滤出 key 为非空 string、value 为 boolean
+  const visibilityRaw =
+    obj.visibility !== null && typeof obj.visibility === 'object' && !Array.isArray(obj.visibility)
+      ? Object.fromEntries(
+          Object.entries(obj.visibility as Record<string, unknown>).filter(
+            ([k, v]) => typeof k === 'string' && k !== '' && typeof v === 'boolean',
+          ),
+        )
+      : {};
+  const visibility: Record<string, boolean> = visibilityRaw as Record<string, boolean>;
+
+  // heightPct: 非对象→{}, 过滤出 key 为非空 string、value 为有限数字且在 4-20 范围内的项
+  const heightPctRaw =
+    obj.heightPct !== null && typeof obj.heightPct === 'object' && !Array.isArray(obj.heightPct)
+      ? Object.fromEntries(
+          Object.entries(obj.heightPct as Record<string, unknown>).filter(
+            ([k, v]) =>
+              typeof k === 'string' &&
+              k !== '' &&
+              typeof v === 'number' &&
+              Number.isFinite(v) &&
+              v >= 4 &&
+              v <= 20,
+          ),
+        )
+      : {};
+  const heightPct: Record<string, number> = heightPctRaw as Record<string, number>;
+
+  // params: 非对象→省略; 否则原样保留（前端做业务归一化）
+  const params =
+    obj.params !== null && typeof obj.params === 'object' && !Array.isArray(obj.params)
+      ? (obj.params as Record<string, unknown>)
+      : undefined;
+
+  // mainIndicators: 非对象→省略; 否则过滤出 key 为非空 string、value 为 boolean
+  const mainIndicatorsRaw =
+    obj.mainIndicators !== null && typeof obj.mainIndicators === 'object' && !Array.isArray(obj.mainIndicators)
+      ? Object.fromEntries(
+          Object.entries(obj.mainIndicators as Record<string, unknown>).filter(
+            ([k, v]) => typeof k === 'string' && k !== '' && typeof v === 'boolean',
+          ),
+        )
+      : undefined;
+  const mainIndicators = mainIndicatorsRaw !== undefined
+    ? (mainIndicatorsRaw as Record<string, boolean>)
+    : undefined;
+
+  const result: KlinePrefs = { order, visibility, heightPct };
+  if (params !== undefined) result.params = params;
+  if (mainIndicators !== undefined) result.mainIndicators = mainIndicators;
+  return result;
+}
+
+// ── 列偏好 ──────────────────────────────────────────────
+
 /** 只校验基本结构合法性，不校验 key 是否在已知列表中。 */
 export function sanitizeItems(input: unknown): ColumnPreferenceItem[] {
   if (!Array.isArray(input)) return [];
@@ -164,6 +271,46 @@ export class PreferencesService {
         userId,
         key,
         value: { steps: sanitized },
+      }),
+    );
+
+    return { ok: true };
+  }
+
+  // ── K线偏好 ────────────────────────────────────────────
+
+  async getKlinePrefs(
+    userId: string,
+    prefsKey: KlinePrefsKey,
+  ): Promise<KlinePrefs> {
+    const row = await this.repo.findOneBy({
+      userId,
+      key: KLINE_PREFS_KEY_PREFIX + prefsKey,
+    });
+    if (!row) return EMPTY_KLINE_PREFS;
+    return sanitizeKlinePrefs(row.value);
+  }
+
+  async saveKlinePrefs(
+    userId: string,
+    prefsKey: KlinePrefsKey,
+    value: unknown,
+  ): Promise<{ ok: true }> {
+    const sanitized = sanitizeKlinePrefs(value);
+    const key = KLINE_PREFS_KEY_PREFIX + prefsKey;
+    const existing = await this.repo.findOneBy({ userId, key });
+    if (existing) {
+      existing.value = sanitized;
+      await this.repo.save(existing);
+      return { ok: true };
+    }
+
+    await this.repo.save(
+      this.repo.create({
+        id: newId(),
+        userId,
+        key,
+        value: sanitized,
       }),
     );
 

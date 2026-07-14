@@ -33,6 +33,7 @@ import { buildKdjMarkArea, buildSuspendMarkArea, resolveSuspendAxisMax } from '.
 import { resolveVolumeColor } from './klineChartUtils'
 import {
   DEFAULT_SUBPLOT_HEIGHT_PCT,
+  type MainIndicatorKey,
   type SubplotConfig,
   type SubplotKey,
 } from './subplotConfig'
@@ -56,10 +57,20 @@ interface BuildKlineChartOptionsParams {
   subplots?: SubplotConfig[]
   /** 当前停牌：主图末根 K 右沿至轴右端绘制半透明冻结区 */
   suspendBand?: boolean
+  /** 主图指标逐线可见性；缺失/undefined 视为可见(向后兼容) */
+  mainIndicators?: Partial<Record<MainIndicatorKey, boolean>>
 }
 
 const DEFAULT_SUBPLOT_ORDER_NO_FLOW: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK']
 const DEFAULT_SUBPLOT_ORDER_WITH_FLOW: SubplotKey[] = ['VOL', 'KDJ', 'MACD', 'BRICK', 'FLOW']
+
+/** 判断主图指标是否可见；缺失/undefined 视为可见(向后兼容) */
+export function isMainVisible(
+  key: MainIndicatorKey,
+  prefs?: Partial<Record<MainIndicatorKey, boolean>>,
+): boolean {
+  return prefs?.[key] !== false
+}
 
 /**
  * 兼容旧 5/6 副图布局：未显式传入 subplots 时，沿用"hasFlow=数据是否含 moneyFlow"的旧规则。
@@ -111,6 +122,7 @@ export function buildKlineChartOption({
   zoom,
   subplots,
   suspendBand = false,
+  mainIndicators,
 }: BuildKlineChartOptionsParams): EChartsOption {
   const resolvedSubplots: SubplotConfig[] = subplots ?? defaultSubplotsForData(data)
   // FLOW 副图渲染只取决于用户偏好（resolvedSubplots 是否包含 FLOW），不再依赖数据是否有 moneyFlow
@@ -174,23 +186,27 @@ export function buildKlineChartOption({
       : {}),
   }
 
-  const maSeries: LineSeriesOption[] = (['MA5', 'MA30', 'MA60', 'MA120', 'MA240'] as const).map((key) => ({
-    name: key,
-    type: 'line',
-    data: data.map((row) => row[key]),
-    showSymbol: false,
-    lineStyle: { width: 1, color: MA_COLORS[key] },
-    itemStyle: { color: MA_COLORS[key] },
-  }))
+  const maSeries: LineSeriesOption[] = (['MA5', 'MA30', 'MA60', 'MA120', 'MA240'] as const)
+    .filter((key) => isMainVisible(key, mainIndicators))
+    .map((key) => ({
+      name: key,
+      type: 'line',
+      data: data.map((row) => row[key]),
+      showSymbol: false,
+      lineStyle: { width: 1, color: MA_COLORS[key] },
+      itemStyle: { color: MA_COLORS[key] },
+    }))
 
-  const vwapSeries: LineSeriesOption[] = (['VWAP5', 'VWAP10', 'VWAP20'] as const).map((key) => ({
-    name: key,
-    type: 'line',
-    data: data.map((row) => row[key]),
-    showSymbol: false,
-    lineStyle: { width: 1, color: VWAP_COLORS[key] },
-    itemStyle: { color: VWAP_COLORS[key] },
-  }))
+  const vwapSeries: LineSeriesOption[] = (['VWAP5', 'VWAP10', 'VWAP20'] as const)
+    .filter((key) => isMainVisible(key, mainIndicators))
+    .map((key) => ({
+      name: key,
+      type: 'line',
+      data: data.map((row) => row[key]),
+      showSymbol: false,
+      lineStyle: { width: 1, color: VWAP_COLORS[key] },
+      itemStyle: { color: VWAP_COLORS[key] },
+    }))
 
   const kdjRefLineStyle = { color: '#848E9C', type: 'dashed' as const }
   const kdjSeries: LineSeriesOption[] = !kdjAxis
@@ -435,12 +451,12 @@ export function buildKlineChartOption({
       },
     },
     axisPointer: { link: [{ xAxisIndex: 'all' }] },
-    legend: buildLegend(resolvedSubplots),
+    legend: buildLegend(resolvedSubplots, mainIndicators),
     grid: buildGrid(resolvedSubplots),
     xAxis: buildXAxes(times, resolvedSubplots, suspendAxisMax),
     yAxis: buildYAxes(resolvedSubplots),
     dataZoom: buildDataZoom(resolvedSubplots, sliderStart, DATA_ZOOM_THROTTLE_MS, zoom),
-    graphic: buildGraphics(lastIdx, data, resolvedSubplots),
+    graphic: buildGraphics(lastIdx, data, resolvedSubplots, mainIndicators),
     series,
   }
 }
@@ -453,9 +469,10 @@ export function buildKlineChartGraphics(
   idx: number,
   data: KlineChartBar[],
   hasFlowOrSubplots: boolean | SubplotConfig[] = false,
+  mainIndicators?: Partial<Record<MainIndicatorKey, boolean>>,
 ): GraphicComponentOption[] {
   if (Array.isArray(hasFlowOrSubplots)) {
-    return buildGraphics(idx, data, hasFlowOrSubplots)
+    return buildGraphics(idx, data, hasFlowOrSubplots, mainIndicators)
   }
   // hasFlow:boolean → 默认副图序列（与 buildKlineChartOption 默认行为一致）
   const keys: SubplotKey[] = hasFlowOrSubplots
@@ -466,5 +483,5 @@ export function buildKlineChartGraphics(
     visible: true,
     heightPct: DEFAULT_SUBPLOT_HEIGHT_PCT[k],
   }))
-  return buildGraphics(idx, data, subs)
+  return buildGraphics(idx, data, subs, mainIndicators)
 }

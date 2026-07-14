@@ -52,7 +52,7 @@
 
     <!-- 右侧：副图设置齿轮 -->
     <div class="kline-toolbar__actions">
-      <n-popover trigger="click" placement="bottom-end" :width="320">
+      <n-popover trigger="click" placement="bottom-end" :width="360">
         <template #trigger>
           <n-button text size="small" aria-label="副图设置">
             <template #icon>
@@ -64,7 +64,25 @@
         </template>
 
         <div class="subplot-panel">
-          <div class="subplot-panel__title">副图设置</div>
+          <div class="subplot-panel__title">图表设置</div>
+
+          <!-- 主图指标分区 -->
+          <div class="main-indicator-section">
+            <div class="subplot-panel__subtitle">主图指标</div>
+            <div class="main-indicator-grid">
+              <n-checkbox
+                v-for="key in ALL_MAIN_INDICATOR_KEYS"
+                :key="key"
+                :checked="mainIndicatorVisible(key)"
+                class="main-indicator-grid__item"
+                @update:checked="(v: boolean) => onMainIndicatorChange(key, v)"
+              >
+                {{ key }}
+              </n-checkbox>
+            </div>
+          </div>
+
+          <div class="subplot-panel__subtitle">副图设置</div>
 
           <div class="subplot-panel__list">
             <div
@@ -183,10 +201,12 @@ import {
   SettingsOutline,
 } from '@vicons/ionicons5'
 import {
+  ALL_MAIN_INDICATOR_KEYS,
   DEFAULT_KDJ_PARAMS,
   KDJ_PARAM_RANGES,
   isDefaultKdjParams,
   type KdjSubplotParams,
+  type MainIndicatorKey,
   type RawSubplotPrefs,
   type SubplotKey,
   type SubplotPrefs,
@@ -307,6 +327,15 @@ function moveDown(idx: number): void {
   props.update({ order: next })
 }
 
+function mainIndicatorVisible(key: MainIndicatorKey): boolean {
+  // prefs.mainIndicators 由 normalize 保证存在(全 key 补全),但防御性用 !== false
+  return props.prefs.mainIndicators?.[key] !== false
+}
+
+function onMainIndicatorChange(key: MainIndicatorKey, visible: boolean): void {
+  props.update({ mainIndicators: { ...props.prefs.mainIndicators, [key]: visible } })
+}
+
 function onReset(): void {
   props.reset()
 }
@@ -392,7 +421,7 @@ function onReset(): void {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 280px;
+  min-width: 320px;
 }
 
 .subplot-panel__title {
@@ -401,6 +430,29 @@ function onReset(): void {
   color: #d0d4dc;
   padding-bottom: 4px;
   border-bottom: 1px solid #3a3f48;
+}
+
+.subplot-panel__subtitle {
+  font-size: 12px;
+  font-weight: 500;
+  color: #848e9c;
+  padding: 2px 0;
+}
+
+.main-indicator-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.main-indicator-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px 8px;
+}
+
+.main-indicator-grid__item {
+  white-space: nowrap;
 }
 
 .subplot-panel__list {
