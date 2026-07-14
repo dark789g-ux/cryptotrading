@@ -11,6 +11,7 @@ import {
   type OneClickSummary,
 } from './oneClickSync.types'
 import { useSyncStepPreferences } from './useSyncStepPreferences'
+import { useMonotonicSteps } from './useMonotonicSteps'
 
 /**
  * useUsOneClickSync —— 「美股一键同步」面板控制器（与 A 股 useOneClickSync 实现同一接口
@@ -46,7 +47,12 @@ export function useUsOneClickSync(message: OneClickMessageApi): OneClickPanelCon
   const running = computed(() => store.running)
   const starting = computed(() => store.starting)
   const cancelling = computed(() => store.cancelling)
-  const steps = computed<OneClickStepState[]>(() => store.steps)
+
+  // F1: 进度单调化 — store.steps 已带 label(US_STEP_LABELS)，直接过 useMonotonicSteps
+  const rawSteps = computed<OneClickStepState[]>(() => store.steps)
+  const runId = computed(() => store.currentJob?.id)
+  const steps = useMonotonicSteps(runId, rawSteps)
+
   const totalPercent = computed(() => store.totalPercent)
   const logEntries = computed<LogEntry[]>(() => store.logs)
   const currentStepIndex = computed(() => store.currentStepIndex)

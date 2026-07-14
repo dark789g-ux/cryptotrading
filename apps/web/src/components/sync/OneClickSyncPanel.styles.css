@@ -76,6 +76,16 @@
   opacity: 0.8;
 }
 
+/* F5: 当前步标注 + 预估耗时 */
+.ocs-total-current {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.ocs-total-eta {
+  font-size: 12px;
+  opacity: 0.65;
+}
+
 .ocs-steps {
   display: flex;
   flex-direction: column;
@@ -136,6 +146,22 @@
 .ocs-step-progress {
   margin: 2px 0;
 }
+
+/* F2: 进度条平滑过渡,缓解并行循环的进度跳跃感。略短于轮询间隔(2s)。*/
+.ocs-step-progress :deep(.n-progress-graph-line-fill),
+.ocs-total-progress :deep(.n-progress-graph-line-fill) {
+  transition: width 1.8s ease-out;
+}
+
+/* F3: stalled(黑箱)步骤呼吸脉冲动画 — running 但 8s 无进度变化时触发 */
+.ocs-step-progress.is-stalled :deep(.n-progress-graph-line-fill) {
+  animation: ocs-pulse 1.4s ease-in-out infinite;
+  transition: none; /* stalled 时取消 F2 的过渡,让脉冲不被掩盖 */
+}
+@keyframes ocs-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
 .ocs-step-message {
   font-size: 12px;
   opacity: 0.75;
@@ -146,6 +172,32 @@
 .ocs-step-phase {
   margin-right: 6px;
   opacity: 0.6;
+}
+
+/* F4: failed 步骤就近展示前 2 条错误详情 */
+.ocs-step-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, #d03050 8%, transparent);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.ocs-step-error-item {
+  word-break: break-all;
+}
+.ocs-step-error-item--warn { color: #f0a020; }
+.ocs-step-error-item--error { color: #d03050; }
+.ocs-step-error-api {
+  margin-right: 4px;
+  opacity: 0.7;
+}
+.ocs-step-error-more {
+  opacity: 0.6;
+  font-style: italic;
 }
 
 .ocs-log-section {

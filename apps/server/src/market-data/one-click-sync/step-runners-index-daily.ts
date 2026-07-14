@@ -5,6 +5,7 @@
 // 共享工具（awaitSubject / clampPct / failStep / StepContext）从 step-runners 复用。
 
 import type { SwIndexDailySyncEvent } from '../sw-index-daily/sw-index-daily.types';
+import type { MarketIndexOnProgress } from '../ths-index-daily/market-index-sync.service';
 import type { OneClickErrorItem, OneClickStepKey } from './types';
 import { awaitSubject, clampPct, failStep, rethrowIfAbort, throwIfAborted, type StepContext } from './step-runners';
 
@@ -89,14 +90,18 @@ export async function runMarketIndexDaily(ctx: StepContext, index: number): Prom
   ctx.setStatus(index, 'running');
   ctx.pushLog(key, 'info', `开始大盘指数日线同步（${ctx.syncMode === 'overwrite' ? '覆盖' : '增量'}模式）`);
   try {
-    ctx.patchStep(index, { phase: '同步大盘指数日线', percent: 30 });
+    ctx.patchStep(index, { phase: '同步大盘指数日线', percent: 0 });
     ctx.flushThrottled();
-    // 用对象变量传 dto：避开 TS excess property check；service 实际不读 syncMode（见上文注释）。
+    const onProgress: MarketIndexOnProgress = (p) => {
+      ctx.patchStep(index, { phase: p.phase, percent: clampPct(p.percent), message: p.message });
+      ctx.flushThrottled();
+    };
     const dto = {
       start_date: ctx.range.startDate,
       end_date: ctx.range.endDate,
       syncMode: ctx.syncMode,
       signal: ctx.signal,
+      onProgress,
     };
     const result = await ctx.services.marketIndexSync.sync(dto);
     ctx.patchStep(index, { rowsWritten: result?.success ?? 0, percent: 100 });

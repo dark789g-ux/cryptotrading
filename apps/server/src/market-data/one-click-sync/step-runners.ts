@@ -237,6 +237,7 @@ function applyBaseDataDone(
     }
     ctx.setStatus(index, 'failed');
   } else {
+    ctx.pushLog(key, 'info', `基础数据同步完成，写入 ${res?.success ?? 0} 行`);
     ctx.setStatus(index, 'success');
   }
 }

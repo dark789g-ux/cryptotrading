@@ -67,6 +67,10 @@
         :show-indicator="false"
         :status="totalStatus"
       />
+      <div v-if="ctrl.running.value && currentStepLabel" class="ocs-total-current">
+        当前步骤：{{ currentStepLabel }}（第 {{ ctrl.currentStepIndex.value + 1 }} 步）
+      </div>
+      <div v-if="etaText" class="ocs-total-eta">{{ etaText }}</div>
     </div>
 
     <!-- 步骤列表 -->
@@ -102,12 +106,12 @@
             <span class="ocs-step-meta">
               <span v-if="step.status === 'success' && step.rowsWritten > 0">写入 {{ step.rowsWritten }} 行</span>
               <span v-else-if="step.status === 'failed'">{{ step.errors.length }} 项错误</span>
-              <span v-else-if="step.status === 'running'">{{ step.percent }}%</span>
+              <span v-else-if="step.status === 'running'">{{ stalled[step.step] ? '处理中…' : step.percent + '%' }}</span>
               <span v-else-if="step.status === 'pending'">—</span>
               <span v-else-if="step.status === 'skipped'">已跳过</span>
             </span>
           </div>
-          <div class="ocs-step-progress">
+          <div class="ocs-step-progress" :class="{ 'is-stalled': step.status === 'running' && stalled[step.step] }">
             <n-progress
               type="line"
               :percentage="step.percent"
@@ -119,6 +123,20 @@
           <div v-if="step.message" class="ocs-step-message">
             <span v-if="step.phase" class="ocs-step-phase">[{{ step.phase }}]</span>
             <span>{{ step.message }}</span>
+          </div>
+          <div v-if="step.status === 'failed' && step.errors.length > 0" class="ocs-step-errors">
+            <div
+              v-for="(err, ei) in step.errors.slice(0, 2)"
+              :key="ei"
+              class="ocs-step-error-item"
+              :class="`ocs-step-error-item--${err.level}`"
+            >
+              <span v-if="err.apiName" class="ocs-step-error-api">[{{ err.apiName }}]</span>
+              <span>{{ err.message }}</span>
+            </div>
+            <div v-if="step.errors.length > 2" class="ocs-step-error-more">
+              还有 {{ step.errors.length - 2 }} 条错误(见汇总)
+            </div>
           </div>
         </div>
       </li>
@@ -192,7 +210,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { NButton, NCheckbox, NDatePicker, NProgress, NSpin, NSwitch, useMessage } from 'naive-ui'
 import { useOneClickSync, type OneClickStepStatus } from './useOneClickSync'
 import type { OneClickPanelController } from './oneClickSync.types'
@@ -232,6 +250,73 @@ const totalStatus = computed<'success' | 'error' | 'default' | 'info'>(() => {
 const hasFailedSteps = computed(
   () => ctrl.summary.value?.steps.some(s => s.status === 'failed') ?? false,
 )
+
+// F3: 黑箱步骤脉冲态 — running 步骤 percent 8s 无变化则标记为 stalled
+const STALL_MS = 20000
+const lastPct = reactive<Record<string, number>>({})
+const lastChangeAt = reactive<Record<string, number>>({})
+const stalled = reactive<Record<string, boolean>>({})
+
+watch(
+  () => ctrl.steps.value,
+  (steps) => {
+    for (const s of steps) {
+      if (s.status !== 'running') {
+        delete lastPct[s.step]
+        delete lastChangeAt[s.step]
+        delete stalled[s.step]
+        continue
+      }
+      // 首次见到该 running 步骤时初始化，给足 STALL_MS 宽限期（避免 now - 0 立即误判 stalled）
+      if (lastPct[s.step] === undefined) {
+        lastPct[s.step] = s.percent
+        lastChangeAt[s.step] = Date.now()
+      } else if (s.percent !== lastPct[s.step]) {
+        lastPct[s.step] = s.percent
+        lastChangeAt[s.step] = Date.now()
+      }
+    }
+  },
+  { deep: true },
+)
+
+let stallTimer: ReturnType<typeof setInterval> | null = null
+stallTimer = setInterval(() => {
+  const now = Date.now()
+  for (const s of ctrl.steps.value) {
+    if (s.status !== 'running') continue
+    stalled[s.step] = now - (lastChangeAt[s.step] ?? 0) > STALL_MS
+  }
+}, 2000)
+
+onUnmounted(() => {
+  if (stallTimer) {
+    clearInterval(stallTimer)
+    stallTimer = null
+  }
+})
+
+// F5: 当前步标注 + 预估耗时
+const currentStepLabel = computed(() => {
+  const idx = ctrl.currentStepIndex.value
+  const stepsList = ctrl.steps.value
+  if (idx == null || idx < 0 || idx >= stepsList.length) return ''
+  return stepsList[idx]?.label ?? ''
+})
+
+const etaMs = computed(() => {
+  const p = ctrl.totalPercent.value
+  const e = ctrl.elapsedMs.value
+  // 终态、进度极小/极大、耗时太短都不显示
+  if (!ctrl.running.value || p <= 1 || p >= 99 || e < 3000) return null
+  return Math.round((e / p) * (100 - p))
+})
+
+const etaText = computed(() => {
+  const ms = etaMs.value
+  if (ms == null) return ''
+  return `预计还需约 ${formatElapsed(ms)}  ⚠ 粗略估算`
+})
 
 // 「全选/全不选」基于 controller 暴露的全集（A 股 13 / 美股 3），与 currentRun 是否就绪无关。
 const allSelected = computed(

@@ -35,6 +35,9 @@ interface RawRow {
   [k: string]: unknown;
 }
 
+/** 大盘指数日线同步进度回调（一键同步编排器注入，逐指数循环埋点用） */
+export type MarketIndexOnProgress = (p: { phase: string; percent: number; message?: string }) => void;
+
 export interface MarketIndexSyncDto {
   start_date: string;
   end_date: string;
@@ -42,6 +45,8 @@ export interface MarketIndexSyncDto {
   syncMode?: 'incremental' | 'overwrite';
   /** 中断信号：在内层循环体和指标重算前检查，支持一键同步取消。 */
   signal?: AbortSignal;
+  /** 一键同步注入的逐指数进度回调（可选） */
+  onProgress?: MarketIndexOnProgress;
 }
 
 export interface MarketIndexSyncErrorItem {
@@ -127,7 +132,8 @@ export class MarketIndexSyncService {
       new Set([...scopeRows.map((r) => r.tsCode), ...EXTRA_OAMV_CODES]),
     );
 
-    for (const tsCode of allTsCodes) {
+    for (let ti = 0; ti < allTsCodes.length; ti++) {
+      const tsCode = allTsCodes[ti];
       for (const seg of segments) {
         if (signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
         let rows: RawRow[] = [];
@@ -200,10 +206,17 @@ export class MarketIndexSyncService {
           affected.add(tsCode);
         }
       }
+      this.onProgressEmit(dto.onProgress, {
+        phase: '同步大盘指数日线',
+        percent: Math.round(((ti + 1) / allTsCodes.length) * 90),
+        message: `${tsCode} (${ti + 1}/${allTsCodes.length})`,
+      });
     }
 
     // 指标重算（MA/MACD/KDJ/BBI/BRICK，复用 ThsIndexDailyIndicatorService，它读 index_daily_quotes）
-    for (const tsCode of affected) {
+    const affectedArr = Array.from(affected);
+    for (let ai = 0; ai < affectedArr.length; ai++) {
+      const tsCode = affectedArr[ai];
       if (signal?.aborted) throw new DOMException('Sync aborted', 'AbortError');
       // 0AMV 基准指数（EXTRA_OAMV_CODES）自治指标（OamvService.recomputeIndicatorsAll），跳过 MA/MACD/KDJ 重算。
       if (EXTRA_OAMV_CODES.includes(tsCode)) continue;
@@ -218,9 +231,34 @@ export class MarketIndexSyncService {
           message: msg,
         });
       }
+      this.onProgressEmit(dto.onProgress, {
+        phase: '重算大盘指标',
+        percent: 90 + Math.round(((ai + 1) / affectedArr.length) * 10),
+        message: `${tsCode} (${ai + 1}/${affectedArr.length})`,
+      });
     }
 
+    // 无条件补一次 100% emit，避免 EXTRA_OAMV_CODES continue 跳过最后一个元素导致进度卡在 ~96%
+    this.onProgressEmit(dto.onProgress, {
+      phase: '重算大盘指标',
+      percent: 100,
+      message: '大盘指标重算完成',
+    });
+
     return { success, errors };
+  }
+
+  /** 安全 emit onProgress（忽略 undefined，捕获异常防污染主流程） */
+  private onProgressEmit(
+    onProgress: MarketIndexOnProgress | undefined,
+    p: { phase: string; percent: number; message?: string },
+  ): void {
+    if (!onProgress) return;
+    try {
+      onProgress(p);
+    } catch {
+      // 回调异常不影响同步主流程
+    }
   }
 
   /** 按段切分窗口（SEGMENT_YEARS 年一段），返回 [{s,e}] YYYYMMDD。start>end 返回空。 */

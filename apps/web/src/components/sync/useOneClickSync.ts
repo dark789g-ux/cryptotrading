@@ -14,6 +14,7 @@ import {
   type OneClickSummary,
 } from './oneClickSync.types'
 import { useSyncStepPreferences } from './useSyncStepPreferences'
+import { useMonotonicSteps } from './useMonotonicSteps'
 
 export type {
   LogEntry,
@@ -67,7 +68,12 @@ export function useOneClickSync(message: OneClickMessageApi) {
   const running = computed(() => store.running)
   const starting = computed(() => store.starting)
   const cancelling = computed(() => store.cancelling)
-  const steps = computed<OneClickStepState[]>(() => store.steps.map(withLabel))
+
+  // F1: 进度单调化 — 先 withLabel 再过 useMonotonicSteps，消除阶段切换的进度回退
+  const rawSteps = computed<OneClickStepState[]>(() => store.steps.map(withLabel))
+  const runId = computed(() => store.currentRun?.id)
+  const steps = useMonotonicSteps(runId, rawSteps)
+
   const totalPercent = computed(() => store.totalPercent)
   const logEntries = computed<LogEntry[]>(() => store.logs)
   const currentStepIndex = computed(() => store.currentStepIndex)
