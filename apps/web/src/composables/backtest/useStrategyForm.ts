@@ -16,6 +16,7 @@ export interface StrategyParams {
   initialCapital: number
   positionRatio: number
   maxPositions: number
+  feeRate: number
   timeframe: string
   dateStart: string | null
   dateEnd: string | null
@@ -82,6 +83,7 @@ const defaultParams = (): StrategyParams => ({
   initialCapital: 1000000,
   positionRatio: 0.4,
   maxPositions: 2,
+  feeRate: 0.001,
   timeframe: '1h',
   dateStart: null,
   dateEnd: null,

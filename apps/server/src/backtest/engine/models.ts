@@ -54,6 +54,7 @@ export interface Position {
   ladderBreakevenHit: boolean;
   ladderStopFrozen: boolean;
   signalBarHigh: number;
+  entryFee: number;
 }
 
 export function createPosition(p: Partial<Position> & {
@@ -83,6 +84,7 @@ export function createPosition(p: Partial<Position> & {
     ladderBreakevenHit: false,
     ladderStopFrozen: false,
     signalBarHigh: 0,
+    entryFee: 0,
     ...p,
   };
 }
@@ -108,6 +110,8 @@ export interface TradeRecord {
   cumulativeOdds: number;
   windowWinRate: number;
   windowOdds: number;
+  entryFee: number;
+  exitFee: number;
 }
 
 /** K 线行（供回测引擎内部使用） */
@@ -137,6 +141,7 @@ export interface BacktestConfig {
   initialCapital: number;
   positionRatio: number;
   maxPositions: number;
+  feeRate: number;
   timeframe: string;
   dateStart: string;
   dateEnd: string;
@@ -273,6 +278,8 @@ export function validateConfig(config: BacktestConfig): void {
     errs.push('positionRatio 必须在 [0.01, 1]');
   if (!(Number.isInteger(config.maxPositions) && config.maxPositions >= 1))
     errs.push('maxPositions 必须为正整数');
+  if (!(config.feeRate >= 0 && config.feeRate <= 0.01))
+    errs.push('feeRate 必须在 [0, 0.01]');
   if (!SUPPORTED_TIMEFRAMES.has(config.timeframe))
     errs.push(`timeframe 必须是 ${[...SUPPORTED_TIMEFRAMES].join('/')} 之一`);
   if (!(config.stopLossFactor > 0 && config.stopLossFactor <= 2))
@@ -371,6 +378,7 @@ export const DEFAULT_CONFIG: BacktestConfig = {
   initialCapital: 1000000,
   positionRatio: 0.40,
   maxPositions: 2,
+  feeRate: 0.001,
   timeframe: '1h',
   dateStart: '',
   dateEnd: '',

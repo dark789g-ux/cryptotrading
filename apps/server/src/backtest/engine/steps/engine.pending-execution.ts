@@ -90,6 +90,7 @@ export function executePendingBuys(
     if (alloc <= 0) continue;
 
     const shares = alloc / openPrice;
+    const entryFee = alloc * config.feeRate;
     const [recLow, recLowTime] = calcRecentLow(df, curIdx, config.recentLowWindow, config.recentLowBuffer);
     let stopP: number;
     let midPrice: number | undefined;
@@ -134,8 +135,9 @@ export function executePendingBuys(
       entryRrRatio: rrRatio,
       entryReason,
       signalBarHigh,
+      entryFee,
     });
-    cash -= alloc;
+    cash -= (alloc + entryFee);
     positions.push(pos);
 
     // 记录入场事件

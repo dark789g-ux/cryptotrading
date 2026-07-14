@@ -9,7 +9,7 @@
 import { precomputeAllKdj, precomputeBrickChartAll } from './bt-indicators';
 import { initCooldown, isInCooldown } from './cooldown';
 import { createPosition, type TradeRecord } from './models';
-import { createTradeRecord } from './trade-helper';
+import { createTradeRecord, settleSell } from './trade-helper';
 import { yieldToEventLoop } from './steps/engine.async';
 import type { BacktestResult } from './steps/engine.types';
 import { forceClosePositions } from './steps/engine.force-close';
@@ -87,6 +87,7 @@ function forceCloseSimPositions(
   tsToIdx: Map<string, Map<string, number>>,
   simTrades: TradeRecord[],
   tradePhase: 'simulation' | 'probe',
+  config: BacktestConfig,
 ): TradeRecord[] {
   const reason = tradePhase === 'probe' ? '探针模式结束强平' : '模拟期结束强平';
   const tradeRecs: TradeRecord[] = [];
@@ -99,10 +100,9 @@ function forceCloseSimPositions(
     if (curIdx === undefined) continue;
 
     const closePrice = df[curIdx].close;
-    const proceeds = pos.shares * closePrice;
-    const pnl = proceeds - pos.shares * pos.entryPrice;
+    const { netProceeds, exitFee, entryFeePortion, pnl } = settleSell(pos, closePrice, pos.shares, config);
     const holdCandles = Math.max(1, curIdx - pos.entryIdx + 1);
-    const rec = createTradeRecord(pos, ts, closePrice, pos.shares, pnl, reason, holdCandles, false);
+    const rec = createTradeRecord(pos, ts, closePrice, pos.shares, pnl, reason, holdCandles, false, entryFeePortion, exitFee);
     rec.isSimulation = true;
     rec.tradePhase = tradePhase;
 
@@ -222,7 +222,7 @@ export async function runBacktest(
 
     // 退出 Probe 模式时，强制平掉探针持仓
     if (wasProbeMode && !isProbeMode && simPositions.length > 0) {
-      const forcedTrades = forceCloseSimPositions(simPositions, ts, data, tsToIdx, simTrades, 'probe');
+      const forcedTrades = forceCloseSimPositions(simPositions, ts, data, tsToIdx, simTrades, 'probe', config);
       handleNewTrades(forcedTrades, 'probe');
       exitEvents.push(...tradeRecsToExitEvents(forcedTrades));
       simPositions = [];
@@ -287,7 +287,7 @@ export async function runBacktest(
 
     // 临界点：模拟期结束，强制平掉剩余虚拟持仓
     if (config.enableKellySizing && isSimPhase && completedTradeCount >= config.kellySimTrades) {
-      const forcedTrades = forceCloseSimPositions(simPositions, ts, data, tsToIdx, simTrades, 'simulation');
+      const forcedTrades = forceCloseSimPositions(simPositions, ts, data, tsToIdx, simTrades, 'simulation', config);
       handleNewTrades(forcedTrades, 'simulation');
       exitEvents.push(...tradeRecsToExitEvents(forcedTrades));
       simPositions = [];
@@ -368,7 +368,7 @@ export async function runBacktest(
   // 先处理模拟持仓（若还有剩余）
   if (simPositions.length > 0) {
     const lastTs = timestamps[timestamps.length - 1];
-    const forcedTrades = forceCloseSimPositions(simPositions, lastTs, data, tsToIdx, simTrades, wasProbeMode ? 'probe' : 'simulation');
+    const forcedTrades = forceCloseSimPositions(simPositions, lastTs, data, tsToIdx, simTrades, wasProbeMode ? 'probe' : 'simulation', config);
     handleNewTrades(forcedTrades, wasProbeMode ? 'probe' : 'simulation');
     simPositions = [];
   }

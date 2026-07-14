@@ -195,6 +195,17 @@ export function useBacktestPositions(
         render: (r: any) => (r.windowOdds ?? 0).toFixed(2),
       },
       { title: '出场原因', key: 'stopTypes', ellipsis: { tooltip: true as const }, render: (r: any) => r.stopTypes?.join(' / ') ?? '-' },
+      {
+        title: '手续费',
+        key: 'totalFee',
+        width: 100,
+        sortOrder: headerOrder('totalFee'),
+        sorter: true,
+        render: (r: any) => {
+          const fee = r.totalFee ?? 0
+          return fee > 0 ? fee.toFixed(4) : '-'
+        },
+      },
     ]
   })
 

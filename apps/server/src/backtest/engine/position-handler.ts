@@ -3,7 +3,7 @@
  */
 
 import { KlineBarRow, Position, TradeRecord, BacktestConfig } from './models';
-import { createTradeRecord } from './trade-helper';
+import { createTradeRecord, settleSell } from './trade-helper';
 
 /**
  * 计算当前持仓的 R 倍数（基于 initialStop）。
@@ -86,9 +86,9 @@ function processTakeProfitTargets(
     if (closeR < target.rrRatio) break;
     const sellShares = pos.shares * target.sellRatio;
     if (sellShares <= 0) { i++; continue; }
-    const pnl = sellShares * (close - pos.entryPrice);
-    cashDelta += sellShares * close;
-    trades.push(createTradeRecord(pos, time, close, sellShares, pnl, `分批止盈第${i + 1}档`, pos.candleCount, true));
+    const { netProceeds, exitFee, entryFeePortion, pnl } = settleSell(pos, close, sellShares, config);
+    cashDelta += netProceeds;
+    trades.push(createTradeRecord(pos, time, close, sellShares, pnl, `分批止盈第${i + 1}档`, pos.candleCount, true, entryFeePortion, exitFee));
     pos.shares -= sellShares;
     pos.takeProfitNextTargetIdx = i + 1;
     i++;
@@ -123,11 +123,10 @@ function processTrailingProfit(
   pos.trailingProfitHighClose = Math.max(pos.trailingProfitHighClose, close);
   const drawdownThreshold = pos.trailingProfitHighClose * (1 - config.trailingProfitDrawdownPct / 100);
   if (close <= drawdownThreshold) {
-    const proceeds = pos.shares * close;
-    const pnl = proceeds - pos.shares * pos.entryPrice;
+    const { netProceeds, exitFee, entryFeePortion, pnl } = settleSell(pos, close, pos.shares, config);
     return [
-      proceeds,
-      [createTradeRecord(pos, time, close, pos.shares, pnl, '移动止盈', pos.candleCount, false)],
+      netProceeds,
+      [createTradeRecord(pos, time, close, pos.shares, pnl, '移动止盈', pos.candleCount, false, entryFeePortion, exitFee)],
       true,
     ];
   }
@@ -136,29 +135,45 @@ function processTrailingProfit(
 }
 
 /**
- * 处理持仓 pos 在 curIdx 这根 K 线上的事件。
+ * 合并后的持仓 K 线处理函数，同时覆盖入场当根和后续 K 线两种场景。
  *
- * 返回：[action, cashDelta, tradeRecords]
- *   action: null | "exit_full" | "half_sold"
+ * 通过 opts.isEntryCandle 区分：
+ *   - isEntryCandle=true  : 原 processEntryCandle，处理买入当根
+ *   - isEntryCandle=false : 原 processCandle，处理后续持仓 K 线
+ *
+ * 返回：{ action, cashDelta, trades }
+ *   action:    null | "exit_full"   — 是否完整出场
+ *   cashDelta:  增量（调用方 cash += cashDelta）
+ *   trades:     本根产生的交易记录
  */
-export function processCandle(
+export interface ProcessCandleOpts {
+  isEntryCandle: boolean;
+  ts: string;
+}
+
+export function processPositionCandle(
   pos: Position,
   df: KlineBarRow[],
   curIdx: number,
   config: BacktestConfig,
-): [string | null, number, TradeRecord[]] {
+  opts: ProcessCandleOpts,
+): { action: string | null; cashDelta: number; trades: TradeRecord[] } {
+  const { isEntryCandle, ts } = opts;
+
   const row = df[curIdx];
   const open = row.open;
   const high = row.high;
   const low = row.low;
   const close = row.close;
   const ma5 = row.MA5 as number;
-  const time = String(row.open_time);
+
+  const prevMa5 = curIdx > 0 ? df[curIdx - 1].MA5 as number : ma5;
 
   const trades: TradeRecord[] = [];
   let cashDelta = 0;
 
-  const prevMa5 = curIdx > 0 ? df[curIdx - 1].MA5 as number : ma5;
+  // ── 差异 1：holdCandles 用于 trade record ──
+  const holdCandles = isEntryCandle ? 0 : pos.candleCount;
 
   // ──────────────────────────────────────────────────
   // 步骤 1+2：阶段止盈 与 止损
@@ -169,34 +184,33 @@ export function processCandle(
   const highFirst = Math.abs(open - high) < Math.abs(open - low);
 
   if (!highFirst && hitStop) {
-    const exitPrice = open < pos.stopPrice ? open : pos.stopPrice;
-    const proceeds = pos.shares * exitPrice;
-    const pnl = proceeds - pos.shares * pos.entryPrice;
-    cashDelta += proceeds;
-    trades.push(createTradeRecord(pos, time, exitPrice, pos.shares, pnl, pos.stopReason, pos.candleCount, false));
-    return ['exit_full', cashDelta, trades];
+    // ── 差异 2：止损 exitPrice ──
+    const exitPrice = isEntryCandle ? pos.stopPrice : (open < pos.stopPrice ? open : pos.stopPrice);
+    const { netProceeds, exitFee, entryFeePortion, pnl } = settleSell(pos, exitPrice, pos.shares, config);
+    cashDelta += netProceeds;
+    trades.push(createTradeRecord(pos, ts, exitPrice, pos.shares, pnl, pos.stopReason, holdCandles, false, entryFeePortion, exitFee));
+    return { action: 'exit_full', cashDelta, trades };
   }
 
   if (hitProfit) {
     const halfShares = pos.shares * config.partialProfitRatio;
     const sellPrice = pos.recentHigh;
-    const proceedsHalf = halfShares * sellPrice;
-    const pnlHalf = proceedsHalf - halfShares * pos.entryPrice;
-    trades.push(createTradeRecord(pos, time, sellPrice, halfShares, pnlHalf, '阶段止盈', pos.candleCount, true));
+    const { netProceeds, exitFee, entryFeePortion, pnl } = settleSell(pos, sellPrice, halfShares, config);
+    trades.push(createTradeRecord(pos, ts, sellPrice, halfShares, pnl, '阶段止盈', holdCandles, true, entryFeePortion, exitFee));
     pos.shares -= halfShares;
     pos.halfSold = true;
     pos.halfSellPrice = sellPrice;
-    pos.halfSellTime = time;
-    cashDelta += proceedsHalf;
+    pos.halfSellTime = ts;
+    cashDelta += netProceeds;
   }
 
   if (hitStop) {
-    const exitPrice = open < pos.stopPrice ? open : pos.stopPrice;
-    const proceeds = pos.shares * exitPrice;
-    const pnl = proceeds - pos.shares * pos.entryPrice;
-    cashDelta += proceeds;
-    trades.push(createTradeRecord(pos, time, exitPrice, pos.shares, pnl, pos.stopReason, pos.candleCount, false));
-    return ['exit_full', cashDelta, trades];
+    // ── 差异 2：止损 exitPrice（同上）──
+    const exitPrice = isEntryCandle ? pos.stopPrice : (open < pos.stopPrice ? open : pos.stopPrice);
+    const { netProceeds, exitFee, entryFeePortion, pnl } = settleSell(pos, exitPrice, pos.shares, config);
+    cashDelta += netProceeds;
+    trades.push(createTradeRecord(pos, ts, exitPrice, pos.shares, pnl, pos.stopReason, holdCandles, false, entryFeePortion, exitFee));
+    return { action: 'exit_full', cashDelta, trades };
   }
 
   // ──────────────────────────────────────────────────
@@ -210,11 +224,10 @@ export function processCandle(
     pos.stopPrice = newStop;
     pos.stopReason = config.profitStopAdjustTo === 'breakeven' ? '阶段止盈后保本' : '阶段止盈后止损';
     if (close < newStop) {
-      const proceeds = pos.shares * close;
-      const pnl = proceeds - pos.shares * pos.entryPrice;
-      cashDelta += proceeds;
-      trades.push(createTradeRecord(pos, time, close, pos.shares, pnl, '阶段止盈后收盘止损', pos.candleCount, false));
-      return ['exit_full', cashDelta, trades];
+      const { netProceeds, exitFee, entryFeePortion, pnl } = settleSell(pos, close, pos.shares, config);
+      cashDelta += netProceeds;
+      trades.push(createTradeRecord(pos, ts, close, pos.shares, pnl, '阶段止盈后收盘止损', holdCandles, false, entryFeePortion, exitFee));
+      return { action: 'exit_full', cashDelta, trades };
     }
   }
 
@@ -226,21 +239,19 @@ export function processCandle(
   }
 
   if (close < ma5 && ma5 <= prevMa5 && pos.brokeMa5) {
-    const proceeds = pos.shares * close;
-    const pnl = proceeds - pos.shares * pos.entryPrice;
-    cashDelta += proceeds;
-    trades.push(createTradeRecord(pos, time, close, pos.shares, pnl, 'MA5下跌破线', pos.candleCount, false));
-    return ['exit_full', cashDelta, trades];
+    const { netProceeds, exitFee, entryFeePortion, pnl } = settleSell(pos, close, pos.shares, config);
+    cashDelta += netProceeds;
+    trades.push(createTradeRecord(pos, ts, close, pos.shares, pnl, 'MA5下跌破线', holdCandles, false, entryFeePortion, exitFee));
+    return { action: 'exit_full', cashDelta, trades };
   }
 
   if (!pos.ma5StopAdjusted && ma5 > prevMa5 && config.enableMa5StopAdjust) {
     const newStop = calcAdjustedStop(pos.entryPrice, pos.maxClose, pos.stopPrice, config.ma5StopAdjustTo);
     if (close < newStop) {
-      const proceeds = pos.shares * close;
-      const pnl = proceeds - pos.shares * pos.entryPrice;
-      cashDelta += proceeds;
-      trades.push(createTradeRecord(pos, time, close, pos.shares, pnl, 'MA5上升后止损', pos.candleCount, false));
-      return ['exit_full', cashDelta, trades];
+      const { netProceeds, exitFee, entryFeePortion, pnl } = settleSell(pos, close, pos.shares, config);
+      cashDelta += netProceeds;
+      trades.push(createTradeRecord(pos, ts, close, pos.shares, pnl, 'MA5上升后止损', holdCandles, false, entryFeePortion, exitFee));
+      return { action: 'exit_full', cashDelta, trades };
     } else {
       if (newStop > pos.stopPrice) pos.stopReason = config.ma5StopAdjustTo === 'breakeven' ? 'MA5上升后保本' : 'MA5首次上升止损';
       pos.stopPrice = newStop;
@@ -251,167 +262,45 @@ export function processCandle(
   }
 
   // ②' 阶梯追踪止损
+  // ── 差异 3：阶梯止损初始化（入场当根独有）──
   if (config.enableLadderStopLoss && !pos.ladderStopFrozen) {
-    applyLadderStopAfterClose(pos, low);
+    if (isEntryCandle) {
+      // 入场当根独有：barUp 判断、ladderStopFrozen、ladderBreakevenHit=true
+      if (!pos.ladderBreakevenHit) {
+        const barUp = close > open;
+        const target = barUp ? pos.entryPrice : low;
+        const newStop = Math.max(pos.stopPrice, target);
+        if (newStop > pos.stopPrice) {
+          pos.stopPrice = newStop;
+          pos.stopReason = barUp ? '阶梯止损-保本' : '阶梯止损-入场阴';
+        }
+        pos.ladderBreakevenHit = true;
+      }
+      applyLadderStopAfterClose(pos, low);
+    } else {
+      applyLadderStopAfterClose(pos, low);
+    }
   }
 
   // ③ 分批止盈（收盘 R 检查）
-  const [tpCash, tpTrades, tpExited] = processTakeProfitTargets(pos, time, close, config);
+  const [tpCash, tpTrades, tpExited] = processTakeProfitTargets(pos, ts, close, config);
   cashDelta += tpCash;
   trades.push(...tpTrades);
-  if (tpExited) return ['exit_full', cashDelta, trades];
+  if (tpExited) return { action: 'exit_full', cashDelta, trades };
 
   // ④ 移动止盈
-  const [trpCash, trpTrades, trpExited] = processTrailingProfit(pos, time, close, config);
+  const [trpCash, trpTrades, trpExited] = processTrailingProfit(pos, ts, close, config);
   cashDelta += trpCash;
   trades.push(...trpTrades);
-  if (trpExited) return ['exit_full', cashDelta, trades];
+  if (trpExited) return { action: 'exit_full', cashDelta, trades };
 
   // ⑤ 更新止损价（移动止损、保本止损）
   updateStopAfterClose(pos, close, config);
 
-  pos.candleCount += 1;
-  return [null, cashDelta, trades];
-}
-
-
-/**
- * 处理买入当根 K 线的止盈与止损检查。
- *
- * 返回：[newCash, trades, exited]
- */
-export function processEntryCandle(
-  pos: Position,
-  df: KlineBarRow[],
-  curIdx: number,
-  ts: string,
-  cash: number,
-  config: BacktestConfig,
-): [number, TradeRecord[], boolean] {
-  const trades: TradeRecord[] = [];
-  const entryOpen = df[curIdx].open;
-  const entryLow = df[curIdx].low;
-  const entryHigh = df[curIdx].high;
-  const close = df[curIdx].close;
-  const ma5Cur = df[curIdx].MA5 as number;
-  const ma5Prev = curIdx > 0 ? df[curIdx - 1].MA5 as number : ma5Cur;
-
-  const hitProfit = config.enablePartialProfit && !pos.halfSold && entryHigh >= pos.recentHigh;
-  const hitStop = entryLow <= pos.stopPrice;
-
-  const highFirst = Math.abs(entryOpen - entryHigh) < Math.abs(entryOpen - entryLow);
-
-  if (!highFirst && hitStop) {
-    const exitP = pos.stopPrice;
-    const proceeds = pos.shares * exitP;
-    const pnl = proceeds - pos.shares * pos.entryPrice;
-    cash += proceeds;
-    trades.push(createTradeRecord(pos, ts, exitP, pos.shares, pnl, pos.stopReason, 0, false));
-    return [cash, trades, true];
+  // ── 差异 1（续）：candleCount 自增（入场当根跳过）──
+  if (!isEntryCandle) {
+    pos.candleCount += 1;
   }
 
-  if (hitProfit) {
-    const halfShares = pos.shares * config.partialProfitRatio;
-    const sellPrice = pos.recentHigh;
-    const proceedsHalf = halfShares * sellPrice;
-    const pnlHalf = proceedsHalf - halfShares * pos.entryPrice;
-    cash += proceedsHalf;
-    trades.push(createTradeRecord(pos, ts, sellPrice, halfShares, pnlHalf, '阶段止盈', 0, true));
-    pos.shares -= halfShares;
-    pos.halfSold = true;
-    pos.halfSellPrice = sellPrice;
-    pos.halfSellTime = ts;
-  }
-
-  if (hitStop) {
-    const exitP = pos.stopPrice;
-    const proceeds = pos.shares * exitP;
-    const pnl = proceeds - pos.shares * pos.entryPrice;
-    cash += proceeds;
-    trades.push(createTradeRecord(pos, ts, exitP, pos.shares, pnl, pos.stopReason, 0, false));
-    return [cash, trades, true];
-  }
-
-  // ①' 阶段止盈后止损调节
-  if (hitProfit && config.enableProfitStopAdjust) {
-    pos.maxClose = Math.max(pos.maxClose, close);
-    const newStop = calcAdjustedStop(pos.entryPrice, pos.maxClose, pos.stopPrice, config.profitStopAdjustTo);
-    pos.stopPrice = newStop;
-    pos.stopReason = config.profitStopAdjustTo === 'breakeven' ? '阶段止盈后保本' : '阶段止盈后止损';
-    if (close < newStop) {
-      const proceeds = pos.shares * close;
-      const pnl = proceeds - pos.shares * pos.entryPrice;
-      cash += proceeds;
-      trades.push(createTradeRecord(pos, ts, close, pos.shares, pnl, '阶段止盈后收盘止损', 0, false));
-      return [cash, trades, true];
-    }
-  }
-
-  pos.maxClose = Math.max(pos.maxClose, close);
-
-  if (!pos.brokeMa5 && close > ma5Cur) {
-    pos.brokeMa5 = true;
-  }
-
-  if (close < ma5Cur && ma5Cur <= ma5Prev && pos.brokeMa5) {
-    const proceeds = pos.shares * close;
-    const pnl = proceeds - pos.shares * pos.entryPrice;
-    cash += proceeds;
-    trades.push(createTradeRecord(pos, ts, close, pos.shares, pnl, 'MA5下跌破线', 0, false));
-    return [cash, trades, true];
-  }
-
-  if (!pos.ma5StopAdjusted && ma5Cur > ma5Prev && config.enableMa5StopAdjust) {
-    const newStop = calcAdjustedStop(pos.entryPrice, pos.maxClose, pos.stopPrice, config.ma5StopAdjustTo);
-    if (close < newStop) {
-      const proceeds = pos.shares * close;
-      const pnl = proceeds - pos.shares * pos.entryPrice;
-      cash += proceeds;
-      trades.push(createTradeRecord(pos, ts, close, pos.shares, pnl, 'MA5上升后止损', 0, false));
-      return [cash, trades, true];
-    } else {
-      if (newStop > pos.stopPrice) pos.stopReason = config.ma5StopAdjustTo === 'breakeven' ? 'MA5上升后保本' : 'MA5首次上升止损';
-      pos.stopPrice = newStop;
-      pos.ma5StopAdjusted = true;
-    }
-  } else if (!pos.ma5StopAdjusted && ma5Cur > ma5Prev) {
-    pos.ma5StopAdjusted = true;
-  }
-
-  // ①'' 阶梯追踪止损（入场当根）
-  if (config.enableLadderStopLoss && !pos.ladderStopFrozen) {
-    if (!pos.ladderBreakevenHit) {
-      const barUp = close > entryOpen;
-      const target = barUp ? pos.entryPrice : entryLow;
-      const newStop = Math.max(pos.stopPrice, target);
-      if (newStop > pos.stopPrice) {
-        pos.stopPrice = newStop;
-        pos.stopReason = barUp ? '阶梯止损-保本' : '阶梯止损-入场阴';
-      }
-      pos.ladderBreakevenHit = true;
-    }
-
-    applyLadderStopAfterClose(pos, entryLow);
-  }
-
-  // 分批止盈
-  const [tpCash, tpTrades, tpExited] = processTakeProfitTargets(pos, ts, close, config);
-  cash += tpCash;
-  trades.push(...tpTrades);
-  if (tpExited) {
-    return [cash, trades, true];
-  }
-
-  // 移动止盈
-  const [trpCash, trpTrades, trpExited] = processTrailingProfit(pos, ts, close, config);
-  cash += trpCash;
-  trades.push(...trpTrades);
-  if (trpExited) {
-    return [cash, trades, true];
-  }
-
-  // 更新止损价
-  updateStopAfterClose(pos, close, config);
-
-  return [cash, trades, false];
+  return { action: null, cashDelta, trades };
 }
