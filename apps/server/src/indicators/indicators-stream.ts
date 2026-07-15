@@ -231,7 +231,11 @@ class IndicatorStreamCalculator {
         vwap10: calcVwap(10),
         vwap20: calcVwap(20),
       },
-      state: cloneState(nextState),
+      // 性能优化：直接返回 nextState 引用,不再每行深拷贝。
+      // 契约说明:返回的 state 为 calculator 内部引用。calcIndicatorsStreaming 用 rows.map(row => calculator.next(row))
+      // 完成 map 后 calculator 生命周期结束,不会再调 next(),因此不会修改已返回的 state 引用。
+      // caller 必须只读不写;如需修改,请自行 clone。
+      state: nextState,
       brickChart: { brick: brick.brick, delta: brickDelta, xg: brickXg },
     };
   }
