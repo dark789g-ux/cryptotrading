@@ -61,9 +61,26 @@ export async function markDirtyRanges(
     indicatorEarliestUpdatedMap.set(row.tsCode, row.earliestUpdated);
   }
 
+  // 批量查出所有涉及股票的最早行情日（替代循环内逐只 resolveEarliestQuoteDate）
+  const earliestQuoteDateRows = tsCodes.length > 0
+    ? await deps.quoteRepo.query<Array<{ tsCode: string; earliestDate: string }>>(`
+        SELECT ts_code AS "tsCode", MIN(trade_date) AS "earliestDate"
+        FROM raw.daily_quote
+        WHERE ts_code = ANY($1)
+        GROUP BY ts_code
+      `, [tsCodes])
+    : [];
+
+  const earliestDateMap = new Map<string, string>();
+  for (const row of earliestQuoteDateRows) {
+    earliestDateMap.set(row.tsCode, row.earliestDate);
+  }
+
+  // 内存计算每只股票的 dirtyFrom（不再触发 DB 查询）
+  const dirtyFromByTsCode = new Map<string, string>();
   for (const [tsCode, tradeDate] of changedRanges) {
     let dirtyFrom = latestAdjFactorChanged.has(tsCode)
-      ? await resolveEarliestQuoteDate(deps.quoteRepo, tsCode, tradeDate)
+      ? (earliestDateMap.get(tsCode) ?? tradeDate)
       : tradeDate;
 
     // 除权对账兜底：若最近除权日严格晚于 indicator 表最早行的 updated_at，
@@ -71,9 +88,15 @@ export async function markDirtyRanges(
     const lastExDate = lastExDateMap.get(tsCode);
     const earliestUpdated = indicatorEarliestUpdatedMap.get(tsCode);
     if (lastExDate && earliestUpdated && lastExDate > earliestUpdated) {
-      dirtyFrom = await resolveEarliestQuoteDate(deps.quoteRepo, tsCode, dirtyFrom);
+      dirtyFrom = earliestDateMap.get(tsCode) ?? dirtyFrom;
     }
+    dirtyFromByTsCode.set(tsCode, dirtyFrom);
+  }
 
+  // 批量 UPSERT（一条 SQL 完成所有股票的 dirty 标记，替代循环内逐条 UPSERT）
+  if (dirtyFromByTsCode.size > 0) {
+    const tsCodeArr = [...dirtyFromByTsCode.keys()];
+    const dirtyFromArr = tsCodeArr.map((code) => dirtyFromByTsCode.get(code)!);
     await deps.syncStateRepo.query(`
       INSERT INTO a_share_sync_states (
         ts_code,
@@ -82,7 +105,12 @@ export async function markDirtyRanges(
         amv_dirty_from_date,
         updated_at
       )
-      VALUES ($1, $2, $2, $2, now())
+      SELECT
+        unnest($1::text[]) AS ts_code,
+        unnest($2::text[]) AS qfq_dirty_from_date,
+        unnest($2::text[]) AS indicator_dirty_from_date,
+        unnest($2::text[]) AS amv_dirty_from_date,
+        now()
       ON CONFLICT (ts_code) DO UPDATE SET
         qfq_dirty_from_date = CASE
           WHEN a_share_sync_states.qfq_dirty_from_date IS NULL THEN EXCLUDED.qfq_dirty_from_date
@@ -100,7 +128,7 @@ export async function markDirtyRanges(
           ELSE a_share_sync_states.amv_dirty_from_date
         END,
         updated_at = now()
-    `, [tsCode, dirtyFrom]);
+    `, [tsCodeArr, dirtyFromArr]);
   }
 }
 
@@ -217,15 +245,3 @@ async function recalculateDirtyQfqQuotesForSymbol(
   `, [tsCode, dirtyFrom]);
 }
 
-async function resolveEarliestQuoteDate(
-  quoteRepo: Repository<DailyQuoteEntity>,
-  tsCode: string,
-  fallback: string,
-): Promise<string> {
-  const rows = await quoteRepo.query<Array<{ tradeDate: string }>>(`
-    SELECT MIN(trade_date) AS "tradeDate"
-    FROM raw.daily_quote
-    WHERE ts_code = $1
-  `, [tsCode]);
-  return rows[0]?.tradeDate ?? fallback;
-}

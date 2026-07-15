@@ -133,4 +133,21 @@ describe('OBV 流式 vs 批算对拍', () => {
       expectObvEqual(part2[i].row.obv20d, full[fullIdx].obv20d, `p2.obv20d@${i}`);
     }
   });
+
+  it('每行 state 为独立引用（去 cloneState 优化契约）', () => {
+    const rows = buildRows(30, {
+      closeSeq: Array.from({ length: 30 }, (_, i) => 100 + i * 1.5),
+      qvolSeq: Array.from({ length: 30 }, (_, i) => 1000 + i * 50),
+    });
+    const stream = calcIndicatorsStreaming(rows);
+
+    // 每行 state 必须是不同的对象引用（因为 next() 每次新建 nextState）
+    expect(stream).toHaveLength(30);
+    expect(stream[0].state).not.toBe(stream[1].state);
+    expect(stream[0].state).not.toBe(stream[29].state);
+    expect(stream[1].state).not.toBe(stream[29].state);
+
+    // state 内部的数组字段（closes）也必须是不同引用
+    expect(stream[0].state.closes).not.toBe(stream[1].state.closes);
+  });
 });
