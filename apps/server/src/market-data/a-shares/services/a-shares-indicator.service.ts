@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { DailyIndicatorEntity } from '../../../entities/raw/daily-indicator.entity';
@@ -14,6 +14,8 @@ const DIRTY_INDICATOR_CONCURRENCY = 5;
 
 @Injectable()
 export class ASharesIndicatorService {
+  private readonly logger = new Logger(ASharesIndicatorService.name);
+
   constructor(
     @InjectRepository(DailyIndicatorEntity)
     private readonly indicatorRepo: Repository<DailyIndicatorEntity>,
@@ -196,7 +198,110 @@ export class ASharesIndicatorService {
         indicator_calculated_to_date = EXCLUDED.indicator_calculated_to_date,
         updated_at = now()
     `, [tsCode, latestTradeDate]);
+
+    // 全量重算后重建 seed，防止残留脏 seed 被增量路径复用污染 MA
+    await this.rebuildSeedFromFullRecalc(tsCode, rows);
+
+    // 采样对账：验证刚写入的 MA 值与独立重算一致（fail-open，仅告警）
+    await this.verifyIndicatorSample(tsCode, latestTradeDate);
+
     return entities.length;
+  }
+
+  /**
+   * 全量重算后重建 seed：用同一份 qfq 行跑一遍 calcIndicatorsStreaming，
+   * 取最后 2 个交易日的 state 写入 indicator_calc_state。
+   * 必要性：全量重算只刷新 daily_indicator，若不重建 seed，
+   * 残留的旧 seed（可能含除权前的 raw close）会被增量路径复用，持续污染 MA。
+   *
+   * @remarks 刻意不与 daily_indicator 写入包装在同一事务：seed 重建失败时，
+   * daily_indicator（已正确写入）不应回滚；最坏情况是下次增量走"无 seed 全量加载"
+   * 路径（功能正确，仅略慢），不会比修复前更糟。
+   */
+  private async rebuildSeedFromFullRecalc(
+    tsCode: string,
+    rows: AShareQuoteForIndicator[],
+  ): Promise<void> {
+    if (!rows.length) return;
+    const klineRows = rows.map((row): KlineRow => ({
+      open_time: row.tradeDate,
+      open: row.qfqOpen ?? 0,
+      high: row.qfqHigh ?? 0,
+      low: row.qfqLow ?? 0,
+      close: row.qfqClose ?? 0,
+      volume: row.vol ?? 0,
+      quote_volume: row.amount ?? 0,
+      qfqClose: row.qfqClose ?? 0,
+    }));
+    const calculated = calcIndicatorsStreaming(klineRows, null);
+    const stateEntities = this.createSparseCalcStateEntities(tsCode, rows, calculated);
+    await this.dataSource.query(
+      'DELETE FROM raw.indicator_calc_state WHERE ts_code = $1', [tsCode],
+    );
+    await this.upsertInChunks(this.calcStateRepo, stateEntities, ['tsCode', 'tradeDate']);
+  }
+
+  /**
+   * 全量重算后的采样对账：用独立 SQL（daily_quote.qfq_close 窗口均值）
+   * 交叉验证刚写入的 MA60/MA240，防止"用错价基准"类问题再次静默写入脏数据。
+   * fail-open：仅 warn 日志，不抛异常，不阻断同步主流程。
+   */
+  private async verifyIndicatorSample(tsCode: string, latestTradeDate: string): Promise<void> {
+    const MA_AUDIT_THRESHOLD = 0.01; // 1% 偏差阈值
+
+    try {
+      const rows = await this.dataSource.query<Array<{
+        stored_ma60: number | null;
+        stored_ma240: number | null;
+        recompute_ma60: number | null;
+        recompute_ma240: number | null;
+      }>>(`
+        SELECT
+          i.ma60 AS stored_ma60,
+          i.ma240 AS stored_ma240,
+          (SELECT AVG(q2.qfq_close) FROM (
+            SELECT qfq_close FROM raw.daily_quote
+            WHERE ts_code = $1 AND qfq_close IS NOT NULL AND trade_date <= $2
+            ORDER BY trade_date DESC LIMIT 60
+          ) q2) AS recompute_ma60,
+          (SELECT AVG(q3.qfq_close) FROM (
+            SELECT qfq_close FROM raw.daily_quote
+            WHERE ts_code = $1 AND qfq_close IS NOT NULL AND trade_date <= $2
+            ORDER BY trade_date DESC LIMIT 240
+          ) q3) AS recompute_ma240
+        FROM raw.daily_indicator i
+        WHERE i.ts_code = $1 AND i.trade_date = $2
+      `, [tsCode, latestTradeDate]);
+
+      const row = rows[0];
+      if (!row) return; // 该日期无 indicator 行，静默跳过
+
+      const { stored_ma60, stored_ma240, recompute_ma60, recompute_ma240 } = row;
+
+      // MA60 校验
+      if (stored_ma60 != null && recompute_ma60 != null && recompute_ma60 !== 0) {
+        const pct60 = Math.abs(stored_ma60 - recompute_ma60) / Math.abs(recompute_ma60);
+        if (pct60 > MA_AUDIT_THRESHOLD) {
+          this.logger.warn(
+            `[indicator-audit] ${tsCode} ${latestTradeDate} MA60 偏差: stored=${stored_ma60.toFixed(4)} recompute=${recompute_ma60.toFixed(4)} diff=${(pct60 * 100).toFixed(2)}%`,
+          );
+        }
+      }
+
+      // MA240 校验
+      if (stored_ma240 != null && recompute_ma240 != null && recompute_ma240 !== 0) {
+        const pct240 = Math.abs(stored_ma240 - recompute_ma240) / Math.abs(recompute_ma240);
+        if (pct240 > MA_AUDIT_THRESHOLD) {
+          this.logger.warn(
+            `[indicator-audit] ${tsCode} ${latestTradeDate} MA240 偏差: stored=${stored_ma240.toFixed(4)} recompute=${recompute_ma240.toFixed(4)} diff=${(pct240 * 100).toFixed(2)}%`,
+          );
+        }
+      }
+    } catch (err) {
+      this.logger.debug(
+        `[indicator-audit] ${tsCode} 校验跳过: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private async loadQuoteRows(tsCode: string, startDate: string | null): Promise<AShareQuoteForIndicator[]> {
