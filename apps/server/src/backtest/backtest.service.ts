@@ -23,6 +23,7 @@ import {
   mapMetricRow,
 } from './run-symbol-metrics.query';
 import { executeBacktestPipeline } from './backtest-execution.pipeline';
+import type { BacktestConfig } from './engine/models';
 
 export type { BacktestProgress, RunSymbolMetricsQueryDto, RunSymbolMetricRow } from './backtest.types';
 
@@ -154,7 +155,7 @@ export class BacktestService {
   }
 
   /** 启动回测，立即返回；通过 getProgress 轮询进度 */
-  async startBacktest(userId: string, strategyId: string, symbols: string[]): Promise<{ ok: boolean; message?: string }> {
+  async startBacktest(userId: string, strategyId: string, symbols: string[], overrides?: Partial<BacktestConfig>): Promise<{ ok: boolean; message?: string }> {
     const key = this.progressKey(userId, strategyId);
     if (this.runningKeys.has(key)) {
       return { ok: false, message: '该策略的回测任务已在运行中，请稍后再试' };
@@ -176,7 +177,7 @@ export class BacktestService {
       elapsedMs: 0,
       etaMs: null,
     });
-    this.doBacktest(userId, strategyId, symbols, key).finally(() => {
+    this.doBacktest(userId, strategyId, symbols, key, overrides).finally(() => {
       this.runningKeys.delete(key);
     });
     return { ok: true };
@@ -198,7 +199,7 @@ export class BacktestService {
     setTimeout(() => this.progressMap.delete(key), PROGRESS_RETENTION_MS);
   }
 
-  private async doBacktest(userId: string, strategyId: string, symbols: string[], key: string) {
+  private async doBacktest(userId: string, strategyId: string, symbols: string[], key: string, overrides?: Partial<BacktestConfig>) {
     await executeBacktestPipeline(
       {
         logger: this.logger,
@@ -215,6 +216,7 @@ export class BacktestService {
       strategyId,
       symbols,
       key,
+      overrides,
     );
   }
 

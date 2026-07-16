@@ -273,11 +273,12 @@ const SUPPORTED_TIMEFRAMES = new Set([
 
 export function validateConfig(config: BacktestConfig): void {
   const errs: string[] = [];
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/;
   if (!(config.initialCapital > 0)) errs.push('initialCapital 必须 > 0');
   if (!(config.positionRatio >= 0.01 && config.positionRatio <= 1))
     errs.push('positionRatio 必须在 [0.01, 1]');
-  if (!(Number.isInteger(config.maxPositions) && config.maxPositions >= 1))
-    errs.push('maxPositions 必须为正整数');
+  if (!(Number.isInteger(config.maxPositions) && config.maxPositions >= 1 && config.maxPositions <= 50))
+    errs.push('maxPositions 必须为 1～50 的正整数');
   if (!(config.feeRate >= 0 && config.feeRate <= 0.01))
     errs.push('feeRate 必须在 [0, 0.01]');
   if (!SUPPORTED_TIMEFRAMES.has(config.timeframe))
@@ -287,8 +288,12 @@ export function validateConfig(config: BacktestConfig): void {
   if (!(config.maxInitLoss > 0 && config.maxInitLoss < 1))
     errs.push('maxInitLoss 必须在 (0, 1)');
   if (config.minRiskRewardRatio < 0) errs.push('minRiskRewardRatio 不得为负');
-  if (config.warmupBars < 0) errs.push('warmupBars 不得为负');
-  if (config.maxBacktestBars < 0) errs.push('maxBacktestBars 不得为负');
+  if (!(config.warmupBars >= 0 && config.warmupBars <= 10000))
+    errs.push('warmupBars 必须在 [0, 10000]');
+  if (!(config.lookbackBuffer >= 0 && config.lookbackBuffer <= 10000))
+    errs.push('lookbackBuffer 必须在 [0, 10000]');
+  if (!(config.maxBacktestBars >= 0 && config.maxBacktestBars <= 100000))
+    errs.push('maxBacktestBars 必须在 [0, 100000]');
   // 冷却参数校验（仅启用时）
   if (config.enableCooldown) {
     if (config.consecutiveLossesThreshold < 1)
@@ -370,6 +375,14 @@ export function validateConfig(config: BacktestConfig): void {
     if (typeof config.enableKellyProbe !== 'boolean')
       errs.push('enableKellyProbe 必须为布尔值');
   }
+
+  // 日期范围校验
+  if (config.dateStart && !DATE_RE.test(config.dateStart))
+    errs.push('dateStart 格式应为 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS');
+  if (config.dateEnd && !DATE_RE.test(config.dateEnd))
+    errs.push('dateEnd 格式应为 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS');
+  if (config.dateStart && config.dateEnd && config.dateStart > config.dateEnd)
+    errs.push('dateStart 不得晚于 dateEnd');
 
   if (errs.length) throw new Error(`策略参数非法: ${errs.join('; ')}`);
 }

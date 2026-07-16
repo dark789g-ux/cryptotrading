@@ -8,7 +8,8 @@ import { StrategyEntity } from '../entities/strategy/strategy.entity';
 import { BacktestDataService } from './engine/data.service';
 import { runBacktest } from './engine/engine';
 import { calcStats, prepareReportData } from './engine/report';
-import { BacktestConfig, DEFAULT_CONFIG, validateConfig } from './engine/models';
+import type { BacktestConfig } from './engine/models';
+import { DEFAULT_CONFIG, validateConfig } from './engine/models';
 import type { BacktestProgress } from './backtest.types';
 
 export interface BacktestPipelineContext {
@@ -29,6 +30,7 @@ export async function executeBacktestPipeline(
   strategyId: string,
   symbols: string[],
   progressKey: string,
+  overrides: Partial<BacktestConfig> = {},
 ): Promise<void> {
   try {
     const strategy = await ctx.strategyRepo.findOneBy({ id: strategyId, userId } as any);
@@ -38,7 +40,7 @@ export async function executeBacktestPipeline(
     }
 
     const params = (strategy.params ?? {}) as Partial<BacktestConfig>;
-    const config: BacktestConfig = { ...DEFAULT_CONFIG, ...params };
+    const config: BacktestConfig = { ...DEFAULT_CONFIG, ...params, ...overrides };
     validateConfig(config);
     const targetSymbols = symbols.length ? symbols : (strategy.symbols ?? []);
 
@@ -134,7 +136,12 @@ export async function executeBacktestPipeline(
           holdBars: t.holdCandles,
           tradePhase: t.tradePhase,
         }));
-        await manager.save(tradeEntities as BacktestTradeEntity[]);
+        await manager
+          .createQueryBuilder()
+          .insert()
+          .into(BacktestTradeEntity)
+          .values(tradeEntities)
+          .execute();
       }
 
       if (candleLog && candleLog.length > 0) {

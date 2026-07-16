@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { CurrentUserParam as CurrentUser } from '../auth/decorators/current-user.decorator';
 import { BacktestService, type RunSymbolMetricsQueryDto } from './backtest.service';
+import type { BacktestConfig } from './engine/models';
 
 type CurrentUserPayload = { id: string };
 
@@ -198,8 +199,8 @@ export class BacktestController {
   async startBacktest(
     @CurrentUser() user: CurrentUserPayload,
     @Param('strategyId') strategyId: string,
-    @Body() body: { symbols?: string[] },
+    @Body() body: { symbols?: string[]; overrides?: Partial<BacktestConfig> },
   ) {
-    return this.backtestService.startBacktest(user.id, strategyId, body.symbols ?? []);
+    return this.backtestService.startBacktest(user.id, strategyId, body.symbols ?? [], body.overrides);
   }
 }
