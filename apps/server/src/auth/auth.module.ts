@@ -10,9 +10,13 @@ import { PasswordService } from './services/password.service';
 import { SessionService } from './services/session.service';
 import { UserInvitationEntity } from '../users/entities/user-invitation.entity';
 import { UserEntity } from '../users/entities/user.entity';
+import { ApiKeysModule } from '../api-keys/api-keys.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([AuthSessionEntity, UserEntity, UserInvitationEntity])],
+  imports: [
+    TypeOrmModule.forFeature([AuthSessionEntity, UserEntity, UserInvitationEntity]),
+    ApiKeysModule,
+  ],
   controllers: [AuthController],
   providers: [
     AuthService,

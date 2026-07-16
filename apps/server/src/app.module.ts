@@ -126,6 +126,8 @@ import { MoneyFlowEtfEntity } from './entities/money-flow/money-flow-etf.entity'
 import { CustomIndexModule } from './market-data/custom-index/custom-index.module';
 import { EtfModule } from './market-data/etf/etf.module';
 import { seedStrategyTypes } from './strategies/strategy-types.seed';
+import { ApiKeysModule } from './api-keys/api-keys.module';
+import { ApiKeyEntity } from './entities/api-key/api-key.entity';
 
 @Module({
   imports: [
@@ -252,6 +254,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
           FundDailyIndicatorEntity,
           FundAmvDailyEntity,
           MoneyFlowEtfEntity,
+          ApiKeyEntity,
         ],
         synchronize: false,
         logging: ['error', 'warn'],
@@ -289,6 +292,7 @@ import { seedStrategyTypes } from './strategies/strategy-types.seed';
     QuantModule,
     CustomIndexModule,
     EtfModule,
+    ApiKeysModule,
   ],
 })
 export class AppModule implements OnModuleInit {

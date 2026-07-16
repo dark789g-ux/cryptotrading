@@ -5,6 +5,7 @@ export interface CurrentUser {
   email: string;
   displayName: string;
   role: UserRole;
+  authType?: 'session' | 'apikey';
 }
 
 export interface RequestWithUser {

@@ -52,6 +52,12 @@ const routes: any[] = [
     meta: { title: '工具' },
   },
   {
+    path: '/api-keys',
+    name: 'api-keys',
+    component: () => import('../views/system/ApiKeysView.vue'),
+    meta: { title: 'API Keys' },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('../views/system/SettingsView.vue'),

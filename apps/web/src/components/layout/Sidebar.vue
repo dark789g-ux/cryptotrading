@@ -67,7 +67,7 @@ import {
   ChevronBack, ChevronForward,
   TrendingUpOutline, ListOutline, SyncOutline, BookmarkOutline, SettingsOutline, CalculatorOutline,
   LogOutOutline, PersonCircleOutline, AnalyticsOutline, NewspaperOutline,
-  StatsChartOutline,
+  StatsChartOutline, KeyOutline,
 } from '@vicons/ionicons5'
 import { useSidebarCollapsed } from '../../composables/hooks/useSidebarCollapsed'
 import { useAuth } from '../../composables/hooks/useAuth'
@@ -127,6 +127,7 @@ const menuOptions = computed(() => [
       ]
     : []),
   { label: '工具', key: 'tools', icon: renderIcon(CalculatorOutline) },
+  { label: 'API Keys', key: 'api-keys', icon: renderIcon(KeyOutline) },
   { label: '系统设置', key: 'settings', icon: renderIcon(SettingsOutline) },
 ])
 

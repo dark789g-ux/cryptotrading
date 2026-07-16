@@ -263,3 +263,6 @@ ui_test/.tmp/
 .opencode/
 .temp/
 
+# Kimi Code 本地产物（编辑器 skills 缓存，不随仓库共享）
+.kimi-code/
+
