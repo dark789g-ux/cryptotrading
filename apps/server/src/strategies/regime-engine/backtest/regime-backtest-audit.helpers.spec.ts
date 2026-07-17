@@ -23,13 +23,13 @@ function makeTrade(partial: Partial<RegimeBacktestTradeEntity>): RegimeBacktestT
     skipReason: null,
     tradePhase: 'live',
     exitReason: 'fixed_n',
-    ret: '0.05',
-    alloc: '100000',
-    costsPaid: '50',
-    realizedRetNet: '0.04',
+    ret: 0.05,
+    alloc: 100000,
+    costsPaid: 50,
+    realizedRetNet: 0.04,
     rank: 1,
     rankField: 'turnover_rate',
-    rankValue: '1.2',
+    rankValue: 1.2,
     ...partial,
   } as RegimeBacktestTradeEntity;
 }
@@ -42,9 +42,9 @@ describe('regime-backtest-audit.helpers', () => {
 
   it('aggregateSymbolStats groups taken trades by tsCode', () => {
     const rows = aggregateSymbolStats([
-      makeTrade({ tsCode: '000001.SZ', realizedRetNet: '0.04', alloc: '100000' }),
-      makeTrade({ id: 't2', tsCode: '000001.SZ', realizedRetNet: '-0.02', alloc: '80000' }),
-      makeTrade({ id: 't3', tsCode: '000002.SZ', realizedRetNet: '0.1', alloc: '50000' }),
+      makeTrade({ tsCode: '000001.SZ', realizedRetNet: 0.04, alloc: 100000 }),
+      makeTrade({ id: 't2', tsCode: '000001.SZ', realizedRetNet: -0.02, alloc: 80000 }),
+      makeTrade({ id: 't3', tsCode: '000002.SZ', realizedRetNet: 0.1, alloc: 50000 }),
     ]);
     const a = rows.find((r) => r.tsCode === '000001.SZ');
     expect(a?.tradeCount).toBe(2);
@@ -75,8 +75,8 @@ describe('regime-backtest-audit.helpers', () => {
 
   it('paginateSymbolStats sorts by totalPnl desc by default key', () => {
     const rows = aggregateSymbolStats([
-      makeTrade({ tsCode: '000001.SZ', realizedRetNet: '0.01', alloc: '10000' }),
-      makeTrade({ id: 't2', tsCode: '000002.SZ', realizedRetNet: '0.1', alloc: '10000' }),
+      makeTrade({ tsCode: '000001.SZ', realizedRetNet: 0.01, alloc: 10000 }),
+      makeTrade({ id: 't2', tsCode: '000002.SZ', realizedRetNet: 0.1, alloc: 10000 }),
     ]);
     const page = paginateSymbolStats(rows, { page: 1, pageSize: 10, sortBy: 'totalPnl', sortOrder: 'desc' });
     expect(page.items[0].tsCode).toBe('000002.SZ');

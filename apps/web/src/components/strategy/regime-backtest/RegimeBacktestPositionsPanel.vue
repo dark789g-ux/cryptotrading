@@ -41,6 +41,7 @@ import {
   type RegimeRowsPage,
 } from '@/api/modules/strategy/regimeEngine'
 import { formatTradeDate } from '@/components/symbols/a-shares/aSharesFormatters'
+import { fmtPct } from '@/utils/format'
 
 const props = defineProps<{
   runId: string | null
@@ -79,11 +80,6 @@ const symbolPagination = computed<PaginationProps>(() => ({
   itemCount: symbols.value.total,
   showSizePicker: false,
 }))
-
-function fmtPct(v: number | null): string {
-  if (v == null || !Number.isFinite(v)) return '—'
-  return `${(v * 100).toFixed(2)}%`
-}
 
 function fmtMoney(v: number | null): string {
   if (v == null || !Number.isFinite(v)) return '—'

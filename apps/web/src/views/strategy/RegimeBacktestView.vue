@@ -89,6 +89,7 @@ import {
   type RegimeBacktestDaily,
   type RegimeBacktestTrade,
 } from '@/api/modules/strategy/regimeEngine'
+import { fmtPct } from '@/utils/format'
 import RegimeBacktestCreateModal from '@/components/strategy/regime-backtest/RegimeBacktestCreateModal.vue'
 import RegimeBacktestDetailModal from '@/components/strategy/regime-backtest/RegimeBacktestDetailModal.vue'
 
@@ -286,11 +287,6 @@ function statusType(run: RegimeBacktestRun): 'default' | 'info' | 'success' | 'e
     case 'failed': return 'error'
     default: return 'default'
   }
-}
-
-function fmtPct(val: number | null): string {
-  if (val == null || !Number.isFinite(val)) return '-'
-  return `${(val * 100).toFixed(2)}%`
 }
 
 const listColumns: DataTableColumns<RegimeBacktestRun> = [

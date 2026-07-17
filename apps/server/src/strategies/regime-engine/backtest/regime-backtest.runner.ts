@@ -99,21 +99,20 @@ export class RegimeBacktestRunner {
     await this.writeResults(runId, result);
 
     const s = result.summary;
-    const numStr = (v: number | null): string | null => (v === null ? null : String(v));
     await this.runRepo.update(runId, {
       status: 'completed',
       phase: 'writing',
-      finalNav: numStr(s.finalNav),
-      totalRet: numStr(s.totalRet),
-      annualRet: numStr(s.annualRet),
-      maxDrawdown: numStr(s.maxDrawdown),
-      sharpe: numStr(s.sharpe),
-      calmar: numStr(s.calmar),
-      dailyWinRate: numStr(s.dailyWinRate),
-      dailyKelly: numStr(s.dailyKelly),
+      finalNav: s.finalNav,
+      totalRet: s.totalRet,
+      annualRet: s.annualRet,
+      maxDrawdown: s.maxDrawdown,
+      sharpe: s.sharpe,
+      calmar: s.calmar,
+      dailyWinRate: s.dailyWinRate,
+      dailyKelly: s.dailyKelly,
       nTaken: s.nTaken,
       nSkipped: s.nSkipped,
-      totalCosts: numStr(s.totalCosts),
+      totalCosts: s.totalCosts,
       progressDone: result.dailyRows.length,
       progressTotal: result.dailyRows.length,
       completedAt: new Date(),
@@ -143,8 +142,6 @@ export class RegimeBacktestRunner {
     });
 
     let batchNo = 0;
-    const numStr = (v: number | null | undefined): string | null =>
-      v === null || v === undefined ? null : String(v);
 
     for (let i = 0; i < dailyRows.length; i += WRITE_BATCH) {
       const slice = dailyRows.slice(i, i + WRITE_BATCH);
@@ -152,10 +149,10 @@ export class RegimeBacktestRunner {
         this.dailyRepo.create({
           runId,
           tradeDate: r.tradeDate,
-          nav: String(r.nav),
-          cash: String(r.cash),
-          dailyRet: String(r.dailyRet),
-          exposure: String(r.exposure),
+          nav: r.nav,
+          cash: r.cash,
+          dailyRet: r.dailyRet,
+          exposure: r.exposure,
           positionCount: r.positionCount,
         }),
       );
@@ -187,13 +184,13 @@ export class RegimeBacktestRunner {
           skipReason: t.skipReason ?? null,
           tradePhase: t.tradePhase ?? null,
           exitReason: t.exitReason ?? null,
-          ret: numStr(t.ret),
-          alloc: numStr(t.alloc),
-          costsPaid: numStr(t.costsPaid),
-          realizedRetNet: numStr(t.realizedRetNet),
+          ret: t.ret,
+          alloc: t.alloc,
+          costsPaid: t.costsPaid,
+          realizedRetNet: t.realizedRetNet,
           rank: t.rank ?? null,
           rankField: t.rankField ?? null,
-          rankValue: numStr(t.rankValue),
+          rankValue: t.rankValue,
         }),
       );
       await this.tradeRepo.save(entities);

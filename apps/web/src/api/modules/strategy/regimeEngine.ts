@@ -211,6 +211,8 @@ export interface RegimeBacktestRun {
   maxDrawdown: number | null
   sharpe: number | null
   calmar: number | null
+  dailyWinRate: number | null
+  dailyKelly: number | null
   nTaken: number | null
   nSkipped: number | null
   totalCosts: number | null

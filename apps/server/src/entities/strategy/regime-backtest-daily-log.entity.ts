@@ -8,6 +8,7 @@ import {
   CreateDateColumn,
 } from 'typeorm';
 import { RegimeBacktestRunEntity } from './regime-backtest-run.entity';
+import { NumericTransformer } from '../common/numeric.transformer';
 
 @Entity('regime_backtest_daily_log')
 @Index('uq_regime_backtest_daily_log_run_date', ['runId', 'tradeDate'], {
@@ -23,11 +24,11 @@ export class RegimeBacktestDailyLogEntity {
   @Column({ type: 'varchar', length: 8, name: 'trade_date' })
   tradeDate: string;
 
-  @Column({ type: 'numeric' })
-  nav: string;
+  @Column({ type: 'numeric', transformer: new NumericTransformer() })
+  nav: number;
 
-  @Column({ type: 'numeric' })
-  cash: string;
+  @Column({ type: 'numeric', transformer: new NumericTransformer() })
+  cash: number;
 
   @Column({ type: 'varchar', length: 16 })
   regime: string;

@@ -10,6 +10,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { RegimeBacktestRun } from '@/api/modules/strategy/regimeEngine'
+import { fmtPct, fmtNum } from '@/utils/format'
 
 const props = defineProps<{
   run: RegimeBacktestRun
@@ -19,16 +20,6 @@ interface CardItem {
   label: string
   value: string
   cls: string
-}
-
-function fmtPct(val: number | null): string {
-  if (val == null || !Number.isFinite(val)) return '-'
-  return `${(val * 100).toFixed(2)}%`
-}
-
-function fmtNum(val: number | null, digits = 2): string {
-  if (val == null || !Number.isFinite(val)) return '-'
-  return val.toFixed(digits)
 }
 
 function pctCls(val: number | null): string {

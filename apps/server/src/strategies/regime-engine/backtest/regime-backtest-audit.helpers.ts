@@ -66,14 +66,14 @@ export interface RegimeTradeOnBar {
   tradePhase?: string | null;
 }
 
-const num = (v: string | null | undefined): number | null =>
-  v === null || v === undefined ? null : Number(v);
+const num = (v: number | null | undefined): number | null =>
+  v === null || v === undefined ? null : v;
 
 export function mapDailyLogEntity(row: RegimeBacktestDailyLogEntity): RegimeBacktestDailyLogDto {
   return {
     tradeDate: row.tradeDate,
-    nav: Number(row.nav),
-    cash: Number(row.cash),
+    nav: row.nav,
+    cash: row.cash,
     regime: row.regime,
     frozenReason: row.frozenReason,
     tradePhase: row.tradePhase,
@@ -93,8 +93,8 @@ export function mapAuditRowToEntity(runId: string, row: RegimeDailyAuditRow): Re
   const ent = new RegimeBacktestDailyLogEntity();
   ent.runId = runId;
   ent.tradeDate = row.tradeDate;
-  ent.nav = String(row.nav);
-  ent.cash = String(row.cash);
+  ent.nav = row.nav;
+  ent.cash = row.cash;
   ent.regime = row.regime;
   ent.frozenReason = row.frozenReason;
   ent.tradePhase = row.tradePhase;

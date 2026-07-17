@@ -20,6 +20,7 @@ import { computed, h } from 'vue'
 import { NDataTable, NEmpty, NSpin, NTag, type DataTableColumns } from 'naive-ui'
 import type { RegimeBacktestDailyLog } from '@/api/modules/strategy/regimeEngine'
 import { formatTradeDate } from '@/components/symbols/a-shares/aSharesFormatters'
+import { fmtPct } from '@/utils/format'
 
 const props = defineProps<{
   rows: RegimeBacktestDailyLog[]
@@ -41,11 +42,6 @@ const PHASE_LABELS: Record<string, string> = {
   live: '实盘',
 }
 
-function fmtPct(v: number | null | undefined): string {
-  if (v == null || !Number.isFinite(v)) return '—'
-  return `${(v * 100).toFixed(2)}%`
-}
-
 const columns = computed<DataTableColumns<RegimeBacktestDailyLog>>(() => [
   {
     title: '交易日',
@@ -57,7 +53,7 @@ const columns = computed<DataTableColumns<RegimeBacktestDailyLog>>(() => [
     title: '净值',
     key: 'nav',
     width: 110,
-    render: (row) => row.nav.toFixed(2),
+    render: (row) => row.nav?.toFixed(2) ?? '-',
   },
   {
     title: '象限',

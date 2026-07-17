@@ -7,6 +7,7 @@ import {
   Index,
 } from 'typeorm';
 import { RegimeBacktestRunEntity } from './regime-backtest-run.entity';
+import { NumericTransformer } from '../common/numeric.transformer';
 
 @Entity('regime_backtest_daily')
 @Index('uq_regime_backtest_daily_run_date', ['runId', 'tradeDate'], {
@@ -22,17 +23,17 @@ export class RegimeBacktestDailyEntity {
   @Column({ type: 'varchar', length: 8, name: 'trade_date' })
   tradeDate: string;
 
-  @Column({ type: 'numeric' })
-  nav: string;
+  @Column({ type: 'numeric', transformer: new NumericTransformer() })
+  nav: number;
 
-  @Column({ type: 'numeric' })
-  cash: string;
+  @Column({ type: 'numeric', transformer: new NumericTransformer() })
+  cash: number;
 
-  @Column({ type: 'numeric', name: 'daily_ret' })
-  dailyRet: string;
+  @Column({ type: 'numeric', name: 'daily_ret', transformer: new NumericTransformer() })
+  dailyRet: number;
 
-  @Column({ type: 'numeric' })
-  exposure: string;
+  @Column({ type: 'numeric', transformer: new NumericTransformer() })
+  exposure: number;
 
   @Column({ type: 'int', name: 'position_count' })
   positionCount: number;

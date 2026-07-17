@@ -7,6 +7,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { RegimeStrategyConfigEntity } from './regime-strategy-config.entity';
+import { NumericTransformer } from '../common/numeric.transformer';
 
 export type RegimeBacktestConfigSnapshot = Record<string, unknown>;
 
@@ -56,29 +57,29 @@ export class RegimeBacktestRunEntity {
   @Column({ type: 'int', default: 0, name: 'progress_total' })
   progressTotal: number;
 
-  @Column({ type: 'numeric', nullable: true, name: 'final_nav' })
-  finalNav: string | null;
+  @Column({ type: 'numeric', nullable: true, name: 'final_nav', transformer: new NumericTransformer() })
+  finalNav: number | null;
 
-  @Column({ type: 'numeric', nullable: true, name: 'total_ret' })
-  totalRet: string | null;
+  @Column({ type: 'numeric', nullable: true, name: 'total_ret', transformer: new NumericTransformer() })
+  totalRet: number | null;
 
-  @Column({ type: 'numeric', nullable: true, name: 'annual_ret' })
-  annualRet: string | null;
+  @Column({ type: 'numeric', nullable: true, name: 'annual_ret', transformer: new NumericTransformer() })
+  annualRet: number | null;
 
-  @Column({ type: 'numeric', nullable: true, name: 'max_drawdown' })
-  maxDrawdown: string | null;
+  @Column({ type: 'numeric', nullable: true, name: 'max_drawdown', transformer: new NumericTransformer() })
+  maxDrawdown: number | null;
 
-  @Column({ type: 'numeric', nullable: true })
-  sharpe: string | null;
+  @Column({ type: 'numeric', nullable: true, transformer: new NumericTransformer() })
+  sharpe: number | null;
 
-  @Column({ type: 'numeric', nullable: true })
-  calmar: string | null;
+  @Column({ type: 'numeric', nullable: true, transformer: new NumericTransformer() })
+  calmar: number | null;
 
-  @Column({ type: 'numeric', nullable: true, name: 'daily_win_rate' })
-  dailyWinRate: string | null;
+  @Column({ type: 'numeric', nullable: true, name: 'daily_win_rate', transformer: new NumericTransformer() })
+  dailyWinRate: number | null;
 
-  @Column({ type: 'numeric', nullable: true, name: 'daily_kelly' })
-  dailyKelly: string | null;
+  @Column({ type: 'numeric', nullable: true, name: 'daily_kelly', transformer: new NumericTransformer() })
+  dailyKelly: number | null;
 
   @Column({ type: 'int', nullable: true, name: 'n_taken' })
   nTaken: number | null;
@@ -86,8 +87,8 @@ export class RegimeBacktestRunEntity {
   @Column({ type: 'int', nullable: true, name: 'n_skipped' })
   nSkipped: number | null;
 
-  @Column({ type: 'numeric', nullable: true, name: 'total_costs' })
-  totalCosts: string | null;
+  @Column({ type: 'numeric', nullable: true, name: 'total_costs', transformer: new NumericTransformer() })
+  totalCosts: number | null;
 
   @Column({ type: 'text', nullable: true, name: 'error_message' })
   errorMessage: string | null;
