@@ -11,7 +11,7 @@ import {
   StockTargetSnapshot,
   TargetSnapshot,
 } from './market-condition-evaluator';
-import { RegimeBucketCondition } from '../../entities/strategy/regime-strategy-config.entity';
+import { RegimeBucketCondition, MatchGroup, MatchNode, isMatchGroup, collectMatchTargets } from '../../entities/strategy/regime-strategy-config.entity';
 
 const INDEX_TARGET = '000001.SH';
 const STOCK_TARGET = '000001.SZ';
@@ -274,6 +274,60 @@ describe('evaluateMarketConditions', () => {
     ).toBe(false);
   });
 
+  it('matchLogic=or 时任一条件满足即命中', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    // close > 3000 true, macd < 0 false → OR → true
+    expect(
+      evaluateMarketConditions(s, [
+        cond('index', INDEX_TARGET, 'close', 'gt', 3000),
+        cond('index', INDEX_TARGET, 'macd', 'lt', 0),
+      ], 'or'),
+    ).toBe(true);
+    // dif < 0 false, close > 3000 true → OR → true
+    expect(
+      evaluateMarketConditions(s, [
+        cond('index', INDEX_TARGET, 'dif', 'lt', 0),
+        cond('index', INDEX_TARGET, 'close', 'gt', 3000),
+      ], 'or'),
+    ).toBe(true);
+  });
+
+  it('matchLogic=or 时全部不满足则不命中', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    // close < 0 false, dif < 0 false → OR → false
+    expect(
+      evaluateMarketConditions(s, [
+        cond('index', INDEX_TARGET, 'close', 'lt', 0),
+        cond('index', INDEX_TARGET, 'dif', 'lt', 0),
+      ], 'or'),
+    ).toBe(false);
+  });
+
+  it('matchLogic 默认(and) 行为不变', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    // 不传 logic → 默认 and: close > 3000 true, macd < 0 false → false
+    expect(
+      evaluateMarketConditions(s, [
+        cond('index', INDEX_TARGET, 'close', 'gt', 3000),
+        cond('index', INDEX_TARGET, 'macd', 'lt', 0),
+      ]),
+    ).toBe(false);
+    // 显式传 'and' → 同上
+    expect(
+      evaluateMarketConditions(s, [
+        cond('index', INDEX_TARGET, 'close', 'gt', 3000),
+        cond('index', INDEX_TARGET, 'macd', 'lt', 0),
+      ], 'and'),
+    ).toBe(false);
+    // 全满足 → true
+    expect(
+      evaluateMarketConditions(s, [
+        cond('index', INDEX_TARGET, 'close', 'gt', 3000),
+        cond('index', INDEX_TARGET, 'dif', 'gt', 0),
+      ], 'and'),
+    ).toBe(true);
+  });
+
   it('非法 value fail-closed', () => {
     const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
     expect(evaluateMarketConditions(s, [cond('index', INDEX_TARGET, 'dif', 'gt', NaN)])).toBe(false);
@@ -297,6 +351,257 @@ describe('evaluateMarketConditions', () => {
     const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
     expect(evaluateMarketConditions(s, [cond('index', INDEX_TARGET, 'dif', 'neq', 0)])).toBe(true);
     expect(evaluateMarketConditions(s, [cond('index', INDEX_TARGET, 'dif', 'neq', 10)])).toBe(false);
+  });
+});
+
+function matchGroup(logic: 'and' | 'or', items: MatchNode[]): MatchGroup {
+  return { logic, items };
+}
+
+describe('evaluateMarketConditions — 嵌套 MatchGroup', () => {
+  it('(A∧B)∨(C∧D) — 两组全真 → true', () => {
+    // A: close > 3000 (true), B: macd > 0 (true)
+    // C: dif > 0 (true), D: dea > 0 (true)
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    const conditions: MatchNode[] = [
+      matchGroup('or', [
+        matchGroup('and', [
+          cond('index', INDEX_TARGET, 'close', 'gt', 3000),
+          cond('index', INDEX_TARGET, 'macd', 'gt', 0),
+        ]),
+        matchGroup('and', [
+          cond('index', INDEX_TARGET, 'dif', 'gt', 0),
+          cond('index', INDEX_TARGET, 'dea', 'gt', 0),
+        ]),
+      ]),
+    ];
+    expect(evaluateMarketConditions(s, conditions)).toBe(true);
+  });
+
+  it('(A∧B)∨(C∧D) — 第一组 A 假 B 真，第二组 C 真 D 真 → true', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    const conditions: MatchNode[] = [
+      matchGroup('or', [
+        matchGroup('and', [
+          cond('index', INDEX_TARGET, 'close', 'lt', 0),   // false
+          cond('index', INDEX_TARGET, 'macd', 'gt', 0),    // true
+        ]),
+        matchGroup('and', [
+          cond('index', INDEX_TARGET, 'dif', 'gt', 0),    // true
+          cond('index', INDEX_TARGET, 'dea', 'gt', 0),    // true
+        ]),
+      ]),
+    ];
+    expect(evaluateMarketConditions(s, conditions)).toBe(true);
+  });
+
+  it('(A∧B)∨(C∧D) — 两组全假 → false', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    const conditions: MatchNode[] = [
+      matchGroup('or', [
+        matchGroup('and', [
+          cond('index', INDEX_TARGET, 'close', 'lt', 0),   // false
+          cond('index', INDEX_TARGET, 'macd', 'lt', 0),    // false (macd=10)
+        ]),
+        matchGroup('and', [
+          cond('index', INDEX_TARGET, 'dif', 'lt', 0),    // false (dif=10)
+          cond('index', INDEX_TARGET, 'dea', 'lt', 0),    // false (dea=5)
+        ]),
+      ]),
+    ];
+    expect(evaluateMarketConditions(s, conditions)).toBe(false);
+  });
+
+  it('(A∧B)∧(C∨D) — 混合嵌套，多种组合', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    // A: close>3000 (true), B: macd>0 (true), C: dif<0 (false), D: dea<0 (false)
+    // (true ∧ true) ∧ (false ∨ false) → false
+    const falseCase: MatchNode[] = [
+      matchGroup('and', [
+        cond('index', INDEX_TARGET, 'close', 'gt', 3000),
+        cond('index', INDEX_TARGET, 'macd', 'gt', 0),
+        matchGroup('or', [
+          cond('index', INDEX_TARGET, 'dif', 'lt', 0),
+          cond('index', INDEX_TARGET, 'dea', 'lt', 0),
+        ]),
+      ]),
+    ];
+    expect(evaluateMarketConditions(s, falseCase)).toBe(false);
+
+    // A: close>3000 (true), B: macd>0 (true), C: dif>0 (true), D: dea<0 (false)
+    // (true ∧ true) ∧ (true ∨ false) → true
+    const trueCase: MatchNode[] = [
+      matchGroup('and', [
+        cond('index', INDEX_TARGET, 'close', 'gt', 3000),
+        cond('index', INDEX_TARGET, 'macd', 'gt', 0),
+        matchGroup('or', [
+          cond('index', INDEX_TARGET, 'dif', 'gt', 0),
+          cond('index', INDEX_TARGET, 'dea', 'lt', 0),
+        ]),
+      ]),
+    ];
+    expect(evaluateMarketConditions(s, trueCase)).toBe(true);
+  });
+
+  it('三层嵌套 A ∨ (B ∧ (C ∨ D))', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    // A: close<0 (false), B: macd>0 (true), C: dif>0 (true), D: dea<0 (false)
+    // false ∨ (true ∧ (true ∨ false)) → false ∨ (true ∧ true) → true
+    const conditions: MatchNode[] = [
+      matchGroup('or', [
+        cond('index', INDEX_TARGET, 'close', 'lt', 0),
+        matchGroup('and', [
+          cond('index', INDEX_TARGET, 'macd', 'gt', 0),
+          matchGroup('or', [
+            cond('index', INDEX_TARGET, 'dif', 'gt', 0),
+            cond('index', INDEX_TARGET, 'dea', 'lt', 0),
+          ]),
+        ]),
+      ]),
+    ];
+    expect(evaluateMarketConditions(s, conditions)).toBe(true);
+  });
+
+  it('向后兼容：扁平条件数组 + matchLogic=and 仍工作', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    const conditions: MatchNode[] = [
+      cond('index', INDEX_TARGET, 'close', 'gt', 3000),
+      cond('index', INDEX_TARGET, 'dif', 'gt', 0),
+    ];
+    expect(evaluateMarketConditions(s, conditions, 'and')).toBe(true);
+  });
+
+  it('向后兼容：扁平条件数组 + matchLogic=or 仍工作', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    const conditions: MatchNode[] = [
+      cond('index', INDEX_TARGET, 'close', 'lt', 0),   // false
+      cond('index', INDEX_TARGET, 'dif', 'gt', 0),     // true
+    ];
+    expect(evaluateMarketConditions(s, conditions, 'or')).toBe(true);
+  });
+
+  it('混合顶层：叶子 + MatchGroup，matchLogic=and 决定连接', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    // 叶子: close>3000 (true), MatchGroup(or): dif<0∨dea<0 → false
+    // and 连接: true ∧ false → false
+    const conditions: MatchNode[] = [
+      cond('index', INDEX_TARGET, 'close', 'gt', 3000),
+      matchGroup('or', [
+        cond('index', INDEX_TARGET, 'dif', 'lt', 0),
+        cond('index', INDEX_TARGET, 'dea', 'lt', 0),
+      ]),
+    ];
+    expect(evaluateMarketConditions(s, conditions, 'and')).toBe(false);
+
+    // or 连接: true ∨ false → true
+    expect(evaluateMarketConditions(s, conditions, 'or')).toBe(true);
+  });
+
+  it('空 items 的 MatchGroup → false (fail-closed)', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    const conditions: MatchNode[] = [
+      matchGroup('and', []),
+    ];
+    expect(evaluateMarketConditions(s, conditions)).toBe(false);
+
+    const orEmpty: MatchNode[] = [
+      matchGroup('or', []),
+    ];
+    expect(evaluateMarketConditions(s, orEmpty)).toBe(false);
+  });
+
+  it('MatchGroup 内短路求值：OR 组第一个为 true 即返回', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    // close>3000 (true), 第二个条件 close<0 (false) — OR 短路，不检查第二个
+    const conditions: MatchNode[] = [
+      matchGroup('or', [
+        cond('index', INDEX_TARGET, 'close', 'gt', 3000),
+        cond('index', INDEX_TARGET, 'close', 'lt', 0),
+      ]),
+    ];
+    expect(evaluateMarketConditions(s, conditions)).toBe(true);
+  });
+
+  it('MatchGroup 内短路求值：AND 组第一个为 false 即返回', () => {
+    const s = makeSnapshot(new Map([[INDEX_TARGET, makeIndexTarget()]]));
+    // close<0 (false), 第二个条件 close>0 — AND 短路，不检查第二个
+    const conditions: MatchNode[] = [
+      matchGroup('and', [
+        cond('index', INDEX_TARGET, 'close', 'lt', 0),
+        cond('index', INDEX_TARGET, 'close', 'gt', 0),
+      ]),
+    ];
+    expect(evaluateMarketConditions(s, conditions)).toBe(false);
+  });
+});
+
+describe('isMatchGroup type guard', () => {
+  it('MatchGroup 对象返回 true', () => {
+    const g: MatchGroup = { logic: 'and', items: [] };
+    expect(isMatchGroup(g)).toBe(true);
+  });
+
+  it('叶子条件返回 false', () => {
+    const c: RegimeBucketCondition = { type: 'index', target: '000001.SH', field: 'macd', operator: 'gt', value: 0 };
+    expect(isMatchGroup(c)).toBe(false);
+  });
+
+  it('null/undefined/非对象返回 false', () => {
+    expect(isMatchGroup(null)).toBe(false);
+    expect(isMatchGroup(undefined)).toBe(false);
+    expect(isMatchGroup(42)).toBe(false);
+    expect(isMatchGroup('string')).toBe(false);
+    expect(isMatchGroup([])).toBe(false);
+  });
+
+  it('含 type 字段的对象返回 false（区分叶子条件）', () => {
+    // 即使有 logic 和 items，但有 type 字段 → 视为叶子（非 MatchGroup）
+    expect(isMatchGroup({ type: 'index', logic: 'and', items: [] })).toBe(false);
+  });
+});
+
+describe('collectMatchTargets', () => {
+  it('扁平条件收集 index target', () => {
+    const nodes: MatchNode[] = [
+      cond('index', '000001.SH', 'macd', 'gt', 0),
+      cond('index', '399001.SZ', 'dif', 'lt', 0),
+    ];
+    const result = collectMatchTargets(nodes);
+    expect(result.index).toEqual(new Set(['000001.SH', '399001.SZ']));
+    expect(result.stock.size).toBe(0);
+  });
+
+  it('扁平条件收集 stock target', () => {
+    const nodes: MatchNode[] = [
+      cond('stock', '000001.SZ', 'close', 'gt', 0),
+    ];
+    const result = collectMatchTargets(nodes);
+    expect(result.stock).toEqual(new Set(['000001.SZ']));
+    expect(result.index.size).toBe(0);
+  });
+
+  it('嵌套 MatchGroup 内叶子条件被正确收集', () => {
+    const nodes: MatchNode[] = [
+      matchGroup('or', [
+        matchGroup('and', [
+          cond('index', '000001.SH', 'macd', 'lt', 0),
+          cond('index', '000985.CSI', 'dif', 'gt', 0),
+        ]),
+        matchGroup('and', [
+          cond('index', '000001.SH', 'macd', 'gt', 0),
+          cond('index', '000985.CSI', 'dif', 'lt', 0),
+        ]),
+      ]),
+    ];
+    const result = collectMatchTargets(nodes);
+    expect(result.index).toEqual(new Set(['000001.SH', '000985.CSI']));
+    expect(result.stock.size).toBe(0);
+  });
+
+  it('空数组返回空集合', () => {
+    const result = collectMatchTargets([]);
+    expect(result.index.size).toBe(0);
+    expect(result.stock.size).toBe(0);
   });
 });
 

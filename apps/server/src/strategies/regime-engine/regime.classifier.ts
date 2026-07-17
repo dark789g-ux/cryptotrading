@@ -48,7 +48,7 @@ export function classifyRegime(
 
   for (const q of quadrants) {
     if (!isValidQuadrant(q)) continue;
-    if (evaluateMarketConditions(snapshot, q.match)) {
+    if (evaluateMarketConditions(snapshot, q.match, q.matchLogic ?? 'and')) {
       return q.key;
     }
   }

@@ -70,7 +70,7 @@ function calcSma(values: number[], period: number): number[] {
   return result;
 }
 
-function calcStrictSma(values: number[], period: number): Array<number | null> {
+export function calcStrictSma(values: number[], period: number): Array<number | null> {
   const result: Array<number | null> = [];
   for (let i = 0; i < values.length; i++) {
     if (i < period - 1) {

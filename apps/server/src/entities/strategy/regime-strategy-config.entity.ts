@@ -26,13 +26,52 @@ export interface RegimeBucketCondition {
   compareMode?: 'value' | 'field';
 }
 
+/** 条件分组，支持嵌套 AND/OR */
+export interface MatchGroup {
+  logic: 'and' | 'or';
+  items: MatchNode[];
+}
+
+/** match 数组的元素：要么是叶子条件，要么是分组 */
+export type MatchNode = RegimeBucketCondition | MatchGroup;
+
+/** 判断 match 节点是否为分组（MatchGroup）而非叶子条件。
+ *  区分依据：MatchGroup 有 logic+items 字段但无 type 字段；RegimeBucketCondition 有 type 字段。 */
+export function isMatchGroup(node: unknown): node is MatchGroup {
+  return typeof node === 'object' && node !== null && 'logic' in node && 'items' in node && !('type' in node);
+}
+
+/** 从 match 节点数组中递归收集所有叶子条件的 target（index/stock）。
+ *  用于 MarketSnapshotLoader / regime-engine.service 决定加载哪些指数/个股数据。 */
+export function collectMatchTargets(nodes: MatchNode[]): { index: Set<string>; stock: Set<string> } {
+  const index = new Set<string>();
+  const stock = new Set<string>();
+  function walk(items: MatchNode[]): void {
+    for (const node of items) {
+      if (isMatchGroup(node)) {
+        walk(node.items);
+      } else {
+        if (node.type === 'index') {
+          index.add(node.target);
+        } else if (node.type === 'stock') {
+          stock.add(node.target);
+        }
+      }
+    }
+  }
+  walk(nodes);
+  return { index, stock };
+}
+
 export interface QuadrantEntry {
   /** 用户自定义象限标识（配置内唯一）。 */
   key: string;
   /** 象限显示标签（必填，无 fallback）。 */
   label: string;
-  /** 大盘级分桶条件：命中即归此象限。 */
-  match: RegimeBucketCondition[];
+  /** 大盘级分桶条件：命中即归此象限。支持叶子条件(RegimeBucketCondition)或嵌套分组(MatchGroup)。 */
+  match: MatchNode[];
+  /** match 数组的逻辑连接方式:默认 'and'(全部满足),'or' = 任一满足即命中本象限 */
+  matchLogic?: 'and' | 'or';
   /** 配置中只允许 trade/flat（unknown 是运行期 regime，不可配置）。 */
   action: 'trade' | 'flat';
   /** 入场条件（个股级）；flat 象限为 null。 */

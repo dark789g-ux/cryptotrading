@@ -6,11 +6,14 @@
 import {
   validateRegimeConfig,
   checkQuadrantOverlapWarnings,
+  isDerivedField,
 } from './regime-engine.validation';
 import {
   QuadrantEntry,
   RegimeBucketCondition,
   RegimeConfigMap,
+  MatchGroup,
+  MatchNode,
 } from '../../entities/strategy/regime-strategy-config.entity';
 import { StrategyConditionItem } from '../../entities/strategy/strategy-condition.entity';
 
@@ -522,5 +525,232 @@ describe('checkQuadrantOverlapWarnings', () => {
       },
     ];
     expect(checkQuadrantOverlapWarnings(qs)).toEqual([]);
+  });
+});
+
+describe('isDerivedField', () => {
+  it('MA 各种周期返回 true', () => {
+    expect(isDerivedField('ma5')).toBe(true);    // 预算列(合法但不现算)
+    expect(isDerivedField('ma20')).toBe(true);   // 现算
+    expect(isDerivedField('ma10')).toBe(true);
+    expect(isDerivedField('ma15')).toBe(true);
+    expect(isDerivedField('ma999')).toBe(true);
+    expect(isDerivedField('ma30')).toBe(true);   // 预算列
+    expect(isDerivedField('ma60')).toBe(true);   // 预算列
+    expect(isDerivedField('ma120')).toBe(true);  // 预算列
+    expect(isDerivedField('ma240')).toBe(true);  // 预算列
+  });
+
+  it('KDJ 三字段返回 true', () => {
+    expect(isDerivedField('kdj_j')).toBe(true);
+    expect(isDerivedField('kdj_k')).toBe(true);
+    expect(isDerivedField('kdj_d')).toBe(true);
+  });
+
+  it('非现算字段返回 false', () => {
+    expect(isDerivedField('close')).toBe(false);
+    expect(isDerivedField('turnover_rate')).toBe(false);
+    expect(isDerivedField('pct_chg')).toBe(false);
+    expect(isDerivedField('brick')).toBe(false);
+    expect(isDerivedField('foobar')).toBe(false);
+    expect(isDerivedField('ma')).toBe(false);          // 无数字后缀
+    expect(isDerivedField('ma_20')).toBe(false);      // 含下划线
+    expect(isDerivedField('kdj_x')).toBe(false);      // 非 j/k/d
+    expect(isDerivedField('kdj_j_extra')).toBe(false); // 后缀
+  });
+
+  it('非字符串输入返回 false', () => {
+    expect(isDerivedField(undefined as any)).toBe(false);
+    expect(isDerivedField(null as any)).toBe(false);
+    expect(isDerivedField(42 as any)).toBe(false);
+    expect(isDerivedField({} as any)).toBe(false);
+  });
+});
+
+describe('validateRegimeConfig — derived field 白名单', () => {
+  it('entryConditions 含 ma20 现算字段通过校验', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].entryConditions = [cond('ma20', 'gt', 3000)];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('entryConditions 含 ma10 现算字段通过校验', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].entryConditions = [cond('ma10', 'cross_above', 0)];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('entryConditions 含 kdj_j 通过校验(预算列字段,但 isDerivedField 也匹配)', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].entryConditions = [cond('kdj_j', 'lt', 0)];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('entryConditions 含 compareField=ma20 通过校验', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].entryConditions = [
+      { field: 'close', operator: 'gt', compareField: 'ma20', compareMode: 'field' } as any,
+    ];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('exitConditions 含 ma20 现算字段通过校验', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].exitMode = 'strategy';
+    cfg.quadrants[0].exitParams = { exitConditions: [cond('ma20', 'lt', 2500)], maxHold: 10 };
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('entryConditions 含乱写字段仍被拒', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].entryConditions = [cond('foobar', 'gt', 0)];
+    expectFail(cfg, '不在允许字段白名单');
+  });
+
+  it('entryConditions 含 ma(无数字)被拒', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].entryConditions = [cond('ma', 'gt', 0)];
+    expectFail(cfg, '不在允许字段白名单');
+  });
+
+  it('rankField=ma20 通过校验', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].rankField = 'ma20';
+    cfg.quadrants[0].rankDir = 'desc';
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('rankField=ma10 通过校验', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].rankField = 'ma10';
+    cfg.quadrants[0].rankDir = 'asc';
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('rankField=乱写字段仍被拒', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].rankField = 'garbage_ma';
+    expectFail(cfg, 'rankField');
+  });
+
+  it('纯预算字段 config 回归:既有用例仍通过', () => {
+    expect(() => validateRegimeConfig(validConfig())).not.toThrow();
+  });
+});
+
+function mg(logic: 'and' | 'or', items: MatchNode[]): MatchGroup {
+  return { logic, items };
+}
+
+describe('validateRegimeConfig — MatchGroup 嵌套条件', () => {
+  it('含 MatchGroup 的 config 通过校验', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].match = [
+      mg('or', [
+        mg('and', [
+          matchCond('index', '000001.SH', 'macd', 'lt', 0),
+          matchCond('index', '000001.SH', 'dif', 'gt', 0),
+        ]),
+        mg('and', [
+          matchCond('index', '000001.SH', 'macd', 'gt', 0),
+          matchCond('index', '000001.SH', 'dif', 'lt', 0),
+        ]),
+      ]),
+    ];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('MatchGroup logic 非法被拒', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].match = [
+      { logic: 'xor', items: [] } as any,
+    ];
+    expectFail(cfg, 'logic 非法');
+  });
+
+  it('MatchGroup items 为空被拒', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].match = [
+      mg('and', []),
+    ];
+    expectFail(cfg, 'items 必须为非空数组');
+  });
+
+  it('MatchGroup items 非数组被拒', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].match = [
+      { logic: 'and', items: 'bad' } as any,
+    ];
+    expectFail(cfg, 'items 必须为非空数组');
+  });
+
+  it('MatchGroup 内叶子条件非法仍被拒', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].match = [
+      mg('and', [
+        matchCond('index', '000001.SH', 'unknown_field', 'gt', 0),
+      ]),
+    ];
+    expectFail(cfg, '不在允许字段白名单');
+  });
+
+  it('MatchGroup 内嵌套 MatchGroup 的叶子条件非法被拒', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].match = [
+      mg('or', [
+        mg('and', [
+          matchCond('index', '000001.SH', 'macd', 'gt', 0),
+          mg('and', [
+            matchCond('index', '000001.SH', 'bad_field', 'gt', 0),
+          ]),
+        ]),
+      ]),
+    ];
+    expectFail(cfg, '不在允许字段白名单');
+  });
+
+  it('嵌套深度 > 5 被拒', () => {
+    const cfg = validConfig();
+    // 构造 7 层包装 → validateMatchGroup 从 depth=0 开始,最深 leaf 被包裹 7 次 → depth=6 > 5
+    let node: MatchNode = matchCond('index', '000001.SH', 'macd', 'gt', 0);
+    for (let i = 0; i < 7; i++) {
+      node = mg('and', [node]);
+    }
+    cfg.quadrants[0].match = [node];
+    expectFail(cfg, '嵌套深度超过 5 层');
+  });
+
+  it('嵌套深度 = 5 通过校验', () => {
+    const cfg = validConfig();
+    // 构造 6 层包装 → 最深 depth=5, 恰好不触发 > 5
+    let node: MatchNode = matchCond('index', '000001.SH', 'macd', 'gt', 0);
+    for (let i = 0; i < 6; i++) {
+      node = mg('and', [node]);
+    }
+    cfg.quadrants[0].match = [node];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('match 混合叶子 + MatchGroup 通过校验', () => {
+    const cfg = validConfig();
+    cfg.quadrants[0].match = [
+      matchCond('index', '000001.SH', 'close', 'gt', 3000),
+      mg('or', [
+        matchCond('index', '000001.SH', 'dif', 'lt', 0),
+        matchCond('index', '000001.SH', 'dea', 'lt', 0),
+      ]),
+    ];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
+  });
+
+  it('flat 象限含 MatchGroup 通过校验', () => {
+    const cfg = validConfig();
+    cfg.quadrants[1].match = [
+      mg('or', [
+        matchCond('index', '000001.SH', 'macd', 'lt', 0),
+        matchCond('index', '000001.SH', 'dif', 'lt', 0),
+      ]),
+    ];
+    expect(() => validateRegimeConfig(cfg)).not.toThrow();
   });
 });

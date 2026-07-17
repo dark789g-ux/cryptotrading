@@ -4,11 +4,19 @@ import { DataSource } from 'typeorm';
 import { RegimeConfigMap } from '../../../../entities/strategy/regime-strategy-config.entity';
 import { StrategyConditionsQueryBuilder } from '../../../../strategy-conditions/strategy-conditions.query-builder';
 import { buildEnumerateQuery } from '../../../../strategy-conditions/strategy-conditions.enumerator';
+import { DerivedFieldRegistry } from '../../../../strategy-conditions/derived-field-registry';
 import { classifyRegime } from '../../regime.classifier';
 import { MarketSnapshot } from '../../market-condition-evaluator';
 import { RawSignal, RankedCandidate } from '../types/backtest-data.types';
 import { assignRanks, rankValueSqlExpr, RankDir } from '../rank-select';
 import { resolveSignalTestUniverse } from './universe-resolver';
+import {
+  Phase1Row,
+  phase2Recompute,
+  phase2RankValue,
+  fetchSqlFieldValues,
+  findNeededSqlFields,
+} from './signal-enumerator-phase2';
 
 @Injectable()
 export class SignalEnumerator {
@@ -18,6 +26,7 @@ export class SignalEnumerator {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly queryBuilder: StrategyConditionsQueryBuilder,
+    private readonly registry: DerivedFieldRegistry,
   ) {}
 
   async enumerate(
@@ -55,22 +64,78 @@ export class SignalEnumerator {
       const rankField = entry.rankField;
       const rankDir: RankDir =
         entry.rankDir === 'asc' || entry.rankDir === 'desc' ? entry.rankDir : 'asc';
-      const rankValueExpr = rankValueSqlExpr(rankField);
 
-      const where = this.queryBuilder.buildAShareQuery(conditions);
+      // ── Phase 1: 拆分条件，用 sqlConds 走 SQL ───────────────────────────
+      const { sqlConds, recompConds } = this.registry.split(conditions);
+
+      // sqlConds 为空时用粗筛（q.vol > 0，保证候选集不爆炸）
+      let effectiveSqlConds = sqlConds;
+      if (sqlConds.length === 0 && recompConds.length > 0) {
+        this.logger.warn(
+          `signalDate=${d} regime=${regime}: entryConditions 全为现算字段，` +
+            `使用粗筛 q.vol > 0 减少候选集。建议至少配一个 SQL 条件。`,
+        );
+        effectiveSqlConds = [
+          { field: 'volume', operator: 'gt', value: 0 },
+        ];
+      }
+
+      let rankValueExpr: string | null = null;
+      try {
+        rankValueExpr = rankValueSqlExpr(rankField);
+      } catch {
+        // rankField 不在 COL_MAP（可能是现算字段），Phase 2 补算
+      }
+      const where = this.queryBuilder.buildAShareQuery(effectiveSqlConds);
       const { sql, params } = buildEnumerateQuery(where, d, signalUniverse, {
         rankValueExpr,
       });
-      const rows = await this.dataSource.query<
-        Array<{ tsCode: string; rankValue?: unknown }>
-      >(sql, params);
+      const rows = await this.dataSource.query<Phase1Row[]>(sql, params);
+
+      // ── Phase 2: 内存重算过滤 ──────────────────────────────────────────
+      let filteredRows: Phase1Row[] = rows;
+      if (recompConds.length > 0 && rows.length > 0) {
+        // 查预算字段当日值（供 siblingResults 注入）
+        const neededFields = findNeededSqlFields(recompConds);
+        let sqlFieldValues: Map<string, Record<string, number>> | undefined;
+        if (neededFields.size > 0) {
+          const tsCodes = rows.map((r) => r.tsCode);
+          sqlFieldValues = await fetchSqlFieldValues(
+            tsCodes,
+            d,
+            [...neededFields],
+            this.dataSource,
+          );
+        }
+        filteredRows = await phase2Recompute(
+          rows,
+          recompConds,
+          d,
+          this.registry,
+          this.dataSource,
+          sqlFieldValues,
+        );
+      }
+
+      // ── rankField 现算补算 ──────────────────────────────────────────────
+      if (!rankValueExpr) {
+        // rankField 不在 COL_MAP，可能是现算字段
+        if (this.registry.resolve({ field: rankField } as any)) {
+          filteredRows = await phase2RankValue(
+            filteredRows,
+            rankField,
+            d,
+            this.registry,
+          );
+        }
+      }
 
       const sigIdx = globalCalendar.indexOf(d);
       const buyDate = sigIdx + 1 < globalCalendar.length ? globalCalendar[sigIdx + 1] : null;
       // 无 T+1 → 整日不产出（top1 与 rankedAll 都不进）
       if (!buyDate || buyDate > dateEnd) continue;
 
-      const candidates = rows.map((r) => {
+      const candidates = filteredRows.map((r) => {
         let rankValue: number | null = null;
         if (r.rankValue != null) {
           const n = Number(r.rankValue);

@@ -23,6 +23,10 @@ import { SymbolMetaLoader } from './backtest/loaders/symbol-meta.loader';
 import { QuoteLoader } from './backtest/loaders/quote.loader';
 import { ExitSignalLoader } from './backtest/loaders/exit-signal.loader';
 import { WindowBuilder } from './backtest/window/window.builder';
+import { DerivedFieldRegistry } from '../../strategy-conditions/derived-field-registry';
+import { DerivedFieldRecomputeService } from '../../strategy-conditions/derived-field-recompute.service';
+import { MaFieldRecomputer } from '../../strategy-conditions/derived-field-ma.recomputer';
+import { KdjFieldRecomputer } from '../../strategy-conditions/derived-field-kdj.recomputer';
 
 @Module({
   imports: [
@@ -51,6 +55,19 @@ import { WindowBuilder } from './backtest/window/window.builder';
     QuoteLoader,
     ExitSignalLoader,
     WindowBuilder,
+    DerivedFieldRecomputeService,
+    MaFieldRecomputer,
+    KdjFieldRecomputer,
+    {
+      provide: DerivedFieldRegistry,
+      useFactory: (ma: MaFieldRecomputer, kdj: KdjFieldRecomputer) => {
+        const r = new DerivedFieldRegistry();
+        r.register(ma);
+        r.register(kdj);
+        return r;
+      },
+      inject: [MaFieldRecomputer, KdjFieldRecomputer],
+    },
   ],
 })
 export class RegimeEngineModule {}

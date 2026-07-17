@@ -25,6 +25,7 @@ import {
   RegimeConfigEntry,
   RegimeConfigMap,
   RegimeStrategyConfigEntity,
+  collectMatchTargets,
 } from '../../entities/strategy/regime-strategy-config.entity';
 import { RegimeDailyPickEntity } from '../../entities/strategy/regime-daily-pick.entity';
 import { AShareSymbolEntity } from '../../entities/a-share/a-share-symbol.entity';
@@ -334,12 +335,10 @@ export class RegimeEngineService {
     const indexTargets = new Set<string>();
     let hasStockBucket = false;
     for (const q of config.quadrants ?? []) {
-      for (const cond of q.match ?? []) {
-        if (cond.type === 'stock') {
-          hasStockBucket = true;
-        } else if (cond.type === 'index' && cond.target) {
-          indexTargets.add(cond.target);
-        }
+      const collected = collectMatchTargets(q.match ?? []);
+      if (collected.stock.size > 0) hasStockBucket = true;
+      for (const t of collected.index) {
+        if (t) indexTargets.add(t);
       }
     }
 

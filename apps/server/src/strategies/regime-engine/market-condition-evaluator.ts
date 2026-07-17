@@ -1,4 +1,4 @@
-import { RegimeBucketCondition } from '../../entities/strategy/regime-strategy-config.entity';
+import { RegimeBucketCondition, MatchGroup, MatchNode, isMatchGroup } from '../../entities/strategy/regime-strategy-config.entity';
 import { ASHARE_FIELD_COL_MAP } from '../../strategy-conditions/strategy-conditions.types';
 
 export interface IndexQuoteSnapshot {
@@ -263,13 +263,44 @@ function evaluateSingleCondition(
   return prevLeft >= prevRight && left < right;
 }
 
+/** 递归求值单个 MatchNode（叶子条件或 MatchGroup）。 */
+function evaluateMatchNode(snapshot: MarketSnapshot, node: MatchNode): boolean {
+  if (isMatchGroup(node)) {
+    return evaluateMatchGroup(snapshot, node);
+  }
+  return evaluateSingleCondition(snapshot, node);
+}
+
+/** 递归求值 MatchGroup（嵌套 AND/OR），短路求值。 */
+function evaluateMatchGroup(snapshot: MarketSnapshot, group: MatchGroup): boolean {
+  if (!Array.isArray(group.items) || group.items.length === 0) return false;
+  if (group.logic === 'or') {
+    for (const node of group.items) {
+      if (evaluateMatchNode(snapshot, node)) return true;
+    }
+    return false;
+  }
+  // and
+  for (const node of group.items) {
+    if (!evaluateMatchNode(snapshot, node)) return false;
+  }
+  return true;
+}
+
 export function evaluateMarketConditions(
   snapshot: MarketSnapshot,
-  conditions: RegimeBucketCondition[],
+  conditions: MatchNode[],
+  logic: 'and' | 'or' = 'and',
 ): boolean {
   if (!Array.isArray(conditions) || conditions.length === 0) return false;
-  for (const condition of conditions) {
-    if (!evaluateSingleCondition(snapshot, condition)) return false;
+  if (logic === 'or') {
+    for (const c of conditions) {
+      if (evaluateMatchNode(snapshot, c)) return true;
+    }
+    return false;
+  }
+  for (const c of conditions) {
+    if (!evaluateMatchNode(snapshot, c)) return false;
   }
   return true;
 }

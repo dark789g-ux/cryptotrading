@@ -28,6 +28,16 @@ export function isKdjField(field: string): boolean {
   return (KDJ_FIELD_KEYS as readonly string[]).includes(field);
 }
 
+/**
+ * 自定义 KDJ 参数是否合法:n/m1/m2 均为整数且落在 [1, 99]。
+ * 前端 n-input-number 已 min1/max99/precision0 约束,这是给 API 直连调用方的兜底
+ * (后端不信前端)。非法则回退 9/3/3(走预存列 SQL)。
+ */
+export function isValidKdjParams(p: KdjParams): boolean {
+  const inRange = (v: number) => Number.isInteger(v) && v >= 1 && v <= 99;
+  return inRange(p.n) && inRange(p.m1) && inRange(p.m2);
+}
+
 /** 单条序列重算 KDJ 所需的最小行（仅 high/low/close）。 */
 export interface KdjBar {
   high: number;

@@ -7,6 +7,7 @@ export const RANK_FIELDS = [
   'pos_120',
   'circ_mv',
   'amv_macd',
+  'obv10d',
   'none',
 ] as const;
 
@@ -22,6 +23,7 @@ const DEFAULT_DIR: Record<Exclude<RankField, 'none'>, RankDir> = {
   pos_120: 'asc',
   circ_mv: 'asc',
   amv_macd: 'desc',
+  obv10d: 'desc',
 };
 
 export function defaultRankDir(field: string): RankDir | null {

@@ -14,6 +14,7 @@ import {
 } from '../../market-condition-evaluator';
 import {
   RegimeConfigMap,
+  collectMatchTargets,
 } from '../../../../entities/strategy/regime-strategy-config.entity';
 import { ASHARE_FIELD_COL_MAP } from '../../../../strategy-conditions/strategy-conditions.types';
 import { isSingleWildcardQuadrant } from '../../regime.classifier';
@@ -248,13 +249,9 @@ export class MarketSnapshotLoader {
     const index = new Set<string>();
     const stock = new Set<string>();
     for (const q of quadrants ?? []) {
-      for (const c of q.match ?? []) {
-        if (c.type === 'index') {
-          index.add(c.target);
-        } else if (c.type === 'stock') {
-          stock.add(c.target);
-        }
-      }
+      const collected = collectMatchTargets(q.match ?? []);
+      for (const t of collected.index) index.add(t);
+      for (const t of collected.stock) stock.add(t);
     }
     return {
       index: Array.from(index),

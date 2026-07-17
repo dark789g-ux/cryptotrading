@@ -42,6 +42,7 @@ export const ASHARE_FIELD_COL_MAP: Record<string, string> = {
   amv_dif: 'sa.amv_dif',
   amv_dea: 'sa.amv_dea',
   amv_macd: 'sa.amv_macd',
+  obv10d: 'i.obv10d',           // OBV 10 日能量潮
   pos_120:          'd.pos_120',
   pos_60:           'd.pos_60',
   close_ma60_ratio: 'd.close_ma60_ratio',

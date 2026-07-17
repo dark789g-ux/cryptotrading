@@ -35,6 +35,7 @@ import {
   RegimeBucketCondition,
   RegimeConfigMap,
   RegimeExitMode,
+  isMatchGroup,
 } from '../../entities/strategy/regime-strategy-config.entity';
 import { StrategyConditionItem } from '../../entities/strategy/strategy-condition.entity';
 import { RANK_FIELD_WHITELIST } from './backtest/rank-select';
@@ -45,6 +46,28 @@ export const ASHARE_CONDITION_FIELD_WHITELIST: ReadonlySet<string> = new Set([
   ...Object.keys(ASHARE_INDUSTRY_AMV_COL_MAP),
   ...Object.keys(ASHARE_MARKET_AMV_COL_MAP),
 ]);
+
+/** 现算字段模式集合：与 derived-field-*.recomputer.ts 的 needsRecompute 判定保持一致 */
+const DERIVED_FIELD_PATTERNS = {
+  /** MA 任意周期：ma10/ma15/ma20/...（ma5/30/60/120/240 走预算列，但仍合法，只是不现算） */
+  MA: /^ma\d+$/,
+};
+
+/** KDJ 字段名（kdj_j/kdj_k/kdj_d）——本身在 ASHARE_FIELD_COL_MAP 里，但带 kdjParams 时走现算 */
+const KDJ_FIELD_RE = /^kdj_[jkd]$/;
+
+/**
+ * 判断 field 是否属于"现算字段或现算可触发字段"。
+ * 用于校验白名单放行：返回 true 时 field 合法，即使不在 ASHARE_CONDITION_FIELD_WHITELIST。
+ *
+ * 判定规则（与 MaFieldRecomputer.needsRecompute + KdjFieldRecomputer.needsRecompute 对齐）：
+ *   - ma{N}：正则匹配即合法（无论 N 是否在 COL_MAP，因为 ma5 也在 COL_MAP 里）
+ *   - kdj_j/kdj_k/kdj_d：字段名合法（无论是否带 kdjParams，带与不带都走不同路径）
+ */
+export function isDerivedField(field: string): boolean {
+  if (typeof field !== 'string') return false;
+  return DERIVED_FIELD_PATTERNS.MA.test(field) || KDJ_FIELD_RE.test(field);
+}
 
 /** 指数/大盘级分桶条件字段白名单（v3 去前缀） */
 const INDEX_FIELD_WHITELIST = new Set([
@@ -182,7 +205,7 @@ function validateMatchCondition(c: unknown, path: string): void {
   }
 }
 
-/** match 数组校验：非空数组 + 每项符合 v3 分桶条件结构。
+/** match 数组校验：非空数组 + 每项符合 v3 分桶条件结构（叶子或 MatchGroup）。
  *  allowEmpty=true 时允许空数组（单象限通配语义），但非空数组仍逐项校验。 */
 function validateMatchArray(match: unknown, path: string, allowEmpty = false): void {
   if (!Array.isArray(match)) {
@@ -194,7 +217,38 @@ function validateMatchArray(match: unknown, path: string, allowEmpty = false): v
     }
     return;
   }
-  match.forEach((c, i) => validateMatchCondition(c, `${path}[${i}]`));
+  match.forEach((c, i) => {
+    if (isMatchGroup(c)) {
+      validateMatchGroup(c, `${path}[${i}]`, 0);
+    } else {
+      validateMatchCondition(c, `${path}[${i}]`);
+    }
+  });
+}
+
+/** MatchGroup 递归校验：logic 必须为 and/or，items 非空，每项递归校验。 */
+function validateMatchGroup(group: unknown, path: string, depth: number): void {
+  if (depth > 5) {
+    fail(`${path} 嵌套深度超过 5 层（建议不超过 3-4 层）`);
+  }
+  if (!isPlainObject(group)) {
+    fail(`${path} 必须为对象`);
+  }
+  const logic = (group as Record<string, unknown>).logic;
+  if (logic !== 'and' && logic !== 'or') {
+    fail(`${path}.logic 非法（须为 and|or，收到 "${String(logic)}"）`);
+  }
+  const items = (group as Record<string, unknown>).items;
+  if (!Array.isArray(items) || items.length === 0) {
+    fail(`${path}.items 必须为非空数组`);
+  }
+  items.forEach((item, i) => {
+    if (isMatchGroup(item)) {
+      validateMatchGroup(item, `${path}.items[${i}]`, depth + 1);
+    } else {
+      validateMatchCondition(item, `${path}.items[${i}]`);
+    }
+  });
 }
 
 /** 条件数组校验：非空数组 + 每项 field 命中给定白名单。 */
@@ -211,8 +265,8 @@ function validateConditionArray(
       fail(`${path}[${i}] 必须为对象`);
     }
     const field = c.field;
-    if (typeof field !== 'string' || !whitelist.has(field)) {
-      fail(`${path}[${i}].field "${String(field)}" 不在允许字段白名单`);
+    if (typeof field !== 'string' || (!whitelist.has(field) && !isDerivedField(field))) {
+      fail(`${path}[${i}].field "${String(field)}" 不在允许字段白名单(预算字段 + 现算字段 ma{N}/kdj_*)`);
     }
     const op = c.operator;
     if (typeof op !== 'string') {
@@ -221,7 +275,7 @@ function validateConditionArray(
     if (c.compareField && typeof c.compareField !== 'string') {
       fail(`${path}[${i}].compareField 必须为字符串`);
     }
-    if (c.compareField && !whitelist.has(c.compareField as string)) {
+    if (c.compareField && !whitelist.has(c.compareField as string) && !isDerivedField(c.compareField as string)) {
       fail(`${path}[${i}].compareField "${String(c.compareField)}" 不在允许字段白名单`);
     }
     if (!c.compareField && typeof c.value !== 'number') {
@@ -286,8 +340,8 @@ function validateTradeQuadrant(entry: Record<string, unknown>, path: string): vo
   }
 
   const rf = entry.rankField;
-  if (typeof rf !== 'string' || !RANK_FIELD_WHITELIST.has(rf)) {
-    fail(`${path}.rankField 必填且须为短名单字段（含 none）`);
+  if (typeof rf !== 'string' || (!RANK_FIELD_WHITELIST.has(rf) && !isDerivedField(rf))) {
+    fail(`${path}.rankField 必填且须为白名单字段或现算字段 ma{N}(含 none)`);
   }
   if (rf !== 'none') {
     if (entry.rankDir !== 'asc' && entry.rankDir !== 'desc') {
@@ -386,6 +440,13 @@ function validateQuadrant(
 
   validateMatchArray(q.match, `${path}.match`, allowEmptyMatch);
 
+  const matchLogic = q.matchLogic;
+  if (matchLogic !== undefined && matchLogic !== null) {
+    if (matchLogic !== 'and' && matchLogic !== 'or') {
+      fail(`${path}.matchLogic 非法(须为 'and' | 'or',收到 "${String(matchLogic)}")`);
+    }
+  }
+
   const action = q.action;
   if (action !== 'trade' && action !== 'flat') {
     fail(`${path}.action 非法（须为 trade|flat，收到 "${String(action)}"）`);
@@ -474,7 +535,13 @@ function conditionEqual(a: RegimeBucketCondition, b: RegimeBucketCondition): boo
 
 function quadrantsMayOverlap(a: QuadrantEntry, b: QuadrantEntry): boolean {
   if (!Array.isArray(a.match) || !Array.isArray(b.match)) return false;
-  return a.match.some((ca) => b.match.some((cb) => conditionEqual(ca, cb)));
+  return a.match.some((ca) => {
+    if (isMatchGroup(ca)) return false; // MatchGroup 不做扁平重叠检测
+    return b.match.some((cb) => {
+      if (isMatchGroup(cb)) return false;
+      return conditionEqual(ca, cb);
+    });
+  });
 }
 
 /**
