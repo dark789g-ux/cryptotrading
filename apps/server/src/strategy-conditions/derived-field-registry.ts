@@ -4,7 +4,7 @@
  * 通用 derived field(现算字段)注册表。把 KDJ 自定义参数这种"现算"模式
  * 泛化为可注册的抽象,后续加 MA 任意周期、RSI 等只需注册新 recomputer。
  *
- * 设计契约见 docs/design_rules/regime-engine-derived-field-design.md §2-§3。
+ * 设计契约见 docs/design_rules/regime-backtest/03-engine-internals.md §1-§2。
  *
  * 消费方(StrategyConditionsRunner / SignalEnumerator / ExitSignalLoader)通过
  * registry.split(conditions) 把条件拆成 sqlConds(走预算 DB 列)+ recompConds(现算),

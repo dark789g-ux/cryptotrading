@@ -1,6 +1,10 @@
-# Regime 回测字段白名单
+📍 [手册首页](./README.md) | [第 1 章 接口与工作流](./01-workflow.md) | 第 2 章 字段白名单 | [第 3 章 引擎内部机制](./03-engine-internals.md)
 
-[regime-backtest-agent-workflow.md](./regime-backtest-agent-workflow.md) §6 的配套文档。Agent 构造 config 的 `entryConditions` / `exitConditions` / `match` / `rankField` 前,必须先查本文确认字段可用。
+# 第 2 章 字段白名单
+
+> Regime 回测手册 · 字段层
+
+[第 1 章 接口与工作流](./01-workflow.md) §6 的配套文档。Agent 构造 config 的 `entryConditions` / `exitConditions` / `match` / `rankField` 前,必须先查本文确认字段可用。
 
 **权威源**(字段变更时必须同步更新本文):
 - `apps/server/src/strategy-conditions/strategy-conditions.types.ts` — 三个 `*_COL_MAP`
@@ -137,7 +141,7 @@
 
 > **现算字段的 compareField 可以引用预算字段**:如 `{field:'ma20', operator:'gt', compareField:'ma60', compareMode:'field'}`,其中 `ma20` 走现算、`ma60` 走预算 SQL。引擎在 Phase 2 重算 `ma20` 时会同时注入 `ma60` 的预算值(siblingResults),在内存中完成比较。反向亦然(预算字段 vs 现算 compareField)。
 
-设计详见 [regime-engine-derived-field-design.md](./regime-engine-derived-field-design.md)。
+设计详见 [第 3 章 引擎内部机制](./03-engine-internals.md)。
 
 ---
 
@@ -158,7 +162,7 @@ trade 象限的 `rankField` 必须命中本表(含 `'none'`)**或**为 §1.9 的
 | `obv10d` | OBV 10 日能量潮 | desc |
 | `none` | 不排序(取信号列表顺序) | 不需要 rankDir |
 
-> **注意**:trade 象限的 `rankDir` 在 `rankField≠none` 时**必填**(见主文档 §5.2),上表"代码内默认"仅是 `rank-select.ts` 的 `DEFAULT_DIR` 回退值,Agent 构造 config 时仍应显式传 `rankDir`。
+> **注意**:trade 象限的 `rankDir` 在 `rankField≠none` 时**必填**(见 [第 1 章 §5.2](./01-workflow.md)),上表"代码内默认"仅是 `rank-select.ts` 的 `DEFAULT_DIR` 回退值,Agent 构造 config 时仍应显式传 `rankDir`。
 
 ---
 

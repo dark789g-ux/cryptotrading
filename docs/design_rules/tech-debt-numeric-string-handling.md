@@ -98,5 +98,5 @@ pg.types.setTypeParser(pg.types.builtins.NUMERIC, parseFloat);
 
 ## 相关文档
 
-- [regime-backtest-agent-workflow.md](./regime-backtest-agent-workflow.md) §3.1 regime-backtest 接口字段类型契约
-- [regime-engine-derived-field-design.md](./regime-engine-derived-field-design.md) 引擎扩展设计
+- [regime-backtest/01-workflow.md](./regime-backtest/01-workflow.md) §3.1 regime-backtest 接口字段类型契约
+- [regime-backtest/03-engine-internals.md](./regime-backtest/03-engine-internals.md) 引擎内部机制

@@ -1,6 +1,6 @@
 # 策略需求:三象限 MACD+KDJ 大盘择时回测
 
-> 本文档固化用户的策略需求,作为 Agent 构造 config 的权威输入。本文不涉及实现细节(实现见 [regime-engine-derived-field-design.md](./regime-engine-derived-field-design.md))。
+> 本文档固化用户的策略需求,作为 Agent 构造 config 的权威输入。本文不涉及实现细节(实现见 [03-engine-internals.md](./03-engine-internals.md))。
 
 ---
 
@@ -41,7 +41,7 @@
          trailing_lock      trailing_lock      trailing_lock
 ```
 
-> 震荡象限的判定是嵌套 OR 关系:`(HIST<0 ∧ DIF>0) ∨ (HIST>0 ∧ DIF<0)`。单层 `matchLogic` 无法表达此逻辑(需要「组内 AND,组间 OR」),必须使用 **MatchGroup** 嵌套结构(见 [regime-engine-derived-field-design.md](./regime-engine-derived-field-design.md) §4.2 及 [regime-backtest-agent-workflow.md](./regime-backtest-agent-workflow.md) §5.4.1)。
+> 震荡象限的判定是嵌套 OR 关系:`(HIST<0 ∧ DIF>0) ∨ (HIST>0 ∧ DIF<0)`。单层 `matchLogic` 无法表达此逻辑(需要「组内 AND,组间 OR」),必须使用 **MatchGroup** 嵌套结构(见 [03-engine-internals.md](./03-engine-internals.md) §3.2 及 [01-workflow.md](./01-workflow.md) §5.4.1)。
 
 ### 2.2 三象限字段对照表
 
@@ -95,7 +95,7 @@
 - `ma5RequireDown=true`:MA5 离场需 MA5 拐头下行
 - `maxHold=60`:最长持有 60 个交易日兜底
 
-> 详细状态机语义见 [regime-backtest-agent-workflow.md](./regime-backtest-agent-workflow.md) §5.3 与 trailing_lock 探索报告。
+> 详细状态机语义见 [01-workflow.md](./01-workflow.md) §5.3 与 trailing_lock 探索报告。
 
 ---
 
@@ -124,7 +124,7 @@
 
 ## 5. 实施依赖(本策略需要的前置扩展)
 
-本策略无法用 regime 引擎**现状**直接跑通,需要 4 个扩展(详见 [regime-engine-derived-field-design.md](./regime-engine-derived-field-design.md)):
+本策略无法用 regime 引擎**现状**直接跑通,需要 4 个扩展(详见 [03-engine-internals.md](./03-engine-internals.md)):
 
 | 扩展 | 层级 | 是否阻塞 |
 |---|---|---|
